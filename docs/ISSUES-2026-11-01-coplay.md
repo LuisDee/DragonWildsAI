@@ -32,7 +32,7 @@ Status key: **FIXED** (commit, live-checked unless noted) · **AGENT** (being fi
 | A5 | "Crafting bench" / "workbench" didn't match "Crafting Table" | 11:00:57, 11:02:41 "I don't know a station called workbench"; note 11:03:39 | OPEN |
 | A6 | "Club" was ambiguous (several clubs) and he gave up instead of listing them | 11:02:39 craft_plan ambiguous_target | OPEN |
 | A7 | Didn't know that picking up sticks gives Ash Logs | note 11:12:12 | OPEN (knowledge: the pickup -> item mapping should be in his context) |
-| A8 | Couldn't see what he had built: structures aren't in his context, and the crate's name differs between buildables ("Crate") and the "Usable" line ("Base Building Crate") | 11:49:26-11:50:08 | AGENT (build) |
+| A8 | Couldn't see what he had built: structures aren't in his context, and the crate's name differs between buildables ("Crate") and the "Usable" line ("Base Building Crate") | 11:49:26-11:50:08 | FIXED d86f3bb (built pieces from GlobalBuildingManager, buildables names, ids) |
 | A9 | Doesn't know his carry capacity or encumbrance (answered "475 weight total, no cap") | 11:44:08-11:44:47 | OPEN |
 | A10 | Hotbar vs bag confusion: sandwiches in the bag can't be eaten, the hotbar was full, and he said "inventory" meaning the hotbar | 11:42:45-11:43:28 | OPEN |
 | A11 | Built the fire and table in the lake (earlier runs); placement doesn't see water | note 10:58:23 | OPEN (building perception) |
@@ -41,9 +41,9 @@ Status key: **FIXED** (commit, live-checked unless noted) · **AGENT** (being fi
 
 | id | issue | evidence | status |
 |---|---|---|---|
-| B1 | Pickups refuse a same-kind item under the prompt and re-aim for 10-20 s (28 not_interactable) | notes 11:07:45, 11:08:02, 11:08:55 ("he stares... adjusts for 10-20 s, a human would grab instantly"); 11:14:20 overlapping hitboxes | AGENT (pickups) |
-| B2 | Water volume under the prompt blocks pickups | 10:58:50, 10:59:12 "the game targets BP_WaterVolume" | AGENT (pickups) |
-| B3 | No partial stack drop (drop 40 of 120 fails) | 11:45:14-11:46:21; note 11:46:28 | AGENT (pickups) |
+| B1 | Pickups refuse a same-kind item under the prompt and re-aim for 10-20 s (28 not_interactable) | notes 11:07:45, 11:08:02, 11:08:55 ("he stares... adjusts for 10-20 s, a human would grab instantly"); 11:14:20 overlapping hitboxes | FIXED 5d098d8 (same-kind neighbour under the prompt, 0.6-0.9 s); on-the-move sweep: agent (1.49 s/item live) |
+| B2 | Water volume under the prompt blocks pickups | 10:58:50, 10:59:12 "the game targets BP_WaterVolume" | FIXED 5d098d8 (step out of the water) |
+| B3 | No partial stack drop (drop 40 of 120 fails) | 11:45:14-11:46:21; note 11:46:28 | FIXED 5d098d8 (drop N; live 114 -> 74 -> 14); split + give: agent |
 | B4 | Explore walked off a 29 m cliff (planned 4.8 m drop, mis-sampled floor, KillZ) | 11:18:46; note 11:18:59 (stood 20 s at the edge first) | FIXED 39e8493 (offline only; live check pending) |
 | B5 | Walks into a rock edge or a log for 1+ min when a clear path existed the other way | note 11:26:40, 11:28:21; 11:38:44 "walking into a log", "jump over or walk around" | AGENT (movement) |
 | B6 | Jumped onto the tent and "shimmered along on top" for 10-15 s | 11:05:06 | OPEN |
@@ -61,9 +61,9 @@ Status key: **FIXED** (commit, live-checked unless noted) · **AGENT** (being fi
 
 | id | issue | evidence | status |
 |---|---|---|---|
-| C1 | Every chat line cut the running action ("interrupted, the player spoke"); re-issued go_tos restarted trips, which looked like freezing | dozens of rows; 11:25:19 "you aren't moving" | AGENT (chat) |
+| C1 | Every chat line cut the running action ("interrupted, the player spoke"); re-issued go_tos restarted trips, which looked like freezing | dozens of rows; 11:25:19 "you aren't moving" | FIXED 39e38b5 (still_running + body status; the same call re-attaches; live: answered mid-walk, arrived 157 m) |
 | C2 | Silent for 147 s on a 274 m walk to a lodestone | 11:34:20-11:36:47 | OPEN (a progress line on long actions) |
-| C3 | One reply never spoken (the model wrote it as a note) | 11:50:11 reply_silent | AGENT (chat, secondary) |
+| C3 | One reply never spoken (the model wrote it as a note) | 11:50:11 reply_silent | FIXED 39e38b5 (an unspoken reply gets one more turn to call say) |
 | C4 | Followed the wrong part of compound instructions ("the stone near me FIRST, then find more") | 11:13:23 "you missed the part where I said..." | OPEN (eval case) |
 | C5 | "Do not wander off, build them here": walked away while Luis said "come to me" | 11:47:12-11:47:44 | OPEN |
 | C6 | Answered "levels" (skills) when Luis meant hunger/thirst levels, which was a fair ambiguity; then fine | 11:48:09-11:48:24 | minor |
