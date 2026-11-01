@@ -229,6 +229,10 @@ M.cfg.build = {
     standoff_m = 2.5, footprint_m = 1.5, reach_m = 7.0, open_wait_s = 1.5, select_wait_s = 2.0,
     verify_s = 6.0, leave_presses = 3, leave_wait_s = 0.5, timeout_s = 110, match_m = 1.5, rotate_step_deg = 15,
     budget_s = 25,
+    -- after the game confirms the build (telemetry / XP + spend), look this long for the new piece in the world
+    -- (an actor of this piece within find_m of the preview that wasn't there before the press), so the reply can
+    -- say where it stands (co-play 2026-11-01: structure was always null, the crate read as a failure)
+    find_s = 2.5, find_m = 3.0, before_m = 10.0,
     -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
     -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
     -- NeedsSnapping press itself and Client_ShowValidityNotification names why. true = also require the hook.
@@ -254,6 +258,27 @@ M.STATE_REASON = { [1] = "blocked", [2] = "blocked", [3] = "blocked", [4] = "blo
 -- mapped in build mode). Read from BuildInteractionComponent.QuickInteractAction, the path as fallback.
 M.PLACE_ACTIONS = { "/Game/Gameplay/Inputs/Actions/Building/IA_Building_QuickInteract.IA_Building_QuickInteract" }
 M.MENU_ACTION = "/Game/Gameplay/Inputs/Actions/UI/IA_BuildMenu.IA_BuildMenu"
+-- A rejected preview spot in words. The MPC colour is not the state (DISCOVERIES "ValiditySpawnStateToScalarIndex"):
+-- 1 = Overlapping / Floating / NeedsFoundation / Unstable / MissingMaterials / InsideVault / protected / limit /
+-- blocked region; 0 = WrongPhysicalSurface or None.
+M.REJECT_WORDS = {
+    preview_red = "the preview was red there (something in the way, not on solid ground, unstable or needs a foundation)",
+    preview_none = "there was no surface it could go on there",
+    preview_off_target = "the preview didn't land where I aimed",
+}
+-- The success reply in the order the model reads it (dkjson __jsonorder; the bridge encodes data as is): what was
+-- placed and where first, the rejected preview spots last and labelled as such.
+M.RESULT_ORDER = { "built", "placed", "name", "piece", "structure", "position", "distance_m", "direction", "facing",
+                   "spent", "xp", "evidence", "rejected_previews_before_placing", "rotation_verified" }
+local RESULT_MT = { __jsontype = "object", __jsonorder = M.RESULT_ORDER }
+local COMPASS = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
+-- Compass word of a horizontal vector: north = -Y, east = +X (DISCOVERIES "Map compass", brain/geom.direction).
+local function compass(dx, dy)
+    local ang = (math.deg(math.atan(dx, -dy)) + 360) % 360
+    return COMPASS[math.floor(((ang + 22.5) % 360) / 45) + 1]
+end
+M._compass = compass
+local function r1(x) return math.floor(x * 10 + 0.5) / 10 end
 
 -- ---------- world reads/writes (every one replaceable in tests)
 local function IN(api) local m = api.module("input"); return m and type(m.gate) == "function" and m or nil end
@@ -375,11 +400,26 @@ function W.structures_near(api, piece_id, pos, r)
         if asset(U, d) == piece_id and U.try(function() return a.bIsPreview end) ~= true then
             local at = U.loc(a)
             if at and math.sqrt((at.X / 100 - pos[1]) ^ 2 + (at.Y / 100 - pos[2]) ^ 2) <= r then
-                out[#out + 1] = { id = U.short(a), position = { at.X / 100, at.Y / 100, at.Z / 100 } }
+                local yaw = tonumber(U.try(function() return a:K2_GetActorRotation().Yaw end))
+                out[#out + 1] = { id = U.short(a), position = { at.X / 100, at.Y / 100, at.Z / 100 }, yaw = yaw }
             end
         end
     end
     return out
+end
+-- The piece this press built: an actor of this piece within cfg.find_m of where the preview stood that wasn't
+-- there before the press (job.before_ids, read at the press), the nearest one. -> {id, position, yaw} | nil
+function W.new_structure(api, job)
+    local at = (job.preview and job.preview.position) or (job.spot and job.spot.position)
+    if not at then return nil end
+    local best, bd
+    for _, s in ipairs(W.structures_near(api, job.piece.id, at, M.cfg.build.find_m) or {}) do
+        if not (job.before_ids and job.before_ids[s.id]) and s.position then
+            local d = math.sqrt((s.position[1] - at[1]) ^ 2 + (s.position[2] - at[2]) ^ 2)
+            if not bd or d < bd then best, bd = s, d end
+        end
+    end
+    return best
 end
 -- One line trace from my pawn (KismetSystemLibrary:LineTraceSingle, the call move.lua / spells use).
 function W.trace(api, a, b)
@@ -588,7 +628,7 @@ local function preview_reader(api, job)
                 return { valid = true, position = m.position, fresh = true, colour = 2 }
             end
             -- not green: name the likeliest game reason we can know without the exact state
-            local why = (job.short_materials and "MissingMaterials") or ("not_valid (colour " .. tostring(m.index) .. ")")
+            local why = (job.short_materials and "MissingMaterials") or (m.index == 1 and "preview_red") or "preview_none"
             return { valid = false, why = why, position = m.position, fresh = true }
         end
         local fresh = h.seq > (job.aim_seq or 0)
@@ -597,6 +637,52 @@ local function preview_reader(api, job)
                  position = m.position, fresh = fresh }
     end
 end
+
+-- The success reply (co-play 2026-11-01, retro root cause 6): it leads with a sentence saying what was placed and
+-- where it stands (metres + compass from me, facing, structure id from the census); the preview spots rejected
+-- before the press come last, labelled as rejected (nothing was placed there). spent_all = false: a new piece
+-- stands there but my material counts didn't visibly drop.
+local EVIDENCE_WORDS = { telemetry = "the game confirmed it", xp = "my Construction XP rose", actor = "I can see it" }
+local function success(api, job, spent, spent_all, evidence, xp_gain)
+    local s = job.structure
+    local at = (s and s.position) or (job.preview and job.preview.position) or job.spot.position
+    local here = api.my_position()
+    local dist, dir
+    if here and at then
+        local dx, dy = at[1] - here[1], at[2] - here[2]
+        dist = r1(math.sqrt(dx * dx + dy * dy))
+        if dist >= 0.5 then dir = compass(dx, dy) end
+    end
+    local facing = s and type(s.yaw) == "number" and compass(math.cos(math.rad(s.yaw)), math.sin(math.rad(s.yaw))) or nil
+    local used = {}
+    for _, c in ipairs(job.piece.cost or {}) do
+        if spent[c.item] then used[#used + 1] = tostring(spent[c.item]) .. " " .. tostring(c.name) end
+    end
+    if xp_gain and xp_gain > 0 then used[#used + 1] = "+" .. tostring(xp_gain) .. " Construction XP" end
+    local where = string.format("[%.1f, %.1f, %.1f]", at[1], at[2], at[3] or 0)
+    local rel = dir and (tostring(dist) .. " m " .. dir .. " of me") or "right beside me"
+    local line = "Placed the " .. job.piece.name .. " and it is built" .. (#used > 0 and (" (" .. table.concat(used, ", ") .. ")") or "")
+    if s then
+        line = line .. ": it stands " .. rel .. " at " .. where .. (facing and (", facing " .. facing) or "") .. " (" .. s.id .. ")."
+    else
+        line = line .. " (" .. (EVIDENCE_WORDS[evidence] or tostring(evidence)) .. "), but I can't see it in the world yet: it should be "
+            .. rel .. " at " .. where .. ", where its preview was."
+    end
+    if not spent_all then line = line .. " My materials didn't visibly go down, so I can't say what it used." end
+    local rej = {}
+    for _, r in ipairs(job.rejects or {}) do
+        rej[#rej + 1] = { spot = r.spot, why = r.why, preview_at = r.preview_at, off_m = r.off_m }
+    end
+    if #rej > 0 then
+        line = line .. " Before that " .. #rej .. (#rej == 1 and " preview spot was" or " preview spots were")
+            .. " rejected and nothing was placed there; that's the normal search, not a failure."
+    end
+    return { ok = true, data = setmetatable({ built = line, placed = true, name = job.piece.name, piece = job.piece.id,
+        structure = s and s.id or api.null, position = at, distance_m = dist, direction = dir, facing = facing,
+        spent = api.object(spent), xp = xp_gain or api.null, evidence = evidence, rotation_verified = false,
+        rejected_previews_before_placing = #rej > 0 and rej or nil }, RESULT_MT) }
+end
+M._success = success
 
 local function step(api, job, t)
     local cfg = M.cfg.build
@@ -715,7 +801,8 @@ local function step(api, job, t)
                 return leave_then(api.fail("verification_failed", { why = "preview_unreadable", piece = job.piece.id,
                     detail = "I can't see the building preview, so I didn't place anything." }))
             end
-            local words = (code == 11 and job.piece.shelter_text) or (code and texts[code]) or "the game wouldn't let me place it"
+            local words = (code == 11 and job.piece.shelter_text) or (code and texts[code]) or M.REJECT_WORDS[common]
+                or "the game wouldn't let me place it"
             local d = { piece = job.piece.id, why = common, tried = r.rejects, skipped = job.skipped,
                         detail = (#r.rejects > 1 and "Every spot I tried here: " or "I can't put the " .. job.piece.name .. " there: ") .. tostring(words) }
             if reason == "missing_materials" then d.missing = job.missing end
@@ -728,9 +815,13 @@ local function step(api, job, t)
             job.complete0 = (W.hook("complete") or {}).seq or 0
             local pa = W.place_action(api)
             if not pa then return leave_then(api.fail("not_implemented", { why = "no_place_action", detail = "I can't find the place key." })) end
+            -- this piece's actors already standing around the spot: the one the press builds is the id not in here
+            job.before_ids = {}
+            local at = (r.preview and r.preview.position) or (r.spot and r.spot.position)
+            for _, s in ipairs(W.structures_near(api, job.piece.id, at, cfg.before_m) or {}) do job.before_ids[s.id] = true end
             job.presses[#job.presses + 1] = "place"
             W.press(api, pa)
-            job.phase, job.verify_until, job.next_actor_check = "verify", t + cfg.verify_s, t + 1
+            job.phase, job.verify_until, job.next_actor_check = "verify", t + cfg.verify_s, t + 0.5
         end
         return nil
     elseif job.phase == "verify" then
@@ -756,17 +847,25 @@ local function step(api, job, t)
         if cp and cp.seq > job.complete0 and (not job.piece.index or cp.v == job.piece.index) then evidence = "telemetry" end
         local xp = W.construction_xp(api)
         if not evidence and job.xp0 and xp and xp > job.xp0 then evidence = "xp" end
-        if not evidence and t >= job.next_actor_check then
-            job.next_actor_check = t + 1
-            local near = W.structures_near(api, job.piece.id, job.preview and job.preview.position or job.spot.position, 3)
-            if #near > 0 then evidence, job.structure = "actor", near[1] end
+        -- the new piece in the world, looked for even when the game already confirmed it (telemetry used to skip
+        -- this, so structure was always null); at most every 0.5 s (one find_all each)
+        if not job.structure and t >= job.next_actor_check then
+            job.next_actor_check = t + 0.5
+            job.structure = W.new_structure(api, job)
+        end
+        if not evidence and job.structure then evidence = "actor" end
+        local xp_gain = (job.xp0 and xp) and (xp - job.xp0) or nil
+        local function built(spent_all)
+            mem().structs_t = nil -- get_state.structures re-reads at once, so the next state shows the new piece
+            return leave_then(success(api, job, spent, spent_all, evidence, xp_gain))
         end
         if all_fell and evidence then
-            return leave_then({ ok = true, data = { piece = job.piece.id, name = job.piece.name, structure = job.structure and job.structure.id or api.null,
-                position = job.preview and job.preview.position or job.spot.position, spent = api.object(spent), evidence = evidence,
-                xp = (job.xp0 and xp) and (xp - job.xp0) or api.null, rotation_verified = false,
-                tried = job.rejects and #job.rejects > 0 and job.rejects or nil } })
+            -- confirmed: give the census up to cfg.find_s to show the piece, so the reply can say where it stands
+            job.found_by = job.found_by or (t + cfg.find_s)
+            if job.structure or t >= job.found_by then return built(true) end
+            return nil
         end
+        if t >= job.verify_until and job.structure then return built(false) end -- a new piece stands there: built
         if t >= job.verify_until then
             return leave_then(api.fail("verification_failed", { piece = job.piece.id, spent = api.object(spent), evidence = evidence or api.null,
                 detail = "I pressed place for the " .. job.piece.name .. " but " .. (evidence and "the materials weren't used" or "nothing was built") .. "." }))
@@ -922,8 +1021,11 @@ M.MANIFEST = {
     -- offered to the model after live P5 (2026-10-26, a Campfire built and verified on dev)
     build = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 12, timeout_s = 120,
         detail_is_speech = true,
-        description = "Build one piece by its name from buildables (you need its materials). Walks to a spot, places it "
-            .. "where the game allows, checks it was built; if it can't, the reply says why. Trains Construction.",
+        description = "Build one piece by its name from buildables (you need its materials). Walks near the spot, tries "
+            .. "preview spots until the game shows one valid, places it once and checks it was built. ok: the reply's "
+            .. "'built' line says what stands where (metres and compass from you, facing, its structures id); spots "
+            .. "rejected before that are listed under rejected_previews_before_placing and are not failures. Not ok: "
+            .. "detail says why, and no new piece was found standing there. Trains Construction.",
         args = { type = "object", required = { "piece" }, properties = obj({
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },

@@ -340,7 +340,69 @@ check("NeedsSnapping (MPC 2, hook 4): no press, blocked with the game's reason",
 -- 8. first spot overlapping, a later one valid -> placed there, the rejection reported
 reset_game({ state = function(p, n) return n <= 3 and 1 or 0 end })
 r = build({ piece = "campfire", near = "bench_1" })
-check("Overlapping at the first spot -> another spot, tried reported", r and r.ok and r.data.tried and r.data.tried[1].why == "Overlapping", r and r.reason)
+check("Overlapping at the first spot -> another spot, the rejected spot listed as rejected before placing",
+    r and r.ok and r.data.rejected_previews_before_placing and r.data.rejected_previews_before_placing[1].why == "Overlapping"
+    and r.data.tried == nil, r and r.reason)
+
+-- 8b. co-play 2026-11-01 (the crate): no validity hook, two red previews, then green -> placed. The reply leads with
+-- what was placed and where, finds the NEW piece in the census (not the one already standing there), and labels
+-- the red previews as rejected attempts (no "valid": false rows that read as a failed build).
+local function fake_census(opts)
+    opts = opts or {}
+    local press0 = Wb.press
+    Wb.press = function(x, a)
+        if a == "place" and G.mode == "Placement" and not opts.no_actor then G.new_at = G.aimed end
+        return press0(x, a)
+    end
+    G.old = opts.old -- {id, position}: a piece of this kind already standing near the spot
+    G.census_reads = 0
+    Wb.structures_near = function(_, id, pos, r)
+        G.census_reads = G.census_reads + 1
+        local out = {}
+        if G.old then out[#out + 1] = { id = G.old.id, position = G.old.position, yaw = 0 } end
+        if G.new_at then out[#out + 1] = { id = "BP_Campfire_C_NEW", position = { G.new_at[1], G.new_at[2], G.new_at[3] or 0 }, yaw = 90 } end
+        return out
+    end
+end
+reset_game({ no_hook = true, state = function(p, n) return n <= 3 and 1 or 0 end })
+fake_census({ old = { id = "BP_Campfire_C_OLD", position = { 8.5, 0.5, 0 } } })
+r = build({ piece = "campfire", near = "bench_1" })
+local d8 = r and r.data or {}
+check("crate case: ok, placed, the NEW piece's id (not the one already there)", r and r.ok and d8.placed == true
+    and d8.structure == "BP_Campfire_C_NEW", r and (tostring(r.reason) .. " " .. tostring(d8.structure)))
+check("crate case: the built line leads: what, distance + compass from me, position, facing, id",
+    type(d8.built) == "string" and d8.built:find("^Placed the Campfire and it is built") and d8.built:find(" m [NESW]+ of me at %[")
+    and d8.built:find("facing S") and d8.built:find("BP_Campfire_C_NEW", 1, true) and d8.built:find("6 Stone", 1, true), d8.built)
+check("crate case: red previews listed as rejected before placing, said to be no failure; no valid=false rows",
+    d8.rejected_previews_before_placing and #d8.rejected_previews_before_placing >= 1
+    and d8.rejected_previews_before_placing[1].why == "preview_red" and d8.rejected_previews_before_placing[1].valid == nil
+    and d8.built:find("rejected and nothing was placed there", 1, true) and d8.tried == nil, d8.built)
+check("crate case: distance_m, direction and facing fields beside the line", type(d8.distance_m) == "number" and d8.facing == "S"
+    and type(d8.direction) == "string", tostring(d8.distance_m) .. " " .. tostring(d8.direction))
+do -- the bridge's encoder (dkjson) keeps the order: the model reads "built" first
+    local J = assert(loadfile(root .. "/client_mod/scripts/dkjson.lua"))()
+    local s = J.encode(d8)
+    check("crate case: JSON starts with the built line, rejected previews after the placement", s:find('^{"built":')
+        and s:find('"placed":true', 1, true) < s:find('"rejected_previews_before_placing"', 1, true), s:sub(1, 120))
+end
+check("crate case: get_state.structures cache dropped after a build", _G.DWBuild.structs_t == nil)
+
+-- 8c. the game confirmed it (telemetry + spend) but the census never shows the piece: still ok, and says so
+reset_game()
+fake_census({ no_actor = true })
+local t8 = T
+r = build({ piece = "campfire" })
+check("confirmed but not seen: ok, structure null, says it can't see it yet and where it should be",
+    r and r.ok and r.data.structure == "NULL" and r.data.built:find("can't see it in the world yet", 1, true)
+    and r.data.built:find("the game confirmed it", 1, true), r and r.data and r.data.built)
+check("confirmed but not seen: looked for it a few times (<= find_s), not forever", G.census_reads >= 3 and (T - t8) < 30, G.census_reads)
+
+-- 8d. no telemetry, no XP, no spend seen, but a new piece stands at the preview: built (and says the spend didn't show)
+reset_game({ no_spend = true })
+fake_census()
+r = build({ piece = "campfire" })
+check("new piece but no spend seen: ok, evidence actor, honest about the materials", r and r.ok and r.data.evidence == "actor"
+    and r.data.structure == "BP_Campfire_C_NEW" and r.data.built:find("didn't visibly go down", 1, true), r and (tostring(r.reason) .. " " .. tostring(r.data and r.data.built)))
 
 -- 9. every spot needs a foundation -> blocked, in the game's own words
 reset_game({ state = function() return 3 end })
