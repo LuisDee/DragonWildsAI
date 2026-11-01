@@ -242,6 +242,9 @@ M.cfg.build = {
     -- no preview actor (instance-only pieces): the cursor must stop gliding (settle_m between reads) within
     -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s)
     settle_m = 0.03, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, edge_in_m = 0.3,
+    snap_jump_m = 0.3, snap_jump_tol_m = 0.15, -- the cursor jumped from my aim onto the flush spot = a seen snap
+    ceiling_below_m = 0.2, ceiling_stand_m = 0.8, -- a ceiling/roof off a wall top: aim at the wall face this far below
+    -- its top, standing this far past the middle of the cell it covers
     -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
     -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
     -- NeedsSnapping press itself and Client_ShowValidityNotification names why. true = also require the hook.
@@ -638,6 +641,10 @@ function M.flush_spot(anchor, side, new_box)
         -- off a wall's top toward that side (a ceiling tile / roof on the wall): its edge on the wall's line, its top
         -- flush with the wall's top, the same 90 degree grid as the wall
         local half = nb.extent[i]
+        if nb.extent[3] >= 0.5 then -- a roof (tall, sloped): it sits ON the wall top, its bottom on it
+            return { p[1] + axis[1] * half, p[2] + axis[2] * half, top - (nb.origin[3] - nb.extent[3]) }, axis,
+                { ceiling = true, roof = true, yaw = (anchor.yaw or 0) % 360, per = 90 }
+        end
         return { p[1] + axis[1] * half, p[2] + axis[2] * half, top - (nb.origin[3] + nb.extent[3]) }, axis,
             { ceiling = true, yaw = (anchor.yaw or 0) % 360, per = 90 }
     end
@@ -666,6 +673,48 @@ function M.flush_report(anchor, side, new_box, built, tol)
                 level_m = math.floor(level * 100 + 0.5) / 100, facing_off_deg = math.floor(yo * 10 + 0.5) / 10 }
     r.flush = math.abs(gap) <= tol and math.abs(side_off) <= tol and math.abs(level) <= tol and math.abs(yo) <= 2
     return r
+end
+-- What stands on each edge of a floor piece (a foundation) and over it, from the census: the perception a house
+-- needs (which edges still want a wall, which cells have a ceiling). rows: {id, name, position, yaw, box}.
+-- -> { [floor id] = { edges = {N = "open" | "<name> <id>" | "beside: <name> <id>", ...}, ceiling = "<name> <id>" } }
+function M.edges(rows)
+    local out = {}
+    local function hd(a, b) return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2) end
+    for _, f in ipairs(rows) do
+        local fb = f.box
+        if fb and f.position and not M.thin_axis(fb) and fb.extent[3] >= 0.75 then
+            local p = f.position
+            local top = p[3] + fb.origin[3] + fb.extent[3]
+            local e = { edges = {} }
+            for _, side in ipairs({ "N", "E", "S", "W" }) do
+                local axis, i = side_axis(f, side)
+                local h = fb.extent[i]
+                local edge = { p[1] + axis[1] * h, p[2] + axis[2] * h }
+                local next_to = { p[1] + axis[1] * 2 * h, p[2] + axis[2] * 2 * h }
+                local on, beside
+                for _, g in ipairs(rows) do
+                    if g ~= f and g.position and g.box then
+                        local q = g.position
+                        local gbot = q[3] + g.box.origin[3] - g.box.extent[3]
+                        if M.thin_axis(g.box) and hd(q, edge) <= 0.5 and math.abs(gbot - top) <= 0.6 then
+                            on = tostring(g.name) .. " " .. g.id
+                        elseif not M.thin_axis(g.box) and hd(q, next_to) <= 0.5 and math.abs(q[3] - p[3]) <= 0.6 then
+                            beside = "beside: " .. tostring(g.name) .. " " .. g.id
+                        end
+                    end
+                end
+                e.edges[side] = on or beside or "open"
+            end
+            for _, g in ipairs(rows) do -- a ceiling/floor piece over the cell, about a wall's height above its top
+                if g ~= f and g.position and g.box and not M.thin_axis(g.box) and hd(g.position, p) <= 0.6 then
+                    local up = g.position[3] + g.box.origin[3] + g.box.extent[3] - top
+                    if up >= 2.0 and up <= 4.5 then e.ceiling = tostring(g.name) .. " " .. g.id end
+                end
+            end
+            out[f.id] = e
+        end
+    end
+    return out
 end
 -- One line trace from my pawn (KismetSystemLibrary:LineTraceSingle, the call move.lua / spells use).
 function W.trace(api, a, b)
@@ -962,10 +1011,16 @@ local function preview_reader(api, job)
                 -- where the cursor must sit: the flush spot for a tile; for a wall the point just inside the edge on the
                 -- anchor's top (its z too: a cursor on the side face below would snap it to the bottom edge)
                 local ct = job.on.cursor_target or tg
+                -- aimed away from the flush spot (a wall's top face, a wall's face for a ceiling) but the cursor sits ON
+                -- the flush spot: the game's snap moved it there (the helper follows the snapped spot) -> a seen snap
+                if green and job.on.cursor_target and math.sqrt((ct[1] - tg[1]) ^ 2 + (ct[2] - tg[2]) ^ 2) >= cfg.snap_jump_m
+                    and off <= cfg.snap_jump_tol_m and dz <= cfg.snap_jump_tol_m then
+                    return { valid = true, snapped = true, position = at, fresh = fresh, colour = 2 }
+                end
                 local coff = math.sqrt((at[1] - ct[1]) ^ 2 + (at[2] - ct[2]) ^ 2)
                 local zok
-                if job.on.cursor_target then zok = math.abs(at[3] - ct[3]) <= cfg.cursor_tol_z_m else zok = math.abs(dzs) <= 1.0 end
-                if green and coff <= cfg.cursor_tol_m and zok then
+                if job.on.cursor_target then zok = math.abs(at[3] - ct[3]) <= (job.on.cursor_tol_z_m or cfg.cursor_tol_z_m) else zok = math.abs(dzs) <= 1.0 end
+                if green and coff <= (job.on.cursor_tol_m or cfg.cursor_tol_m) and zok then
                     return { valid = true, snapped = "unseen", position = at, fresh = fresh, colour = 2 }
                 end
                 -- settled off the spot (live: 0.6 m short and 0.2 m aside, the camera ray isn't the placement trace):
@@ -1038,26 +1093,32 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     if job.on then
         local a, side = job.on.anchor, job.on.side
         local _, _, mount = M.flush_spot(a, side, job.on.box)
-        local where_on = (side == "top" and "on top of the " or ("on the " .. side .. (mount and " edge of the " or " side of the ")))
-            .. tostring(a.name) .. " (" .. a.id .. ")"
+        local ceil = mount and mount.ceiling
+        local where_on = (side == "top" and "on top of the " or (ceil and "on top of the ")
+            or ("on the " .. side .. (mount and " edge of the " or " side of the "))) .. tostring(a.name) .. " (" .. a.id .. ")"
+            .. (ceil and (", reaching " .. side) or "")
         att = s and M.flush_report(a, side, job.on.box, s, M.cfg.build.flush_tol_m)
-        if mount and not mount.inside and s and type(s.yaw) == "number" then mem().ghost_yaw = s.yaw % 360 end -- re-sync
+        if mount and mount.edge and not mount.inside and s and type(s.yaw) == "number" then mem().ghost_yaw = s.yaw % 360 end -- re-sync
         local pp = job.preview and job.preview.position
         if att and job.on.mode == "cursor" and type(pp) == "table" then
             -- how far the game moved it from my cursor at the press: > 0 = its snap pulled it onto the plug
             att.snap_moved_m = math.floor(math.sqrt((s.position[1] - pp[1]) ^ 2 + (s.position[2] - pp[2]) ^ 2) * 100 + 0.5) / 100
-            line = line .. " I can't watch this piece's preview snap, so I aimed at the flush spot and measured where it landed."
+            line = line .. (job.preview.snapped == true and " Its cursor jumped onto the flush spot before I pressed (the game's snap)."
+                or " I can't watch this piece's preview snap, so I aimed at the flush spot and measured where it landed.")
         end
         if att then
             local parts = {}
             if math.abs(att.gap_m) > M.cfg.build.flush_tol_m then
                 parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.gap_m),
-                    mount and (att.gap_m > 0 and "outside the edge" or "in from the edge") or (att.gap_m > 0 and "gap" or "overlap"))
+                    ceil and (att.gap_m > 0 and "gap from the wall" or "over the wall")
+                    or mount and (att.gap_m > 0 and "outside the edge" or "in from the edge") or (att.gap_m > 0 and "gap" or "overlap"))
             end
             if math.abs(att.offset_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m off to the side", math.abs(att.offset_m)) end
             if math.abs(att.level_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.level_m), att.level_m > 0 and "higher" or "lower") end
             if math.abs(att.facing_off_deg) > 2 then parts[#parts + 1] = string.format("turned %.0f degrees", att.facing_off_deg) end
-            line = line .. (att.flush and (mount and (" It stands squarely " .. where_on .. ": on the edge line, on its top, lined up with it.")
+            line = line .. (att.flush and (ceil and (" It sits squarely " .. where_on .. (mount.roof and ": on the wall's top, lined up with it."
+                        or ": its edge on the wall's line, its top level with the wall's top, lined up with it."))
+                    or mount and (" It stands squarely " .. where_on .. ": on the edge line, on its top, lined up with it.")
                     or (" It sits flush " .. where_on .. ": no gap, level, same facing."))
                 or (" It is NOT " .. (mount and "square " or "flush ") .. where_on .. ": " .. table.concat(parts, ", ") .. "."))
         else
@@ -1098,8 +1159,11 @@ local function step(api, job, t)
         -- point never crosses the anchor piece (a side) / beside the anchor (top)
         if job.on and not job.stand_at then
             local half = job.footprint / 2
-            local _, axis = M.flush_spot(job.on.anchor, job.on.side, job.on.box)
+            local _, axis, mount = M.flush_spot(job.on.anchor, job.on.side, job.on.box)
             local out_m = half + cfg.stand_extra_m
+            -- a ceiling off a wall top: stand INSIDE the cell it covers, past its middle, looking back at the wall (from
+            -- outside, the cell's other walls would be in the camera's way once the house is up)
+            if mount and mount.ceiling then out_m = cfg.ceiling_stand_m end
             local ta = job.on.side == "in" and M.thin_axis(job.on.anchor.box)
             if ta then -- into a frame: stand across the wall (along its thin axis), on my side of it
                 local yaw = math.rad(job.on.anchor.yaw or 0)
@@ -1181,7 +1245,8 @@ local function step(api, job, t)
             -- wall) and turn by (wanted - current) mod 180. Unknown at session start: assumed 0, then synced.
             local cur = mem().ghost_yaw or 0
             job.on.ghost_yaw0 = cur
-            job.rotation = ((job.on.mount.yaw - cur) % 180 + 180) % 180
+            local per = job.on.mount.per or 180
+            job.rotation = ((job.on.mount.yaw - cur) % per + per) % per
         end
         job.rot_left = job.rot_left or (job.rotation and math.floor(((job.rotation % 360) / cfg.rotate_step_deg) + 0.5) or 0)
         if job.rot_left > 0 then
@@ -1271,7 +1336,13 @@ local function step(api, job, t)
                 for _, f in ipairs({ 0.88, 0.8 }) do add({ a0.position[1], a0.position[2], a_bottom + h * f }, 3.0 + h) end
                 job.on.cursor_target = { a0.position[1], a0.position[2], a_bottom + h * 0.88 }
             elseif not pa then
-                if mount and axis then
+                if mount and mount.ceiling and axis then
+                    -- off a wall's top: from the side it reaches into, aim at the wall's face just below its top (I
+                    -- can't see the top from the ground); the nearest plug for a tile there is the top edge
+                    local p = { a0.position[1] + axis[1] * 0.1, a0.position[2] + axis[2] * 0.1, a_top - cfg.ceiling_below_m }
+                    add(p, 3.0)
+                    job.on.cursor_target, job.on.cursor_tol_m, job.on.cursor_tol_z_m = p, 0.6, 0.4
+                elseif mount and axis then
                     -- a wall on an edge: aim just INSIDE the edge on the anchor's top face. Live 15:42Z: aimed at the edge
                     -- line from outside, the ray hit the foundation's side face and the frame snapped to its BOTTOM edge,
                     -- 3 m low. On the top face the game snaps it to the top edge (live 15:34Z: square, 6 cm pull).
@@ -1537,6 +1608,20 @@ function W.structures(api, fresh)
         end
         table.sort(out, function(x, y) return x.distance < y.distance end)
         for i = #out, cfg.max + 1, -1 do out[i] = nil end
+        -- each foundation's edges (open / a wall / the next foundation) and its ceiling, from the pieces' own sizes
+        local rows = {}
+        for _, e in ipairs(list) do
+            local box = e.actor and box_of(U, U.try(function() return e.actor.BuildingPieceLocalBounds end))
+            if not box and e.data then box = (W.piece_profile(api, e.data) or {}).box end
+            if box then rows[#rows + 1] = { id = e.id, name = e.name, position = e.position, yaw = e.yaw, box = box } end
+        end
+        local ok, ed = pcall(M.edges, rows)
+        if ok then
+            for _, s in ipairs(out) do
+                local x = ed[s.id]
+                if x then s.edges, s.ceiling = x.edges, x.ceiling end
+            end
+        end
         m.structs, m.structs_t = out, t
         return out
     end
@@ -1596,7 +1681,7 @@ M.MANIFEST = {
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
             near = { type = "string", description = "Somewhere next to this id ('me' for beside you)." },
-            on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W' or ':top' (no side: the free side nearest you)." },
+            on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W' or ':top' (no side: the free side nearest you). A wall goes on a foundation's edge; ':in' puts a door into a door-frame wall; a tile or roof on a wall reaches out to that side off its top." },
             rotation = { type = "number", minimum = 0, maximum = 360, description = "Turn it this many degrees (15 degree steps)." } }) },
         reasons = { "no_permission", "host_only", "unknown_target", "ambiguous_target", "missing_materials", "blocked",
                     "limit_reached", "too_far", "path_blocked", "interrupted", "verification_failed", "timeout" } },

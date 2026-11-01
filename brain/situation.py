@@ -544,6 +544,31 @@ def vitals_policy(state: dict) -> str | None:
             f"eat to heal {'below ' + str(heal) + '% HP' if heal else 'off'} (always below {p.get('safety_floor_pct')}%)")
 
 
+HOUSE_LINE_CHARS = 640
+
+
+def house_line(state: dict) -> str | None:
+    """His own foundations with what stands on each edge and over each (build.lua get_state.structures edges /
+    ceiling, measured from the census): what a house of his still lacks (an open edge has no wall, nothing over it
+    = no ceiling yet). Perception only: which edge gets what is the model's call."""
+    rows = [s for s in state.get("structures") or [] if isinstance(s, dict) and s.get("mine")
+            and isinstance(s.get("edges"), dict)]
+    if not rows:
+        return None
+
+    def what(v) -> str:
+        v = str(v)
+        return "next to " + v.split()[-1] if v.startswith("beside:") else v
+
+    parts = []
+    for s in sorted(rows, key=lambda r: _num(r.get("distance")) or 1e9)[:4]:
+        e = s["edges"]
+        d = _num(s.get("distance"))
+        edges = ", ".join(f"{k} {what(e.get(k, 'open'))}" for k in ("N", "E", "S", "W"))
+        parts.append(f"{s['id']}{f' ({d:.0f} m)' if d is not None else ''}: {edges}; over it: {s.get('ceiling') or 'nothing'}")
+    return ("Your foundations, what is on each edge: " + " | ".join(parts))[:HOUSE_LINE_CHARS]
+
+
 def stations(state: dict) -> list[str]:
     """Crafting/processing stations nearby with what they are doing (crafting.lua stations_nearby)."""
     out = []
@@ -847,6 +872,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(_line("Usable", [g.label() for g in usable]))
     built = _group([t for t in things if t.group == "built"])  # building pieces with no use: foundations, walls
     lines.append(_line("Built pieces", [g.label() for g in built]))
+    lines.append(house_line(state))
     lines.append(_line("Stations", stations(state)))
     if not looks_supported and not state.get("surroundings") and \
             "nearby_resources" in (state.get("not_implemented") or []):

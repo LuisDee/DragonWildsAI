@@ -554,6 +554,58 @@ do
     attach_game({ snap = true, snap_only = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
     check("attach: a snap-only piece IS pressed once the snap is seen (no longer preview_ambiguous)", r and r.ok and r.data.flush == true, r and (tostring(r.reason) .. " " .. tostring(r.data.why)))
+    -- a ceiling tile off a wall's top (live profile: Square Tile 300 x 300 x 37.5 cm, its top at its origin): its
+    -- edge on the wall's line, reaching toward the side, its top level with the wall's top, on the wall's 90 grid
+    local TB = { origin = { 0, 0, -0.1875 }, extent = { 1.5, 1.5, 0.1875 } }
+    local wall = { position = { 10, 0, 0 }, yaw = 90, box = WB }
+    local cp, cax, cm = Bd.flush_spot(wall, "E", TB)
+    check("ceiling off a wall (yaw 90) to the E: the cell centre 1.5 m E of the wall line, top level with the wall top",
+        near(cp[1], 11.5) and near(cp[2], 0) and near(cp[3], 3.03) and near(cax[1], 1) and cm and cm.ceiling and cm.per == 90,
+        table.concat(cp, ","))
+    local cr = Bd.flush_report(wall, "E", TB, { position = { 11.5, 0, 3.03 }, yaw = 0 }, 0.06)
+    check("ceiling report: a square tile turned 90 from the wall still lines up (90 degree grid)", cr.flush and cr.facing_off_deg == 0, cr.facing_off_deg)
+    cr = Bd.flush_report(wall, "E", TB, { position = { 11.5, 0, 3.03 }, yaw = 45 }, 0.06)
+    check("ceiling report: turned 45 -> not square", not cr.flush and math.abs(cr.facing_off_deg) == 45, cr.facing_off_deg)
+    local saved = { id = anchor.id, name = anchor.name, position = anchor.position, yaw = anchor.yaw, box = anchor.box }
+    anchor.name, anchor.position, anchor.yaw, anchor.box = "Wall", { 10, 0, 0 }, 90, WB
+    attach_game({ no_preview = true, box = TB, built_at = { 11.5, 0, 3.03 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("ceiling on a wall: aimed at the wall face just below its top from the E, pressed, square from the census",
+        r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[1] - 10.1) < 1e-6
+        and math.abs(G.aimed[3] - 2.83) < 1e-6 and tostring(da.built):find("sits squarely on top of the Wall (BP_Foundation_C_A), reaching E", 1, true),
+        r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)) .. " aimed " .. (G.aimed and table.concat(G.aimed, ",") or "-"))
+    attach_game({ no_preview = true, box = TB, built_at = { 11.8, 0, 3.03 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("ceiling 0.3 m out: built, and says the gap from the wall", r and r.ok and da.flush == false
+        and tostring(da.built):find("0.30 m gap from the wall", 1, true), r and tostring(da.built))
+    -- the helper follows the snapped spot: aimed at the wall face, the cursor jumps onto the cell centre -> a seen snap
+    attach_game({ no_preview = true, box = TB, built_at = { 11.5, 0, 3.03 } })
+    Wb.mpc = function()
+        if not G.aimed then return nil end
+        return { index = 2, position = { 11.5, 0, 3.03 } }
+    end
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("ceiling: the cursor jumped from the wall face onto the flush spot -> pressed as a seen snap, says so",
+        r and r.ok and da.flush == true and count(G.presses, "place") == 1 and tostring(da.built):find("jumped onto the flush spot", 1, true),
+        r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)))
+    anchor.name, anchor.position, anchor.yaw, anchor.box = saved.name, saved.position, saved.yaw, saved.box
+    -- the house perception: each foundation's edges (open / a wall on it / the next foundation) and its ceiling
+    local ed = Bd.edges({
+        { id = "F1", name = "Square Foundation", position = { 0, 0, 0 }, yaw = 0, box = FB },
+        { id = "F2", name = "Square Foundation", position = { 0, 3, 0 }, yaw = 0, box = FB },
+        { id = "W1", name = "Wall", position = { -1.5, 0, 0 }, yaw = 90, box = WB },
+        { id = "W2", name = "Wall", position = { 0, 4.5, 0 }, yaw = 0, box = WB },
+        { id = "T1", name = "Square Tile", position = { 0, 0, 3.03 }, yaw = 0, box = TB },
+        { id = "W3", name = "Wall", position = { 1.5, 3, -3 }, yaw = 90, box = WB } }) -- 3 m low: not on F2's edge
+    check("edges: F1 W wall, S = beside F2, N/E open, its ceiling the tile", ed.F1 and ed.F1.edges.W == "Wall W1"
+        and ed.F1.edges.S == "beside: Square Foundation F2" and ed.F1.edges.N == "open" and ed.F1.edges.E == "open"
+        and ed.F1.ceiling == "Square Tile T1", ed.F1 and (ed.F1.edges.W .. "|" .. ed.F1.edges.S .. "|" .. tostring(ed.F1.ceiling)))
+    check("edges: F2 S wall, N beside F1, E open (a wall 3 m low isn't on it), no ceiling; walls get no edges",
+        ed.F2 and ed.F2.edges.S == "Wall W2" and ed.F2.edges.N == "beside: Square Foundation F1" and ed.F2.edges.E == "open"
+        and ed.F2.ceiling == nil and ed.W1 == nil and ed.T1 == nil, ed.F2 and (ed.F2.edges.S .. "|" .. ed.F2.edges.E))
 end
 -- the piece's own data decides snap-only before the preview actor (live: the preview read came back unreadable)
 reset_game({ no_hook = true })
