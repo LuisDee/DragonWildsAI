@@ -1050,6 +1050,7 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
     local env = st.env or envelope(pawn, pc)
     if not valid() then return false end
     st.env = env
+    if st.max_drop_cm then st.env.drop = math.min(st.env.drop or st.max_drop_cm, st.max_drop_cm) end
     -- a Windstep super-jump edge only while it is castable now AND measured (and not just failed on this move)
     do
         local ws = st.env.ws_up_cm and windstep_status(nil, now(pawn)) or nil
@@ -3209,6 +3210,9 @@ local function start(log, mode, opts)
     st.face_when_near = opts.face_when_near
     st.sprint_force = opts.sprint_force == true
     st.wade = opts.wade == true -- the goal is IN water on purpose (a pond to use): water avoidance off for this move
+    -- an optional trip (explore legs) takes no planned drop deeper than this (live 2026-11-01 11:18: a planned 4.8 m
+    -- drop landed on a mis-sampled floor and he fell 29 m into a KillZ)
+    st.max_drop_cm = tonumber(opts.max_drop_m) and tonumber(opts.max_drop_m) * 100 or nil
     st.escape = type(opts.escape) == "table" and opts.escape or nil
     st.prog_tr = progress_new(opts.progress)
 

@@ -422,6 +422,26 @@ class Places:
             out.append(f"{n}: a {kind} on the game map" + (f", nearest {d:.0f} m away" if isinstance(d, (int, float)) else "")
                        + (f" in {best['region']}" if best.get("region") and best["region"] != n else "")
                        + f"; go_to \"{go}\" walks " + ("to the lodestone nearest it" if go != n else "there"))
+        # one word of a few map names ("the temple": Forgotten Temple or Temple Woods; live 2026-11-01 11:29 he
+        # answered "the temple route won't path"): the candidates, for the model to pick or ask. A word in more than
+        # 3 names ("vent") says nothing.
+        everything = [(n, "landmark") for n in self.landmarks] + [(r["name"], "region") for r in self.regions] \
+            + [(p["name"], "province") for p in self.provinces]
+        covered = set().union(*(_terms(n) for n, _ in hits)) if hits else set()
+        for w in sorted(t for t in q - covered if len(t) >= 4):
+            cands = [(n, kind) for n, kind in everything if w in _terms(n) and len(_terms(n)) >= 2]
+            if not 1 <= len(cands) <= 3:
+                continue
+            bits = []
+            for n, kind in cands:
+                if kind != "landmark" and _pos(here) and n in (self.region_name(_pos(here)), self.province_name(_pos(here))):
+                    bits.append(f"{n} (a {kind}; you are in it)")
+                    continue
+                best = next((o for o in self.where(n, here, limit=1)["data"].get("results") or []
+                             if o.get("name") == n), None) or {}
+                d = best.get("distance_m")
+                bits.append(f"{n} (a {kind}" + (f", {d:.0f} m" if isinstance(d, (int, float)) else "") + ")")
+            out.append(f"\"{w}\" is a word of the map names " + ", ".join(bits) + "; go_to takes the full name")
         return out
 
     def where(self, query: str, here=None, *, lodestones: Iterable[dict] | None = None,

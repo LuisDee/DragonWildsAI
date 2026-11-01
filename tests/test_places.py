@@ -396,4 +396,13 @@ def test_mentioned_names_map_places_in_a_chat_line():
     assert p.mentioned("meet me in temple woods", HERE) == ["Temple Woods: a region on the game map; you are in it"]
     assert p.mentioned("the lodestone by the water anima vent", HERE)[0].endswith(
         'go_to "the lodestone by Water Anima Vent" walks to the lodestone nearest it')
-    assert p.mentioned("go see zanik by the shrine", HERE) == []  # one-word names are too common to tag
+    # one-word names are too common to tag ("Zanik", "Statue"); a word of a longer name only lists candidates
+    assert not any("Zanik" in s for s in p.mentioned("go see zanik by the shrine", HERE))
+
+
+def test_mentioned_one_word_of_a_few_map_names_lists_the_candidates():
+    p = Places({**DATA, "landmarks": DATA["landmarks"] + [{"name": "Forgotten Temple", "position": [300, 0, 0]}]})
+    said = p.mentioned("claude come to the temple", HERE)
+    assert len(said) == 1 and said[0].startswith('"temple" is a word of the map names ')
+    assert "Temple Woods (a region; you are in it)" in said[0] and "Forgotten Temple (a landmark, " in said[0]
+    assert said[0].endswith("go_to takes the full name")

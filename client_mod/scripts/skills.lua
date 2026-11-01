@@ -1732,7 +1732,9 @@ local function start_explore(api, args, ctx)
         while job.legs_done < legs do
             local p = pick()
             if not p then return false end
-            local mr = api.call("move", "go_to", p.goal, { tolerance_m = 3, timeout_s = 40, allow_unstuck = false, owner_token = job.token })
+            -- an exploring leg is optional: no planned drop deeper than a step down (max_drop_m)
+            local mr = api.call("move", "go_to", p.goal, { tolerance_m = 3, timeout_s = 40, allow_unstuck = false, owner_token = job.token,
+                                                           max_drop_m = 1.5 })
             if mr.ok then job.leg, job.legs_done = p, job.legs_done + 1; return true end
             job.failed[p.deg] = true
         end
