@@ -2831,6 +2831,12 @@ local function tick(st, gen, log)
         st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.bt_pos = t, v(me), 0, nil, nil
         if toward >= M.cfg.progress_cm then st.lp_plans_np = 0 end
     elseif t - st.prog_t > M.cfg.give_up_s then
+        -- no progress because he is already there (a local-plan jump kept the arrival check off: chat run 8,
+        -- on top of the Water Anima Vent, 0 m left, 1.2 m up of 1.76 allowed -> "no_route")
+        if st.mode == "go_to" and reached(st, me, goal) and standing_check(pawn) == true then
+            st.lp_jump_exec, st.ws_exec = nil, nil
+            return finish(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log)
+        end
         local at = { math.floor(me.X) / 100, math.floor(me.Y) / 100, math.floor(me.Z) / 100 }
         local self_stuck = false
         if (st.move_acc or 0) < M.cfg.self_stuck_cm then
