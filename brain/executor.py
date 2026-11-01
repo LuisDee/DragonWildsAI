@@ -5,6 +5,11 @@ principle 2); the body's own ``ok`` is necessary but not sufficient. Transient
 failures are retried up to ``max_attempts``; deterministic ones (nothing in
 range, missing materials, ...) go straight back to the planner; interrupts
 (player command, attack) are handed to the agent without using up a retry.
+
+``still_running`` (the player spoke mid-action; the body keeps doing it) is an interrupt too. The executor remembers
+that request: the SAME call again (same skill, same arguments) re-attaches to it (``GameInterface.reattach``) and is
+verified against the first call's baseline, instead of sending it again (a re-sent go_to restarts the trip: co-play
+retro 2026-11-01, root cause 2). Any other call is sent as usual (the body's action slot replaces the running one).
 """
 from __future__ import annotations
 
@@ -29,6 +34,29 @@ class Outcome:
     attempts: int = 0
     data: dict[str, Any] = field(default_factory=dict)
     interrupt: bool = False
+
+
+SAME_POINT_M = 1.0  # two [x, y, z] targets this close are the same target
+
+
+def _same_value(a, b) -> bool:
+    if isinstance(a, dict) and isinstance(b, dict):
+        return same_args(a, b)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        nums = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (*a, *b))
+        if nums and 2 <= len(a) == len(b) <= 3:
+            return math.dist(a, b) <= SAME_POINT_M
+        return len(a) == len(b) and all(_same_value(x, y) for x, y in zip(a, b))
+    if isinstance(a, str) and isinstance(b, str):
+        return a.strip().lower() == b.strip().lower()
+    return a == b
+
+
+def same_args(a: dict | None, b: dict | None) -> bool:
+    """Is this the same call? Equal arguments (absent = None), a point within SAME_POINT_M, names in any case."""
+    a = {k: v for k, v in (a or {}).items() if v is not None}
+    b = {k: v for k, v in (b or {}).items() if v is not None}
+    return a.keys() == b.keys() and all(_same_value(a[k], b[k]) for k in a)
 
 
 def _inv(state: dict, item: str) -> int:
@@ -247,6 +275,8 @@ class Executor:
         self._cache: tuple[float, dict] | None = None  # (time, data) of the last get_state
         self._resolved_items: dict[str, str] = {}  # task id -> inventory key the body reported (data.item)
         self.places = None  # brain.places.Places (LiveSession): game-data place names go_to falls back to
+        # the call the body is still doing after the player spoke (still_running): {skill, args, id, base, since}
+        self.running: dict | None = None
 
     def state(self, max_age: float | None = None) -> dict:
         """Fresh get_state, or (``max_age``) the last one if it is that recent and no action ran since
@@ -358,7 +388,16 @@ class Executor:
             self.log.log("state_unavailable", task_id=task.id, tool=task.skill, error=str(exc))
             return self._finish(task, Outcome(False, Reason.STATE_UNAVAILABLE, task.attempts))
 
+    def continues(self, task: Task) -> bool:
+        """Is this task the same call as the one the body is still doing since the player spoke (still_running)?"""
+        r = self.running
+        return r is not None and r["skill"] == task.skill and same_args(r["args"], task.args)
+
     def _run(self, task: Task) -> Outcome:
+        run = self.running if self.continues(task) else None
+        if run is not None:
+            self.running = None
+            self._baselines.setdefault(task.id, run["base"])  # verified from the first call's start
         base = self._baselines.setdefault(task.id, self.state(max_age=STATE_REUSE_S))
         reason = None
         last_data: dict = {}
@@ -371,8 +410,18 @@ class Executor:
             task.attempts += 1
             task.status = "running"
             self.store.save_tree()
-            self.log.log("tool_call", task_id=task.id, tool=task.skill, args=args, attempt=task.attempts)
-            result = self.game.call(task.skill, args)
+            self.log.log("tool_call", task_id=task.id, tool=task.skill, args=args, attempt=task.attempts,
+                         **({"reattach": run["id"]} if run is not None else {}))
+            result = None
+            if run is not None:  # the same call while the body still does it: watch that one, don't restart it
+                reattach = getattr(self.game, "reattach", None)
+                result = reattach(run["id"]) if reattach is not None else None
+                if result is None:
+                    self.log.log("reattach_missed", task_id=task.id, tool=task.skill, id=run["id"],
+                                 why="it ended meanwhile: sent again")
+                run = None
+            if result is None:
+                result = self.game.call(task.skill, args)
             if not result["ok"] and result["reason"] == Reason.UNKNOWN_TARGET:
                 result = self._go_to_game_place(task, args, now, result)
             self._cache = None  # the world changed: verification reads fresh state
@@ -384,6 +433,9 @@ class Executor:
                 reason = result["reason"]
                 last_data = result["data"]
                 if reason in Reason.INTERRUPTS:
+                    if reason == Reason.STILL_RUNNING and isinstance(last_data, dict) and last_data.get("id"):
+                        self.running = {"skill": task.skill, "args": dict(task.args), "id": last_data["id"],
+                                        "base": base, "since": time.monotonic()}
                     task.attempts -= 1  # an interrupt is not the skill's fault
                     task.status = "pending"
                     self.store.save_tree()

@@ -849,18 +849,22 @@ class StubTransport:
 def _client(transport, monkeypatch, tmp_path):
     from brain import bridge_client as bc
     monkeypatch.setattr(bc, "HEARTBEAT_S", 0.0)
+    monkeypatch.setattr(bc, "DETACH_AFTER_S", 0.0)
+    monkeypatch.setattr(bc, "BEAT_TIMEOUT_S", 0.05)  # the stub never answers move_status
     return bc.BridgeClient(transport, JsonlLogger(tmp_path / f"bridge-{len(transport.sent)}-{id(transport)}.jsonl"))
 
 
 def test_l2a_an_addressed_line_stops_the_wait_for_a_running_tool(monkeypatch, tmp_path):
     """L2 (20:58-21:01): chat queued for 3 min behind a go_to. Now an addressed chat line arriving while
-    a long tool runs ends the wait at once (interrupted); the body keeps going until told otherwise."""
+    a long tool runs ends the wait at once; the body keeps going until told otherwise. Co-play 2026-11-01: that is
+    reported as still running (not a failure), so the model doesn't redo it."""
     chat = {"v": 1, "type": "event", "event": {"type": "chat_heard", "player": "Zezima", "text": "claude get out of the shelter"}}
     t = StubTransport(push=[chat])
     client = _client(t, monkeypatch, tmp_path)
     client.interrupt_check = lambda ev: getattr(ev, "text", "").startswith("claude")
     res = client.request("go_to", {"target": "Zezima"}, timeout=60)
-    assert res["ok"] is False and res["reason"] == "interrupted" and res["data"]["by"] == "chat"
+    assert res["ok"] is False and res["reason"] == "still_running" and res["data"]["by"] == "chat"
+    assert res["data"]["running"] is True
     assert client.abandoned(t.sent[0]["id"])
     assert [e.text for e in client.poll_events()] == ["claude get out of the shelter"]  # the line is kept for the agent
     # an unaddressed line does not interrupt

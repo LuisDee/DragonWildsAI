@@ -1216,7 +1216,7 @@ class _Detect:
         out = []
         for ep in self.eps:
             for r in ep.ran:
-                if r["tool"] not in MOVE_TOOLS or r["ok"] or r["reason"] in ("busy", "interrupted", "already_there", "already_in_sight") \
+                if r["tool"] not in MOVE_TOOLS or r["ok"] or r["reason"] in ("busy", "interrupted", "still_running", "already_there", "already_in_sight") \
                         or r["end"] - r["ts"] > REFUSAL_S:
                     continue
                 a = position_at(self.c, r["ts"] - 0.05, before_s=120)

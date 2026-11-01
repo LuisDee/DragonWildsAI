@@ -44,6 +44,9 @@ class Reason:
     UNKNOWN_RECIPE = "unknown_recipe"
     TOO_FAR = "too_far"
     INTERRUPTED = "interrupted"  # a player command pre-empted the action
+    # The player spoke, so the brain stopped waiting and gave the model the floor; the body is STILL doing the action
+    # (bridge_client detach). The same call again re-attaches to it (executor); another action replaces it.
+    STILL_RUNNING = "still_running"
     ATTACKED = "attacked"  # the companion was attacked mid-action
     COMPANION_DOWN = "companion_down"
     TIMEOUT = "timeout"
@@ -83,8 +86,8 @@ class Reason:
     NOT_IN_CONTAINER = "not_in_container"
     CONTAINER_FULL = "container_full"
 
-    # A player command or an attack pre-empted the action: not the skill's fault.
-    INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
+    # A player command or an attack pre-empted the action (or the player spoke while it runs): not the skill's fault.
+    INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED, STILL_RUNNING})
     # Retrying these cannot help; the plan has to change.
     DETERMINISTIC: frozenset[str] = frozenset({
         NOTHING_IN_RANGE, NOT_ENOUGH, MISSING_MATERIALS, UNKNOWN_TARGET, UNKNOWN_RECIPE, TOO_FAR,
@@ -643,6 +646,11 @@ class GameInterface(ABC):
     def set_progress_listener(self, listener: "Callable[[Event], None] | None") -> None:
         """Called with progress events as soon as the body emits them, even while an action is still
         running (the bridge waits inside the action call). Default: no live delivery."""
+
+    def reattach(self, request_id: str) -> ActionResult | None:
+        """Wait again for an action the brain stopped waiting for (``still_running``) while the body still does it:
+        its result, or None when it is not running any more (then the caller sends it again). Default: never."""
+        return None
 
     def spells(self) -> ActionResult:
         """Compact spell list ``data.spells`` [{id, name, role, use_when, castable, reason, remaining_s}]."""

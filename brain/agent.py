@@ -21,8 +21,8 @@ from . import situation as sit
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
-from .interface import (RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event, GameInterface, Reason,
-                        TaskDone, TaskFailed)
+from .interface import (PROGRESS_EVENTS, RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event,
+                        GameInterface, Reason, TaskDone, TaskFailed)
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
 from .progress import RepeatWatch, change
@@ -57,6 +57,11 @@ PROMISE_NOTE = ("You replied without calling any tool. That line has been said. 
                 "something, or that you are doing it, call the tool(s) for it now, in order. If you can't do it "
                 "now (no tool or target for it, or something is missing), say in a few words what's stopping you. "
                 "Otherwise (you only answered or asked something) reply with no text at all.")
+# Co-play 2026-11-01 11:50:11: the player asked "so why couldn't you validate ...", and the model wrote its answer as
+# plain text (a private note, never spoken) with no say call: he got silence. The model is told the truth once and
+# decides; code never speaks the note itself (it can be reasoning, controller.py SAY_SCHEMA).
+UNHEARD_NOTE = ("Nobody heard that: you wrote plain text and called no tool, and only say(text) is heard in chat. If "
+                "it was meant for the player, say it now with say; otherwise reply with no text at all.")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
@@ -91,7 +96,8 @@ class Agent:
         self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
         # Event hygiene (streamline step 3): triage, movement episodes, digest, episodic memory.
         self.broker = EventBroker(logger, tool_of=getattr(game, "sent_tool", None),
-                                  abandoned=getattr(game, "abandoned", None))
+                                  abandoned=getattr(game, "abandoned", None),
+                                  late_result=getattr(game, "late_result", None))
         controller.status_provider = self.broker.digest
         controller.activity_provider = self.broker.activity_lines
         controller.on_progress = self.broker.note_progress  # progress notes -> body_status, never said
@@ -150,6 +156,10 @@ class Agent:
         self._in_pump = True
         try:
             batch, self._stash = self._stash + self.game.poll_events(), []
+            if self.broker.running is not None:  # a job left running when the player spoke: its progress, for
+                for ev in batch:                 # body_status ("how's it going?"); nobody waits on its listener now
+                    if isinstance(ev, PROGRESS_EVENTS):
+                        self.controller.progress_event(ev)
             for event in self.broker.triage(batch):
                 self.handle_event(event)
         finally:
@@ -172,6 +182,7 @@ class Agent:
         busy = bool(self.active_goal or self.pending_goal or self._situations or self._chat_waiting()
                     or self._chat_stashed()
                     or (ep is not None and ep.ended is None and ep.tool != "follow")
+                    or self.broker.running is not None  # a job left running when the player spoke
                     or (self.director is not None and
                         getattr(self.director, "owns_transition", self.director.running)))
         ev = self.broker.review_due(busy=busy)
@@ -186,8 +197,11 @@ class Agent:
             if not self._in_pump:
                 self.flush_situations()
             return
-        if isinstance(event, TaskFailed) and self.broker.held(event.task_id):
-            self._body_situation(event)  # a follow ended by itself (review H1): the model says why
+        if (isinstance(event, TaskFailed) and self.broker.held(event.task_id)) or \
+                (isinstance(event, (TaskDone, TaskFailed)) and self.broker.running_result(event.task_id)):
+            # a follow ended by itself (review H1), or an action left running when the player spoke has ended
+            # (nobody re-attached to or replaced it): the model hears how it went and decides what's next
+            self._body_situation(event)
             if not self._in_pump:
                 self.flush_situations()
             return
@@ -308,7 +322,9 @@ class Agent:
 
     def _run_task(self, task: Task) -> Outcome:
         """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""
-        self.broker.action_started(task.skill, task.args)
+        # the same call as the action the body is still doing since the player spoke: the executor re-attaches to it
+        continues = getattr(self.executor, "continues", None)
+        self.broker.action_started(task.skill, task.args, continuing=bool(continues and continues(task)))
         self.broker.note_busy()
         outcome = self.executor.run_task(task)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
@@ -417,6 +433,10 @@ class Agent:
             promise_check = (turn == 0 and self.check_promises and bool(event.text) and not t["ran"] and not t["failure"]
                              and bool(d.speech) and not (d.actions or d.goal or d.skill))
             more = more or promise_check
+            unheard = (turn == 0 and addressed and bool(event.text) and not body_events and not t["ran"]
+                       and not t["failure"] and not d.speech and not (d.actions or d.goal or d.skill or d.refusals)
+                       and getattr(self.controller, "say_channel", False) and self._wrote_text(d))
+            more = more or unheard
             if not more:
                 break
             spoke = self._player_spoke()
@@ -443,7 +463,7 @@ class Agent:
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
                                               note=PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
-                                              PROMISE_NOTE if promise_check else None,
+                                              PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else None,
                                               news=news)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
@@ -675,6 +695,13 @@ class Agent:
         for ev in acts:
             self.handle_event(ev)
         return [self.broker.describe_activity(ev) for ev in acts]
+
+    @staticmethod
+    def _wrote_text(d) -> bool:
+        """Did the model's last reply carry free text (a private note on the say channel)?"""
+        last = (getattr(d, "messages", None) or [{}])[-1]
+        content = last.get("content") if isinstance(last, dict) and last.get("role") == "assistant" else None
+        return isinstance(content, str) and bool(content.strip())
 
     def _player_spoke(self) -> bool:
         """Has a chat line arrived since this request started? (peeked, kept for the next pump)"""

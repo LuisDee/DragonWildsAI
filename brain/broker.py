@@ -39,8 +39,8 @@ from typing import Any, Callable
 
 from . import situation as sit
 from .geom import direction
-from .interface import (PROGRESS_EVENTS, Activity, Attacked, Event, ItemsDropped, Resumed, TaskDone, TaskFailed,
-                        Unreachable, VitalsLow)
+from .interface import (PROGRESS_EVENTS, Activity, Attacked, Event, ItemsDropped, Reason, Resumed, TaskDone,
+                        TaskFailed, Unreachable, VitalsLow)
 
 MOVE_TOOLS = {"follow", "go_to", "come_to"}
 # Tools that run alongside a move instead of replacing it in the body's action slot.
@@ -48,6 +48,9 @@ NON_PREEMPTING = {"cast", "say", "look", "inspect", "inventory", "remember", "se
                   "clear_rule", "get_state"}
 BODY_SITUATIONS = (Unreachable, Resumed, VitalsLow, ItemsDropped)
 HELD_TOOLS = {"follow"}  # answer at their start, then keep running in the body
+# The result of an action the brain stopped waiting for when the player spoke (still_running) and that nobody
+# re-attached to or replaced: the model hears how it ended (co-play retro 2026-11-01, root cause 2).
+RUNNING_RESULT = "running_action_result"
 
 ARRIVED_M = 6.0  # within this of a player = "next to him": an "I can't reach you" is stale
 PLAYER_MATCH_M = 10.0  # an unreachable whose leader_pos is this close to a player is about that player
@@ -194,6 +197,9 @@ def fallback_line(events: list[dict]) -> str | None:
             lines.append(line)
         elif e.get("type") == "resumed":
             lines.append("Found you.")
+        elif e.get("type") == RUNNING_RESULT and e.get("ok") is False:  # it ran on after he spoke, then failed
+            why = human_detail(e.get("detail")) or str(e.get("reason") or "it stopped").replace("_", " ")
+            lines.append(f"That didn't work out: {why}.")
         elif e.get("type") == "stuck":  # must be told: the template when the model is silent or fails
             from .controller import Controller  # local import: controller imports broker indirectly
             lines.append(Controller.stuck_line(str(e.get("goal") or "the job"), e.get("failed"), e.get("reason"),
@@ -262,11 +268,19 @@ def arg_text(args: dict, name: str | None = None) -> str:
 class EventBroker:
     def __init__(self, log=None, clock: Callable[[], float] = time.monotonic,
                  tool_of: Callable[[str], str | None] | None = None,
-                 abandoned: Callable[[str], bool] | None = None):
+                 abandoned: Callable[[str], bool] | None = None,
+                 late_result: Callable[[str], dict | None] | None = None):
         self.log = log
         self.clock = clock
         self.tool_of = tool_of or (lambda _id: None)  # bridge request id -> tool (BridgeClient.sent_tool)
         self.abandoned = abandoned or (lambda _id: False)  # ids the brain stopped waiting for (chat interrupt)
+        self.late_result = late_result or (lambda _id: None)  # the full result of such a request (BridgeClient)
+        # the action the body is still doing after the player spoke (still_running): {id, tool, args, name, started,
+        # detached, progress}; None once it is watched again, replaced or reported
+        self.running: dict | None = None
+        self._action_at: float | None = None  # when the brain's current action started
+        self._replaced: dict[str, str] = {}  # request id of a running action -> the brain tool that replaced it
+        self._running_results: dict[str, dict] = {}  # request id -> its running_action_result event (assess)
         self.places = None  # brain.places.Places (LiveSession): region / province / named places for the Where line
         self.episode: Episode | None = None
         self._episodes = 0
@@ -302,8 +316,21 @@ class EventBroker:
 
     # ---------------------------------------------------------------- what the brain itself does
 
-    def action_started(self, tool: str, args: dict) -> None:
+    def action_started(self, tool: str, args: dict, continuing: bool = False) -> None:
+        """``continuing``: the same call as the action still running since the player spoke (the executor re-attaches
+        to it): the same job and movement episode go on."""
         now = self.clock()
+        run = self.running
+        if run is not None and continuing and run["tool"] == tool:
+            self.running = None  # watched again: its result is this call's
+            self._action_at = run["started"]
+            return
+        self._action_at = now
+        if run is not None and tool not in NON_PREEMPTING:
+            self.running = None  # the body's action slot takes the new one: the running action ends "interrupted"
+            self._replaced[run["id"]] = tool
+            while len(self._replaced) > NAMES_KEEP:
+                self._replaced.pop(next(iter(self._replaced)))
         if tool in MOVE_TOOLS:
             self._end("replaced")
             target = args.get("player") or args.get("target")
@@ -315,6 +342,14 @@ class EventBroker:
 
     def action_finished(self, tool: str, args: dict, ok: bool, reason: str | None = None,
                         data: dict | None = None) -> None:
+        if reason == Reason.STILL_RUNNING and isinstance(data, dict) and data.get("id"):
+            # the player spoke: the brain stopped waiting, the body goes on (no result yet, no failure)
+            self.running = {"id": str(data["id"]), "tool": tool, "args": dict(args or {}),
+                            "name": self.name_of((args or {}).get("target")),
+                            "started": self._action_at or self.clock(), "detached": self.clock(),
+                            "progress": data.get("progress") if isinstance(data.get("progress"), dict) else None}
+            self._log("action_left_running", id=data["id"], tool=tool, args=args, progress=self.running["progress"])
+            return
         why = (data or {}).get("detail") or (data or {}).get("why")
         self._record(tool, dict(args or {}), ok, reason, str(why) if why else None,
                      self.name_of((args or {}).get("target")) or (data or {}).get("name"))
@@ -367,11 +402,8 @@ class EventBroker:
             elif isinstance(ev, TaskFailed) and self.held(ev.task_id):
                 pass  # a held action (follow) ended by itself: the executor never saw that (review H1)
             elif isinstance(ev, (TaskDone, TaskFailed)) and self.abandoned(ev.task_id):
-                # the brain stopped waiting (the player spoke): this late result is what really happened
-                tool = self.tool_of(ev.task_id) or "action"
-                ok_ = isinstance(ev, TaskDone)
-                self._record(tool, {}, ok_, None if ok_ else ev.reason, "finished after you stopped waiting", None)
-                why = "late result of an abandoned wait: recorded in recent actions"
+                # the brain stopped waiting (the player spoke) and the body went on: this is how it really ended
+                why = self._late(ev)
             elif isinstance(ev, (TaskDone, TaskFailed)):
                 why = "action result: the executor already has it (synchronous reply)"
             elif isinstance(ev, Unreachable):
@@ -395,7 +427,10 @@ class EventBroker:
     # ---------------------------------------------------------------- per event, against fresh state
 
     def assess(self, ev: Event, state: dict) -> Verdict:
-        if isinstance(ev, TaskFailed):
+        if isinstance(ev, (TaskDone, TaskFailed)) and ev.task_id in self._running_results:
+            v = Verdict("decide", "an action left running when the player spoke has ended",
+                        self._running_results.pop(ev.task_id))
+        elif isinstance(ev, TaskFailed):
             v = self._held_ended(ev)
         elif isinstance(ev, Unreachable):
             v = self._unreachable(ev, state)
@@ -460,6 +495,41 @@ class EventBroker:
     def held(self, task_id: str) -> bool:
         """Is this the id of a held action (one that answered at its start and keeps running)?"""
         return self.tool_of(task_id) in HELD_TOOLS
+
+    def running_result(self, task_id: str) -> bool:
+        """Is this event the result of an action left running when the player spoke, for the model to hear?"""
+        return task_id in self._running_results
+
+    def _late(self, ev: TaskDone | TaskFailed) -> str | None:
+        """The result of an action left running when the player spoke (triage). None: keep the event (assess gives it
+        to the model); otherwise why it is dropped: the brain replaced that action, or called it again (re-attached)."""
+        rid = ev.task_id
+        run = self.running if self.running is not None and self.running["id"] == rid else None
+        replaced = self._replaced.pop(rid, None)
+        if run is None:
+            return (f"late result of an action you replaced with {replaced}" if replaced else
+                    "late result of an action you called again (that call has the result)")
+        self.running = None
+        res = self.late_result(rid) or ({"ok": True, "reason": None, "data": ev.data} if isinstance(ev, TaskDone)
+                                        else {"ok": False, "reason": ev.reason, "data": {}})
+        ok = bool(res.get("ok"))
+        data = res.get("data") if isinstance(res.get("data"), dict) else {}
+        reason = None if ok else (res.get("reason") or getattr(ev, "reason", None))
+        why = data.get("why") or data.get("detail")
+        tool, args, now = run["tool"], run["args"], self.clock()
+        self._record(tool, args, ok, reason, (f"{why}; " if why and not ok else "") + "it ran on after the player spoke",
+                     run.get("name") or data.get("name"))
+        ep = self.episode
+        if tool in MOVE_TOOLS and ep is not None and ep.ended is None and ep.tool == tool:
+            ep.ended, ep.ok, ep.reason = now, ok, reason
+            ep.why = str(why) if why else None
+            ep.end_pos = _pos(data.get("position"))
+        target = args.get("player") or args.get("target") or args.get("resource") or args.get("item")
+        event = {"type": RUNNING_RESULT, "tool": tool, "target": run.get("name") or target, "args": args, "ok": ok,
+                 "reason": reason, "detail": why, "ran_s": round(now - run["started"]),
+                 "note": "you stopped waiting for it when the player spoke; it kept running and has now ended"}
+        self._running_results[rid] = {k: v for k, v in event.items() if v is not None and v != ""}
+        return None
 
     def _held_ended(self, ev: TaskFailed) -> Verdict:
         ep = self.episode
@@ -795,6 +865,25 @@ class EventBroker:
 
     # ---------------------------------------------------------------- what the model sees
 
+    def _running_line(self, run: dict, now: float) -> str:
+        """The action the body is still doing after the player spoke: what, for how long, how far to go."""
+        bits = [f"for {now - run['started']:.0f}s"]
+        prog = run.get("progress") or {}
+        tp = _pos(prog.get("target_pos"))
+        me = self._track[-1][1] if self._track else None
+        if tp and me:  # from where you are now
+            bits.append(f"about {math.dist(me[:2], tp[:2]):.0f} m to go")
+        elif _num(prog.get("dist_m")) is not None:
+            bits.append(f"{prog['dist_m']:.0f} m to go {now - run['detached']:.0f}s ago")
+        if prog.get("verdict") not in (None, "ok"):
+            bits.append(f"progress {prog['verdict']}" + (f": {prog['why']}" if prog.get("why") else ""))
+        st = self._seen or {}
+        if "action" in st and not st.get("action") and self._track and self._track[-1][0] > run["detached"]:
+            bits.append("your body reports no action now: it may have just ended")
+        return (f"Still running in your body: {run['tool']} {arg_text(run['args'], run.get('name'))} "
+                f"({'; '.join(bits)}). You stopped waiting for it when the player spoke; it goes on. The same call "
+                "again keeps it going without restarting it; another action replaces it.")
+
     def digest(self) -> list[str]:
         now = self.clock()
         out: list[str] = []
@@ -803,9 +892,13 @@ class EventBroker:
         if self._progress and now - self._progress[0] <= DIGEST_KEEP_S:
             out.append(f"Job progress {now - self._progress[0]:.0f}s ago: {self._progress[1]}")
         ep = self.episode
+        run = self.running
+        if run is not None:
+            out.append(self._running_line(run, now))
         if ep is not None:
             if ep.ended is None:
-                out.append(f"Moving: {ep.label()} (for {now - ep.started:.0f}s)")
+                if run is None or run["tool"] != ep.tool:
+                    out.append(f"Moving: {ep.label()} (for {now - ep.started:.0f}s)")
             elif now - ep.ended <= DIGEST_KEEP_S:
                 how = "arrived" if ep.ok else (f"failed: {ep.reason}" + (f" ({ep.why})" if ep.why else "")
                                                if ep.ok is False else ep.reason or "ended")

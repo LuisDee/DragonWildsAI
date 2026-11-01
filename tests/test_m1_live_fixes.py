@@ -36,6 +36,8 @@ def _client(tmp_path, monkeypatch, stub):
     from brain import bridge_client as bc
     monkeypatch.setattr(bc, "HEARTBEAT_S", 0.0)
     monkeypatch.setattr(bc, "WATCH_AFTER_S", 0.0)
+    monkeypatch.setattr(bc, "DETACH_AFTER_S", 0.0)
+    monkeypatch.setattr(bc, "BEAT_TIMEOUT_S", 0.05)  # the stub never answers move_status
     c = bc.BridgeClient(stub, JsonlLogger(tmp_path / "b.jsonl"))
     c._started = 5
     return c
@@ -46,7 +48,7 @@ def test_a_line_buffered_before_the_request_interrupts_its_wait(tmp_path, monkey
     c._events.append(ChatHeard(player="Tester", text="claude what's in your bag"))  # arrived during the model call
     c.interrupt_check = lambda ev: isinstance(ev, ChatHeard)
     res = c.request("go_to", {"target": [1, 2, 3]}, timeout=30)
-    assert res["reason"] == "interrupted", res
+    assert res["reason"] == "still_running", res  # the body goes on; the model gets the floor
 
 
 def test_after_one_restart_the_next_command_is_not_failed_again(tmp_path, monkeypatch):

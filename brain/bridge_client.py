@@ -17,8 +17,8 @@ from typing import Callable
 from pydantic import ValidationError
 
 from . import protocol
-from .interface import (EVENT_TYPES, PROGRESS_EVENTS, ActionResult, Coords, Event, GameInterface, Reason, fail,
-                        from_wire, parse_event)
+from .interface import (EVENT_TYPES, PROGRESS_EVENTS, ActionResult, Coords, Event, GameInterface, Reason, TaskDone,
+                        TaskFailed, fail, from_wire, parse_event)
 from .jsonl_log import JsonlLogger
 from .transport import Transport
 
@@ -49,6 +49,17 @@ LOST_AFTER_BEATS = 2  # consecutive heartbeats without our id before a command c
 # beside interact/craft was said only when the action ENDED, 62-107 s after the chat line). A quick failure
 # answers before this, so its failure line still replaces the model's line (single voice).
 ACCEPTED_AFTER_S = 2.0
+# L2(a) v2 (co-play retro 2026-11-01, root cause 2): an addressed chat line gives the model the floor, but the action
+# is NOT failed: the wait detaches (``still_running``), the body keeps doing it, and its result is reported when it
+# comes (a TaskDone/TaskFailed event for the detached id; ``late_result`` has the full result). The same call again
+# re-attaches to the request (``reattach``) instead of restarting it. Pattern: LiveKit async tools (a running tool
+# keeps going whatever the user says; its status goes into the model's context; a duplicate call is matched to the
+# running one) and the Gemini Live API's non-blocking function calls (ignore a duplicate call while the same call's
+# response is pending). A wait shorter than this never detaches (a get_state, a look): it answers first.
+DETACH_AFTER_S = 2.0
+NO_DETACH = {"ping", "get_state", "say", "move_status", protocol.CAPABILITIES}  # quick reads the brain needs itself
+MOVE_STATUS_TOOLS = {"go_to", "follow", "come_to"}  # a detached move reports the body's move status (metres to go)
+KEEP_IDS = 200
 
 
 class BridgeClient(GameInterface):
@@ -61,7 +72,11 @@ class BridgeClient(GameInterface):
         self._events: list[Event] = []
         self._inflight: set[str] = set()  # request ids still waiting for their result
         self._sent: dict[str, str] = {}  # request id -> tool (broker: which task_failed is a held follow ending)
-        self._abandoned: set[str] = set()  # ids the brain stopped waiting for (chat interrupt): still running in the body
+        self._abandoned: set[str] = set()  # ids the brain stopped waiting for (chat) and never re-attached to
+        # detached waits still running in the body: id -> {tool, args, sent_at, deadline, started0, detached_at}
+        self._detached: dict[str, dict] = {}
+        self._late: dict[str, ActionResult] = {}  # id -> the result of a detached wait, when it came
+        self._late_evented: set[str] = set()  # detached ids whose TaskDone/TaskFailed event went to the agent
         self._started = None  # the body bridge's start epoch, from the last ping that carried one
         # L2(a): set by the agent: True for an event that must get the floor now (an addressed chat line)
         self.interrupt_check: Callable[[Event], bool] | None = None
@@ -101,11 +116,18 @@ class BridgeClient(GameInterface):
             except ValidationError as exc:
                 self.log.log("bridge_bad_event", msg=msg, error=str(exc))
                 return
+            if isinstance(ev, (TaskDone, TaskFailed)) and ev.task_id in self._abandoned:
+                if ev.task_id in self._late_evented:  # the late result already told the agent (with its data)
+                    self.log.log("bridge_late_event_duplicate", id=ev.task_id, event_type=ev.type)
+                    return
+                self._late_evented.add(ev.task_id)
             self._events.append(ev)
             if isinstance(ev, PROGRESS_EVENTS):
                 self._progress.append(ev)
         elif kind in ("result", "error") and msg.get("id") in self._inflight:
             self._parked[msg["id"]] = msg
+        elif kind in ("result", "error") and msg.get("id") in self._detached:
+            self._late_arrived(msg)
         elif kind in ("result", "error"):
             self.log.log("bridge_unmatched", msg=msg)  # late reply to a timed-out call, or body error
         else:
@@ -143,16 +165,46 @@ class BridgeClient(GameInterface):
         self.log.log("bridge_send", msg=msg)
         self._inflight.add(req_id)
         self._sent[req_id] = tool
-        if len(self._sent) > 200:  # bounded: the oldest ids go first
+        if len(self._sent) > KEEP_IDS:  # bounded: the oldest ids go first
             self._sent.pop(next(iter(self._sent)))
-        watch = timeout > WATCH_AFTER_S and tool not in ("ping", protocol.CAPABILITIES)
-        # seen = 0: every event not yet polled counts, also one buffered just before this request started
-        # (M1 2026-10-26 17:57:25/18:02:37: a line that arrived during the model call waited out a 70 s go_to)
-        started0, seen, misses = self._started, 0, 0
-        accepted_at = time.monotonic() + ACCEPTED_AFTER_S if watch and self.on_long_action else None
+        sent_at = time.monotonic()
         try:
             self.transport.send(msg)
-            deadline = time.monotonic() + timeout
+        except BaseException:
+            self._inflight.discard(req_id)
+            raise
+        return self._await(req_id, tool, dict(args or {}), sent_at, sent_at + timeout, self._started,
+                           detachable=not probe)
+
+    def reattach(self, request_id: str) -> ActionResult | None:
+        """Watch a detached request again (the model called the same action while the body still does it): its
+        result when it comes, or None when it is not running any more (finished, replaced: send it again)."""
+        rec = self._detached.pop(request_id, None)
+        if rec is None:
+            return None
+        self._abandoned.discard(request_id)  # watched again: its result is this call's, not a late report
+        now = time.monotonic()
+        self.log.log("bridge_reattach", id=request_id, tool=rec["tool"], running_s=round(now - rec["sent_at"], 1))
+        self._inflight.add(request_id)
+        return self._await(request_id, rec["tool"], rec["args"], rec["sent_at"],
+                           max(rec["deadline"], now + 2 * HEARTBEAT_S), rec["started0"], detachable=True,
+                           accepted=True)
+
+    def _await(self, req_id: str, tool: str, args: dict, sent_at: float, deadline: float, started0,
+               detachable: bool, accepted: bool = False) -> ActionResult:
+        """Wait for one in-flight request's result (it is in ``_inflight``); see ``request``."""
+        watch = deadline - sent_at > WATCH_AFTER_S and tool not in ("ping", protocol.CAPABILITIES)
+        # seen = 0: every event not yet polled counts, also one buffered just before this request started
+        # (M1 2026-10-26 17:57:25/18:02:37: a line that arrived during the model call waited out a 70 s go_to)
+        seen, misses = 0, 0
+        began = time.monotonic()
+        detach_at = began + DETACH_AFTER_S if detachable and watch and tool not in NO_DETACH else None
+        accepted_at = None
+        if accepted:
+            self._accepted(tool, req_id)  # it is running: the turn's held line is true now
+        elif watch and self.on_long_action:
+            accepted_at = began + ACCEPTED_AFTER_S
+        try:
             next_beat = time.monotonic() + HEARTBEAT_S
             while True:
                 reply = self._parked.pop(req_id, None)
@@ -166,8 +218,11 @@ class BridgeClient(GameInterface):
                 if remaining <= 0:
                     break
                 wait = min(remaining, HEARTBEAT_S) if watch else remaining
+                now = time.monotonic()
                 if accepted_at is not None:
-                    wait = min(wait, max(0.0, accepted_at - time.monotonic()))
+                    wait = min(wait, max(0.0, accepted_at - now))
+                if detach_at is not None and detach_at > now:  # wake to check a line that came during the grace
+                    wait = min(wait, detach_at - now)
                 for incoming in self.transport.receive(wait):
                     self._dispatch(incoming)
                 self._drain_malformed()
@@ -175,13 +230,18 @@ class BridgeClient(GameInterface):
                     self._notify_progress()
                 if not watch or req_id in self._parked:
                     continue
-                # L2(a): an addressed chat line gets the floor; the body keeps working on the command
-                if self.interrupt_check and any(self._safe_check(e) for e in self._events[seen:]):
-                    self._abandoned.add(req_id)
-                    self.log.log("bridge_wait_interrupted", id=req_id, tool=tool, why="addressed chat")
-                    return fail(Reason.INTERRUPTED, tool=tool, id=req_id, by="chat",
-                                detail="the player spoke; the body may still be doing it")
-                seen = len(self._events)
+                # L2(a): an addressed chat line gets the floor; the body keeps working on the command (detached)
+                if self.interrupt_check and detach_at is not None and time.monotonic() >= detach_at:
+                    if any(self._safe_check(e) for e in self._events[seen:]):
+                        if accepted_at is not None:  # it has run this long: accepted (its held line is true)
+                            accepted_at = None
+                            self._accepted(tool, req_id)
+                        left = None if req_id in self._parked else \
+                            self._detach(req_id, tool, args, sent_at, deadline, started0)
+                        if left is not None:
+                            return left
+                        continue  # its result came in meanwhile (read off the wire by a nested request)
+                    seen = len(self._events)
                 if accepted_at is not None and time.monotonic() >= accepted_at:
                     accepted_at = None
                     self._accepted(tool, req_id)
@@ -222,8 +282,74 @@ class BridgeClient(GameInterface):
             self._parked.pop(req_id, None)
             if not self._inflight:
                 self._progress.clear()  # progress that arrived with the final result is stale
-        self.log.log("bridge_timeout", id=req_id, tool=tool, timeout=timeout)
+        self.log.log("bridge_timeout", id=req_id, tool=tool, timeout=round(deadline - sent_at, 1))
         return fail(Reason.TIMEOUT, tool=tool, id=req_id)
+
+    def _detach(self, req_id: str, tool: str, args: dict, sent_at: float, deadline: float,
+                started0) -> ActionResult | None:
+        """Stop waiting (the player spoke) without failing the action: the body keeps doing it. Its result,
+        when it comes, is a late result (``_late_arrived``); the same call again re-attaches (``reattach``).
+        None: its result arrived during the move-status read (the caller returns that instead)."""
+        prog = self._move_progress() if tool in MOVE_STATUS_TOOLS else None  # still in flight: a result is parked
+        if req_id in self._parked:
+            return None
+        now = time.monotonic()
+        self._abandoned.add(req_id)
+        self._detached[req_id] = {"tool": tool, "args": args, "sent_at": sent_at, "deadline": deadline,
+                                  "started0": started0, "detached_at": now}
+        for coll in (self._abandoned, self._late_evented):
+            while len(coll) > KEEP_IDS:
+                coll.discard(next(iter(coll)))
+        data = {"tool": tool, "id": req_id, "by": "chat", "running": True, "running_s": round(now - sent_at, 1),
+                "detail": "the player spoke, so you stopped waiting; your body is still doing it"}
+        if prog:
+            data["progress"] = prog
+        self.log.log("bridge_wait_interrupted", id=req_id, tool=tool, why="addressed chat", detached=True,
+                     running_s=data["running_s"], progress=data.get("progress"))
+        return fail(Reason.STILL_RUNNING, **data)
+
+    def _move_progress(self) -> dict | None:
+        """The body's move status, compactly (how far to go, toward what, how it's going): one quick read."""
+        res = self.request("move_status", {}, BEAT_TIMEOUT_S)
+        st = res.get("data") if res.get("ok") else None
+        if not isinstance(st, dict) or not st:
+            return None
+        prog = st.get("progress") if isinstance(st.get("progress"), dict) else {}
+        out = {"mode": st.get("mode"), "status": st.get("status"), "dist_m": st.get("dist_m"),
+               "target": st.get("target"), "target_pos": st.get("target_pos"), "speed_ms": st.get("speed_ms"),
+               "verdict": prog.get("verdict"), "why": prog.get("why")}
+        return {k: v for k, v in out.items() if v not in (None, "", [], {})} or None
+
+    def _late_arrived(self, msg: dict) -> None:
+        """The result of a detached wait: kept for ``late_result`` and told to the agent as a TaskDone/TaskFailed
+        event (once; the body's own task event for that id is then a duplicate)."""
+        rid = msg["id"]
+        rec = self._detached.pop(rid, None) or {}
+        res = from_wire(msg) if msg.get("type") == "result" else \
+            fail(msg.get("reason") or Reason.BODY_ERROR, detail=msg.get("detail"))
+        self._late[rid] = res
+        while len(self._late) > KEEP_IDS:
+            self._late.pop(next(iter(self._late)))
+        ran = round(time.monotonic() - rec["sent_at"], 1) if rec.get("sent_at") else None
+        self.log.log("bridge_late_result", id=rid, tool=rec.get("tool"), ok=res["ok"], reason=res["reason"],
+                     running_s=ran)
+        if rid in self._late_evented:
+            return
+        self._late_evented.add(rid)
+        if res["ok"]:
+            self._events.append(TaskDone(task_id=rid, data=res["data"] or {}))
+        else:
+            self._events.append(TaskFailed(task_id=rid, reason=str(res["reason"] or Reason.BODY_ERROR)))
+
+    def late_result(self, request_id: str) -> ActionResult | None:
+        """The full result of a detached request, once the body answered it."""
+        return self._late.get(request_id)
+
+    def detached(self) -> list[dict]:
+        """Requests the brain stopped waiting for that the body is still doing (oldest first)."""
+        now = time.monotonic()
+        return [{"id": rid, "tool": r["tool"], "args": r["args"], "running_s": round(now - r["sent_at"], 1)}
+                for rid, r in self._detached.items()]
 
     def ping(self, timeout: float = 5.0) -> float | None:
         """Round-trip time in seconds, or None on timeout."""
@@ -263,7 +389,8 @@ class BridgeClient(GameInterface):
             return False
 
     def abandoned(self, request_id: str) -> bool:
-        """The brain stopped waiting for this request (an addressed chat line came in)."""
+        """The brain stopped waiting for this request (an addressed chat line came in) and never re-attached to it:
+        its result is a late report (it ran on in the body)."""
         return request_id in self._abandoned
 
     def capabilities(self, timeout: float = 5.0) -> ActionResult:
