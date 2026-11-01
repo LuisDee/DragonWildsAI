@@ -214,7 +214,7 @@ do
     -- live 18:56Z: part 1 complete and part 2 given in one talk; "is complete" alone read as the whole quest done
     w = K.outcome_words({ { quest = "Rune Mysteries", from = "given", to = "complete" },
                           { quest = "Rune Mysteries", from = "ungiven", to = "given", step = "Mine Rune Essence." } })
-    check("a finished quest followed by its namesake goes on", w == "Quest Rune Mysteries is complete. Rune Mysteries goes on as a new quest of the same name: Mine Rune Essence.", w)
+    check("a finished quest followed by its namesake goes on", w == "One part of Rune Mysteries is complete, but Rune Mysteries is not over. It goes on as a new quest of the same name, now given: Mine Rune Essence.", w)
     check("conversation mode word", K.is_conversation_mode("DIM_ConversationUI") and not K.is_conversation_mode("DIM_SpellcastingMode"))
 end
 

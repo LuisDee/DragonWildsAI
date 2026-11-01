@@ -177,14 +177,21 @@ end
 -- Quest changes and items of one call -> one plain sentence each (nil when nothing changed)
 function M.outcome_words(qd, items, names)
     local w = {}
-    local done = {}
-    for _, d in ipairs(qd or {}) do if d.to == "complete" then done[tostring(d.quest)] = true end end
+    local done, given = {}, {}
     for _, d in ipairs(qd or {}) do
-        if d.to == "complete" then w[#w + 1] = string.format("Quest %s is complete.", tostring(d.quest))
-        elseif d.to == "given" and d.from == "ungiven" and done[tostring(d.quest)] then
-            -- live 18:56Z (clone ClaudeQ1): "Quest Rune Mysteries is complete. New quest Rune Mysteries: ..." read as the
-            -- whole quest done, and he stood with part 2 open. The game names both parts alike; say it goes on.
-            w[#w + 1] = string.format("%s goes on as a new quest of the same name: %s", tostring(d.quest), tostring(d.step or "started."))
+        if d.to == "complete" then done[tostring(d.quest)] = true end
+        if d.to == "given" and d.from == "ungiven" then given[tostring(d.quest)] = true end
+    end
+    for _, d in ipairs(qd or {}) do
+        local name = tostring(d.quest)
+        if d.to == "complete" and given[name] then
+            -- live 18:56Z (ClaudeQ1) and 20:16Z (ClaudeQ4): "Quest Rune Mysteries is complete" read as the whole quest
+            -- done, and he stood with its next part open, even after "... goes on as a new quest of the same name".
+            -- The game names both parts alike; the completion is only one part's, so say that first.
+            w[#w + 1] = string.format("One part of %s is complete, but %s is not over.", name, name)
+        elseif d.to == "complete" then w[#w + 1] = string.format("Quest %s is complete.", name)
+        elseif d.to == "given" and d.from == "ungiven" and done[name] then
+            w[#w + 1] = string.format("It goes on as a new quest of the same name, now given: %s", tostring(d.step or "started."))
         elseif d.to == "given" and d.from == "ungiven" then w[#w + 1] = string.format("New quest %s: %s", tostring(d.quest), tostring(d.step or "started."))
         elseif d.step then w[#w + 1] = string.format("%s, next step: %s", tostring(d.quest), d.step) end
     end
