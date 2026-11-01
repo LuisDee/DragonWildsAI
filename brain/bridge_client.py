@@ -160,7 +160,7 @@ class BridgeClient(GameInterface):
     def request(self, tool: str, args: dict | None = None, timeout: float | None = None,
                 probe: bool = False) -> ActionResult:
         req_id = uuid.uuid4().hex[:12]
-        msg = protocol.cmd(req_id, tool, args, probe=probe)
+        msg = protocol.cmd(req_id, tool, args, probe=probe, **self.log.ids())  # run, ep, call (telemetry item 1)
         timeout = timeout if timeout is not None else self.timeouts.get(tool, self.default_timeout)
         self.log.log("bridge_send", msg=msg)
         self._inflight.add(req_id)

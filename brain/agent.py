@@ -550,7 +550,8 @@ class Agent:
                 spoken = True
             self._held = {"tool": call.name, "line": d.speech, "said": False} if d.speech and not spoken else None
             try:
-                outcome = self._run_task(Task(skill=call.name, args=call.arguments))
+                with self.log.scope(call=call.id):  # the model's tool_use id on every row + bridge cmd (item 1)
+                    outcome = self._run_task(Task(skill=call.name, args=call.arguments))
             finally:
                 held, self._held = self._held, None
             spoken = spoken or bool(held and held["said"])
