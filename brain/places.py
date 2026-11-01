@@ -398,6 +398,32 @@ class Places:
                 out.append(label)
         return out[:k]
 
+    def mentioned(self, text: str, here=None, k: int = 2) -> list[str]:
+        """Map names said in ``text`` (every word of the name is in it): regions, provinces and landmarks of two or
+        more words ("Statue", "Cow" are too common to mean the map's one). The longest name wins over a name inside
+        it. For the model: "the Astral Anima Vent" is a place go_to can take, not something to look for first."""
+        q = _terms(text or "")
+        if not q:
+            return []
+        names = [(n, "landmark") for n in self.landmarks if len(_terms(n)) >= 2]
+        names += [(r["name"], "region") for r in self.regions] + [(p["name"], "province") for p in self.provinces]
+        hits = [(n, kind) for n, kind in names if _terms(n) and _terms(n) <= q]
+        hits = [(n, kind) for n, kind in hits if not any(_terms(n) < _terms(m) for m, _ in hits)]
+        out: list[str] = []
+        for n, kind in sorted(hits, key=lambda h: -len(_terms(h[0])))[:k]:
+            here_p = _pos(here)
+            if kind != "landmark" and here_p and n in (self.region_name(here_p), self.province_name(here_p)):
+                out.append(f"{n}: a {kind} on the game map; you are in it")
+                continue
+            best = next((o for o in self.where(n, here, limit=1)["data"].get("results") or []
+                         if o.get("name") == n), None) or {}
+            d = best.get("distance_m")
+            go = f"the lodestone by {n}" if "lodestone" in q and kind == "landmark" else n
+            out.append(f"{n}: a {kind} on the game map" + (f", nearest {d:.0f} m away" if isinstance(d, (int, float)) else "")
+                       + (f" in {best['region']}" if best.get("region") and best["region"] != n else "")
+                       + f"; go_to \"{go}\" walks " + ("to the lodestone nearest it" if go != n else "there"))
+        return out
+
     def where(self, query: str, here=None, *, lodestones: Iterable[dict] | None = None,
               remembered: Iterable[dict] | None = None, saved: dict | None = None, limit: int = 4) -> dict:
         """Honest facts about where ``query`` is. ``remembered``: map memory sightings ({name, position, kind,

@@ -385,3 +385,15 @@ def test_go_to_says_it_takes_map_names_only_when_the_brain_resolves_them(tmp_pat
     assert "game's map" not in str(target().get("description"))
     rig.controller.use_map_names()
     assert str(target()["description"]).endswith("the result says what it was taken to be.")
+
+
+def test_mentioned_names_map_places_in_a_chat_line():
+    p = Places({**DATA, "landmarks": DATA["landmarks"] + [{"name": "Water Anima Vent", "position": [-40, 50, 0]},
+                                                          {"name": "Anima Vent", "position": [0, 0, 0]}]})
+    said = p.mentioned("claude head over to the water anima vent", HERE)
+    assert said == ['Water Anima Vent: a landmark on the game map, nearest 20 m away in Temple Woods; '
+                    'go_to "Water Anima Vent" walks there']  # the longer name wins over "Anima Vent" inside it
+    assert p.mentioned("meet me in temple woods", HERE) == ["Temple Woods: a region on the game map; you are in it"]
+    assert p.mentioned("the lodestone by the water anima vent", HERE)[0].endswith(
+        'go_to "the lodestone by Water Anima Vent" walks to the lodestone nearest it')
+    assert p.mentioned("go see zanik by the shrine", HERE) == []  # one-word names are too common to tag

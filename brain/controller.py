@@ -661,6 +661,12 @@ class Controller:
             refs = grounding.hints(grounding.read(text, sit.perceived(state), exclude=[player, self.name]))
             if refs:
                 ctx["references"] = refs  # information only: the model decides (PRINCIPLES.md #2)
+        if text and getattr(self, "places", None) is not None:
+            try:  # map names in his line (chat run 10: looked for "the Astral Anima Vent" before go_to)
+                if named := self.places.mentioned(text, (state or {}).get("position")):
+                    ctx["map_names"] = named
+            except Exception as exc:  # context is best effort
+                self.log.log("map_names_error", error=repr(exc))
         if self.chat_provider:
             try:
                 ctx["chat"] = self.chat_provider()
