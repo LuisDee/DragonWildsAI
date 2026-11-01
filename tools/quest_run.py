@@ -367,9 +367,10 @@ def cmd_run(a) -> int:
 
 # A fresh character's quest chain, in order: the line a player would send for each (the brain works out the rest)
 FRESH_PLAN = (
+    ("First Steps", "claude, go and talk to the Wise Old Man by the temple and do what he asks", 240),
     ("Getting Started", "claude, go and see Doric outside the temple and do whatever he asks you to", 300),
     ("Ratcatcher", "claude, go and see Vannaka near the windmill and do his quest", 360),
-    ("Rune Mysteries", "claude, go and see Zanik and do her quest", 480),
+    ("Rune Mysteries", "claude, go and see Zanik and do her quest", 600),  # both parts: the game names them alike
 )
 
 
@@ -390,9 +391,11 @@ def _on_main(sw, cli, tries: int = 3) -> dict | None:
 
 
 def cmd_fresh(a) -> int:
-    """ONE lock window for a brand-new character (main's rules, 2026-11-01): make it (evals/bench/devchar.py, Claude's
-    own account, dev world), run FRESH_PLAN in one go with no fixture top-ups, switch back to ClaudeDev and see his
-    pawn before the lock goes. The lock is never released while the client is on another character."""
+    """ONE lock window for a quest-cleared clone of ClaudeDev (main + Luis, 2026-11-01: tools/quest_clone.py, made
+    here if its save does not exist yet; same level and gear, the FTUE chain cleared): switch to it (evals/bench/
+    devchar.py, Claude's own account, dev world), run FRESH_PLAN in one go with no fixture top-ups, switch back to
+    ClaudeDev and see his pawn before the lock goes. The lock is never released while the client is on another
+    character."""
     if not a.confirm:
         print("refusing: this relaunches the client on a new character; pass --confirm")
         return 2
@@ -400,7 +403,7 @@ def cmd_fresh(a) -> int:
     from evals.bench.devchar import NAME_RE, default_switch
     from evals.bench.devrun import default_dev
     from tools.live_lock import held
-    name = a.name or f"CQ_{time.strftime('%d%H%M', time.gmtime())}"
+    name = a.name or f"ClaudeQ{time.strftime('%d%H%M', time.gmtime())}"
     if not NAME_RE.match(name):
         print(f"invalid character name {name!r}")
         return 2
@@ -412,7 +415,11 @@ def cmd_fresh(a) -> int:
         sw = default_switch(dev)
         cli = cl._debug_client()
         try:
-            made = sw.ensure(name, create=True, wait_s=150)
+            if not sw.exists(name):
+                from tools import quest_clone
+                if quest_clone.main(["make", "--name", name]) != 0:
+                    raise RuntimeError(f"quest_clone could not make {name}")
+            made = sw.ensure(name, create=False, wait_s=150)
             out["made"] = {**made, "s": round(time.time() - t0, 1)}
             print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
             for quest, line, deadline in FRESH_PLAN:
@@ -484,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--judge", action="store_true", help=argparse.SUPPRESS)
     fr = sub.add_parser("fresh", help="one lock window: a new character runs the quest chain, then back to ClaudeDev")
     fr.add_argument("--confirm", action="store_true")
-    fr.add_argument("--name", help="the new character's name (default CQ_<ddhhmm>)")
+    fr.add_argument("--name", help="the clone's name (default ClaudeQ<ddhhmm>; made by tools/quest_clone.py if its save does not exist)")
     fr.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
     fr.add_argument("--window-s", type=float, default=1200.0, help="the whole window, switch back included")
     fr.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")

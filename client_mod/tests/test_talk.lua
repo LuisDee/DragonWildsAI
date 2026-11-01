@@ -211,6 +211,10 @@ do
     qd = K.quest_diff(RM, { RM[1], { quest = "Rune Mysteries", asset = "Q_RM2", state = "given", objective = "Objective3", step = "Return to Zanik." } })
     local w = K.outcome_words(qd)
     check("quest diff: two quests of one name matched by asset", #qd == 1 and qd[1].step == "Return to Zanik." and w == "Rune Mysteries, next step: Return to Zanik.", w)
+    -- live 18:56Z: part 1 complete and part 2 given in one talk; "is complete" alone read as the whole quest done
+    w = K.outcome_words({ { quest = "Rune Mysteries", from = "given", to = "complete" },
+                          { quest = "Rune Mysteries", from = "ungiven", to = "given", step = "Mine Rune Essence." } })
+    check("a finished quest followed by its namesake goes on", w == "Quest Rune Mysteries is complete. Rune Mysteries goes on as a new quest of the same name: Mine Rune Essence.", w)
     check("conversation mode word", K.is_conversation_mode("DIM_ConversationUI") and not K.is_conversation_mode("DIM_SpellcastingMode"))
 end
 
