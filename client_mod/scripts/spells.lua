@@ -2037,9 +2037,9 @@ M.MANIFEST = {
     cast = { kind = "waiter", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 60,
         detail_is_speech = true,
         description = "Cast one of your spells (wheel, then cast); verified by runes and cooldown. Pick from castable_spells by "
-            .. "what it does. Instant: on you. Placed/aimed: at target, or omit it and you find a valid spot or aim yourself; "
+            .. "what it does; a spell not listed there can't be cast now, so tell him so instead. Instant: on you. Placed/aimed: at target, or omit it and you find a valid spot or aim yourself; "
             .. "a target out of reach (even a moving creature) is walked up to and cast at in this same call. Each spell's "
-            .. "`how` (state.spells) says how it is really used: what to drop or stand by first, what to cast it on, or "
+            .. "`how` (in castable_spells) says how it is really used: what to drop or stand by first, what to cast it on, or "
             .. "(cast_type instant_after_move) that it is held open while you walk_to somewhere. Never at players.",
         args = { type = "object", required = { "spell" }, properties = obj({
             spell = { type = "string", description = "Exact name from castable_spells." },

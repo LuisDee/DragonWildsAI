@@ -45,8 +45,10 @@ LEGACY_ARGS: dict[tuple[str, str], Callable[[dict], dict]] = {
 
 
 # Prompt budget (speed plan 2.2: <= 8k tokens): the tool block is in the cached prefix but still costs
-# latency. Bodies should keep descriptions short; this caps whatever they publish (at a sentence end).
-DESC_CHARS, ARG_CHARS = 360, 140
+# latency. Bodies should keep descriptions crisp; this caps whatever they publish (at a sentence end). Persona diet
+# 2026-11-01: 360/140 silently cut cast's "Never at players", gather's no-XP list and the cast/gather arg tails, and
+# tool guidance moved out of the persona into the descriptions (Anthropic: descriptions matter most), so: 640/300.
+DESC_CHARS, ARG_CHARS = 640, 300
 
 
 def _cap(text: str, n: int) -> str:

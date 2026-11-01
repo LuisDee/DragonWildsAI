@@ -43,7 +43,7 @@ from brain import paths  # noqa: E402
 from brain import persona as persona_file  # noqa: E402
 from brain.capabilities import Capabilities, _parse_manifest  # noqa: E402
 from brain.agent import PROMISE_NOTE  # noqa: E402
-from brain.controller import FINAL_PASS_NOTE, LOOK_RULE, LOOKUP_RULE, RULES_RULE, TALK_ONLY_NOTE, Controller  # noqa: E402
+from brain.controller import FINAL_PASS_NOTE, TALK_ONLY_NOTE, Controller  # noqa: E402
 from brain.interface import BODY_TOOLS, SENSABLE_TRIGGERS  # noqa: E402
 from brain.jsonl_log import JsonlLogger, read_jsonl  # noqa: E402
 from brain.llm import (CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, FakeLLM, LiteLLMClient, LLMResponse,  # noqa: E402
@@ -55,6 +55,23 @@ HERE = Path(__file__).resolve().parent
 CASES = HERE / "voice_cases.jsonl"
 MANIFEST = HERE / "fixtures" / "voice_manifest.json"
 PERSONAS = {"old": HERE / "fixtures" / "persona_old.md", "new": persona_file.DEFAULT_PATH}
+# An older persona text (the frozen "old" fixture, or persona.md at a ref before the 2026-11-01 diet) still has the
+# look/lookup/standing-order placeholders the Controller used to fill; these are those rules as they were then.
+# Today's persona has none (the guidance is in the tool descriptions), and extra values are ignored.
+OLD_FILL = {
+    "look_rule": (": if he wants you to go to it (a place, NPC, landmark or vent), call go_to with its name directly, "
+                  "no look first. Anything else: situation is only a short summary and misses many things (sticks, "
+                  "stones, plants, chests, stations), so ALWAYS call look with about=<their words> first, before "
+                  "acting or saying you can't see it (read-only, it does not interrupt your job); then act on an id "
+                  "from its result. inspect gives details of one thing."),
+    "lookup_rule": ("\n- Game facts you are not sure of (what an item does, how to make it, which regions of the world "
+                    "something is found in, creatures, spells, mechanics) -> call lookup (read-only) and answer from "
+                    "it; game data beats the wiki."),
+    "rules_rule": ("\nStanding orders (set_reflex_rule): something your body does by itself, instantly, when a trigger "
+                   "it can sense happens (enemy = the enemy kind, or \"*\"). It can only sense: {triggers}. If his "
+                   "condition isn't one of them, don't call set_reflex_rule: say you can't sense that. reflex_rules "
+                   "lists current orders; list_rules and clear_rule manage them."),
+}
 JUDGE_BATCH = 13  # cases per judge call (25 cases -> 2 calls per persona)
 MAX_CALLS = 150  # one full run: k=3 x 25 (75) + reads + final passes + continuations (120 starved 3 samples) + judge
 K_SAMPLES = 3  # default samples per case: an A/B screen (a difference under ~0.1 is noise at k=3)
@@ -146,10 +163,10 @@ _OVERRIDE: dict[str, Path] = {}  # main(): the persona text measured (HEAD by de
 def system_prompt(variant: str, ctl: Controller) -> str:
     ov = _OVERRIDE.get(variant)
     text = persona_file.template(ov if ov is not None and Path(ov).exists() else PERSONAS[variant])
+    triggers = ", ".join(SENSABLE_TRIGGERS)
     prompt = persona_file.render(text, name=ctl.name, player=ctl.player,
-                                 triggers=", ".join(SENSABLE_TRIGGERS),  # the frozen "old" persona's placeholder
-                                 rules_rule=RULES_RULE.format(triggers=", ".join(SENSABLE_TRIGGERS)),
-                                 look_rule=LOOK_RULE, lookup_rule=LOOKUP_RULE)
+                                 triggers=triggers,  # the frozen "old" persona's placeholder
+                                 **{**OLD_FILL, "rules_rule": OLD_FILL["rules_rule"].format(triggers=triggers)})
     rules = ctl.house_rules()
     if rules:  # the same suffix Controller.persona() adds
         prompt += (f"\n\nHouse rules from {ctl.player} (always follow them; they are his, not yours to "

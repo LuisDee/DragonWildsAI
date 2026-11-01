@@ -43,10 +43,12 @@ M.TOOLS = {
         preconditions = { "the player is in the world" }, ground = obj({ player = "player" }),
         reasons = { "unknown_target", "companion_down", "invalid_args" } },
     stop = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 0, timeout_s = 10,
-        description = "Stop the current action and stand still.",
+        description = "Stop the current job (a follow too) and stand still and stay. Only for stopping or staying put: "
+            .. "any other action already replaces the current job, so don't call stop beside one.",
         args = NOARGS, reasons = {} },
     go_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 295, -- move.lua: max(120, 3 d / 4.5 m/s) capped at 285 s
-        description = "Walk to a player, a perceived thing, a remembered place or a point; answers on arrival or says why not.",
+        description = "Walk to a player, a perceived thing, a remembered place or a point; answers on arrival or says why not. "
+            .. "Use it whenever he wants you somewhere, also when you think you're already there: it answers arrived at once if you are.",
         args = { type = "object", required = { "target" }, properties = obj({
             target = { description = "A player name, a perceived id, a place, 'my_grave' / 'my_grave:<ts>' (a remembered grave), or [x,y,z].",
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
@@ -99,7 +101,10 @@ M.TOOLS = {
         args = { type = "object", required = { "text" }, properties = obj({ text = str("The chat line.") }) } },
     -- ------------------------------------------------------------------ reads
     look = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 15,
-        description = "List things nearby (items, plants, resources, creatures, players, usables) with ids. Read-only.",
+        description = "List things nearby (items, plants, resources, creatures, players, usables) with the ids other tools "
+            .. "act on. situation is only a short summary and misses many small things (sticks, stones, plants, chests, "
+            .. "stations): when he names something to pick up, use, fight or inspect that situation doesn't show, look "
+            .. "with about=<his words> before acting on it or telling him it isn't there. Read-only.",
         args = { type = "object", properties = obj({
             about = str("The player's words for what to find; ranks matches first."),
             radius = { type = "number", minimum = 1, maximum = 80, default = 20, description = "Metres." },

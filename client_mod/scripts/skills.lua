@@ -2199,7 +2199,7 @@ M.MANIFEST = {
         detail_is_speech = SPEAKS, aliases = { "pickup" },
         description = "Press use (E) on one perceived thing: walks there, faces it, presses, checks it worked. Picks up a "
             .. "ground stack or plant, Take All from a grave, lies down in a bed/shelter (interact on it again to get up), "
-            .. "opens, talks.",
+            .. "opens, talks. To only walk to something, use go_to.",
         args = { type = "object", required = { "target" }, properties = obj({
             target = str("The id of one perceived thing (from situation or look). Not a name or coordinates."),
             secondary = { type = "boolean", default = false,

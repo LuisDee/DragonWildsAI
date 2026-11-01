@@ -578,8 +578,8 @@ def test_replay_2026_where_are_you_gets_distance_and_motion(tmp_path):
     assert "standing still" in where and "Zezima is NOT in sight" in where and "follow Zezima" in where, where
     persona = r.model.calls[-1]["messages"][0]["content"]
     # brain/persona.md (voice workstream) carries these, in its own words
-    assert 'from the CURRENT state (body_status "Where:")' in persona and "don't list what you carry" in persona
-    assert "Never invent reasons" in persona
+    assert "trust it over recent_events and your own earlier lines" in persona and "don't list what you carry" in persona
+    assert "never make up reasons" in persona
 
 
 def test_where_line_with_the_player_in_sight_and_moving():
@@ -647,8 +647,7 @@ def test_night_and_low_endurance_the_model_suggests_resting(tmp_path):
     assert whats["sleep_allowed"]["to"] is True and ev["stats_pct"]["endurance"] == 20
     assert r.body.said == ["Guys, my endurance is at 20%, can we rest for the night?"]
     persona = r.model.calls[-1]["messages"][0]["content"]
-    assert "situation_review: something about your state changed" in persona
-    assert "Respect his earlier answers" in persona
+    assert "situation_review: respect his earlier answers (previous_review.you_said)" in persona
 
 
 def test_suggested_two_minutes_ago_and_told_no_stays_silent(tmp_path):
@@ -820,8 +819,8 @@ def test_persona_says_act_on_your_own_and_carry_plans_through(tmp_path):
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
     r.at(0).step()
     persona = r.model.calls[-1]["messages"][0]["content"]
-    assert "Solve problems yourself when you have the tools" in persona
-    assert "Your tool results come back for another turn" in persona
+    assert "sort out your own problems with what you have" in persona
+    assert "Results come back to you: carry the plan through" in persona
     assert "Ask Zezima only when it's genuinely ambiguous, risky or beyond your tools" in persona
 
 
@@ -1335,7 +1334,7 @@ def test_l31_a_bare_placeholder_reply_is_silence_and_body_runs_say_nobody_spoke(
     ctx = r.model.contexts[-1]
     assert ctx["command"]["spoken_to"] is False and ctx["command"]["text"] == ""
     persona = r.model.calls[-1]["messages"][0]["content"]
-    assert "EMPTY" not in persona and "never greet him" in persona and "no text" in persona
+    assert "EMPTY" not in persona and "nobody spoke, so no greeting" in persona and "No say call = silence" in persona
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
     r.at(5).step()
     assert r.model.contexts[-1]["command"]["spoken_to"] is True

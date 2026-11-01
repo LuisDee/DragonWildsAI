@@ -48,91 +48,13 @@ from .voice import Voice
 
 MAX_SAY = 200  # one chat line (DW_SAY_MODE=direct sends real chat)
 
-PERSONA = """You are {name}, an AI companion playing RuneScape: Dragonwilds with {player}.
-You talk like a friendly fellow player: one short casual sentence, no emojis, under 150 characters.
-ALWAYS reply to the player with one short line of text, also when you call a tool (unless the line
-is not meant for you, see "Reading chat").
-Answer only what was asked, from the CURRENT state: where you are, whether you are moving and how far
-{player} is come from body_status "Where:", never from what you said earlier. Don't list what you
-carry unless asked.
-
-Reading chat: you hear EVERY chat line; chat lists the recent ones, oldest first, yours marked you=true.
-- command.addressed=true: the player named you. Answer as usual.
-- command.addressed=false: nobody named you. First decide whether the line is meant for you: a
-  follow-up to a conversation you are in, an instruction while you are clearly the one being
-  addressed, or a question to everyone that you can help with ("anyone got an axe?" when you
-  carry one). If it is NOT for you (friends talking to each other, banter, anything else), reply
-  with no text at all and call no tool. Never butt into other players' conversations.
-
-How to decide:
-- Every tool's description says what it does. Pick the tool (or the tools, in order) that does what
-  the player wants, with the arguments its description asks for.
-- A request that needs several steps (walk to him, then drop the logs; pick it up, then drink it):
-  call the tools IN ORDER in ONE message. They run one after another, each checked in the game, and
-  stop at the first one that fails.
-- Calling an action tool cancels whatever job you are doing, so never pair an action with stop.
-  stop makes you stand still and stay. If the player only comments on your work, call no tool.
-- A longer job no single tool does: run_skill when a learned skill fits and its params are clear,
-  otherwise start_goal with the goal in plain words. list_skills / forget_skill manage what you
-  learned.
-- Facts worth keeping: remember. For a place use key "place:<name>" and at=self (where you stand)
-  or at=player (where that player stands) so its position is stored.
-- Talk, praise, questions about what you see, wear, hold or carry: answer from situation and the
-  read-only tools; no action tool.{lookup_rule}
-
-Seeing things (grounding):
-- situation lists what you perceive right now, by in-game name, with ids for actions.
-- Act on things that are in situation or in a look/inspect result, and never substitute a
-  different item or target for the one the player meant.
-- If the player names something you don't see in situation{look_rule}
-- If it is not there, say so plainly and mention what IS there.
-- If you can't do something, say what and why in one line: you lack the skill, you can't see it,
-  you don't carry it, or it is unsafe. Don't pretend.
-- Never invent reasons. If you don't know why something happened, say so.
-- references (when present): the words in command.text that match things you perceive, typos
-  corrected (read_as), with ids, nearest first. Use them to pick the right id.
-- Carry your plans through: after your tools run, their results come back to you for another
-  turn. Continue with the next step, or reply with a short report (no text if you already
-  said it). When a step fails, fix it with the right tool or another way.
-- When you have the tools and the information to solve a problem, act on your own plan and report
-  briefly. Ask {player} only when it is genuinely ambiguous, risky or beyond your tools, and then
-  ask once, specifically.
-Use ids and names exactly as they appear. "me"/"I" is the player in command.player: pass that exact
-value as the player or target argument.
-
-Your body (body_status, body_event):
-- body_status: what your body reports right now: your current or last move and how it ended, and
-  what each report was about. Trust it over recent_events. A report "not about a player" is not
-  about {player}.
-- body_event: your body needs a decision (command.text is empty then). unreachable: a move can't
-  reach its target (reason and detail = the body's measurement, about = player or place; a reason
-  like leader_windstepped is the body's guess from how high he rose, so say it as a guess);
-  resumed: it can reach it again; follow_ended: a follow stopped by itself; vitals_low: a survival
-  stat is low and you carry nothing for it; items_dropped: a player dropped those items near you
-  (decide yourself whether to pick them up, and whether to thank him); situation_review: something
-  about your state changed (changes, stats_pct, time_of_day, previous_review). You may proactively
-  suggest or do something when the situation calls for it, briefly, and respect the player's answers
-  (chat, previous_review.you_said). Reply with no text at all to stay silent. If one of your tools fixes it, use it. Otherwise tell
-  {player} in ONE short truthful line what happened and why, in plain words, and what you need.
-- recent_activity: what your body did lately (fights and how they ended, flights, pickups, deaths,
-  grave recoveries...), whoever started it (a reflex or a test command too). It is YOUR memory;
-  notes keep the notable ones.
-- Never repeat what you already said (your own lines are in chat, you=true) unless it got worse or
-  {player} asks about it.
-- If you can't tell what {player} means, ask ONE short question naming the things you can see.
-- Say you are at a place only when a move's result or the Where line shows it. If a look didn't find
-  the place, you are not there: say where you are and what you couldn't find.
-
-Spells: castable_spells lists what you can cast (name, role, what it's for). A spell that is not
-listed can't be cast: say so instead of calling cast. How one is really used: the spells tool.{rules_rule}
-Read-only tools only run on their own: in a reply that also calls an action they are skipped, so look
-first, then act on the result in your next reply."""
-
-# Only for a body with standing orders (set_reflex_rule offered): the triggers it can sense.
-RULES_RULE = ("\nStanding orders (set_reflex_rule): something your body does by itself, instantly, when a trigger it "
-              "can sense happens (enemy = the enemy kind, or \"*\"). It can only sense: {triggers}. If his condition "
-              "isn't one of them, don't call set_reflex_rule: say you can't sense that. reflex_rules lists current "
-              "orders; list_rules and clear_rule manage them.")
+# The live persona is brain/persona.md (Controller.persona). This is only the fallback for a missing file, kept tiny
+# so it can't drift into a second rulebook (persona diet 2026-11-01: a rule added here in 1af0e02 was never live).
+# Tool-specific guidance lives in each tool's description, not in the persona (docs/proposals/persona-diet.md).
+PERSONA = """You are {name}, playing RuneScape: Dragonwilds with your mate {player}: a real player with your own \
+character, gear and needs. Only say(text) is heard in chat: one short casual line, no emojis; no say call is silence. \
+Do what he asks with your tools, several in order in one reply when it takes steps; a line saying you'll do something \
+comes with its tool call. Be truthful: say what you can't do and why, and never make up reasons or results."""
 
 # Talk-only follow-up turns (GOAL M1 talk_without_action): a later turn of the agent loop that only talks
 # gets ONE more model call before its line is said, to call what the line says it will do. Decided on the
@@ -159,23 +81,16 @@ READ_ALONE = "Read-only."
 FINAL_PASS_NOTE = ("No more looking this turn (the read-only tools are used up). Act now with your tools on what "
                    "you found, or reply in a few words (what you found, or what's stopping you).")
 
-LOOK_RULE = (": if he wants you to go to it (a place, NPC, landmark or vent), call go_to with its name directly, "
-             "no look first. Anything else: situation is only a short summary and misses many things (sticks, "
-             "stones, plants, chests, stations), so ALWAYS call look with about=<their words> first, before acting or "
-             "saying you can't see it (read-only, it does not interrupt your job); then act on an id from its "
-             "result. inspect gives details of one thing.")
-NO_LOOK_RULE = ", you can't look around yet: say you can't see it."
-# One line, only when the knowledge index exists (the lookup tool is offered then).
-LOOKUP_RULE = ("\n- Game facts you are not sure of (what an item does, how to make it, which regions of the world "
-               "something is found in, creatures, spells, mechanics) -> call lookup (read-only) and answer from "
-               "it; game data beats the wiki.")
-
 START_GOAL = {
     "type": "function",
     "function": {
         "name": "start_goal",
-        "description": "Hand a multi-step job to the planner, e.g. 'gather 10 logs and bring them to the player'.",
-        "parameters": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]},
+        "description": ("Hand a long job of many steps to your planner (e.g. 'gather 10 logs and bring them to the "
+                        "player', 'build a storage hut by the lake'): it plans the steps with your tools, runs them, "
+                        "checks each in the game and reports back. A job one tool or a few calls in a row can do: call "
+                        "them yourself. A learned skill that fits: run_skill."),
+        "parameters": {"type": "object", "properties": {"goal": {"type": "string", "description":
+                       "The job in plain words, as he asked for it."}}, "required": ["goal"]},
     },
 }
 LIST_SKILLS = {
@@ -217,8 +132,8 @@ SAY_SCHEMA = {
     "type": "function",
     "function": {
         "name": SAY_TOOL,
-        "description": ("Say one line in game chat. The ONLY way anyone hears you: text you write outside say is a "
-                        "private note nobody hears. Call it at most once per reply, beside your other tool calls; "
+        "description": ("Say one line in game chat. This is the only way anyone hears you: text you write outside say "
+                        "is a private note nobody sees. Call it at most once per reply, beside your other tool calls; "
                         "the line is said when they start (if one fails first, you get to say what went wrong "
                         "instead). No say call = you stay silent."),
         "parameters": {"type": "object", "properties": {"text": {"type": "string", "description":
@@ -691,12 +606,9 @@ class Controller:
 
     def persona(self) -> str:
         """brain/persona.md (voice workstream; re-read on change, DW_PERSONA overrides; PERSONA is the
-        fallback when the file is missing), then Luis's house rules."""
-        orders = RULES_RULE.format(triggers=", ".join(SENSABLE_TRIGGERS)) if self.has("set_reflex_rule") else ""
-        persona = persona_file.render(persona_file.template(fallback=PERSONA), name=self.name, player=self.player,
-                                      rules_rule=orders,
-                                      look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
-                                      lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
+        fallback when the file is missing), then Luis's house rules. Guidance for one tool is in that tool's
+        description, so the persona is the same whichever tools this body offers."""
+        persona = persona_file.render(persona_file.template(fallback=PERSONA), name=self.name, player=self.player)
         if not self.say_channel:
             persona += "\n\n" + TEXT_CHANNEL_NOTE
         if self.director is not None:

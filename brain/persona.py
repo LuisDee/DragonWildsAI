@@ -1,8 +1,9 @@
 """The Controller's persona template, kept in brain/persona.md (voice workstream V, companion-quality.md §3).
 
 The text lives in a Markdown file so the voice can be edited without touching code; it is re-read
-when the file changes (like house_rules.md). Placeholders, filled by ``render``: {name} {player}
-{rules_rule} {look_rule} {lookup_rule}. Any other brace in the file is a mistake and fails the tests.
+when the file changes (like house_rules.md). Placeholders, filled by ``render``: {name} {player}. Any other
+brace in the file is a mistake and fails the tests. Guidance for one tool belongs in that tool's description, not
+here (persona diet 2026-11-01: the look/lookup/standing-order placeholders became tool descriptions).
 DW_PERSONA overrides the path (evals and A/B tests).
 """
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-PLACEHOLDERS = ("name", "player", "rules_rule", "look_rule", "lookup_rule")
+PLACEHOLDERS = ("name", "player")
 DEFAULT_PATH = Path(__file__).with_name("persona.md")
 
 _cache: dict[str, tuple[float, str]] = {}

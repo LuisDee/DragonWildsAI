@@ -4,7 +4,7 @@ import json
 
 from conftest import Rig
 
-from brain.controller import MAX_SAY, NO_LOOK_RULE, clip
+from brain.controller import MAX_SAY, clip
 from brain.interface import BODY_TOOLS, Reason
 from brain.llm import FakeLLM
 from brain.mock import MockGame
@@ -115,7 +115,8 @@ def test_body_without_look_offers_no_read_tools(tmp_path):
     rig.agent.step()
     call = rig.controller_llm.calls[0]
     assert not {"look", "inspect", "interact"} & offered(call)
-    assert NO_LOOK_RULE in call["messages"][0]["content"]
+    # the persona is the same for every body: look guidance lives in look's own description
+    assert call["messages"][0]["content"] == Rig(tmp_path / "with_look").controller.persona()
     assert rig.companion_said() == ["I can't see any sticks around here."]
 
 

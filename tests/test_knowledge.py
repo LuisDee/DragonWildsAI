@@ -9,7 +9,6 @@ import time
 import pytest
 from conftest import Rig
 
-from brain.controller import LOOKUP_RULE
 from brain.interface import BODY_TOOLS, BRAIN_TOOLS, READ_TOOLS
 from brain.knowledge import Knowledge, game_docs
 from brain.llm import FakeLLM
@@ -348,7 +347,7 @@ def test_lookup_offered_only_with_an_index(tmp_path, know):
     plain.agent.step()
     call = plain.controller_llm.calls[0]
     assert "lookup" not in {t["function"]["name"] for t in call["tools"]}
-    assert LOOKUP_RULE.strip() not in call["messages"][0]["content"]
+    assert "lookup" not in call["messages"][0]["content"]  # the guidance is in the tool, not the persona
     rig = _with_knowledge(Rig(tmp_path / "b"), know)
     rig.game.player_say("what does glowcap brew do?")
     rig.controller_llm.push(FakeLLM.say("It gives night vision."))
@@ -356,7 +355,7 @@ def test_lookup_offered_only_with_an_index(tmp_path, know):
     call = rig.controller_llm.calls[0]
     tool = next(t for t in call["tools"] if t["function"]["name"] == "lookup")
     assert "kind values: item" in tool["function"]["description"]  # kinds come from the index
-    assert LOOKUP_RULE.strip() in call["messages"][0]["content"]
+    assert "instead of guessing" in tool["function"]["description"]  # when to use it: in its own description
 
 
 def test_lookup_runs_in_the_brain_and_does_not_interrupt(tmp_path, know):

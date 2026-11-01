@@ -33,7 +33,7 @@ def tool_msgs(call, name):
 
 def test_say_is_offered_and_the_persona_says_only_it_is_heard(srig):
     assert srig.controller.tools[0]["function"]["name"] == SAY_TOOL
-    assert "Only the say tool is heard" in srig.controller.persona()
+    assert "Only say(text) is heard" in srig.controller.persona()
 
 
 def test_only_the_say_text_is_heard_never_the_free_text(srig):

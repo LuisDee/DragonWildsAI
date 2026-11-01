@@ -311,7 +311,8 @@ class ClearRuleArgs(BaseModel):
 TOOLS: dict[str, tuple[type[BaseModel], str]] = {
     "get_state": (NoArgs, "Position, health, inventory, nearby entities/resources/players."),
     "follow": (FollowArgs, "Follow a player continuously until stopped or interrupted."),
-    "stop": (NoArgs, "Cancel the current action (including follow)."),
+    "stop": (NoArgs, "Stop the current job (a follow too) and stand still and stay. Only for stopping or staying "
+                     "put: any other action already replaces the current job, so don't call stop beside one."),
     "go_to": (GoToArgs, "Walk to coordinates, a named place, a player or an entity."),
     "attack": (AttackArgs, "Engage a target; reflexes keep fighting until it is resolved."),
     "gather": (GatherArgs, "Harvest a resource nearby until count is reached or it fails."),
@@ -321,26 +322,38 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
     "pickup": (PickupArgs, "Pick up an item lying on the ground into the companion's inventory."),
     "drop": (DropArgs, "Drop carried items on the ground (at the companion's or Luis's feet)."),
     "say": (SayArgs, "Chat output. Only the Controller speaks."),
-    "remember": (RememberArgs, "Store a long-term fact in notes.json."),
+    "remember": (RememberArgs, "Keep a fact for later (a place, a preference, something he told you); your notes "
+                               "show it in every request. For a place, use key 'place:<name>' with at=self (where you "
+                               "stand) or at=player (where that player stands), so its position is stored and go_to "
+                               "takes the name. Does not interrupt your job."),
     "cast": (CastArgs, "Cast one of the spells in castable_spells now (self, an enemy id, or a point)."),
     "sleep": (SleepArgs, "Go to sleep (nearest free bed, never someone else's) so the night can pass."),
     "wake": (NoArgs, "Get up after sleeping."),
     "set_reflex_rule": (SetReflexRuleArgs,
-                        "Store a standing order ('every time X, do Y') that the body runs instantly during fights. "
-                        "Only for triggers in the trigger list; same enemy + trigger replaces the old rule."),
+                        "Store a standing order ('every time X, do Y') that your body runs by itself, instantly, "
+                        "during fights. It can only sense the triggers in trigger.kind: if his condition isn't one of "
+                        "them, don't call this, tell him you can't sense that. Same enemy + trigger replaces the old "
+                        "rule; reflex_rules lists the current ones. Does not interrupt your job."),
     "list_rules": (ListRulesArgs, "List the standing orders (reflex rules)."),
     "clear_rule": (ClearRuleArgs, "Forget a standing order by id, every order for an enemy kind, or all."),
     "inventory": (NoArgs, "Your full inventory: what you wear (by slot), hold, carry on the hotbar (with durability) "
                            "and in your bag, plus weight. Read-only: does not interrupt."),
     "look": (LookArgs, "Look around: every gatherable, world item, creature, player and station nearby, by its "
-                       "in-game name, with distance and what you can do with it. Read-only: does not interrupt."),
+                       "in-game name, with distance, what you can do with it and the id other tools act on. "
+                       "situation is only a short summary and misses many small things (sticks, stones, plants, "
+                       "chests): when he names something to pick up, use, fight or inspect that situation doesn't "
+                       "show, look with about=<his words> before acting on it or telling him it isn't there. "
+                       "Read-only: does not interrupt."),
     "inspect": (InspectArgs, "Details of one thing from a look result: what it is, what it gives, what it needs, "
                              "which actions work. Read-only."),
     "lookup": (LookupArgs, "Look up game knowledge: what an item is and does, how to make it, which regions of the world "
                            "something is found in, creatures and weaknesses, spells, perks, mechanics. Game data first "
-                           "(authoritative), then the wiki with page links. Read-only: does not interrupt."),
+                           "(authoritative), then the wiki with page links. Use it for a game fact you're not sure "
+                           "of instead of guessing. Read-only: does not interrupt."),
     "interact": (InteractArgs,"Use a thing you looked at, like a player pressing E (gather sticks, open, pick)."),
-    "run_skill": (RunSkillArgs, "Run a skill you learned earlier (listed in learned_skills) with its params."),
+    "run_skill": (RunSkillArgs, "Run a skill you learned earlier with its params: learned_skills lists the ones "
+                                 "that fit this request, with how often each worked. Prefer it to start_goal when "
+                                 "one fits and its params are clear."),
     # composite client skills (offered only when the body's manifest lists them)
     "fetch": (FetchArgs, "Pick up items lying on the ground into your inventory (find, walk, face, use, verify)."),
     "consume": (ConsumeArgs, "Eat or drink an item from your hotbar (or pick it up first if it lies nearby)."),

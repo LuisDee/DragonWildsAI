@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from brain import persona as persona_file
-from brain.controller import RULES_RULE
 from brain.llm import FakeLLM, LLMResponse, ToolCall
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,9 +18,7 @@ spec = importlib.util.spec_from_file_location("voice_eval", ROOT / "evals" / "vo
 ve = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ve)
 
-VALUES = dict(name="Claude", player="Zezima", rules_rule=RULES_RULE.format(triggers="telegraph, own_hp_below"),
-              look_rule=" -> LOOK RULE",
-              lookup_rule="\n- LOOKUP RULE")
+VALUES = dict(name="Claude", player="Zezima")
 
 
 def cases():
@@ -37,28 +34,42 @@ def test_persona_renders_with_exactly_the_known_placeholders():
     assert fields == set(persona_file.PLACEHOLDERS)
     out = persona_file.render(text, **VALUES)
     assert "{" not in out and "}" not in out
-    assert "LOOK RULE" in out and "LOOKUP RULE" in out and "telegraph, own_hp_below" in out
 
 
 def test_persona_keeps_every_functional_instruction():
-    """The rewrite may shorten them, never drop them (the brief: keep every functional instruction)."""
+    """The persona keeps what no single tool owns (persona diet 2026-11-01: tool guidance moved to the tools)."""
     out = persona_file.render(persona_file.template(persona_file.DEFAULT_PATH), **VALUES)
-    for anchor in ["addressed=true", "addressed=false", "no text", "Never butt into", "in ONE message",
-                   "never pair an action with stop", "run_skill", "start_goal", "list_skills", "remember",
-                   '"place:<name>"', "at=self", "at=player", "never substitute", "references", "read_as",
-                   "command.player", "body_status", "unreachable", "resumed", "follow_ended", "vitals_low",
-                   "items_dropped", "situation_review", "goal_done", "stuck", "args_help", "previous_review.you_said", "recent_activity",
-                   "castable_spells", "set_reflex_rule", "reflex_rules", "list_rules", "clear_rule",
-                   "Never invent reasons", "CURRENT state", "you=true"]:
+    for anchor in ["addressed=true", "addressed=false", "call no tool", "in order in one reply",
+                   "stop at the first failure", "replaces whatever job", "read-only tool runs only",
+                   "Never substitute something similar", "Where line", "references", "command.player", "body_status", "recent_events",
+                   "unreachable", "follow_ended", "stuck", "always tell him why", "situation_review",
+                   "previous_review.you_said", "recent_activity", "spoken_to=false", "never make up reasons",
+                   "you=true", "Shared stations", "Look after yourself"]:
         assert anchor in out, anchor
+
+
+def test_tool_guidance_lives_in_the_tools_not_the_persona():
+    """Each rule that is about one tool is in that tool's description (Anthropic tool-use docs: the description is
+    the most important factor), so it is offered exactly when the tool is, and the persona can't contradict it."""
+    from brain.controller import START_GOAL
+    from brain.interface import TOOLS
+    assert "place:<name>" in TOOLS["remember"][1] and "at=self" in TOOLS["remember"][1]
+    assert "don't call stop beside one" in TOOLS["stop"][1]
+    assert "about=<his words>" in TOOLS["look"][1]
+    assert "can't sense that" in TOOLS["set_reflex_rule"][1]
+    assert "instead of guessing" in TOOLS["lookup"][1]
+    assert "start_goal" in TOOLS["run_skill"][1] and "run_skill" in START_GOAL["function"]["description"]
+    out = persona_file.template(persona_file.DEFAULT_PATH)
+    for gone in ("place:<name>", "about=<", "set_reflex_rule", "castable_spells", "ALWAYS", "NEVER"):
+        assert gone not in out, gone
 
 
 def test_persona_carries_the_speech_rules_luis_asked_for():
     out = persona_file.render(persona_file.template(persona_file.DEFAULT_PATH), **VALUES).lower()
-    for rule in ["stay quiet", "the action is the answer", "same reply", "never read out numbers",
-                 "metres", "one line per moment", "stock lines", "bad -> good"]:
+    for rule in ["stay quiet", "the action is the answer", "same reply", "keep numbers and internals to yourself",
+                 "metres", "say each thing once", "stock lines", "bad -> good"]:
         assert rule in out, rule
-    assert len(re.findall(r"^\d\. ", out, re.M)) >= 6  # few-shot bad -> good pairs from the real chat
+    assert len(re.findall(r"^\d\. ", out, re.M)) >= 3  # a few diverse bad -> good pairs from the real chat
 
 
 def test_persona_names_no_player_literally():
