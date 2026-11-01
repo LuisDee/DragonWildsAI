@@ -406,3 +406,28 @@ def test_mentioned_one_word_of_a_few_map_names_lists_the_candidates():
     assert len(said) == 1 and said[0].startswith('"temple" is a word of the map names ')
     assert "Temple Woods (a region; you are in it)" in said[0] and "Forgotten Temple (a landmark, " in said[0]
     assert said[0].endswith("go_to takes the full name")
+
+
+class _TalkBody(_Body):
+    """Sees no 'Zanik' until it stands at the map's spot; then talk opens the conversation."""
+
+    def call(self, tool, args):
+        if tool == "talk":
+            self.calls.append(("talk", dict(args)))
+            if self.pos != [-50.0, 50.0, 1.0]:
+                return {"ok": False, "reason": "unknown_target", "data": {"detail": "I can't see Zanik within 120 m."}}
+            return {"ok": True, "reason": None, "data": {"npc": "Zanik", "lines": [{"speaker": "Zanik", "text": "Hi"}]}}
+        return super().call(tool, args)
+
+
+def test_talk_to_an_npc_out_of_sight_walks_to_its_map_spot_then_talks(tmp_path):
+    from brain.state_store import Task
+    from brain.state_store import MOCK_SKILLS, SkillRegistry, StateStore
+    body = _TalkBody(HERE)
+    ex = _executor(tmp_path, body)
+    ex.store = StateStore(tmp_path / "state2", skills=SkillRegistry([*MOCK_SKILLS, "talk"], specs={"talk": {
+        "name": "talk", "kind": "action", "args": {"type": "object", "properties": {"target": {"type": "string"}}}}}))
+    out = ex.run_task(Task(skill="talk", args={"target": "Zanik"}))
+    assert out.ok, out.reason
+    assert body.calls == [("talk", {"target": "Zanik"}), {"target": [-50.0, 50.0, 1.0]}, ("talk", {"target": "Zanik"})]
+    assert out.data["npc"] == "Zanik" and "walking to the game map's landmark Zanik" in out.data["resolved"]

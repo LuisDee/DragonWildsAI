@@ -1230,10 +1230,10 @@ end
 -- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
 -- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
 M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub",
-               "input", "build", "deconstruct", "fishing", "agility", "farm", "quests", "lodestone", "shoot" }
--- talk.lua stays OUT until its re-review passes (docs/reviews/2026-10-26-talk-primitive-review.md "Re-review (v2)":
--- sweep_orphan recursed through the gate). Opt-in for a dev test only: _G.DW_ENABLE_TALK = true before bridge_start.
-if rawget(_G, "DW_ENABLE_TALK") == true then M.MODULES[#M.MODULES + 1] = "talk" end
+               "input", "build", "deconstruct", "fishing", "agility", "farm", "quests", "lodestone", "shoot", "talk" }
+-- talk.lua (NPC conversations) is loaded normally since 2026-11-01: the re-review's recursion (sweep_orphan ->
+-- ui_press -> input gate -> sweep -> sweep_orphan) is closed by talk's re-entrancy guard and by pressing as the
+-- conversation modal's owner (input's sweep skips an owned modal).
 local function module_handler(tool)
     for _, name in ipairs(M.MODULES) do
         local mod = M.module(name)

@@ -82,10 +82,16 @@ PILES = [
      "luis": "pile 12:42:16Z: 8 dropped Stone, 1 secondary press, +8"},
     {"id": "pile_interact", "item": "ITEM_Resources_Stone", "n": 8, "via": "interact",
      "luis": "pile 12:42:16Z: 8 dropped Stone, 1 secondary press, +8"},
+    # collect-all takes every kind within 2 m: the result must name what came with it (also = extra drops)
+    {"id": "pile_mixed", "item": "ITEM_Resources_Stone", "n": 6, "also": {"ITEM_Resources_Wood_Ash": 2}, "via": "gather",
+     "resource": "loose_stones", "luis": "(no Luis run) 6 Stone + 2 Ash Logs dropped: one press, both named"},
+    {"id": "pile_mixed_interact", "item": "ITEM_Resources_Stone", "n": 6, "also": {"ITEM_Resources_Wood_Ash": 2},
+     "via": "interact", "luis": "(no Luis run) 6 Stone + 2 Ash Logs dropped: one press, both named"},
 ]
 # metres from DUMP: away from the unload litter (its Stone stacks would join the pile) and outside the 8 m learned
 # trap t161 centred on DUMP (nav memory: a go_to starting inside it first walks its 19 m exit)
 PILE_OFF = [14.0, 0.0]
+NAMES = {"ITEM_Resources_Wood_Ash": "Ash Logs", "ITEM_Resources_Stone": "Stone"}  # the game's display names
 
 
 def available_here(c, match: str, radius_m: float = 12.0) -> list[dict]:
@@ -218,13 +224,15 @@ def run_pile(dev, leg: dict) -> dict:
     c.request("go_to", {"target": spot, "tolerance": 1.0}, timeout=60)
     me = tl.position(c)
     row = {"leg": leg["id"], "resource": leg["item"], "via": leg["via"], "luis": leg["luis"], "start": me}
-    for _ in range(leg["n"]):
-        rr = c.request("drop", {"item": leg["item"], "count": 1}, timeout=20) or {}
+    drops = [leg["item"]] * leg["n"] + [k for k, m in (leg.get("also") or {}).items() for _ in range(m)]
+    for it in drops:
+        rr = c.request("drop", {"item": it, "count": 1}, timeout=20) or {}
         if not rr.get("ok"):
             row.update(ok=None, error=f"drop failed: {rr.get('reason')}")
             return row
     time.sleep(1.5)  # a drop flies for a moment
-    pile = items_near(c, leg["item"], me)
+    me = tl.position(c) or me  # where he dropped them (the go_to above may have answered before he got there)
+    pile = items_near(c, leg["item"], me, 3.0)
     if len(pile) < 2:
         row.update(ok=None, error=f"pile not seen: {len(pile)} world items of {leg['item']} within 4 m")
         return row
@@ -249,7 +257,8 @@ def run_pile(dev, leg: dict) -> dict:
     time.sleep(2.5)
     sc = score(t0, t1, item_hint=leg["item"])
     row.update(ok=bool(r.get("ok")), want=n, reason=r.get("reason"), detail=data.get("detail"), request=req[0],
-               body_collect_all=data.get("collect_all_presses"),
+               body_collect_all=data.get("collect_all_presses"), also=data.get("also"), body_gained=data.get("gained"),
+               also_named=(all(NAMES.get(k, k) in str(data.get("detail") or "") for k in leg["also"]) if leg.get("also") else None),
                phase_log=data.get("phase_log"), ts=round(t0, 2), **sc)
     return row
 

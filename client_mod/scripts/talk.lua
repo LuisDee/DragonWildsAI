@@ -44,6 +44,7 @@ M.cfg = {
     orphan_s = 1.0, cancels = 3, abandon_s = 120, -- R5: a dialogue untouched by talk for 2 min is abandoned
     ui_handler_fallback = false, -- finding 18a step 2: enabled only after an offline + live probe of the handler
     each_cap = 16, each_cap_quest_fields = 64,
+    find_m = 120, talk_prompt = "Talk",
 }
 M.CHOICE = { [0] = "server_only", [1] = "available", [2] = "unavailable" } -- EConversationChoiceType
 M.QUEST = { [0] = "ungiven", [1] = "given", [2] = "complete" }          -- EQuestState
@@ -77,21 +78,25 @@ local mod = L.mod
 -- Is this input mode the dialogue's own? (finding 7 / 5c; a name check on the game's mode asset)
 function M.is_conversation_mode(mode) return type(mode) == "string" and mode:find(M.cfg.conversation_mode_word, 1, true) ~= nil end
 
--- The user choices of a read: panel rows (what the screen shows: text, its key, the on-screen number) JOINED BY
--- TEXT with the payload (availability); ServerOnly entries never appear. -> {{n, text, available, act}}
+-- The user choices of a read: panel rows (what the screen shows: its key, the on-screen number) joined with the
+-- payload's user options (text, availability); ServerOnly entries never appear. A row whose own text reads empty
+-- takes the payload's user option at the SAME position (live 2026-10-26 P2: AllOptions[i].DisplayName read nil on
+-- the headless client while the payload held "Yes please [Begin Tutorial]" / "I can work it out [Skip Tutorial]",
+-- so every reply listed no options). -> {{n, text, available, act}}
 function M.choices(st)
-    local payload = {}
+    local payload, user = {}, {}
     for _, o in ipairs(st and st.options or {}) do
-        if o.text and o.type ~= 0 then payload[o.text] = o end
+        if o.text and o.type ~= 0 then payload[o.text] = o; user[#user + 1] = o end
     end
     local out = {}
     local rows = st and st.panel_rows or {}
     if #rows > 0 then
         for i, r in ipairs(rows) do
-            local p = r.text and payload[r.text]
+            local p = (r.text and payload[r.text]) or (not r.text and user[i]) or nil
+            local t = r.text or (p and p.text)
             local hidden = r.text and not p and st.options and #st.options > 0 and M._server_only_text(st, r.text)
-            if r.text and not hidden then
-                out[#out + 1] = { n = r.n or i, text = r.text, act = r.act, available = not (p and p.type == 2) and r.enabled ~= false }
+            if t and not hidden then
+                out[#out + 1] = { n = r.n or i, text = t, act = r.act, available = not (p and p.type == 2) and r.enabled ~= false }
             end
         end
     else
@@ -144,6 +149,7 @@ function M.quest_diff(q0, q1)
             if a.state ~= r.state then d.from, d.to, any = a.state, r.state, true end
             if a.objective ~= r.objective then d.objective, d.objective_before, any = r.objective, a.objective, true end
         end
+        if any and r.step and r.state == "given" then d.step = r.step end -- the new step in the game's own words
         for _, kind in ipairs({ "ints", "bools" }) do
             for k, v in pairs(r[kind] or {}) do
                 local was = a and (a[kind] or {})[k]
@@ -153,6 +159,35 @@ function M.quest_diff(q0, q1)
         if any then out[#out + 1] = d end
     end
     return out
+end
+
+-- Two {item = count} reads -> {gained = {item = n}, lost = {item = n}} | nil (no change, or a read missing)
+function M.inv_diff(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then return nil end
+    local gained, lost = {}, {}
+    for k, v in pairs(b) do local d = (tonumber(v) or 0) - (tonumber(a[k]) or 0); if d > 0 then gained[k] = d elseif d < 0 then lost[k] = -d end end
+    for k, v in pairs(a) do if b[k] == nil and (tonumber(v) or 0) > 0 then lost[k] = v end end
+    if next(gained) == nil and next(lost) == nil then return nil end
+    return { gained = next(gained) and gained or nil, lost = next(lost) and lost or nil }
+end
+
+-- Quest changes and items of one call -> one plain sentence each (nil when nothing changed)
+function M.outcome_words(qd, items, names)
+    local w = {}
+    for _, d in ipairs(qd or {}) do
+        if d.to == "complete" then w[#w + 1] = string.format("Quest %s is complete.", tostring(d.quest))
+        elseif d.to == "given" and d.from == "ungiven" then w[#w + 1] = string.format("New quest %s: %s", tostring(d.quest), tostring(d.step or "started."))
+        elseif d.step then w[#w + 1] = string.format("%s, next step: %s", tostring(d.quest), d.step) end
+    end
+    local function list(t)
+        local o = {}
+        for k, n in pairs(t or {}) do o[#o + 1] = tostring(n) .. " " .. tostring((names or {})[k] or k) end
+        table.sort(o)
+        return table.concat(o, ", ")
+    end
+    if items and items.gained then w[#w + 1] = "Given to you in this conversation: " .. list(items.gained) .. "." end
+    if items and items.lost then w[#w + 1] = "Gone from your bag during it: " .. list(items.lost) .. "." end
+    return #w > 0 and table.concat(w, " ") or nil
 end
 
 -- A stable text key of a quest diff (R10: a second change to the same quest is still a change).
@@ -312,7 +347,7 @@ function W.quests(pc)
     local rows = Q and Q.W and Q.W.rows and Q.W.rows(pc)
     if not rows then return nil end
     local out = {}
-    for i, r in ipairs(rows) do out[i] = { quest = r.quest, state = r.state, objective = r.objective_key, ints = r.ints or {}, bools = r.bools or {} } end
+    for i, r in ipairs(rows) do out[i] = { quest = r.quest, state = r.state, objective = r.objective_key, step = r.objective, ints = r.ints or {}, bools = r.bools or {} } end
     return out
 end
 -- A UI press through the input gate: allowed only while the open modal is the dialogue itself (finding 7b).
@@ -347,6 +382,19 @@ function W.arm_hook(log)
     return any
 end
 function W.skills() return mod("skills") end
+-- What he carries (hotbar + bag): {item = count}, {item = display name} | nil
+function W.carried(api)
+    if not (api and api.call) then return nil end
+    local ok, r = pcall(api.call, "inventory", "list")
+    if not (ok and type(r) == "table" and r.ok and type(r.data) == "table") then return nil end
+    local inv, names = {}, {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, it in ipairs(r.data[where] or {}) do
+            if it.item then inv[it.item] = (inv[it.item] or 0) + (tonumber(it.count) or 1); names[it.item] = it.name end
+        end
+    end
+    return inv, names
+end
 
 -- ------------------------------------------------------------------ conversation memory (one at a time)
 local function conv_clear(why)
@@ -392,6 +440,18 @@ local function result_of(J, ok, reason, data)
     local base = (C().conv and C().conv.base) or J.q0
     local qd = M.quest_diff(base, W.quests(J.pc) or base)
     if #qd > 0 then data.quests_changed = qd end
+    -- what changed in his bag during THIS call (quest rewards: QFT_GiveItemToPlayer). Per call, not per
+    -- conversation: live 15:26Z another agent's build between two calls of one conversation showed as "lost 4 Ash Logs"
+    local inv1, names1 = W.carried(J.api)
+    local items = M.inv_diff(J.inv0, inv1)
+    if items then data.items = items end
+    -- the outcome in plain words after the detail, so a report can't credit the NPC with what he did himself
+    -- (live 15:41Z: Haiku said "Doric gave me a stone club" after crafting it; the reward was 1 Vegetable Soup)
+    local names = {}
+    for k, v in pairs(J.names0 or {}) do names[k] = v end
+    for k, v in pairs(names1 or {}) do names[k] = v end
+    local words = M.outcome_words(qd, items, names)
+    if words then data.detail = (data.detail and (data.detail .. " ") or "") .. words end
     return { ok = ok == true, reason = reason, data = data }
 end
 
@@ -632,6 +692,7 @@ local function new_job(log, ctx, mode, pc, extra)
     local J = { gen = c.gen, log = log, pc = pc, mode = mode, t0 = t, t = t, phase_t = t, lines = {}, api = ctx and ctx.api or M.api }
     for k, v in pairs(extra or {}) do J[k] = v end
     J.q0 = J.q0 or W.quests(pc) or {}
+    J.inv0, J.names0 = W.carried(J.api)
     J.pawn_id = W.pawn_id(pawn)
     c.job = J
     W.claim() -- held while this job runs; finish releases it (R5)
@@ -653,6 +714,18 @@ local function bad(reason, why, detail, extra)
     local d = extra or {}
     d.why, d.detail = why, detail
     return { ok = false, reason = reason, data = d }
+end
+
+-- target = an id from look, or a name ("Doric"): the nearest perceived thing whose interaction prompt is the
+-- game's own "Talk", by the shared name resolver (exact > whole words > all words). -> thing | nil
+function M.resolve_target(api, target)
+    local t = api.find_thing(target, M.cfg.find_m)
+    if t and t.position then return t end
+    local rows = api.census_things and api.census_things(M.cfg.find_m) or nil
+    if type(rows) ~= "table" or not api.resolve_name then return nil end
+    local talkers = {}
+    for _, r in ipairs(rows) do if r.prompt == M.cfg.talk_prompt and r.position then talkers[#talkers + 1] = r end end
+    return (api.resolve_name(talkers, target))
 end
 
 function M.start(log, args, ctx)
@@ -744,8 +817,8 @@ function M.start(log, args, ctx)
     if not (SK and SK._new_episode and SK._episode_poll and api) then
         return bad("not_implemented", "no_episode", "My walk-up-and-use routine isn't loaded, so I can't start a conversation.")
     end
-    local t = api.find_thing(args.target, 120)
-    if not t or not t.position then return bad("unknown_target", "unknown_target", string.format("I can't see %s.", tostring(args.target))) end
+    local t = M.resolve_target(api, args.target)
+    if not t or not t.position then return bad("unknown_target", "unknown_target", string.format("I can't see %s within %d m.", tostring(args.target), M.cfg.find_m)) end
     local arb = mod("arbiter")
     local token, J
     if arb then
@@ -873,12 +946,14 @@ do
     M.MANIFEST = {
         talk = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 6, timeout_s = 140,
             detail_is_speech = false,
-            description = "Talk to someone (an NPC from look, e.g. prompt Talk): walks over, starts the conversation and "
-                .. "returns what they say and your numbered answer options. Answer in the next call with choose = the "
-                .. "option's number or text, or end it with leave = true; call with no arguments to re-read. Reports "
-                .. "quest changes.",
+            description = "Talk to someone (an NPC whose prompt is Talk): walks over, opens the conversation and returns "
+                .. "everything they say and your numbered answer options, exactly as the game shows them. Answer in the "
+                .. "next call with choose = the option's number or text, or end it with leave = true; call with no "
+                .. "arguments to re-read. Each reply reports quest steps that changed (quests_changed) and items they "
+                .. "gave or took (items). Quest hand-ins happen by talking to the quest's NPC while you carry or have "
+                .. "done what the step asks.",
             args = { type = "object", properties = obj({
-                target = { type = "string", description = "Who to talk to: an id from look (only to start)." },
+                target = { type = "string", description = "Who to talk to: their name (e.g. from look or the quest step) or an id from look (only to start)." },
                 choose = { description = "Your answer: an option number or its text, from the last reply.",
                            anyOf = { { type = "integer" }, { type = "string" } } },
                 leave = { type = "boolean", description = "End the conversation." } }) },

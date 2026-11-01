@@ -11,8 +11,9 @@ local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
 
 local M = { U = U }
-M.cfg = { cap = 128, field_cap = 64, extras_ttl_s = 5, active_rows = 8 }
+M.cfg = { cap = 128, field_cap = 64, extras_ttl_s = 5, active_rows = 8, markers_ttl_s = 60, markers_cap = 512, where_per_quest = 3 }
 M.STATE = { [0] = "ungiven", [1] = "given", [2] = "complete" } -- EQuestState
+M.MARKER = { [0] = "target", [1] = "area", [2] = "npc" }         -- EQuestLocationType
 
 local function paused() return rawget(_G, "DW_PAUSE") == true end
 local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
@@ -71,14 +72,106 @@ function W.rows(pc, opts)
     return out
 end
 
+-- The game's quest map markers (what the map and compass show a player): UQuestWorldSubsystem.QuestLocations, the
+-- AQuestLocation actors {Type, Radius, Quest, bShownByDefault, QuestLocationName} (all 174 are loaded on the client,
+-- live 2026-11-01), static, so re-read every markers_ttl_s; the ground height under each from one downward trace
+-- (the FTUE ones sit ~230 m above the ground), cached per marker. -> {{id, quest, key, kind, radius_m, x, y, top}}
+local MK = { at = nil, rows = nil, z = {} }
+local function ground_z(pawn, x, y, top)
+    local ksl = U.find_object and U.find_object("/Script/Engine.Default__KismetSystemLibrary")
+    if not (ksl and pawn) then return nil end
+    local C0, out = { R = 0, G = 0, B = 0, A = 0 }, {}
+    local ok, hit = pcall(function()
+        return ksl:LineTraceSingle(pawn, { X = x, Y = y, Z = top + 5000 }, { X = x, Y = y, Z = top - 100000 }, 0, false, {}, 0, out, true, C0, C0, 0.0)
+    end)
+    local z = ok and hit == true and U.try(function() return out.ImpactPoint.Z end)
+    return type(z) == "number" and z / 100 or nil
+end
+function W.markers(now)
+    if MK.rows and MK.at and now and now - MK.at >= 0 and now - MK.at < M.cfg.markers_ttl_s then return MK.rows end
+    local rows = {}
+    local ss = (U.find_all("QuestWorldSubsystem", { skip_defaults = true }) or {})[1]
+    U.each(ss and U.try(function() return ss.QuestLocations end), function(a)
+        if not U.valid(a) then return end
+        local q = U.try(function() return a.Quest end)
+        local at = U.loc(a)
+        local okp, x, y, z = pcall(function() return at.X, at.Y, at.Z end)
+        if not (U.valid(q) and okp and type(x) == "number") then return end
+        rows[#rows + 1] = { id = U.short(a), quest = text(U.try(function() return q.QuestName end)), key = text(U.try(function() return a.QuestLocationName end)),
+                            kind = M.MARKER[num(U.try(function() return a.Type end)) or -1], radius_m = (num(U.try(function() return a.Radius end)) or 0) / 100,
+                            default = U.try(function() return a.bShownByDefault end) == true, x = x, y = y, top = z }
+    end, M.cfg.markers_cap)
+    MK.rows, MK.at = rows, now
+    return rows
+end
+-- his VisibilityTrackers: {LocationName = shown?}
+function W.visibility(pc)
+    local qc = pc and U.try(function() return pc.QuestProgressComponent end)
+    local out = {}
+    U.each(U.valid(qc) and U.try(function() return qc.VisibilityTrackers end), function(t)
+        local k = text(U.try(function() return t.LocationName end))
+        if k then out[k] = U.try(function() return t.bLocationVisibility end) == true end
+    end, M.cfg.markers_cap)
+    return out
+end
+-- the markers the game shows him now (his tracker says shown, or no tracker and shown by default)
+function W.where(pc, now)
+    local pawn = pc and U.try(function() return pc.Pawn end)
+    local here = U.valid(pawn) and U.loc(pawn)
+    local okh, hx, hy = pcall(function() return here.X, here.Y end)
+    local vis = W.visibility(pc)
+    local out = {}
+    for _, m in ipairs(W.markers(now) or {}) do
+        local shown = vis[m.key]
+        if m.quest and (shown == true or (shown == nil and m.default)) then
+            -- a miss (ground not loaded that far out: live 15:5xZ, 207 m) is retried at most every 10 s
+            local zc = MK.z[m.id]
+            if zc == nil or (type(zc) == "table" and now and now - zc.miss >= 10) then MK.z[m.id] = ground_z(pawn, m.x, m.y, m.top) or { miss = now or 0 } end
+            local z = type(MK.z[m.id]) == "number" and MK.z[m.id] or nil
+            local xy = { math.floor(m.x / 10 + 0.5) / 10, math.floor(m.y / 10 + 0.5) / 10 }
+            out[#out + 1] = { quest = m.quest, key = m.key, kind = m.kind, radius_m = m.radius_m, xy = xy,
+                              position = z and { xy[1], xy[2], math.floor(z * 10 + 0.5) / 10 } or nil,
+                              distance_m = okh and math.floor(math.sqrt((m.x - hx) ^ 2 + (m.y - hy) ^ 2) / 100 + 0.5) or nil }
+        end
+    end
+    return out
+end
+
 -- ------------------------------------------------------------------ pure
--- Rows -> what the model sees. opts.all keeps ungiven quests too.
+-- A marker's key in words: "Windmill_Area_FTUE_RC" -> "Windmill Area" (the all-capitals tags are the game's own
+-- quest and tutorial codes, not words a player sees)
+function M.marker_name(key)
+    local w = {}
+    for tok in tostring(key or ""):gmatch("[^_%.]+") do
+        if tok:find("%l") then w[#w + 1] = (tok:gsub("(%l)(%u)", "%1 %2")) end
+    end
+    return #w > 0 and table.concat(w, " ") or tostring(key)
+end
+-- marker rows -> {quest = {{name, kind, radius_m, position | xy, distance_m, inside}}}, nearest first
+function M.where_by_quest(rows, per)
+    local by = {}
+    for _, m in ipairs(rows or {}) do
+        local t = by[m.quest] or {}
+        by[m.quest] = t
+        t[#t + 1] = { name = M.marker_name(m.key), kind = m.kind, radius_m = (m.radius_m or 0) > 0 and m.radius_m or nil,
+                      position = m.position, xy = (not m.position) and m.xy or nil, distance_m = m.distance_m,
+                      inside = (m.kind == "area" and m.distance_m and m.radius_m and m.distance_m <= m.radius_m) or nil }
+    end
+    for _, t in pairs(by) do
+        table.sort(t, function(a, b) return (a.distance_m or math.huge) < (b.distance_m or math.huge) end)
+        while #t > (per or 3) do table.remove(t) end
+    end
+    return by
+end
+
+-- Rows -> what the model sees. opts.all keeps ungiven quests too; opts.where = where_by_quest's table.
 function M.summary(rows, opts)
     opts = opts or {}
     local active, complete, ungiven = {}, {}, {}
     for _, r in ipairs(rows or {}) do
         if r.state == "given" then
-            local a = { quest = r.quest, step = r.objective or r.objective_key, detail = r.sub, hint = r.hint, main = r.main }
+            local a = { quest = r.quest, step = r.objective or r.objective_key, detail = r.sub, hint = r.hint, main = r.main,
+                        where = opts.where and opts.where[r.quest] or nil }
             if next(r.ints or {}) then a.counters = r.ints end
             if next(r.bools or {}) then a.flags = r.bools end
             active[#active + 1] = a
@@ -95,21 +188,28 @@ end
 -- ------------------------------------------------------------------ tool + perception
 local function quests_tool(log, args)
     if paused() then return { ok = false, reason = "companion_down", data = { detail = "I'm not in the world right now." } } end
-    local rows = W.rows(W.pc(), { all = args and args.all == true })
+    local pc = W.pc()
+    local rows = W.rows(pc, { all = args and args.all == true })
     if not rows then return { ok = false, reason = "state_unavailable", data = { detail = "I can't read my quest log right now." } } end
-    return { ok = true, data = M.summary(rows, { all = args and args.all == true }) }
+    return { ok = true, data = M.summary(rows, { all = args and args.all == true, where = M.where_now(pc) }) }
 end
 M._tool = quests_tool
+-- the active quests' markers now (best effort: a read error leaves them out)
+function M.where_now(pc)
+    local ok, rows = pcall(W.where, pc, os.time())
+    return ok and M.where_by_quest(rows, M.cfg.where_per_quest) or nil
+end
 
 local CACHE = { at = nil, v = nil }
 function M.state_extras(api)
     if paused() then return {} end
     local now = (api and api.now and api.now()) or os.time()
     if CACHE.v and CACHE.at and now - CACHE.at >= 0 and now - CACHE.at < M.cfg.extras_ttl_s then return CACHE.v end
-    local rows = W.rows(W.pc())
+    local pc = W.pc()
+    local rows = W.rows(pc)
     local v = {}
     if rows then
-        local s = M.summary(rows)
+        local s = M.summary(rows, { where = M.where_now(pc) })
         while #s.active > M.cfg.active_rows do table.remove(s.active) end
         v = { quests = s }
     end
@@ -126,7 +226,9 @@ do
     M.MANIFEST = {
         quests = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 10,
             description = "Your quest log from the game: active quests with the current step in the game's own words "
-                .. "(and its hint), completed quests; all = true adds the ones not started. Read only.",
+                .. "(and its hint), and where: the step's own map markers as the map and compass show them (an area "
+                .. "circle, a target spot or the NPC: name, kind, radius_m, position, distance_m, inside); go_to takes the "
+                .. "position. Completed quests too; all = true adds the ones not started. Read only.",
             args = { type = "object", properties = obj({ all = { type = "boolean", default = false, description = "Include quests not started yet." } }) },
             reasons = { "companion_down", "state_unavailable" } },
     }

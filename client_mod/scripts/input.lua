@@ -315,7 +315,7 @@ local function sweep(m)
     if m.kind == "conversation" then
         local inst = rawget(_G, "__dwc_bridge")
         local api = inst and inst.module and inst.module.API
-        local talk = rawget(_G, "DW_ENABLE_TALK") == true and api and api.module("talk") or nil
+        local talk = api and api.module("talk") or nil
         if talk and type(talk.sweep_orphan) == "function" then
             local ok, r = pcall(talk.sweep_orphan)
             if ok and type(r) == "table" and r.state == "cancel_pressed" then

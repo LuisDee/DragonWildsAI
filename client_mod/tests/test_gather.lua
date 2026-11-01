@@ -188,7 +188,7 @@ local fake_inv = {}
 function fake_inv.list()
     local hotbar, slot = {}, 0
     for item, n in pairs(Wd.inv) do
-        hotbar[#hotbar + 1] = { item = item, name = (TOOLS[item] or {}).name or item, count = n, slot = slot }
+        hotbar[#hotbar + 1] = { item = item, name = (TOOLS[item] or {}).name or (Wd.names or {})[item] or item, count = n, slot = slot }
         slot = slot + 1
     end
     table.sort(hotbar, function(a, b) return a.item < b.item end)
@@ -227,7 +227,8 @@ function fake_inv.press_interact(log, opts)
         Wd.secondary = (Wd.secondary or 0) + 1
         if t.w and Wd.collect_all then
             for _, w in ipairs(Wd.drops) do
-                if w._alive and w.item == t.w.item and d2(t.w.pos, w.pos) <= Wd.collect_all then
+                -- every kind, as the game's (bCollectAllCollectsOnlySameType = false, read live 15:41Z)
+                if w._alive and d2(t.w.pos, w.pos) <= Wd.collect_all then
                     w._alive = false; Wd.inv[w.item] = (Wd.inv[w.item] or 0) + 1
                 end
             end
@@ -686,6 +687,33 @@ do
     check("pile: 8 stones from one collect-all press", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 8 and Wd.secondary == 1 and Wd.presses == 1,
           tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " presses=" .. Wd.presses .. " secondary=" .. tostring(Wd.secondary))
     check("pile: no magnet wait (under 2 s)", T - t0 < 2.0, T - t0)
+    -- collect-all takes every kind within 2 m: what else came with it is named in the result (from the inventory)
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed = true, 200, true
+    Wd.names = { ITEM_Resources_Wood_Ash = "Ash Logs", ITEM_Resources_Stone = "Stone" }
+    for i = 1, 10 do
+        Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_M" .. i, pos = { X = 250 + (i % 3) * 15, Y = math.floor(i / 3) * 15, Z = 0 },
+                                        item = i <= 8 and "ITEM_Resources_Stone" or "ITEM_Resources_Wood_Ash", born = T })
+    end
+    res = run_job({ resource = "loose_stones", count = 8 }, 60)
+    local also = res.data and res.data.also or {}
+    check("mixed pile: the 2 Ash Logs that came with it are named", res.ok == true and also[1] and also[1].item == "ITEM_Resources_Wood_Ash"
+          and also[1].count == 2 and tostring(res.data.detail):find("(and 2 Ash Logs that were lying there)", 1, true) ~= nil,
+          tostring(res.data and res.data.detail))
+    Wd.names = nil
+    -- a pile 5 m off and a stone spawner 9 m off: the nearer, the pile, first (live 15:52Z it walked to a 13.6 m spawner)
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed = true, 200, true
+    for i = 1, 4 do
+        Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_F" .. i, pos = { X = 500 + i * 10, Y = 0, Z = 0 }, item = "ITEM_Resources_Stone", born = T })
+    end
+    Wd.foliage[#Wd.foliage + 1] = { id = "fol:Far:1", class = "BP_Spawner_Stone_C", _pos = { X = 0, Y = 900, Z = 0 }, name = "Stone",
+                                    kind = "pickup", visible = true, item = "ITEM_Resources_Stone" }
+    res = run_job({ resource = "loose_stones", count = 4 }, 60)
+    check("pile 5 m off before a spawner 9 m off", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 4 and Wd.secondary == 1,
+          tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " secondary=" .. tostring(Wd.secondary))
     -- a lone drop takes the plain press (collect-all is for a pile)
     reset({ inv = {} })
     fake_pc.Pawn = Wd.pawn

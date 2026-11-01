@@ -2588,6 +2588,11 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - **Every drop is its own world item; the game never merges them.** Two 1-Stone drops made two `BP_RuntimeSpawnedWorldItem_C` (count 1 each) 0.15 m apart.
   - Luis's "pile" (8 drops of 1 Stone, 12:42:12-12:42:16Z) was taken by ONE `PlayerInteractionManager:Server_RequestInteraction` with **`bIsSecondaryInteraction = true`** (the secondary "collect all"; his split pickup used `false`), +8 Stone in one press. So the pile bar is one secondary press over 8 world items, not one world item. This is the first live evidence that the secondary collect-all works.
   - `AWorldItem.NameOfPlayerCharacterThatDroppedItem` reads empty (`dropped_by` nil) on Claude's client for his own drops, so the dropper can't be read client side.
+- **Collect-all, verified on Claude (15:33-15:41Z, pickup agent, `tools/pickup_ladder.py --piles`, recorder-scored):**
+  - The game's values, read from the `Default__ItemDeveloperSettings` CDO (client_mod/commands/collect_all_probe.lua): **`CollectAllRadius` = 200 cm**, `bCollectAllCollectsOnlySameType` = **false** (it takes every kind within 2 m), `bCollectAllIgnoresNonMagnetizingItems` = false. A player's dropped world item offers the secondary prompt **"Collect All"** (`UInteractionComponent.SecondaryInteractionPrompt`); the press is `PlayerInteractionManager.SecondaryInteractAction` = **IA_SecondaryInteract**, one injected frame, the same route as E.
+  - 8 drops of 1 Stone (8 world items within ~1 m): `interact {target: one drop, secondary: true}` took **all 8 in one press, 1.9 s** request to result (the first try took 16: the earlier pile still lay within 2 m). `gather loose_stones x8` took them with **one secondary press made on the move**, 4.9 s.
+  - **A small item at his feet is offered only with the camera aimed at it.** With the camera level he walked onto a dropped stone and stood there for 12 s without the detector ever offering it, so gather's non-magnet drop collection had never worked live. Aiming the camera at the item (yaw and pitch from the camera, as `W.aim_cam` does) from 2 m in fixed it.
+  - The census can still list a collected pile for a few seconds after the press, so verify the inventory, not the census.
 - **give (skills.lua, now offered to the model):**
   - It walks with come_to (by sight, or his map marker when out of sight), then steps to a spot 1.9 m in front of him along his facing (facing unread: on the line from him to Claude).
   - It turns toward him with movement-input nudges (to within 25°, at most 1 s), drops with `inventory.drop`, and checks that the bag shrank.
@@ -2603,3 +2608,48 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - Fix: come_to takes `opts.token()` (the owning job's token).
 - **Not verified live:** give to a real player (his facing from his actor yaw, the census row, the map-marker walk). That needs Luis.
 - **Sources (search before building):** https://dragonwilds.runescape.wiki/w/Inventory; https://www.bisecthosting.com/blog/runescape-dragonwilds-controls-guide-keyboard-mouse-gamepad-controller; https://gamever.io/knowledge-base/controller-support-keybinds-in-dragonwilds-what-works-and-what-doesnt. Searches for a Dragonwilds trade or give mechanic found none (the results were older RuneScape trade windows and storage guides: https://allthings.how/runescape-dragonwilds-how-linked-chests-and-crafting-stations-work/). Decision: reuse the game's own client paths (the drop and split handlers); adapt MINDcraft's `!givePlayer` (go to the player, then toss) for the step in front, the facing and the pile check.
+
+## NPC talk on Claude's client, loaded for the brain (2026-11-01 15:22Z-, dev, ClaudeDev; game build 26161880, client 26162923; quests agent)
+- **talk.lua is loaded normally now** (client_bridge MODULES; the `_G.DW_ENABLE_TALK` gate is gone from the bridge, input.lua's sweep and skills.lua). The re-review's blocker (sweep_orphan recursing through the input gate) was already closed in rev 3: talk presses as the conversation modal's owner (input's sweep skips an owned modal) and `sweep_orphan` has a re-entrancy guard; test_input 6c drives a sweep that presses through the gate and sees depth 1.
+- **Why the options came back empty (P2, 2026-10-26):** the panel's `AllOptions[i].DisplayName` (UConversationAnswerItemData, a UDomListItemData FText) reads nil on the headless client, while the payload (`DomConversationParticipant.LastMessage.Options[i].ChoiceText`, FClientConversationOptionEntry) holds the texts. Evidence: the P2 node signature `...|Yes please [Begin Tutorial]:1|I can work it out [Skip Tutorial]:1|p:nil|p:nil`. Fix: a panel row with no text takes the payload's user option (ChoiceType != ServerOnly) at the same position; the row keeps its own InputAction (the key that picks it).
+- **Live 15:25:46Z, `talk {target: "Wise Old Man"}` by name** (new: a name resolves to the nearest perceived thing whose prompt is "Talk", via the bridge's resolve_name): episode 3 s, opened, Continue pressed through 2 choice-less lines, **4.3 s** round trip. It returned all 3 lines in order with the speaker, and options `1) Yes please [Begin Tutorial]; 2) I can work it out [Skip Tutorial]` (both available).
+- **Live 15:26:17Z, `talk {choose: 1}`: the option's own key (OptionSelectInputActions[1]) both selects AND confirms on this panel** (`picked_via = "key"`, no Continue needed, no highlight-only step). 0.6 s round trip: 3 more lines read through Continue ("Doric can help you with that... outside the temple... only dwarf on the continent"), then the conversation ended by itself; `quests_changed` First Steps Objective2 -> Objective3 ("Speak to Doric outside the temple.").
+- **A dialogue survives walking away:** between the two calls another agent ran a 49 m go_to and a Crafting Table build with the WOM dialogue still open (the modal did not block them), and the choose still worked from ~30 m away.
+- **No hand-in node exists in the game's dialogue data:** the conversation task nodes are QFT_GiveQuest, QFT_SetQuestObjective, QFT_SetQuestBool, QFT_CompleteQuest, QFT_GiveItemToPlayer, QFT_GiveCraftingRecipe, QFT_PromptMessage, QFT_Blank and ModifyQuestInt; the requirement nodes test quest state/bools, world progress and free bag space (dump CXXHeaderDump QFT_*/QFR_*, Dominion.hpp l.17861). No dialogue node takes items, so a "hand-in" should be talking to the NPC once the step is done (whether the quest code itself removes the items is to be seen live). talk now reports `items` (gained/lost during that call) so rewards and any taken items show.
+
+## Dev fixture set_stat: rest, food and water to a value on the server pawn (2026-11-01 15:48Z, dev, ClaudeDev; game build 26161880; rung1 gate agent)
+- **Route:** the server pawn's own survival components, `ADominionPlayerCharacter.EnduranceComponent` / `SustenanceComponent` / `HydrationComponent` (dump: Dominion.hpp, properties at 0x15E0 / 0x15C8 / 0x15D0), each with `GetCurrent<Stat>()`, `GetMax<Stat>()` and `Add<Stat>(float ToAdd, float DecayBufferToAdd)`. `set_stat {stat, value | pct}` calls `Add<Stat>(want - current, 0.0)`: two floats, a server-local reflected call, no struct (CLAUDE.md principle 4). Endurance is the game's Rest bar.
+- **Verified live 15:48:49-51Z** (the needs agent's run through this verb): sustenance 67.63 -> 25.0 and hydration 46.78 -> 25.0, both read back exactly (`ok`, max 100). It replicates to his client at once: the brain's next get_state read 24.9 / 24.9.
+- The game's cheat manager has the same thing (`UDominionCheatManager.domModifyEndurance / domModifySustenance / domModifyHydration / domFullyRestoreSurvivalUpkeep / domPause*Drain`, dump), but the fixture's CheatManager route is unverified; the component call needs none. A web search found no public doc of the dom* commands (Dragonwilds has no developer console by default; hosts' command lists don't mention them).
+- In-game time at 15:48Z was 13:39 (day 429): rest by day is a nap, +1/s (wiki https://dragonwilds.runescape.wiki/w/Rest).
+- **Doric (Getting Started) checks what you already have:** with Dirty Water in the bag and Crafting Tables built nearby, his first conversation said "I see you've already got some water" and gave the quest straight at Objective3 "Bring the Stone Club to Doric outside the temple." (`quests_changed`: First Steps given -> complete, Getting Started ungiven -> given). The water and table steps are skipped when already met, so a fresh character's run is longer than this one.
+- **Hand-in is talking, verified:** after `craft Stone Club`, `talk {target: Doric}` completed Getting Started (state complete), gave Ratcatcher (Objective1 "Speak to Vannaka near the windmill.") and **1 Vegetable Soup** (`items.gained`); the Stone Club stayed in his bag (nothing taken).
+- **Getting Started from one chat line, live 15:41Z** (tools/quest_run.py, Haiku Controller, no Director): "claude, go and see Doric outside the temple and do whatever he asks you to" -> **quest complete in 26.7 s, 5 Haiku calls, $0.0025, no idle stretch over 5 s.** Timeline: first tool 3.4 s after the line (talk + say "on it"); talk 4.3 s (6 lines, ended by itself); craft_plan read; craft Stone Club 8.6 s at the nearby Crafting Table (8 Stone + 6 Ash Logs); talk 4.9 s -> complete. One false claim: his closing line said "Doric gave me a stone club and a veg soup" (he made the club). Fix: every talk result now ends with the outcome in plain words ("Quest Getting Started is complete. New quest Ratcatcher: ... Given to you in this conversation: 1 Vegetable Soup.").
+
+## Travel speed: where a trip's time goes, trace cost, false water and false traps (2026-11-01 15:20-15:58Z; game build 26161880, client 26162923, dev world, ClaudeDev; movement agent)
+- **Lua line traces are cheap.** Measured live with 200 traces each: `LineTraceSingleByProfile` (profile "Player") costs 0.080 ms, and `LineTraceSingle` (Visibility) 0.065 ms. Probe: the movement scratchpad `trace_cost.lua`.
+  - The local planner's 16 traces per frame (written as "~1 ms each") left it frame-bound: ~1,000-1,100 traces per plan meant ~2.5 s standing.
+  - At 64 traces per frame a plan stands 0.6-0.8 s.
+- **Standing to plan dominated the slow trips.** Today's client log had 458 standing local plans, totalling 993 s:
+
+  | Reason | Plans | Standing |
+  |---|---|---|
+  | wall_ahead | 142 | 378 s |
+  | water_ahead | 124 | 299 s |
+  | stuck | 132 | 210 s |
+  | water | 43 | 83 s |
+  | drop_ahead | 14 | 24 s |
+
+  - The oracle's route for 150+ m trips arrives 10.6-11.2 s after the request (corridor streaming). Before the provisional walk he stood through that wait.
+- **The water channel ('cam', Camera channel 1) also stops on solids.**
+  - A roof or a bench above the floor reads as a "water surface". The pawn profile passes through water to the bed, so water is where 'cam' stops more than 15 cm above the floor and the pawn trace does not stop at that height.
+  - The 11 cells marked "water" at the church door, (40-48, 923-933) in 200 cm cells, now read as floor on every channel: cam = pawn = Visibility = floor Z (landscape or StaticMeshActor). Probe: the scratchpad `water_cells_probe.lua`.
+- **False traps in nav memory, and how they were learned:**
+  - t161 at the ladder start (249.9, 1790.8) came from a go_to whose goal was 11.8 m above him. He stood under it (unreachable: target_above_jump_height). The next trip's first 15 m became the "exit".
+  - t178 and t265 came from failing to stand on the Water Anima Vent (d = 2.4 m, no_route). t226 came from a goal 439 m away and 12.6 m up. t158, t197 and t217 had straight 20-22 m exits.
+  - `n_ok` was not evidence. It was bumped on every tick while an exit kept growing, and on every walk of a stored exit (church_respawn 780, t158 696).
+  - Rules now:
+    - a candidate needs a no_route failure more than 3 m from the goal, or a wedge;
+    - a teleport before the first sample drops it;
+    - walking straight out the very way that failed is "not a trap";
+    - `n_ok` counts once per escape, and `n_used` counts walks of a stored exit.

@@ -449,6 +449,31 @@ local function gained(before, now, want)
     return best, n, all
 end
 
+-- Every kind a press gained, as the game names them (the inventory listing): the main kind first, then the rest,
+-- biggest first. Collect-all takes EVERY kind within 2 m (bCollectAllCollectsOnlySameType = false, read live
+-- 2026-11-01), so what came with it is said, never silent. -> "2 Oak Logs", {"8 Stone", "2 Ash Logs"}
+local function gain_words(api, all, main)
+    local names = {}
+    local okl, lr = pcall(api.call, "inventory", "list")
+    local d = okl and type(lr) == "table" and (type(lr.data) == "table" and lr.data or lr) or {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs(d[where] or {}) do if e.item and e.name then names[e.item] = e.name end end
+    end
+    local rows = {}
+    for k, n in pairs(all or {}) do rows[#rows + 1] = { k = k, n = n } end
+    table.sort(rows, function(a, b)
+        if (a.k == main) ~= (b.k == main) then return a.k == main end
+        return a.n > b.n or (a.n == b.n and a.k < b.k)
+    end)
+    local first, rest = nil, {}
+    for _, r in ipairs(rows) do
+        local w = string.format("%d %s", r.n, names[r.k] or r.k)
+        if not first then first = w else rest[#rest + 1] = w end
+    end
+    return first, rest
+end
+M._gain_words = gain_words
+
 -- The bed/shelter actor he is lying in (PlayerRestComponent.CurrentRestingAreaActor), or nil.
 function W.resting_in(api)
     local s = api.module("sense")
@@ -481,7 +506,12 @@ function W.conversation_npc(api)
     local cc = U and pc and U.try(function() return pc.ConversationComponent end)
     if not (U and U.valid(cc)) then return nil end
     local active = tonumber(U.try(function() return cc.DomConversationParticipant.ConversationsActive end)) or 0
-    if active <= 0 then return nil end
+    if active <= 0 then
+        -- live 2026-10-26 P2: on the client ConversationsActive stays 0 while the dialogue is up; the conversation
+        -- input mode is the game's own switch (talk.lua and input.lua's modal read it too)
+        local mode = U.short(U.try(function() return pc.CurrentInputMode end))
+        if not (type(mode) == "string" and mode:find("Conversation", 1, true)) then return nil end
+    end
     return U.short(U.try(function() return cc.CurrentNPC end)) or "?"
 end
 
@@ -804,7 +834,8 @@ local function episode_poll(api, e, t, owner_token)
                 changed = "opened"
             end
             -- an NPC: the press started a conversation with it (talk.lua builds on this; never pressed twice)
-            if not changed and sig.conversation and sig.conversation == th.id and not (e.sig_before and e.sig_before.conversation) then
+            -- ("?" = the client left CurrentNPC unset, live 2026-10-26 P2: a dialogue that opened on OUR press is ours)
+            if not changed and sig.conversation and (sig.conversation == th.id or sig.conversation == "?") and not (e.sig_before and e.sig_before.conversation) then
                 changed = "conversation"
             end
             if not changed then
@@ -825,6 +856,15 @@ local function episode_poll(api, e, t, owner_token)
                 data.took = e.took
                 data.detail = string.format("The game highlighted another %s right beside that one, so I took it: +%d %s.",
                     tostring(e.took_name or e.label), n, tostring(e.took_name or e.label))
+            end
+            local kinds = 0
+            for _ in pairs(all or {}) do kinds = kinds + 1 end
+            if item and (e.secondary or kinds > 1) then
+                -- the kind he aimed at leads (the thing the player meant), when it came too
+                local first, rest = gain_words(api, all, (source.item and all[source.item]) and source.item or item)
+                local also = #rest > 0 and (" (and " .. table.concat(rest, ", ") .. " that were lying there)") or ""
+                if e.secondary then data.detail = "Collected all: " .. first .. also .. "."
+                else data.detail = (data.detail and (data.detail:gsub("%.%s*$", "")) or ("Picked up " .. first)) .. also .. "." end
             end
             return { ok = true, data = data }
         end
@@ -1628,6 +1668,12 @@ local function start_interact(api, args, ctx)
     if not can then return api.fail("not_interactable", { target = id, kind = t.kind, actions = t.actions,
         detail = "There's nothing I can do with the " .. tostring(t.name or id) .. " by pressing use." }) end
     if t.available == false then return depleted(api, t) end
+    -- an NPC (the game's own prompt "Talk"): use on it IS a conversation, so talk.lua runs it (opens it, reads every
+    -- line and the options) instead of a bare "nothing changed" (BUGS L41)
+    local TK = t.prompt == "Talk" and args.secondary ~= true and api.module("talk") or nil
+    if TK and type(TK.HANDLERS) == "table" and type(TK.HANDLERS.talk) == "function" then
+        return { handover = function(log) return TK.HANDLERS.talk(log, { target = id }, ctx) end }
+    end
     local job = { kind = "interact" }
     local accept = (t.category == "items" and t.item) and function(det) return det.item == t.item end or nil
     -- lying in this very bed/shelter: the game ends the rest on a plain interact press (live 20:59, the
@@ -1689,11 +1735,9 @@ local function start_interact(api, args, ctx)
     return job
 end
 
--- talk.lua runs conversations only when loaded AND enabled (_G.DW_ENABLE_TALK; its review is pending).
+-- talk.lua runs conversations when it is loaded (client_bridge MODULES, since 2026-11-01).
 function W.talk_enabled(api)
-    if rawget(_G, "DW_ENABLE_TALK") ~= true then return false end
-    local tk = api.module("talk")
-    return tk ~= nil
+    return api.module("talk") ~= nil
 end
 
 -- ------------------------------------------------------------------ grave memory (BUGS L19 + L22), persisted
@@ -1823,29 +1867,35 @@ function M.state_extras(api, data)
     mem.vit = mem.vit or {}
     local last = mem.vit[#mem.vit]
     if num(data.sustenance) and (not last or t - last.t >= 20) then
-        mem.vit[#mem.vit + 1] = { t = t, sus = data.sustenance, hyd = num(data.hydration) }
+        -- rest = lying in a bed/shelter: sleeping fast-forwards the clock, so the bars fall ~3x faster per real
+        -- minute (live 2026-11-01 15:38Z: 16.6 water/min after a nap vs 5.2-5.7 awake), which is not his drain
+        mem.vit[#mem.vit + 1] = { t = t, sus = data.sustenance, hyd = num(data.hydration), rest = W.resting_in(api) ~= nil or nil }
         while #mem.vit > 40 or (mem.vit[1] and t - mem.vit[1].t > 600) do table.remove(mem.vit, 1) end
     end
     if #mem.vit >= 2 then
         local a, b = mem.vit[1], mem.vit[#mem.vit]
         local mins = (b.t - a.t) / 60
         if mins >= 0.5 then
-            -- only the falling part counts (eating makes it jump up): the drain = the steepest fall rate
+            -- only the falling part counts (eating makes it jump up): the drain = the upper median of the fall rates
+            -- between samples. Awake, the drain is near constant (8 logs 2026-11-01: 5.2-5.7 water, 4.2-4.3 food per
+            -- min), so one odd step (a death, a nap, a hit the game takes off a bar) no longer sets it, as the
+            -- steepest fall did ("empty in ~4 min" at 66% water after a nap, live 15:40Z)
             local sus_rate, hyd_rate
             -- a fall across a death is not drain (HydrationRemovedOnDeath 10, respawn vitals vary: DISCOVERIES
             -- 2382); it read 41-55/min at 11:19:45 and told the brain "empty in ~1 min" at 42% food
             local life = rawget(_G, "DW_LIFE")
             local cut = type(life) == "table" and math.max(num(life.died_at) or 0, num(life.respawned_at) or 0) or 0
             local function rate(key)
-                local best
+                local falls = {}
                 for i = 2, #mem.vit do
                     local p, q = mem.vit[i - 1], mem.vit[i]
-                    if p[key] and q[key] and q[key] < p[key] and q.t > p.t and p.t >= cut then
-                        local r = (p[key] - q[key]) / ((q.t - p.t) / 60)
-                        best = best and math.max(best, r) or r
+                    if p[key] and q[key] and q[key] < p[key] and q.t > p.t and p.t >= cut and not (p.rest or q.rest) then
+                        falls[#falls + 1] = (p[key] - q[key]) / ((q.t - p.t) / 60)
                     end
                 end
-                return best
+                if #falls == 0 then return nil end
+                table.sort(falls)
+                return falls[math.floor(#falls / 2) + 1]
             end
             sus_rate, hyd_rate = rate("sus"), rate("hyd")
             out.vitals_rate = { sustenance_per_min = sus_rate and math.floor(sus_rate * 100 + 0.5) / 100 or api.null,
@@ -1918,6 +1968,13 @@ function M.state_extras(api, data)
             out.vitals_policy = { drink_below_pct = pol.drink_below_pct, eat_below_pct = pol.eat_below_pct,
                                   heal_below_pct = pol.heal_below_pct or api.null, reserve_warn = pol.reserve_warn,
                                   safety_floor_pct = inv.SAFETY_FLOOR_PCT }
+            -- whether the stay-fed loop runs, and how often it may use one per kind: the brain tells the model that a
+            -- drink it moves to the hotbar under the line is drunk by the reflex (live 15:49Z: both drank, one wasted)
+            local okr, rst = pcall(function() return type(inv.reflex_status) == "function" and inv.reflex_status() or nil end)
+            if okr and type(rst) == "table" then
+                out.vitals_policy.reflex_on = rst.running == true
+                out.vitals_policy.reflex_every_s = type(rst.cfg) == "table" and tonumber(rst.cfg.cooldown_s) or api.null
+            end
         end
     end
     local g, others = grave_of(api, data.interactables)
@@ -2380,6 +2437,7 @@ local function handler(name)
         if paused() then return api.fail("companion_down", { detail = "I'm not in the world right now." }) end
         local job = STARTERS[name](api, args or {}, ctx)
         if job.ok == false then return job end
+        if job.handover then return job.handover(log) end
         return action(api, ctx, job)
     end
 end

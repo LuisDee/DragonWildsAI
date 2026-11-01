@@ -80,6 +80,14 @@ Qm.W.pc = function() return nil end
 check("no controller: state_unavailable", Qm.HANDLERS.quests(nil, {}).reason == "state_unavailable")
 Qm.W.pc = PC0
 
+-- the game's quest map markers (live 2026-11-01: Windmill_Area_FTUE_RC, an 80 m area for Ratcatcher)
+check("marker name: the game's codes dropped", Qm.marker_name("Windmill_Area_FTUE_RC") == "Windmill Area"
+    and Qm.marker_name("Vannaka_NPC_FTUE_RC") == "Vannaka" and Qm.marker_name("TribeA.Taskgiver1") == "Tribe A Taskgiver1")
+local wb = Qm.where_by_quest({ { quest = "Ratcatcher", key = "Windmill_Area_FTUE_RC", kind = "area", radius_m = 80, xy = { 156.1, 1713.4 }, distance_m = 60 },
+                               { quest = "Ratcatcher", key = "Vannaka_NPC_FTUE_RC", kind = "npc", radius_m = 0, position = { 152.5, 1787.1, -24.4 }, distance_m = 20 } })
+check("where: nearest first, inside an area, xy only without a ground height", wb.Ratcatcher[1].name == "Vannaka"
+    and wb.Ratcatcher[2].inside == true and wb.Ratcatcher[2].xy and not wb.Ratcatcher[2].position and wb.Ratcatcher[1].radius_m == nil)
+
 check("manifest read tool", Qm.MANIFEST.quests.kind == "read" and Qm.MANIFEST.quests.llm)
 local src = assert(io.open(root .. "/client_mod/scripts/quests.lua", "rb")):read("*a"):gsub("%-%-[^\n]*", "")
 check("no quest/NPC names in logic", not src:find("Zanik", 1, true) and not src:find("Rune Mysteries", 1, true))

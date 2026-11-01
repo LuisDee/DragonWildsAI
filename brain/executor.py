@@ -321,7 +321,7 @@ class Executor:
         a region / province's best known point), walked to at once; the result says what the name was taken to be.
         The body's own answer stands when the name isn't in the data or matches only part of a name."""
         target = args.get("target")
-        if task.skill != "go_to" or self.places is None or not isinstance(target, str):
+        if task.skill not in ("go_to", "talk") or self.places is None or not isinstance(target, str):
             return failed
         try:
             lodes = None
@@ -354,6 +354,14 @@ class Executor:
                 + (" (approximate)" if best.get("approximate") else ""))
         self.log.log("place_resolved", place=target, position=best["position"], source=best.get("source"),
                      place_kind=best["kind"], approximate=bool(best.get("approximate")))
+        if task.skill == "talk":  # an NPC out of sight (quest steps name them): walk to its map spot, then talk there
+            walk = self.game.call("go_to", {"target": best["position"]})
+            if not walk.get("ok"):
+                wd = walk.get("data") if isinstance(walk.get("data"), dict) else {}
+                return {**walk, "data": {**wd, "resolved": took + "; I didn't get there"}}
+            result = self.game.call("talk", args)
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            return {**result, "data": {**data, "resolved": took}}
         result = self.game.call(task.skill, {**args, "target": best["position"]})
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         if result.get("ok") and best["kind"] == "landmark" and (seen := self._seen_at_spot(best["name"])):

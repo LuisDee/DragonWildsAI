@@ -180,11 +180,29 @@ do
     local shown = K.choices(st)
     check("choices sorted by on-screen number, joined by text", #shown == 2 and shown[1].text == "A" and shown[2].text == "B" and shown[2].available == false)
     check("server-only never shown (payload only)", #K.choices({ options = { { text = "X", type = 1 }, { text = "S", type = 0 } } }) == 1)
-    local opts = { { n = 1, text = "Tell me about farming." }, { n = 2, text = "I made a fishing net!" }, { n = 3, text = "Tell me about the dragon." } }
+    -- live P2 (2026-10-26): the panel rows' DisplayName read nil; the texts come from the payload by position
+    local p2 = K.choices({ options = { { text = "Yes please [Begin Tutorial]", type = 1 }, { text = "I can work it out [Skip Tutorial]", type = 1 } },
+                           panel_rows = { { act = "k1", n = 1 }, { act = "k2", n = 2 } } })
+    check("nil panel text: payload text by position, panel key kept", #p2 == 2 and p2[1].text == "Yes please [Begin Tutorial]"
+        and p2[1].act == "k1" and p2[2].act == "k2" and p2[2].available == true)
+    local opts ={ { n = 1, text = "Tell me about farming." }, { n = 2, text = "I made a fishing net!" }, { n = 3, text = "Tell me about the dragon." } }
     check("resolve by number", K.resolve(opts, 2).n == 2)
     check("resolve by text, any case", K.resolve(opts, "i made a fishing net!").n == 2)
     check("resolve unique substring", K.resolve(opts, "net").n == 2)
     check("resolve ambiguous", select(2, K.resolve(opts, "Tell me")) == "ambiguous")
+    -- a target by name: the nearest perceived thing whose prompt is the game's "Talk" (never a non-NPC namesake)
+    local rows = { { id = "Statue_1", name = "Doric Statue", prompt = "Inspect", position = { 0, 0, 0 } },
+                   { id = "BP_NPC_Doric_FTUE_C_1", name = "Doric", prompt = "Talk", position = { 1, 0, 0 } } }
+    local fapi = { find_thing = function() return nil end, census_things = function() return rows end,
+                   resolve_name = function(rs, what) for _, r in ipairs(rs) do if r.name:lower() == what:lower() then return r end end end }
+    check("target by name -> the Talk NPC", (K.resolve_target(fapi, "doric") or {}).id == "BP_NPC_Doric_FTUE_C_1")
+    check("target by name: no Talk namesake -> nil", K.resolve_target(fapi, "doric statue") == nil)
+    local ow = K.outcome_words({ { quest = "Getting Started", from = "given", to = "complete" },
+                                 { quest = "Ratcatcher", from = "ungiven", to = "given", step = "Speak to Vannaka near the windmill." } },
+                               { gained = { soup = 1 } }, { soup = "Vegetable Soup" })
+    check("outcome words", ow == "Quest Getting Started is complete. New quest Ratcatcher: Speak to Vannaka near the windmill. Given to you in this conversation: 1 Vegetable Soup.", ow)
+    check("inv diff", (K.inv_diff({ a = 2, b = 1 }, { a = 3 }) or {}).gained.a == 1 and K.inv_diff({ a = 2, b = 1 }, { a = 3 }).lost.b == 1
+        and K.inv_diff({ a = 1 }, { a = 1 }) == nil)
     local qd = K.quest_diff({ { quest = "A", state = "given", ints = { n = 1 }, bools = {} } },
                            { { quest = "A", state = "given", ints = { n = 2 }, bools = { b = true } }, { quest = "B", state = "given" } })
     check("quest diff: ints and bools", #qd == 2 and qd[1].ints.n.to == 2 and qd[1].bools.b.to == true and qd[2].from == "ungiven")

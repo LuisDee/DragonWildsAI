@@ -118,7 +118,7 @@ check("conversation: a cast (modal=mode) is refused", okb == false and m.kind ==
 check("conversation: talk's own press passes", I.inject(attack, nil, { modal = "conversation" }) == true)
 W.input_mode = "DIM_Gameplay"
 
--- 6c. an orphan conversation: talk is consulted ONLY when enabled; the sweep is never re-entered
+-- 6c. an orphan conversation: talk (loaded normally since 2026-11-01) is consulted; the sweep is never re-entered
 do
     local calls, depth, maxdepth = 0, 0, 0
     local talk = { sweep_orphan = function()
@@ -130,12 +130,9 @@ do
     _G.__dwc_bridge = { module = { API = { module = function(n) if n == "talk" then return talk end end } } }
     I.release("conversation")
     W.input_mode = "DIM_ConversationUI"
-    T = 200; I.gate(); T = 202; I.gate()
-    check("talk absent from the sweep while DW_ENABLE_TALK is off", calls == 0)
-    _G.DW_ENABLE_TALK = true
-    T = 204; I.gate(); T = 206; I.gate()
-    check("enabled: talk.sweep_orphan called, never recursively", calls >= 1 and maxdepth == 1, tostring(calls) .. "/" .. tostring(maxdepth))
-    _G.DW_ENABLE_TALK, _G.__dwc_bridge = nil, nil
+    T = 200; I.gate(); T = 202; I.gate(); T = 204; I.gate(); T = 206; I.gate()
+    check("talk.sweep_orphan called, never recursively", calls >= 1 and maxdepth == 1, tostring(calls) .. "/" .. tostring(maxdepth))
+    _G.__dwc_bridge = nil
     W.input_mode = "DIM_Gameplay"
     check("gate still works after", I.gate() == nil)
 end

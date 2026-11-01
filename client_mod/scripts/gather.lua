@@ -275,6 +275,17 @@ local TOOL_WORD = { axe = "logging axe", pickaxe = "pickaxe" }
 local function tool_word(p) return TOOL_WORD[p.tool or ""] or tostring(p.tool) end
 
 -- ------------------------------------------------------------------ the job
+-- Kinds other than the counted item whose count rose since the job began: {{item, name, count}}, biggest first.
+function M.also_gained(J)
+    local out = {}
+    for item, n in pairs(J.now_counts or {}) do
+        local g = n - ((J.inv0 or {})[item] or 0)
+        if item ~= J.item and g > 0 then out[#out + 1] = { item = item, name = (J.names or {})[item] or item, count = g } end
+    end
+    table.sort(out, function(a, b) return a.count > b.count or (a.count == b.count and a.item < b.item) end)
+    return out
+end
+
 local function result_of(J, ok, reason, data)
     data = data or {}
     data.resource, data.item, data.want = J.key, J.item, J.want
@@ -287,6 +298,17 @@ local function result_of(J, ok, reason, data)
     data.tool = J.tool and J.tool.name or nil
     if J.sweep and J.sweep.presses > 0 then data.presses, data.presses_on_move = J.sweep.presses, J.sweep.on_move end
     if J.collect_all then data.collect_all_presses = J.collect_all end
+    -- everything else he picked up (collect-all takes every kind within 2 m): named in the result, never silent
+    local also = M.also_gained(J)
+    if #also > 0 then
+        data.also = also
+        local words = {}
+        for _, a in ipairs(also) do words[#words + 1] = string.format("%d %s", a.count, a.name) end
+        local w = table.concat(words, ", ")
+        if type(data.detail) == "string" then
+            data.detail = data.detail:gsub("%.%s*$", "") .. " (and " .. w .. " that were lying there)."
+        end
+    end
     data.phase_log = J.phase_log
     return { ok = ok, reason = reason, data = data }
 end
@@ -345,6 +367,10 @@ local function refresh_count(J, force)
     if type(list) ~= "table" or list.ok == false then return end
     J.empty_slots = list.empty_slots
     local now_counts = counts_of(list)
+    J.now_counts, J.names = now_counts, J.names or {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs(list[where] or {}) do if e.item and e.name then J.names[e.item] = e.name end end
+    end
     if not J.item and J.profile.item_match then
         for item in pairs(now_counts) do if item:find(J.profile.item_match) then J.item = item end end
     end
@@ -515,6 +541,12 @@ local function choose(J, me)
             if not (p and J.t - p.t < cfg.sweep_hold_s) then keep[#keep + 1] = T end
         end
         roots = M.path_order(me, keep, math.min(cfg.path_k, math.max(1, (J.want or 1) - (J.gained or 0))))
+    end
+    if J.profile.mode == "pickup" and J.item then
+        -- a pile of the item lying in the radius is a pickup too (one collect-all press may take it all): the nearer of
+        -- it and the next spawner goes first (live 15:52Z: a pile 5 m away was passed for a stone 13.6 m away)
+        local dr = drops_near(J, me, J.radius_cm, me)[1]
+        if dr and (not roots[1] or dr.d <= (roots[1].d or U.dist2d(me, roots[1].pos))) then return dr end
     end
     local too_hard
     for _, T in ipairs(roots) do

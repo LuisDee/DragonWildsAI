@@ -485,6 +485,26 @@ test("interact secondary=true presses the secondary action (collect-all on a sta
     assert(r and r.ok and got and got.secondary == true, json.encode(r))
 end)
 
+test("interact secondary: collect-all names every kind it took, from the inventory", function()
+    reset()
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    inv.press_interact = function(log, opts)
+        if not (opts and opts.secondary) then return p0(log, opts) end
+        -- the game's collect-all takes every kind within 2 m (live 2026-11-01): the logs aimed at plus what lay there
+        for i = #F.world.items, 1, -1 do if F.world.items[i].id == "wi_1" then table.remove(F.world.items, i) end end
+        F.cons[#F.cons + 1] = { name = "Oak Logs", item = "ITEM_Resources_Wood_Oak", count = 2, where = "bag" }
+        F.cons[#F.cons + 1] = { name = "Stone", item = "ITEM_Resources_Stone", count = 8, where = "bag" }
+        F.cons[#F.cons + 1] = { name = "Ash Logs", item = "ITEM_Resources_Wood_Ash", count = 2, where = "bag" }
+        return { ok = true }
+    end
+    local _, id = rpc("interact", { target = "wi_1", secondary = true })
+    local r = run(id, 30)
+    inv.press_interact = p0
+    assert(r and r.ok and tostring(r.data.detail):find("Collected all: 2 Oak Logs (and 8 Stone, 2 Ash Logs that were lying there).", 1, true),
+        json.encode(r))
+end)
+
 test("come_to: follow until near, then stop; verified distance", function()
     reset()
     F.follow = "near"
@@ -1157,6 +1177,29 @@ test("vitals drain rate from samples (for 'empty in ~N min')", function()
     s = rpc("get_state")
     _G.DW_LIFE = nil
     assert(s.data.vitals_rate.sustenance_per_min == 3 and s.data.vitals_rate.hydration_per_min == 2,
+           json.encode(s.data.vitals_rate))
+end)
+
+test("vitals drain: a nap and one odd step are not his drain (upper median of the falls)", function()
+    reset()
+    local sk = B.module("skills")
+    local r0 = sk.W.resting_in
+    local lying = false
+    sk.W.resting_in = function() return lying and "BP_Magic_SummonShelter_C_7" or nil end
+    F.survival = { sustenance = { 90, 100 }, hydration = { 90, 100 }, endurance = { 40, 100 } }
+    local function at(sus, hyd, dt) T = T + dt; F.survival.sustenance[1], F.survival.hydration[1] = sus, hyd; return rpc("get_state") end
+    at(90, 90, 0)
+    at(86, 85, 60)   -- awake: 4 food, 5 water a minute
+    at(82, 80, 60)
+    lying = true
+    at(70, 64, 60)   -- napping: the clock runs fast
+    at(58, 48, 60)
+    lying = false
+    at(54, 43, 60)
+    at(20, 9, 30)    -- one step (a hit, a harness fixture): 68/min for one pair
+    local s = at(16, 4, 60)
+    sk.W.resting_in = r0
+    assert(s.data.vitals_rate.sustenance_per_min == 4 and s.data.vitals_rate.hydration_per_min == 5,
            json.encode(s.data.vitals_rate))
 end)
 
