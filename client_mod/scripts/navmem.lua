@@ -271,10 +271,20 @@ function NM.plan(mem, from, to, opts)
     local nodes, adj = {}, {}
     local function add_node(p, tag) nodes[#nodes + 1] = { p = p, tag = tag }; adj[#nodes] = {}; return #nodes end
     local function edge(i, j, c) adj[i][#adj[i] + 1] = { j, c } end
+    -- (NM.is_taboo / NM.is_water, with the taboo points converted once and each point's water looked up once:
+    -- cost runs for every edge, ~10^5 of them on a big memory)
+    local tab = {}
+    for _, tb in ipairs(mem.taboos) do tab[#tab + 1] = { at = cm(tb.at), toward = cm(tb.toward) } end
+    local wet = {}
     local function cost(a, b, base)
         local c = base or d3(a, b)
-        if NM.is_taboo(mem, a, b) then c = c * NM.cfg.taboo_cost end
-        if NM.is_water(mem, b) then c = c * NM.cfg.water_cost end
+        for k = 1, #tab do
+            local tb = tab[k]
+            if d3(b, tb.toward) < NM.cfg.taboo_r_cm and d2(a, tb.at) < NM.cfg.taboo_from_cm then c = c * NM.cfg.taboo_cost; break end
+        end
+        local w = wet[b]
+        if w == nil then w = NM.is_water(mem, b); wet[b] = w end
+        if w then c = c * NM.cfg.water_cost end
         return c
     end
     -- route polylines (both directions; jump points only upward along the recorded direction)
@@ -307,18 +317,43 @@ function NM.plan(mem, from, to, opts)
             route_nodes[#route_nodes + 1] = b
         end
     end
-    -- join edges between nearby points of different routes/links
-    for x = 1, #route_nodes do
-        local i = route_nodes[x]
-        for y = x + 1, #route_nodes do
-            local j = route_nodes[y]
-            if nodes[i].tag ~= nodes[j].tag or nodes[i].tag == "link" then
-                local dd = d3(nodes[i].p, nodes[j].p)
-                if dd < NM.cfg.join_cm and math.abs(nodes[i].p.Z - nodes[j].p.Z) < 120 then
-                    edge(i, j, cost(nodes[i].p, nodes[j].p, dd * 1.2)); edge(j, i, cost(nodes[j].p, nodes[i].p, dd * 1.2))
+    -- join edges between nearby points of different routes/links. A uniform grid of join_cm cells: a pair closer
+    -- than join_cm lies in the same or a neighbouring cell, so the same edges as comparing every pair, without
+    -- the O(n^2) (live 2026-11-01: 4560 remembered points made this plan take 9-11 s on the game thread, every
+    -- follow/go_to over mem_min_trip_cm froze the client and a fight's arbiter lease expired: "lease_expired")
+    local jc = NM.cfg.join_cm
+    local jc2 = jc * jc
+    local grid = {}
+    for y = 1, #route_nodes do
+        local j = route_nodes[y]
+        local pj, tj = nodes[j].p, nodes[j].tag
+        local cx, cy = math.floor(pj.X / jc), math.floor(pj.Y / jc)
+        for gx = cx - 1, cx + 1 do
+            for gy = cy - 1, cy + 1 do
+                local bucket = grid[gx * 1000003 + gy]
+                if bucket then
+                    for b = 1, #bucket do
+                        local i = bucket[b]
+                        local ni = nodes[i]
+                        if ni.tag ~= tj or ni.tag == "link" then
+                            local pi = ni.p
+                            local dx, dy, dz = pi.X - pj.X, pi.Y - pj.Y, pi.Z - pj.Z
+                            if dz < 120 and dz > -120 then
+                                local s = dx * dx + dy * dy + dz * dz
+                                if s < jc2 then
+                                    local dd = math.sqrt(s)
+                                    edge(i, j, cost(pi, pj, dd * 1.2)); edge(j, i, cost(pj, pi, dd * 1.2))
+                                end
+                            end
+                        end
+                    end
                 end
             end
         end
+        local k = cx * 1000003 + cy
+        local bucket = grid[k]
+        if not bucket then bucket = {}; grid[k] = bucket end
+        bucket[#bucket + 1] = j
     end
     if #route_nodes == 0 then return nil, "empty" end
     local S = add_node(cm(from), "start")
@@ -335,17 +370,50 @@ function NM.plan(mem, from, to, opts)
         local dg = d3(nodes[i].p, nodes[G].p)
         if dg < NM.cfg.entry_cm and level(nodes[i].p, nodes[G].p) then edge(i, G, cost(nodes[i].p, nodes[G].p, dg * NM.cfg.entry_factor)) end
     end
-    -- Dijkstra (graphs are small: hundreds of nodes)
+    -- Dijkstra with a binary heap (stale entries skipped): the graph has thousands of nodes now, and a linear scan
+    -- for the next node was O(n^2) on its own
     local dist, prev, done = { [S] = 0 }, {}, {}
-    while true do
-        local u, best = nil, math.huge
-        for k, dv in pairs(dist) do if not done[k] and dv < best then u, best = k, dv end end
-        if not u or u == G then break end
-        done[u] = true
-        for _, e in ipairs(adj[u]) do
-            local v, c = e[1], e[2]
-            local nd = best + c
-            if not dist[v] or nd < dist[v] then dist[v], prev[v] = nd, u end
+    local hd, hv, hn = { 0 }, { S }, 1
+    local function push(d, v)
+        hn = hn + 1
+        local i = hn
+        while i > 1 do
+            local p = (i - i % 2) / 2
+            if hd[p] <= d then break end
+            hd[i], hv[i] = hd[p], hv[p]
+            i = p
+        end
+        hd[i], hv[i] = d, v
+    end
+    local function pop()
+        local d0, v0 = hd[1], hv[1]
+        local d, v = hd[hn], hv[hn]
+        hd[hn], hv[hn] = nil, nil
+        hn = hn - 1
+        if hn > 0 then
+            local i = 1
+            while true do
+                local l = 2 * i
+                if l > hn then break end
+                if l < hn and hd[l + 1] < hd[l] then l = l + 1 end
+                if hd[l] >= d then break end
+                hd[i], hv[i] = hd[l], hv[l]
+                i = l
+            end
+            hd[i], hv[i] = d, v
+        end
+        return d0, v0
+    end
+    while hn > 0 do
+        local best, u = pop()
+        if not done[u] and best <= dist[u] then
+            if u == G then break end
+            done[u] = true
+            for _, e in ipairs(adj[u]) do
+                local v, c = e[1], e[2]
+                local nd = best + c
+                if not dist[v] or nd < dist[v] then dist[v], prev[v] = nd, u; push(nd, v) end
+            end
         end
     end
     if not dist[G] then return nil, "no_connection" end

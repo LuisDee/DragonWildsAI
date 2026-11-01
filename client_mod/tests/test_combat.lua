@@ -38,7 +38,10 @@ local function new_pawn()
     pawn = obj({ loc = { X = 0, Y = 0, Z = 0 }, yaw = 0, hp = 100 }, "BP_PlayerCharacter_C /Game/L.L:PersistentLevel.BP_PlayerCharacter_C_1")
     function pawn:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
     function pawn:K2_GetActorRotation() return { Pitch = 0, Yaw = self.yaw, Roll = 0 } end
-    function pawn:AddMovementInput(d, s) self.nudged = (self.nudged or 0) + 1; self.yaw = math.deg(math.atan(d.Y, d.X)) end
+    function pawn:AddMovementInput(d, s)
+        self.nudged = (self.nudged or 0) + 1; self.yaw = math.deg(math.atan(d.Y, d.X))
+        if world.walk_input and (s or 0) >= 0.99 then self.loc.X, self.loc.Y = self.loc.X + d.X * 5, self.loc.Y + d.Y * 5 end -- (opt-in: 5 m/s)
+    end
     function pawn:BP_GetPowerLevel() return 2 end
     pawn.HealthComponent = obj({ GetAuthoritativeHealth = function() return pawn.hp end, GetMaxHealth = function() return 100 end,
                                  IsDead = function() return pawn.hp <= 0 end }, "C /x")
@@ -496,7 +499,11 @@ do
     check("assess strong = flee", Cm.assess(me, { { name = "Troll", hp = 900, pl = 5 } }, Cm.orders).why == "too_strong")
     check("assess boss = flee", Cm.assess(me, { { name = "Dragon", hp = 9000, pl = 2, boss = true } }, Cm.orders).why == "boss")
     check("assess outnumbered", Cm.assess(me, { keb, keb, keb }, Cm.orders).why == "outnumbered")
-    check("assess low hp", Cm.assess({ hp = 30, max_hp = 100, pl = 2, dps = 15 }, { keb }, Cm.orders).why == "low_hp")
+    check("assess low hp", Cm.assess({ hp = 30, max_hp = 100, pl = 2, dps = 15 }, { { name = "Kebbit", hp = 200, max_hp = 200, pl = 1 } }, Cm.orders).why == "low_hp")
+    -- low HP but almost won (kills it in 3.2 s, it needs 9.4 s): running only gives it free hits (live 11:28)
+    local fin = Cm.assess({ hp = 30, max_hp = 100, pl = 2, dps = 15 }, { keb }, Cm.orders)
+    check("assess low hp, finishing: fights on", fin.decision == "fight" and fin.why == "finishing" and fin.finishing, fin.why)
+    check("assess low hp, finishing, commanded: fights on", Cm.assess({ hp = 30, max_hp = 100, pl = 2, dps = 15 }, { keb }, { commanded = true }).decision == "fight")
     check("assess force overrides veto", Cm.assess(me, { { name = "Troll", hp = 900, pl = 5 } }, { force = true }).decision == "fight")
     check("assess orders flee", Cm.assess(me, { keb }, { stance = "flee" }).decision == "flee")
     -- an even fight at equal level: borderline, hysteresis keeps an ongoing fight going
@@ -2421,6 +2428,211 @@ do
     check("real rod, no weapon: put away, bare hands win", (INV.unequips or {})[1] == "HeldRight" and Cm._state().last.result.ok, table.concat(INV.unequips or {}, ","))
     inv_list.hotbar = saved
     A.reset(nil)
+end
+
+-- ================================================================ 23. self-defence (live 2026-11-01 11:27: stood still while a runt hit him)
+-- (a) pure: the learned enemy rate, threats from telegraphs, refuge, spells held, target-not-found detail
+reset_world()
+do
+    check("expected_dps: unknown rhythm = nil", Dm.expected_dps("Goblin Runt") == nil)
+    Dm.observe_cadence("Goblin Runt", 0); Dm.observe_cadence("Goblin Runt", 2); Dm.observe_cadence("Goblin Runt", 4)
+    Dm.feedback("Goblin Runt:ATK_Slash", "block", "hit", 20)
+    Dm.feedback("Goblin Runt:ATK_Slash", "block", "blocked", 0)
+    Dm.feedback("Goblin Runt:ATK_Slash", "parry", "parried", 0)
+    local dps, why = Dm.expected_dps("Goblin Runt")
+    -- 20 dmg x (1 hit + 1) / (3 resolved + 2) / 2 s = 4
+    check("expected_dps: damage x share landed / rhythm", dps and math.abs(dps - 4) < 0.01, dps)
+    check("expected_dps: explains itself", why and why.interval_s == 2 and why.n == 3, why and why.n)
+    check("enemy_dps reads it", math.abs((Cm.enemy_dps("Goblin Runt") or 0) - 4) < 0.01)
+    check("enemy_dps: unknown creature = nil (the prior decides)", Cm.enemy_dps("Troll") == nil)
+    _G.DWDefense = nil
+
+    local cr = { { id = "g1", name = "Goblin Runt", distance_m = 3, archetype = 4 }, { id = "g2", name = "Goblin Runt", distance_m = 12, archetype = 4 } }
+    local th = Cm.pick_threats(cr, {}, {}, { avoid = {} }, 10, Cm.cfg, { g1 = 9.5, g2 = 9.5 })
+    check("telegraph near him = attacking_me", #th == 1 and th[1].id == "g1" and th[1].why == "attacking_me", #th)
+    check("old telegraph = no threat", #Cm.pick_threats(cr, {}, {}, { avoid = {} }, 20, Cm.cfg, { g1 = 9.5 }) == 0)
+
+    local me = { X = 0, Y = 0, Z = 0 }
+    check("refuge: ally clear of the threat", Cm.ally_is_refuge({ X = -2000, Y = 0, Z = 0 }, me, { { pos = { X = 400, Y = 0, Z = 0 } } }))
+    check("no refuge: ally beside the threat (live 11:28)", not Cm.ally_is_refuge({ X = 500, Y = 0, Z = 0 }, me, { { pos = { X = 400, Y = 0, Z = 0 } } }))
+    check("no refuge: ally too far", not Cm.ally_is_refuge({ X = -9000, Y = 0, Z = 0 }, me, {}))
+    check("no refuge: threats unknown", not Cm.ally_is_refuge({ X = -2000, Y = 0, Z = 0 }, me, nil))
+
+    local F = { t = 10, ab_ctx = { windstep = { available = true }, tempest_shield = { available = true } }, ab_ctx_t = 10, assessment = { verdict = "likely_win" } }
+    local ab0 = Cm.orders.abilities
+    Cm.orders.abilities = {}
+    check("spells held in a likely win", next(Cm.fight_abilities(F)) == nil and F.spells_held == true)
+    F.assessment.verdict = "likely_lose"
+    check("spells in a hard fight", Cm.fight_abilities(F).windstep ~= nil and F.spells_held == nil)
+    F.assessment.verdict = "likely_win"
+    Cm.orders.abilities = { windstep = true }
+    local ab = Cm.fight_abilities(F)
+    check("combat_orders can allow one in every fight", ab.windstep ~= nil and ab.tempest_shield == nil)
+    Cm.orders.abilities = ab0
+
+    local F2 = { held_s = {} }
+    Cm.held(F2, "casting"); Cm.held(F2, "casting"); Cm.held(F2, "defending")
+    local hs, txt = Cm._held_summary(F2)
+    check("held back: seconds by cause", hs and hs.casting == 0.2 and hs.defending == 0.1 and txt:find("casting 0.2s", 1, true), txt)
+
+    new_creature("BP_AI_Kebbit_C_near", "Kebbit", { X = 1200, Y = 0, Z = 0 }, { hp = 60 })
+    local a, d = Cm.resolve_target("BP_AI_Kebbit_C_77", { X = 0, Y = 0, Z = 0 })
+    check("gone id: nil + why + the nearest of its kind", a == nil and d and d.detail:find("died, despawned", 1, true)
+        and d.nearest_same_kind and d.nearest_same_kind.id == "BP_AI_Kebbit_C_near", d and d.detail)
+    local a2, d2 = Cm.resolve_target("Wolf", { X = 0, Y = 0, Z = 0 })
+    check("no such creature: the radius in the reason", a2 == nil and d2 and d2.detail == "no living Wolf within 60 m", d2 and d2.detail)
+    local a3 = Cm.resolve_target("kebbit", { X = 0, Y = 0, Z = 0 })
+    check("name within 60 m resolves", a3 ~= nil)
+end
+
+-- (b) between fights a creature's hit is an impact event + an HP drop: the guard fights back at once, and says so
+reset_world()
+do
+    os.remove(Cm.ACTIVITY_PATH)
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    Cm.guard_start(nil)
+    local b = new_creature("BP_AI_Kebbit_Character_02_C_gh", "Kebbit", { X = 150, Y = 0, Z = 0 }, { hp = 40, pl = 1, arch = 1 })
+    step(40) -- the guard has his HP
+    local comp = obj({ GetOwner = function() return b end }, "C /x")
+    hooks["/Script/Dominion.AiAttackComponent:Multicast_SendDamageCacheData"]({ get = function() return comp end })
+    pawn.hp = pawn.hp - 7
+    local started = run_until(function() local f = Cm._state().fight; return f ~= nil end, 1)
+    local f = Cm._state().fight
+    check("guard: a non-hostile's hit starts the reflex within 1 s", started and f and f.why == "attacked_me" and f.target_id == "BP_AI_Kebbit_Character_02_C_gh",
+        f and f.why)
+    run_until(function() return Cm._state().fight == nil end, 20)
+    check("guard: it is dealt with", b.hp <= 0, b.hp)
+    local ev
+    for _, l in ipairs(read_activity()) do if l:find('"kind":"combat_started"', 1, true) then ev = l end end
+    check("combat_started event: decision, weapon, estimates", ev and ev:find('"decision":"fight"', 1, true) and ev:find('"weapon":"', 1, true)
+        and ev:find('"est_s_to_kill":', 1, true), ev)
+    local res = Cm._state().last.result
+    check("result reports held_back_s", res and type(res.data.held_back_s) == "table", res and res.data.held_back_s)
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+-- (c) a swing starting next to him is an attack on him (before its hit lands); passive waits for the hit
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    Cm.guard_start(nil)
+    Cm.orders.stance = "passive"
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_tg", "Goblin Runt", { X = 250, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 4 })
+    step(40) -- (the guard knows where he is)
+    world.resolved = true -- (the telegraph only; no resolution)
+    goblin_attack(g, 0.8); world.on_step = nil
+    step(50)
+    check("passive: a swing alone does not start a fight", Cm._state().fight == nil)
+    local ti = (Cm._state().tele_info or {})["BP_AI_RuntGoblin_Character_C_tg"]
+    check("between fights a swing near him is read (its key for the first defence)", ti and ti.key == "Goblin Runt:ATK_Goblin_Slash", ti and ti.key)
+    Cm.orders.stance = "defensive"
+    goblin_attack(g, 0.8); world.on_step = nil
+    local started = run_until(function() return Cm._state().fight ~= nil end, 0.6)
+    check("defensive: a swing next to him starts the reflex before the hit", started and Cm._state().fight.why == "attacking_me",
+        Cm._state().fight and Cm._state().fight.why)
+    Cm.stop(nil, "test")
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+-- (d) the flee is bounded: no farther than the leash; one that keeps up with him is fought (flee_failed, said)
+reset_world()
+do
+    os.remove(Cm.ACTIVITY_PATH)
+    local p0 = Cm.orders.protect
+    Cm.orders.protect = "Nobody" -- (no player to run to: the flee runs away from the threat)
+    Cm.guard_start(nil)
+    local id = "BP_AI_Troll_C_leash"
+    local troll = new_creature(id, "Troll", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, troll, 30); pawn.hp = 70
+    check("leash: a strong attacker -> flee", run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4))
+    local F = Cm._state().fight
+    world.on_step = function() -- as fast as he is: 4 m behind him, still swinging
+        local dx, dy = troll.loc.X - pawn.loc.X, troll.loc.Y - pawn.loc.Y
+        local dd = math.sqrt(dx * dx + dy * dy)
+        if dd > 400 then troll.loc.X, troll.loc.Y = pawn.loc.X + dx / dd * 400, pawn.loc.Y + dy / dd * 400 end
+        Cm._state().attackers[id] = T
+    end
+    local turned = run_until(function() return F.cornered ~= nil end, 20)
+    local fled_m = math.sqrt(pawn.loc.X ^ 2 + pawn.loc.Y ^ 2) / 100
+    check("leash: it kept up -> he turns and fights", turned and F.decision == "fight" and Cm._state().fight == F, F.cornered)
+    check("leash: no farther than the leash (25 m)", fled_m <= Cm.cfg.flee_leash_m + 3, fled_m)
+    step(200)
+    check("leash: no second run while cornered", F.phase ~= "flee" and Cm._state().fight == F, F.phase)
+    local ev
+    for _, l in ipairs(read_activity()) do if l:find('"kind":"flee_failed"', 1, true) then ev = l end end
+    check("flee_failed event: why and what next", ev and ev:find("kept up with me", 1, true) and ev:find('"next":"fighting back"', 1, true), ev)
+    world.on_step = nil
+    Cm.stop(nil, "test")
+    Cm.guard_stop(nil); A.reset(nil)
+    Cm.orders.protect = p0
+end
+
+-- (e) it comes after him again right after he ran from it: fought, no second flee
+reset_world()
+do
+    local id = "BP_AI_Troll_C_again"
+    Cm._state().fled_from = { [id] = T - 5 }
+    Cm.guard_start(nil)
+    local troll = new_creature(id, "Troll", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    step(100)
+    check("again: standing near (in combat) is no reason to run again", Cm._state().fight == nil)
+    multicast(pawn, troll, 30); pawn.hp = 70
+    run_until(function() return Cm._state().fight ~= nil end, 2)
+    local F = Cm._state().fight
+    step(200)
+    check("again: cornered, no flee", F and F.cornered and F.cornered:find("came after me again", 1, true) and F.phase ~= "flee", F and F.phase)
+    Cm.stop(nil, "test")
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+-- (f) fleeing with the threat next to him: no bite under its blows
+reset_world()
+do
+    Cm.guard_start(nil)
+    local p0 = Cm.orders.protect
+    Cm.orders.protect = "Nobody"
+    local id = "BP_AI_Troll_C_eat"
+    local troll = new_creature(id, "Troll", { X = 300, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, troll, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    world.on_step = function() -- glued to him
+        troll.loc.X, troll.loc.Y = pawn.loc.X + 200, pawn.loc.Y
+        Cm._state().attackers[id] = T
+    end
+    step(150)
+    check("flee: no eating with the threat in reach", #INV.uses == 0, #INV.uses)
+    world.on_step = function() troll.loc.X, troll.loc.Y = pawn.loc.X + 900, pawn.loc.Y; Cm._state().attackers[id] = T end
+    run_until(function() return #INV.uses > 0 end, 3)
+    check("flee: eats once it is out of reach", #INV.uses > 0, #INV.uses)
+    world.on_step = nil
+    Cm.stop(nil, "test")
+    Cm.guard_stop(nil); A.reset(nil)
+    Cm.orders.protect = p0
+end
+
+-- (g) a dodge took him 4 m off: he steps back in with the movement input and swings (live 12:53: move.follow's
+-- planner stood ~2 s per gap, 36.7 s out of reach, died)
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    world.walk_input = true
+    local follow0, follows = fake_move.follow, 0
+    fake_move.follow = function() follows = follows + 1; return { ok = true, mode = "follow", target_visible = true } end -- (stands still)
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_step", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "attack", force = true })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    pawn.loc = { X = -250, Y = 30, Z = 0 }
+    local f0, p0 = follows, world.injected.IA_PrimaryAction or 0
+    local back = run_until(function() return (world.injected.IA_PrimaryAction or 0) > p0 end, 3)
+    local F = Cm._state().fight
+    check("step in: back in reach and swinging within 3 s", back and F and (F.n_step_ins or 0) > 0, F and F.n_step_ins)
+    check("step in: no planner follow for a short gap", follows == f0, follows - f0)
+    -- above him (a ledge): that is the follow's job
+    g.loc = { X = pawn.loc.X + 350, Y = pawn.loc.Y, Z = 400 }
+    run_until(function() return follows > f0 end, 2)
+    check("step in: a gap up a ledge goes to the follow", follows > f0)
+    fake_move.follow, world.walk_input = follow0, nil
+    Cm.stop(nil, "test"); A.reset(nil)
 end
 
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))

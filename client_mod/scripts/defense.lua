@@ -458,6 +458,31 @@ function D.next_attack_eta(creature, t)
     return eta, c.interval
 end
 
+-- What this creature's attacks really cost Claude per second, from what they did to him (learned, persisted):
+-- mean learned damage of its attacks x the share of its attacks that landed (hit, of all resolved answers) /
+-- its attack rhythm. -> dps, {damage, p_hit, interval_s, n} | nil when its rhythm or damage is unknown.
+-- (Replaces a lifetime "damage / time since the first hit ever" rate that one early burst froze high for the
+-- whole session: live 2026-10-31 23:18 a Goblin Runt read "losing" at 82 HP, a Giant Rat at 100 HP.)
+function D.expected_dps(creature)
+    local s = S()
+    local cad = (s.cadence or {})[creature]
+    if not (cad and cad.interval and cad.interval > 0 and (cad.n or 0) >= 2) then return nil end
+    local pre = tostring(creature) .. ":"
+    local wsum, dsum, hits, resolved = 0, 0, 0, 0
+    for key, r in pairs(s.attacks) do
+        if key:sub(1, #pre) == pre and r.damage and r.damage > 0 then
+            local n = math.max(r.n or 0, 1)
+            wsum, dsum = wsum + n, dsum + n * r.damage
+            hits = hits + (r.hit or 0)
+            resolved = resolved + (r.hit or 0) + (r.avoided or 0) + (r.parried or 0) + (r.blocked or 0)
+        end
+    end
+    if wsum == 0 then return nil end
+    local dmg = dsum / wsum
+    local p_hit = (hits + 1) / (resolved + 2) -- Laplace: no evidence = a coin flip
+    return dmg * p_hit / cad.interval, { damage = dmg, p_hit = p_hit, interval_s = cad.interval, n = resolved }
+end
+
 -- The creature's most dangerous known attack (largest learned damage).
 function D.most_dangerous(creature)
     local best, br

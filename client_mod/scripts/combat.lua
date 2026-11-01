@@ -52,6 +52,7 @@ M.cfg = {
     pl_gap_flee = 2,         -- enemy power level - mine >= this: too strong (Claude is level 1)
     max_hostiles = 2,        -- more simultaneous hostiles than this: flee
     lost_m = 40, lost_s = 5, -- target farther than lost_m for lost_s: give up
+    resolve_m = 60,          -- attack "<name>": the nearest living one within this
     fight_timeout_s = 120,
     special_hp_factor = 2,   -- use the special only on targets with >= this many normal swings of HP
     special_gap_s = 6,
@@ -81,10 +82,21 @@ M.cfg = {
     magic_aim_s = 0.25,      -- staff/wand: settle the aim this long before each cast        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
     disengage_s = 25,        -- give the heal this long before re-assessing
     lock_on = true,
+    step_in_m = 5, step_in_dz_cm = 150, -- a gap this short on his level (after a dodge) is closed with the movement
+    -- input, as a player holds forward; move.follow's stuck/local planner stood ~2 s per gap (live 12:53, a runt:
+    -- 36.7 s out of reach, 7 swings in a minute, died)
     nudge = true,            -- turn the body toward the target with a short movement nudge when standing
     face_err_deg = 35,
     loot = true, loot_radius_m = 7, loot_s = 20, loot_max = 6, loot_wait_s = 0.8,
-    safe_m = 22, safe_s = 4, flee_timeout_s = 45, flee_far_m = 30,
+    -- a flee is SHORT and BOUNDED (the MMO / DST "leash": an anchor + a radius; live 2026-11-01 the old 45 s flee
+    -- dragged him 134-200 m off route, and fleeing to Luis, who stood next to the goblin, kept him in its reach):
+    -- at most flee_leash_m from where it began and flee_timeout_s; still chased there = he can't outrun it, so he
+    -- turns and fights. He runs to the protected player only when that player is within flee_ally_m and at least
+    -- ally_clear_m from every threat; he eats while fleeing only with every threat at least eat_clear_m away.
+    safe_m = 22, safe_s = 4, flee_timeout_s = 15, flee_far_m = 30, flee_leash_m = 25, flee_ally_m = 30, ally_clear_m = 8,
+    eat_clear_m = 5, cornered_m = 8, refled_s = 30, -- cornered: still within cornered_m at the bound; a creature that
+    -- comes after him again within refled_s of a flee is fought (no second run)
+    finish_margin = 0.5,     -- low HP is no reason to run when he kills it in under half the time it needs to kill him
     protect = os.getenv("DW_PLAYER_NAME"), -- the player to defend and flee to (config; combat_orders.protect overrides)
     verify_presses = 6,      -- this many presses with no stamina drop and no hit -> the input is not reaching the game
 }
@@ -187,6 +199,28 @@ function M.dps(p)
     return pr.dmg / (pr.next_ms / 1000)
 end
 
+-- His own damage per second with this weapon (nil profile = bare hands): what his hits with it really did
+-- (learned per weapon name from the server's verdicts on his target, persisted), else the catalog's; per press
+-- cadence from the weapon's montage data (900 ms for hands, as step_engage presses them). nil = unknown.
+function M.my_dps(p)
+    local learned = (C().hit_dmg or {})[(p and p.name) or "hands"]
+    local pr = p and p.prim
+    local dmg = learned or (pr and pr.dmg)
+    local ms = (pr and pr.next_ms) or 900
+    if not (dmg and ms > 0) then return nil end
+    return dmg / (ms / 1000)
+end
+
+-- One verified hit of his on the target: learn what a hit with this weapon does (EMA).
+function M.learn_hit(F, amount)
+    if not (amount and amount > 0 and amount < 10000) then return end
+    local c = C()
+    c.hit_dmg = c.hit_dmg or {}
+    local k = (F.profile and F.profile.name) or "hands"
+    local old = c.hit_dmg[k]
+    c.hit_dmg[k] = old and (old * 0.7 + amount * 0.3) or amount
+end
+
 -- Affinity of an enemy to a damage type tag: "weak" | "resist" | "immune" | nil.
 -- Sources, strongest first: learned hit outcomes, live affinities, name priors.
 function M.affinity(enemy, tag, learned)
@@ -283,10 +317,14 @@ function M.assess(me, enemies, orders, current, cfg)
         or (#enemies > cfg.max_hostiles and "outnumbered") or (r.u_fight >= cfg.fight_enter and "likely_win") or "likely_lose"
     if orders.force then r.decision, r.why = "fight", "forced"; return r end
     local flee_hp = orders.flee_hp or cfg.flee_hp
+    -- almost won: running at low HP from a creature he kills well before it kills him only gives it free hits
+    -- (live 2026-11-01 11:28: he fled at 22 HP from a runt that had ~15 HP left, and took 18 more while fleeing)
+    local finishing = r.my_ttk <= (cfg.finish_margin or 0.5) * r.their_ttk
+    r.finishing = finishing or nil
     if orders.commanded then
         -- a commanded fight is the model's decision (North Star review): no strength vetoes; only the
         -- model's own flee_hp policy (combat_orders) can turn it into flight
-        if hp_frac < flee_hp then return veto("low_hp") end
+        if hp_frac < flee_hp and not finishing then return veto("low_hp") end
         r.decision, r.why = "fight", "commanded"
         return r
     end
@@ -295,7 +333,11 @@ function M.assess(me, enemies, orders, current, cfg)
     if boss then return veto("boss") end
     if worst_gap >= cfg.pl_gap_flee then return veto("too_strong") end
     if #enemies > cfg.max_hostiles then return veto("outnumbered") end
-    if hp_frac < flee_hp then return veto("low_hp") end
+    if hp_frac < flee_hp then
+        if not finishing then return veto("low_hp") end
+        r.decision, r.why = "fight", "finishing"
+        return r
+    end
     local need = current == "fight" and cfg.fight_stay or cfg.fight_enter
     r.decision = r.u_fight >= need and "fight" or "flee"
     r.why = r.decision == "fight" and "winnable" or "losing"
@@ -304,7 +346,9 @@ end
 
 -- Which nearby creatures are threats right now. creatures = list of read_creature() tables with
 -- distance_m; attackers/ally_attackers = {id = last hit time}; t = now. -> sorted threat list.
-function M.pick_threats(creatures, attackers, ally_attackers, orders, t, cfg)
+-- telegraphs (optional) = {id = time of its last AI attack start}: a creature swinging within telegraph_m of him
+-- now is attacking him even before its first hit lands ("attacking_me", ranked with attacked_me).
+function M.pick_threats(creatures, attackers, ally_attackers, orders, t, cfg, telegraphs)
     cfg = cfg or M.cfg
     orders = orders or M.orders
     local out = {}
@@ -313,7 +357,9 @@ function M.pick_threats(creatures, attackers, ally_attackers, orders, t, cfg)
             local why
             local hit = attackers and attackers[c.id]
             local ally = ally_attackers and ally_attackers[c.id]
+            local tele = telegraphs and telegraphs[c.id]
             if hit and t - hit <= cfg.attacker_memory_s then why = "attacked_me"
+            elseif tele and t - tele <= 2 * cfg.telegraph_fresh_s and (c.distance_m or 99) <= cfg.telegraph_m then why = "attacking_me"
             elseif ally and t - ally <= cfg.attacker_memory_s and (c.distance_m or 99) <= cfg.assist_m then why = "attacked_ally"
             elseif c.archetype == 0 and c.in_combat and (c.distance_m or 99) <= cfg.aggro_m then why = "hostile_near"
             elseif orders.stance == "aggressive" and c.archetype == 0 and (c.distance_m or 99) <= cfg.aggro_m then why = "hostile_near" end
@@ -321,7 +367,7 @@ function M.pick_threats(creatures, attackers, ally_attackers, orders, t, cfg)
                 local d = {}
                 for k, v in pairs(c) do d[k] = v end
                 d.why = why
-                d.rank = (why == "attacked_me" and 0 or why == "attacked_ally" and 1 or 2) * 1000 + (c.distance_m or 99)
+                d.rank = ((why == "attacked_me" or why == "attacking_me") and 0 or why == "attacked_ally" and 1 or 2) * 1000 + (c.distance_m or 99)
                 out[#out + 1] = d
             end
         end
@@ -445,17 +491,46 @@ function M.nearest_player_name(origin)
     return best
 end
 
--- Resolve an attack target: entity id, or a creature name (nearest live one within 40 m).
+-- A player's pawn position by name (nil when that player's pawn is not visible: out of relevancy or offline).
+function M.player_pos(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    for _, ps in ipairs(U.find_all("PlayerState", { skip_defaults = true })) do
+        if U.str(U.try(function() return ps:GetPlayerName() end)) == name then
+            local p = U.try(function() return ps.PawnPrivate end)
+            return U.valid(p) and U.loc(p) or nil
+        end
+    end
+end
+
+-- Resolve an attack target: entity id, or a creature name (nearest live one within cfg.resolve_m; the brain sees
+-- creatures to ~50 m in get_state, and live 11:29 "Goblin Runt" at 41 m was refused by a 40 m cap).
+-- -> actor | nil, detail (why not, with the nearest creature of that name when the id is gone)
 function M.resolve_target(target, origin)
     if type(target) == "userdata" or type(target) == "table" and target.IsValid then return target end
     if type(target) ~= "string" or target == "" then return nil end
     local a = find_creature(target)
     if a then return a end
     local want, best, bd = target:lower(), nil, math.huge
-    for _, c in ipairs(creatures_near(origin, 40)) do
+    local radius = M.cfg.resolve_m or 60
+    for _, c in ipairs(creatures_near(origin, radius)) do
         if not c.dead and (c.name or ""):lower():find(want, 1, true) and c.distance_m < bd then best, bd = c.actor, c.distance_m end
     end
-    return best
+    if best then return best end
+    -- not found: say why, truthfully, and what is there instead (an id of a creature that died or despawned)
+    local base = target:match("^BP_AI_(.-)_Character") or target:match("^BP_AI_(.-)_C_%d+$")
+    local detail = { target = target }
+    if target:match("_C_%d+$") then
+        detail.detail = "no creature with that id is in sight now: it died, despawned or went out of view"
+    else
+        detail.detail = string.format("no living %s within %d m", target, radius)
+    end
+    local alt, ad
+    for _, c in ipairs(creatures_near(origin, radius)) do
+        local cls = U.class_word(c.actor) or ""
+        if not c.dead and base and cls:lower():find(base:lower(), 1, true) and c.distance_m < (ad or math.huge) then alt, ad = c, c.distance_m end
+    end
+    if alt then detail.nearest_same_kind = { id = alt.id, name = alt.name, distance_m = math.floor(alt.distance_m * 10) / 10 } end
+    return nil, detail
 end
 
 local function read_me(pawn, pc)
@@ -692,9 +767,12 @@ function M.on_ai_attack(ctx, class_id)
         local D = mod("defense")
         if D and D.observe_cadence then D.observe_cadence(nm, t) end
     end
-    -- only attacks near Claude are worth reading
+    -- only attacks near Claude are worth reading; between fights too (the guard's last position of him), since
+    -- the swing that starts a reflex fight is the one its first defence answers (live 2026-11-01 12:38: unread,
+    -- the answer was planned for "?:unknown", a dodge, and the runt hit for 18)
     local f = c.fight
-    if f and (id == f.target_id or (f.me_pos and U.loc(a) and U.dist(U.loc(a), f.me_pos) < 800)) then
+    local near = (f and f.me_pos) or (not f and c.guard and c.guard_pos) or nil
+    if (f and id == f.target_id) or (near and U.loc(a) and U.dist(U.loc(a), near) < 800) then
         local ok, info = pcall(read_attack, comp, a, class_id and U.try(function() return class_id:get() end))
         if ok and info then info.t = t; c.tele_info = c.tele_info or {}; c.tele_info[id] = info end
     end
@@ -1195,6 +1273,10 @@ function M.memory(log, pawn)
     for k, v in pairs(type(doc.press_cost) == "table" and doc.press_cost or {}) do
         if c.press_cost[k] == nil then c.press_cost[k] = v end
     end
+    c.hit_dmg = c.hit_dmg or {}
+    for k, v in pairs(type(doc.hit_dmg) == "table" and doc.hit_dmg or {}) do
+        if c.hit_dmg[k] == nil and type(v) == "number" then c.hit_dmg[k] = v end
+    end
     m.history = type(doc.history) == "table" and doc.history or {}
     m.boss_attempts = type(doc.boss_attempts) == "table" and doc.boss_attempts or nil
     m.status = build and "loaded" or "loaded_build_unknown"
@@ -1271,7 +1353,7 @@ function M.memory_save(log, m)
     local D, R = mod("defense"), mod("ranged")
     local doc = { v = 1, build = m.build, world = m.world, character = m.char, saved_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
                   defense = D and D.export and D.export() or nil, ranged = R and R.export and R.export() or nil,
-                  learned = c.learned, press_cost = c.press_cost, history = m.history, boss_attempts = m.boss_attempts }
+                  learned = c.learned, press_cost = c.press_cost, hit_dmg = c.hit_dmg, history = m.history, boss_attempts = m.boss_attempts }
     local ok, txt = pcall(J.encode, doc)
     if not ok or type(txt) ~= "string" then return false, "encode: " .. tostring(txt) end
     local path, dir = M.memory_path(m.world, m.char)
@@ -1388,6 +1470,23 @@ function M._outcome_of(F, res)
     return res.ok and "done" or "interrupted"
 end
 
+-- Time in the fight he did NOT swing, by cause (one decision tick each): defending, casting, out_of_reach, stamina,
+-- closing_in, backing_off, fleeing. Reported in the result, the combat_end event and the fight-end log line, so
+-- "presses=0" always comes with its reason (live 2026-11-01 11:28: 10 s against a runt, 0 swings, no reason logged).
+function M.held(F, why)
+    F.held_s = F.held_s or {}
+    F.held_s[why] = (F.held_s[why] or 0) + M.DECIDE_S
+end
+local function held_summary(F)
+    local out, parts = nil, {}
+    for k, v in pairs(F.held_s or {}) do
+        if v >= 0.05 then out = out or {}; out[k] = math.floor(v * 10 + 0.5) / 10; parts[#parts + 1] = string.format("%s %.1fs", k, v) end
+    end
+    table.sort(parts)
+    return out, table.concat(parts, ", ")
+end
+M._held_summary = held_summary
+
 local function result_of(F, ok, reason, data)
     data = data or {}
     data.target = F.target_name
@@ -1399,6 +1498,8 @@ local function result_of(F, ok, reason, data)
                      abilities = F.n_abilities, precasts = F.n_precasts,
                      avoided = F.n_avoided or 0, hits_taken = F.n_hit or 0, heals = F.n_heals or 0 }
     data.damage_taken = F.dmg_taken or 0
+    data.held_back_s = held_summary(F)
+    if F.cornered then data.cornered = F.cornered end
     return { ok = ok, reason = reason, data = data }
 end
 
@@ -1425,7 +1526,8 @@ function M.emit_combat_end(F, res)
         hp_end = F.hp_now, loot = F.loot_names, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
         dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
         pack = (F.max_pack or 0) > 1 and F.max_pack or nil, kills = F.kills, multi_swings = F.n_multi, hazards = F.n_hazards,
-        fled_why = d.why, detail = d.detail, still_chased = d.still_chased })
+        fled_why = d.why, detail = d.detail, still_chased = d.still_chased, held_back_s = d.held_back_s, cornered = d.cornered,
+        fled_m = F.fled_m and math.floor(F.fled_m) or nil })
 end
 
 local function finish(F, res)
@@ -1446,6 +1548,10 @@ local function finish(F, res)
     F.result = res
     c.last = { result = res, mode = F.mode, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
     if c.fight == F then c.fight = nil end
+    if F.flee_why and not F.cornered and F.target_id and F.t then -- (guard_tick: it comes after him again -> he fights)
+        c.fled_from = c.fled_from or {}
+        c.fled_from[F.target_id] = F.t
+    end
     M.emit_combat_end(F, res)
     do -- the fight's end: the only time the memory is written (a file write; no game call)
         local m = c.mem
@@ -1458,7 +1564,9 @@ local function finish(F, res)
     end
     local arb = mod("arbiter")
     if arb and F.token then pcall(arb.release, F.log, F.token, res.ok and "done" or res.reason) end
-    say(F.log, string.format("fight end ok=%s reason=%s presses=%d hits=%d", tostring(res.ok), tostring(res.reason), F.presses, F.hits))
+    local _, held_txt = held_summary(F)
+    say(F.log, string.format("fight end ok=%s reason=%s presses=%d hits=%d dmg_taken=%.0f held back: %s", tostring(res.ok), tostring(res.reason),
+        F.presses, F.hits, F.dmg_taken or 0, held_txt ~= "" and held_txt or "-"))
 end
 M._finish = finish
 
@@ -1596,6 +1704,16 @@ local function step_equip(F, pawn)
     return false
 end
 
+-- ONE estimate of what a creature's attacks cost him per second, for the reflex AND get_state's fight_odds:
+-- defense.lua's learned rate (its learned attack damage x the share that landed / its attack rhythm), else nil
+-- (M.assess then uses the power-level prior). -> dps | nil
+function M.enemy_dps(name)
+    local D = mod("defense")
+    if not (D and D.expected_dps and name) then return nil end
+    local ok, dps = pcall(D.expected_dps, name)
+    return ok and type(dps) == "number" and dps > 0 and dps or nil
+end
+
 local function enemies_for_assess(F, origin)
     local c = C()
     local list = {}
@@ -1603,8 +1721,7 @@ local function enemies_for_assess(F, origin)
         local hit = c.attackers[cr.id]
         if cr.id == F.target_id or (hit and F.t - hit <= M.cfg.attacker_memory_s) or (cr.archetype == 0 and cr.in_combat and (cr.distance_m or 99) < M.cfg.aggro_m) then
             if not cr.dead then
-                local tk = c.taken[(cr.name or ""):lower()]
-                if tk and tk.n >= 2 and tk.t > tk.t0 then cr.dps_obs = tk.sum / math.max(tk.t - tk.t0, 1) end
+                cr.dps_obs = M.enemy_dps(cr.name)
                 list[#list + 1] = cr
             end
         end
@@ -1658,6 +1775,10 @@ local function flee_move(F, me, threats)
     local length = math.sqrt(dx * dx + dy * dy)
     if length < 1 then return nil, "threat direction unresolved" end
     local far = M.cfg.flee_far_m * 100
+    if F.flee_from then -- never past the leash (a leg of at least 6 m)
+        local left = M.cfg.flee_leash_m * 100 - U.dist2d(me.pos, F.flee_from)
+        far = math.max(600, math.min(far, left + 200))
+    end
     local goal = { (me.pos.X + dx / length * far) / 100, (me.pos.Y + dy / length * far) / 100, me.pos.Z / 100 }
     local r = mcall("move", "go_to", F.log, goal, { sprint = true, tolerance_m = 3,
         timeout_s = M.cfg.flee_timeout_s, owner_token = F.token })
@@ -1667,14 +1788,32 @@ local function flee_move(F, me, threats)
     return true
 end
 
+-- Running to the protected player helps only when he is near and NOT next to what is hitting me (live 11:28 the
+-- flee followed Luis, who stood beside the runt: 22 -> 4 HP "fleeing"). -> true when ally_pos qualifies.
+function M.ally_is_refuge(ally_pos, me_pos, threats)
+    if not (ally_pos and me_pos) then return false end
+    if U.dist2d(ally_pos, me_pos) > M.cfg.flee_ally_m * 100 then return false end
+    for _, th in ipairs(threats or {}) do
+        if th.pos and U.dist2d(ally_pos, th.pos) < M.cfg.ally_clear_m * 100 then return false end
+    end
+    return threats ~= nil
+end
+
 local function begin_flee(F, why)
+    if F.cornered then return end -- it already kept up with one flee: he fights it out (no second run)
     C().counts.flees = C().counts.flees + 1
     F.flee_why, F.decision, F.inputs = why, "flee", {}
     set_phase(F, "flee", why)
-    M.emit_activity({ kind = "flee_started", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why, hp = F.hp_now })
+    -- the leash anchor: a flee never takes him farther than cfg.flee_leash_m from here
+    F.flee_from = F.me_pos and { X = F.me_pos.X, Y = F.me_pos.Y, Z = F.me_pos.Z } or nil
+    F.fled_m = 0
+    M.emit_activity({ kind = "flee_started", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why, hp = F.hp_now,
+                      leash_m = M.cfg.flee_leash_m, max_s = M.cfg.flee_timeout_s })
     F.safe_since, F.flee_retry_t, F.flee_failures = nil, F.t - 1, 0
     local luis = M.orders.protect or M.cfg.protect or M.nearest_player_name(F.me_pos)
     if luis and flee_owned(F) then
+        local threats = F.me_last and flee_threats(F, F.me_last) or nil
+        if not M.ally_is_refuge(M.player_pos(luis), F.me_pos, threats) then return end -- (step_flee runs away instead)
         local r = mcall("move", "follow", F.log, luis, 3, { sprint = true, owner_token = F.token })
         if not flee_owned(F) then return end
         if type(r) == "table" and r.ok == true and r.target_visible ~= false then
@@ -1682,6 +1821,20 @@ local function begin_flee(F, why)
         end
     end
 end
+
+-- Cornered: still chased at the leash / the time limit (it is as fast as he is), or it came after him again
+-- right after a flee. Running more only gives it free hits, so he turns and fights it out, and says so.
+local function turn_to_fight(F, me, why)
+    F.cornered = why
+    F.decision = "fight"
+    F.flee_follow, F.flee_move_pending, F.following = false, false, false
+    mcall("move", "stop", F.log)
+    M.emit_activity({ kind = "flee_failed", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why,
+                      fled_m = F.fled_m and math.floor(F.fled_m) or nil, hp = me.hp, next = "fighting back" })
+    F.assess_t = -9
+    set_phase(F, "approach", "cornered: " .. why)
+end
+M._turn_to_fight = turn_to_fight
 
 -- Eat the food that heals most, the way a player does (its hotbar key / the inventory UI's use).
 -- Respects the game's eating limits when inventory.lua exposes them (eat_status: can_eat, cooldown_s,
@@ -1856,7 +2009,7 @@ eat_allowed = function(F)
     return true
 end
 
-local function try_eat(F, me, force)
+local function try_eat(F, me, force, verify_only)
     if not me.max_hp or me.max_hp <= 0 then return end
     -- verify the previous bite: HP went up -> healed event
     local hp_ = F.heal_pending
@@ -1870,7 +2023,7 @@ local function try_eat(F, me, force)
             F.eat_fails = (F.eat_fails or 0) + 1
         end
     end
-    if F.heal_pending then return end
+    if F.heal_pending or verify_only then return end
     local frac = (me.hp or 0) / me.max_hp
     if not force and frac >= M.cfg.eat_hp then return end
     local ok, why = eat_allowed(F)
@@ -1888,10 +2041,25 @@ end
 M._try_eat = try_eat
 
 local function step_flee(F, pawn, me)
-    try_eat(F, me)
     if not flee_owned(F) then return end
     local threats, why = flee_threats(F, me)
     if not flee_owned(F) then return end
+    -- eat only with every threat out of its reach: a bite mid-hit is wasted time under its blows (live 11:28
+    -- "stopping to eat whilst getting hit"); the pending bite is verified either way
+    local near_cm
+    for _, th in ipairs(threats or {}) do
+        local d = (th.pos and me.pos) and U.dist2d(th.pos, me.pos)
+        if d and (not near_cm or d < near_cm) then near_cm = d end
+    end
+    local clear = threats ~= nil and (near_cm == nil or near_cm >= M.cfg.eat_clear_m * 100)
+    try_eat(F, me, false, not clear)
+    if me.pos and F.flee_from then F.fled_m = U.dist2d(me.pos, F.flee_from) / 100 end
+    local leashed = F.fled_m ~= nil and F.fled_m >= M.cfg.flee_leash_m
+    if leashed and not F.leash_stop then -- the leash: no farther, whatever the threats look like
+        F.leash_stop = true
+        F.flee_follow, F.flee_move_pending = false, false
+        mcall("move", "stop", F.log)
+    end
     if not threats then
         F.safe_since = nil
         F.flee_error = why
@@ -1903,7 +2071,11 @@ local function step_flee(F, pawn, me)
         end
     else
         F.safe_since = nil
-        if F.t - (F.flee_retry_t or -9) >= 1 then
+        -- bounded: at the leash (or the time limit) with a threat still right behind him, it is as fast as he is
+        if (leashed or F.t - F.phase_t > M.cfg.flee_timeout_s) and near_cm and near_cm <= M.cfg.cornered_m * 100 then
+            return turn_to_fight(F, me, string.format("it kept up with me for %d m", math.floor(F.fled_m or 0)))
+        end
+        if not leashed and F.t - (F.flee_retry_t or -9) >= 1 then
             local st = mcall("move", "status")
             if not flee_owned(F) then return end
             if type(st) ~= "table" then
@@ -2079,6 +2251,24 @@ local function ability_ctx(F)
 end
 M._ability_ctx = ability_ctx
 
+-- The defensive spells he may use in THIS fight. A cast goes through the real spell inputs and takes 0.7-2.2 s
+-- (measured) with no swing meanwhile, plus runes; so when the fight is a likely win he trades blows instead (live
+-- 2026-11-01 11:27: Tempest Shield + Windstep casts against a Goblin Runt, 0 swings in 10 s, both Windsteps went
+-- off after the hit had landed). Spells come in once the fight is hard (the latest assessment is not
+-- "likely_win", or a boss). combat_orders.abilities = {name = true} allows one in every fight, false never.
+function M.fight_abilities(F)
+    local all = ability_ctx(F)
+    local pol = M.orders.abilities or {}
+    local a = F.assessment
+    local hard = F.boss or (a ~= nil and a.verdict ~= nil and a.verdict ~= "likely_win") or false
+    local out = {}
+    for name, st in pairs(all) do
+        if pol[name] == true or (pol[name] ~= false and hard) then out[name] = st end
+    end
+    F.spells_held = not hard or nil
+    return out
+end
+
 local function start_defend(F, me, attacker_id, tt, info)
     local c = C()
     local D = mod("defense")
@@ -2090,7 +2280,7 @@ local function start_defend(F, me, attacker_id, tt, info)
                   stamina = me.stamina, can_parry = cap.can_parry, can_block = cap.can_block,
                   parry_cost = cap.parry_cost, block_cost = cap.block_cost, evade_cost = c.evade_cost or 15,
                   hp_frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1, heal_hp = M.orders.heal_hp,
-                  max_hp = me.max_hp, abilities = ability_ctx(F), active = active_effects(F) }
+                  max_hp = me.max_hp, abilities = M.fight_abilities(F), active = active_effects(F) }
     info = info or { key = "?:unknown" }
     local plan = D and D.plan(info, ctx, M.orders)
         or { action = "block", at_s = M.react_delay(), hold_s = 0.9, impact_s = 0.6, why = "no defense module" }
@@ -2555,8 +2745,17 @@ end
 local function step_engage(F, pawn, me, acts, tgt)
     local cfg = M.cfg
     local d_m = F.dist_m
-    -- keep in range: follow the creature (move.lua faces it when near)
-    if d_m > F.reach + 0.3 and not F.following then follow_target(F, F.follow, d_m > 8) end
+    -- keep in range: a short gap on his level (a dodge took him out of reach) -> step back in with the movement input;
+    -- farther, or above / below him -> follow the creature (move.lua faces it when near)
+    local tp = F.target_pos
+    F.step_in = nil
+    if d_m > F.reach and d_m <= cfg.step_in_m and tp and me.pos and math.abs(tp.Z - me.pos.Z) <= cfg.step_in_dz_cm then
+        if F.following then mcall("move", "stop", F.log); F.following = false end
+        local dx, dy = tp.X - me.pos.X, tp.Y - me.pos.Y
+        local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
+        F.step_in, F.step_in_until = { X = dx / l, Y = dy / l, Z = 0 }, F.t + M.DECIDE_S + 0.05
+        F.n_step_ins = (F.n_step_ins or 0) + 1
+    elseif d_m > F.reach + 0.3 and not F.following then follow_target(F, F.follow, d_m > 8) end
     -- telegraph from the target or an attacker right next to us -> defend after a human delay
     local c = C()
     for id, tt in pairs(c.telegraphs) do
@@ -2571,8 +2770,8 @@ local function step_engage(F, pawn, me, acts, tgt)
             if close then return start_defend(F, me, id, tt, (c.tele_info or {})[id]) end
         end
     end
-    if d_m > F.reach then return end
-    if F.casting then return end -- the spell's own inputs are running
+    if d_m > F.reach then return M.held(F, "out_of_reach") end
+    if F.casting then return M.held(F, "casting") end -- the spell's own inputs are running
     -- lock on once (one frame of the toggle; InputTriggerPressed)
     if cfg.lock_on and not F.locked and acts.lock then
         F.locked = true
@@ -2616,9 +2815,10 @@ local function step_engage(F, pawn, me, acts, tgt)
     if se and (se.input == "special" or se.input == "primary") and acts[se.input] and se.style ~= "visceral" then
         local tim = (se.input == "special" and spec) or prim
         if se.needs == "airborne" then pcall(function() pawn:Jump() end) end
-        if (me.stamina or 0) < cfg.stamina_reserve + (prim.stam or 0) then F.next_press = F.t + 0.3; return end
+        if (me.stamina or 0) < cfg.stamina_reserve + (prim.stam or 0) then F.next_press = F.t + 0.3; return M.held(F, "stamina") end
         tap(F, acts[se.input], cfg.tap_frames, se.style)
         F.next_press = F.t + ((tim and tim.next_ms) or 900) / 1000 + jitter(cfg.press_jitter_ms)
+        F.last_press_t = F.t
         F.presses = F.presses + 1
         C().counts.presses = C().counts.presses + 1
         F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits, err = err }
@@ -2636,8 +2836,9 @@ local function step_engage(F, pawn, me, acts, tgt)
         F.next_press = F.t + (prim.next_ms or 900) / 1000 + jitter(cfg.press_jitter_ms)
     else
         F.next_press = F.t + 0.3 -- let stamina come back (keep the reserve for defence)
-        return
+        return M.held(F, "stamina")
     end
+    F.last_press_t = F.t
     F.presses = F.presses + 1
     C().counts.presses = C().counts.presses + 1
     F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits, err = err }
@@ -2837,6 +3038,7 @@ local function frame(F)
     end
     if F.evade_until and F.t >= F.evade_until then F.evade_dir, F.evade_until = nil, nil end
     if F.evade_dir then pcall(function() pawn:AddMovementInput(F.evade_dir, 1.0, false) end)
+    elseif F.step_in and F.t < (F.step_in_until or 0) then pcall(function() pawn:AddMovementInput(F.step_in, 1.0, false) end)
     elseif F.nudge and F.t < (F.nudge_until or 0) then pcall(function() pawn:AddMovementInput(F.nudge, 0.3, false) end) end
     if F.t - (F.dec_t or -1) < M.DECIDE_S then return end
     F.dec_t = F.t
@@ -2929,6 +3131,7 @@ local function frame(F)
             F.hit_seq = h.seq
             if h.victim == F.target_id then
                 F.hits = F.hits + 1; F.dmg = (F.dmg or 0) + (h.amount or 0); F.last_hit_t = F.t
+                if h.source ~= "hp_poll" then M.learn_hit(F, h.amount) end -- (a multicast names him as the instigator)
                 if F.following then mcall("move", "progress_reset", F.log) end
                 if h.fatal then F.fatal_hit = true end
             end
@@ -2941,6 +3144,8 @@ local function frame(F)
             F.hits = F.hits + 1
             F.dmg = (F.dmg or 0) + (F.target_hp - tgt.hp)
             F.last_hit_t = F.t
+            -- his own hit only when it follows his press (another player's hit drops the HP too)
+            if F.last_press_t and F.t - F.last_press_t <= 1.2 then M.learn_hit(F, F.target_hp - tgt.hp) end
             if F.following then mcall("move", "progress_reset", F.log) end
             c.counts.hits = c.counts.hits + 1
             c.my_hits[#c.my_hits + 1] = { seq = c.counts.hits, t = F.t, victim = F.target_id, name = F.target_name,
@@ -2982,10 +3187,27 @@ local function frame(F)
     -- re-assess fight or flight every 0.5 s while fighting
     if F.phase ~= "flee" and F.phase ~= "loot" and F.phase ~= "restore" and F.t - (F.assess_t or -9) >= 0.5 then
         F.assess_t = F.t
-        local profile = F.profile
-        local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = M.dps(profile) }, enemies_for_assess(F, me.pos),
-            F.mode == "attack" and { commanded = true, force = F.force, avoid = {}, flee_hp = M.orders.flee_hp } or M.orders, F.decision, M.cfg)
+        -- the weapon he WILL fight with: before the equip phase picks it, the first assessment (react) used to score
+        -- him bare-handed (dps 5) with a sword in the bag, and could flee "losing" before drawing it
+        if not F.profile and not F.equip_plan and F.pre_profile == nil then
+            local pick = M.best_weapon(mcall("inventory", "list", F.log) or {}, { name = F.target_name, affinities = F.affinities }, nil, c.learned)
+            F.pre_profile = pick.weapon and pick.weapon.profile or false
+        end
+        local profile = F.profile or (not F.equip_plan and F.pre_profile) or nil
+        local orders = F.mode == "attack" and { commanded = true, force = F.force, avoid = {}, flee_hp = M.orders.flee_hp } or M.orders
+        if F.cornered then orders = { force = true, avoid = {} } end -- it kept up with his flee: fight it out
+        local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = M.my_dps(profile) }, enemies_for_assess(F, me.pos),
+            orders, F.decision, M.cfg)
         F.assessment = a
+        if not F.start_said and F.mode == "reflex" then
+            -- tell the brain at once what the reflex is doing about it, and why (communication: never silent)
+            F.start_said = true
+            M.emit_activity({ kind = "combat_started", by = "reflex", target = F.target_name, target_id = F.target_id, why = F.why,
+                decision = a.decision, because = F.cornered and ("cornered: " .. F.cornered) or a.why, verdict = a.verdict,
+                hp = me.hp, max_hp = me.max_hp, target_hp = F.target_hp,
+                weapon = profile and profile.name or "bare hands", est_s_to_kill = a.my_ttk and math.floor(a.my_ttk),
+                est_s_to_die = a.their_ttk and math.floor(a.their_ttk) })
+        end
         if a.decision == "flee" then return begin_flee(F, a.why) end
         F.decision = "fight"
         -- the HP TREND (live 16:15: a "losing" flee began 14 s in and he died fleeing): time to live at the damage
@@ -3004,7 +3226,8 @@ local function frame(F)
             -- his own observed damage rate decides once he has fought a while (5 s of no damage = not winning)
             local ttw = (my_rate > 0.1 and F.target_hp) and (F.target_hp / my_rate) or (fight_s >= 5 and 1e9) or a.my_ttk or 1e9
             a.ttl_s, a.ttw_s = math.floor(ttl), ttw < 1e8 and math.floor(ttw) or nil
-            if ttl < M.cfg.danger_ttl_s and ttw > ttl * M.cfg.danger_win_margin then
+            -- (cornered: it kept up with his flee, so backing off or running again only gives it free hits)
+            if ttl < M.cfg.danger_ttl_s and ttw > ttl * M.cfg.danger_win_margin and not F.cornered then
                 local why = string.format("losing fast: ~%ds to live, ~%s to win", math.floor(ttl), ttw < 1e8 and (math.floor(ttw) .. "s") or "?")
                 if M.orders.disengage ~= false and not F.dis and not F.no_food and (F.eat_fails or 0) < 3 and F.phase ~= "disengage"
                     and F.t - (F.dis_end or -99) > 10 then
@@ -3023,7 +3246,7 @@ local function frame(F)
         end
         -- low HP but winnable: back off and eat first (the model's policy: orders.disengage / heal_hp)
         local frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1
-        if M.orders.disengage ~= false and not F.dis and (F.phase == "engage" or F.phase == "approach")
+        if M.orders.disengage ~= false and not F.dis and (F.phase == "engage" or F.phase == "approach") and not F.cornered and not a.finishing
             and frac < (M.orders.heal_hp or 0.5) and not F.no_food and (F.eat_fails or 0) < 3 and F.t - (F.dis_end or -99) > 10 then
             local list = mcall("inventory", "list", F.log) or {}
             if M.best_heal_food(list) then
@@ -3040,7 +3263,7 @@ local function frame(F)
         F.precast_t = F.t
         local D = mod("defense")
         if D and D.precast_decision then
-            local ctx = { max_hp = me.max_hp, stamina = me.stamina, latency_s = F.latency or 0.03, abilities = ability_ctx(F),
+            local ctx = { max_hp = me.max_hp, stamina = me.stamina, latency_s = F.latency or 0.03, abilities = M.fight_abilities(F),
                           active = active_effects(F) }
             local dec = D.precast_decision(F.target_name, F.t, ctx, M.orders)
             if dec and dec.cast_now then
@@ -3088,7 +3311,10 @@ local function frame(F)
             set_phase(F, "approach")
         end
     elseif F.phase == "approach" then
-        if tgt and tgt.distance_m and tgt.distance_m > M.cfg.lost_m and not M.airborne(F.target_id) then
+        M.held(F, "closing_in")
+        -- (a target named from farther than lost_m is not "lost" while he closes in: farther than it began, + 5 m)
+        local lost_m = math.max(M.cfg.lost_m, (F.start_dist_m or 0) + 5)
+        if tgt and tgt.distance_m and tgt.distance_m > lost_m and not M.airborne(F.target_id) then
             F.far_since = F.far_since or F.t
             if F.t - F.far_since > M.cfg.lost_s then return finish(F, result_of(F, false, "too_far", { dist_m = tgt.distance_m })) end
         else F.far_since = nil end
@@ -3117,11 +3343,14 @@ local function frame(F)
             end
         end
     elseif F.phase == "defend" then
+        M.held(F, "defending")
         step_defend(F, pawn, me, acts)
     elseif F.phase == "disengage" then
+        M.held(F, "backing_off")
         step_disengage(F, pawn, me, acts)
         if not F.dis then F.dis_end = F.t end
     elseif F.phase == "flee" then
+        M.held(F, "fleeing")
         step_flee(F, pawn, me)
     elseif F.phase == "loot" or F.phase == "restore" then
         -- attacked while looting or putting things back: answer it first
@@ -3191,11 +3420,11 @@ local function start_fight(log, actor, opts)
     local t = now(pawn)
     local F = { gen = c.gen, log = log, pc = pc, mode = opts.mode or "attack", force = opts.force, token = token,
                 target = actor, target_id = tgt.id, target_name = tgt.name, target_hp = tgt.hp, target_pos = tgt.pos,
-                dist_m = tgt.distance_m or 99, affinities = read_affinities(actor),
+                dist_m = tgt.distance_m or 99, start_dist_m = tgt.distance_m, affinities = read_affinities(actor),
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
                 hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why,
                 by = opts.by or (opts.mode == "reflex" and "reflex" or "debug"), hp_start = tgt.hp, loot_names = {},
-                style = opts.style, weapon_pref = opts.weapon, boss = tgt.boss or nil }
+                style = opts.style, weapon_pref = opts.weapon, boss = tgt.boss or nil, cornered = opts.cornered }
     for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do F.items_before[U.short(w) or "?"] = true end
     -- distances are centre to centre: a big creature (a cow's capsule) keeps us farther away, so
     -- reach and follow distance grow with its capsule radius beyond a Kebbit-sized one
@@ -3224,8 +3453,8 @@ function M.attack(log, target, opts)
     local pc = local_pc()
     local pawn = pc and U.try(function() return pc.Pawn end)
     if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
-    local actor = M.resolve_target(target, U.loc(pawn))
-    if not actor then return { ok = false, reason = "unknown_target", data = { target = tostring(target) } } end
+    local actor, why = M.resolve_target(target, U.loc(pawn))
+    if not actor then return { ok = false, reason = "unknown_target", data = why or { target = tostring(target) } } end
     return start_fight(log, actor, { mode = "attack", force = opts.force, why = "commanded", by = opts.by or "debug", style = opts.style,
                                      weapon = opts.weapon })
 end
@@ -3319,20 +3548,49 @@ local function guard_tick(log)
     c.me_id = U.short(pawn)
     local t = now(pawn)
     trim_map(c.attackers, t, 60); trim_map(c.ally_attackers, t, 60); trim_map(c.telegraphs, t, 30)
-    if c.fight then return end
+    if c.fled_from then trim_map(c.fled_from, t, cfg.refled_s or 30) end
+    if c.fight then c.guard_hp = nil; return end
+    -- an AI hit reaches this client as an HP drop plus the attacker's impact event, with no damage multicast
+    -- (the fight frame attributes it the same way): so between fights too, whoever just hit him is
+    -- "attacked_me" at once, whatever its archetype or stance
+    local hp = num(U.health(pawn))
+    if hp and c.guard_hp and hp < c.guard_hp - 0.5 and t - (c.last_mc_dmg_t or -9) > 1.0 then
+        local best
+        local win = cfg.impact_attrib_s + cfg.guard_period_ms / 1000
+        for _, e in ipairs(c.impacts or {}) do
+            if e.id and t - e.t >= -0.2 and t - e.t <= win and (not best or e.t > best.t) then best = e end
+        end
+        if best then c.attackers[best.id] = t; c.guard_hit = { t = t, id = best.id, amount = c.guard_hp - hp } end
+    end
+    c.guard_hp = hp
+    local origin = U.loc(pawn)
+    c.guard_pos = origin -- (on_ai_attack reads swings near him between fights)
     do local oka, err = pcall(M.ambient_tick, log, pawn, pc); if not oka then c.ambient_err = tostring(err) end end
     if c.ambient and (c.ambient.escape or c.ambient.token) then return end -- busy getting out of something
     if U.try(function() return pawn.HealthComponent:IsDead() end) == true then return end
-    local origin = U.loc(pawn)
-    local threats = M.pick_threats(creatures_near(origin, math.max(cfg.aggro_m, cfg.assist_m)), c.attackers, c.ally_attackers, M.orders, t, cfg)
+    local threats = M.pick_threats(creatures_near(origin, math.max(cfg.aggro_m, cfg.assist_m)), c.attackers, c.ally_attackers, M.orders, t, cfg,
+        c.telegraphs)
     c.guard_seen = #threats
-    local th = threats[1]
+    -- what he just ran from (within refled_s) is no new reason to run again while it only stands near: one
+    -- bounded flee, not a chain of them (the Rung 1 night: flees dragged him 134-200 m off route); if it
+    -- attacks him again he fights it (cornered, below)
+    local th
+    for _, x in ipairs(threats) do
+        local fl = c.fled_from and c.fled_from[x.id]
+        if not (fl and t - fl <= (cfg.refled_s or 30) and x.why ~= "attacked_me" and x.why ~= "attacking_me") then th = x; break end
+    end
     if not th then return end
+    -- (a swing near him may be at someone else: passive waits for a hit that lands)
     if M.orders.stance == "passive" and th.why ~= "attacked_me" then return end
     if th.why == "attacked_ally" and M.orders.stance == "passive" then return end
     c.guard_last = { t = os.time(), id = th.id, name = th.name, why = th.why, d = th.distance_m }
-    say(log, string.format("threat %s (%s) %.1f m pl=%s why=%s", th.name, th.id, th.distance_m or -1, tostring(th.pl), th.why))
-    local r = start_fight(log, th.actor, { mode = "reflex", level = "reflex", why = th.why })
+    -- it came after him again soon after he ran from it: running again only gives it free hits, so he fights
+    local fled = c.fled_from and c.fled_from[th.id]
+    local cornered = fled and t - fled <= (cfg.refled_s or 30) and (th.why == "attacked_me" or th.why == "attacking_me")
+        and string.format("it came after me again %d s after I ran from it", math.floor(t - fled)) or nil
+    say(log, string.format("threat %s (%s) %.1f m pl=%s why=%s%s", th.name, th.id, th.distance_m or -1, tostring(th.pl), th.why,
+        cornered and (" cornered=" .. cornered) or ""))
+    local r = start_fight(log, th.actor, { mode = "reflex", level = "reflex", why = th.why, cornered = cornered })
     if not r.ok then say(log, "reflex could not start: " .. tostring(r.reason)) end
 end
 M._guard_tick = guard_tick
@@ -4035,7 +4293,13 @@ function M.fight_odds(me, dps, entities)
     table.sort(list, function(a, b) return (tonumber(a.distance_m or a.distance) or 1e9) < (tonumber(b.distance_m or b.distance) or 1e9) end)
     for _, e in ipairs(list) do
         if n >= M.cfg.odds_max then break end
-        local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = dps or 12 }, e)
+        -- the reflex's own estimate of its damage rate (the same numbers decide fight or flight)
+        local row = e
+        if e.dps_obs == nil then
+            local d = M.enemy_dps(e.name)
+            if d then row = {}; for k, v in pairs(e) do row[k] = v end; row.dps_obs = d end
+        end
+        local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = dps or 12 }, row)
         if a and a.verdict then
             n = n + 1
             out[e.id] = { verdict = a.verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk),
