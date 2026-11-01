@@ -512,7 +512,7 @@ do
         M.go_to(log,{8,0,3},{tolerance_m=.5}); step(1)
         local m=_G.DW_MOVE; arb_loads,move_loads,injections=0,0,0
         local before=m.traces or 0; step(1)
-        check("active mover injected for owned planner without nested move loads",m.lp_state=="sampling" and (m.traces or 0)-before==16 and arb_loads>0 and injections==arb_loads and move_loads==0 and pawn.input==nil,move_loads)
+        check("active mover injected for owned planner without nested move loads",m.lp_state=="sampling" and (m.traces or 0)-before==M.cfg.lp_budget and arb_loads>0 and injections==arb_loads and move_loads==0 and pawn.input==nil,move_loads)
         loadfile=real_loadfile; M.stop(log)
     end
     do -- A broken/missing setter is not permission to drive the pawn.
@@ -1299,6 +1299,12 @@ run(500)
 s = MB2.status()
 if os.getenv("DBG15") then for i = math.max(1, #logs - 14), #logs do print("  " .. logs[i]) end; local fm2 = io.open(memf); if fm2 then print("MEM", (fm2:read("a"):gsub("%s+", " "):sub(1, 900))); fm2:close() end end
 check("memory (b3): learned exit -> unaided go_to out of the pit", s.result and s.result.status == "arrived", tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
+do -- walking the stored exit again is a use, not new evidence; the escape counted once, not once per tick
+    local fm3 = io.open(memf); local txt = fm3 and fm3:read("a") or ""; if fm3 then fm3:close() end
+    local traps = txt:match('"traps"%s*:%s*(%b[])') or ""
+    local n_ok, n_used = tonumber(traps:match('"n_ok"%s*:%s*(%d+)')), tonumber(traps:match('"n_used"%s*:%s*(%d+)'))
+    check("memory (b3): trap n_ok 1 (one escape), n_used 1 (its exit walked once)", n_ok == 1 and n_used == 1, tostring(n_ok) .. " " .. tostring(n_used))
+end
 MB2.stop(log)
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 
@@ -2578,6 +2584,62 @@ do
     check("trail follow: a jump of his he can't make -> round, to him", d < 450 and math.abs(pawn.loc.Z - luis.loc.Z) < 60 and skipped and pawn.jumps >= 1,
         string.format("d=%.0f dz=%.0f status=%s skipped=%s jumps=%d", d, pawn.loc.Z - luis.loc.Z, tostring(s.status), tostring(skipped), pawn.jumps))
     M.stop(log); frame_hook = nil; raised = {}; luis.CharacterMovement = nil; oracle = nil; pump_oracle()
+end
+
+-- TRAVEL SPEED (2026-11-01 trips: 9.8-11.9 s standing at the start of every 150+ m go_to while the dev server streamed
+-- the route in): he walks toward the goal while a long route is pending, then joins the route where he is
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local asked, waited = nil, 0
+    oracle = function(id)
+        if id ~= asked then asked, waited = id, 0 end
+        waited = waited + 1
+        if waited < 30 then return nil end -- ~3 s
+        return ("return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{20,0,-0.9},{40,0,-0.9},{60,0,-0.9},{80,0,-0.9}}}"):format(id)
+    end
+    offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no) -- a fresh offer (earlier cases left theirs used)
+    pump_oracle()
+    local n0 = #logs
+    M.go_to(log, { 80, 0, 0 }, { tolerance_m = 2 })
+    run(25) -- ~2.5 s: the route has not come yet
+    local x_wait = pawn.loc.X
+    run(300)
+    local s = M.status()
+    local joined = false
+    for k = n0 + 1, #logs do if logs[k]:find("joining it at point") then joined = true end end
+    check("long go_to: walks while the route is pending, then joins it", x_wait > 300 and joined and s.result and s.result.status == "arrived",
+        string.format("x_wait=%.0f joined=%s result=%s", x_wait, tostring(joined), tostring(s.result and s.result.status)))
+    M.stop(log); oracle = nil; pump_oracle()
+end
+
+-- TRAPS (live 2026-11-01, t161 on the ladders' southeast start): a fixture teleport between the stuck and the
+-- next sample is no escape route, and walking straight out the way that "failed" is no trap
+walls = {}; raised = {}; oracle = nil; _G.DW_NAVMEM = nil; _G.DW_LP_CACHE = nil
+os.remove(dir .. "/data/skills/test-world/nav_memory.json")
+luis.loc = { X = 90000, Y = 90000, Z = 0 }
+do
+    local function learned_since(n0) for i = n0 + 1, #logs do if logs[i]:find("memory: trap", 1, true) then return true end end return false end
+    _G.DW_TRAP_CAND = { at = { X = 0, Y = 0, Z = -90 }, t = os.time(), toward = { X = 500, Y = 0, Z = -90 } }
+    pawn.loc = { X = 5000, Y = 0, Z = 0 }
+    local n0 = #logs
+    local MT = dofile(MOVE)
+    MT.go_to(log, { 75, 0, 0 }, { tolerance_m = 1.5, timeout_s = 30, nav = false })
+    run(200)
+    check("traps: a teleport after the stuck drops the candidate", _G.DW_TRAP_CAND == nil and not learned_since(n0), tostring(_G.DW_TRAP_CAND))
+    MT.stop(log)
+    _G.DW_NAVMEM = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
+    _G.DW_TRAP_CAND = { at = { X = 0, Y = 0, Z = -90 }, t = os.time(), toward = { X = 500, Y = 0, Z = -90 } }
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    n0 = #logs
+    MT = dofile(MOVE)
+    MT.go_to(log, { 30, 0, 0 }, { tolerance_m = 1.5, timeout_s = 30, nav = false })
+    run(300)
+    local said = false
+    for i = n0 + 1, #logs do if logs[i]:find("not a trap", 1, true) then said = true end end
+    check("traps: walked straight out the way that failed -> not a trap", said and not learned_since(n0) and _G.DW_TRAP_CAND == nil)
+    MT.stop(log)
+    _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 end
 
 -- ENCUMBERED (live 2026-11-01 13:2x: 446.5 of 300 weight): no jump attempts (they fail in game), and the honest reason

@@ -84,6 +84,8 @@ function NM.new_mem(world) return { v = 1, world = world, routes = {}, traps = {
 local function wkey(p) return math.floor(p.X / NM.cfg.water_cell_cm) .. ":" .. math.floor(p.Y / NM.cfg.water_cell_cm) end
 function NM.mark_water(mem, p) mem.water = mem.water or {}; if not mem.water[wkey(p)] then mem.water[wkey(p)] = true; return true end end
 function NM.is_water(mem, p) return mem.water ~= nil and mem.water[wkey(p)] == true end
+-- standing dry on a cell marked water (a false mark: the water probe once saw a roof or a bench as a surface) clears it
+function NM.clear_water(mem, p) if mem.water and mem.water[wkey(p)] then mem.water[wkey(p)] = nil; return true end end
 
 -- ------------------------------------------------------------------ water spots (where collecting water WORKED)
 -- {water = {X,Y,Z} cm | nil, stand = {X,Y,Z} cm, n_ok, ts}: the place he stood when a press on water gave water
@@ -226,7 +228,8 @@ function NM.learn_trap(mem, center, exit_cm, meta)
     local ex = {}
     for i, p in ipairs(NM.simplify(exit_cm, 150)) do ex[i] = m(p); if p.act then ex[i][4] = p.act end end
     for _, t in ipairs(mem.traps) do
-        if d2(cm(t.center), center) < (t.radius_m or 8) * 100 and math.abs(cm(t.center).Z - center.Z) < 200 then
+        -- (a disabled seed is skipped: matching it again copied it once per tick, 37 copies in 1 s on 10-28)
+        if not t.disabled and d2(cm(t.center), center) < (t.radius_m or 8) * 100 and math.abs(cm(t.center).Z - center.Z) < 200 then
             if t.seed then
                 -- a learned exit overrides a seed: shadow it with a learned copy under the same id
                 local copy = { id = t.id, center = t.center, radius_m = t.radius_m, z_max = t.z_max, z_min = t.z_min,
@@ -235,7 +238,12 @@ function NM.learn_trap(mem, center, exit_cm, meta)
                 mem.traps[#mem.traps + 1] = copy
                 return copy, "learned_over_seed"
             end
-            t.exit, t.status, t.n_ok, t.ts = ex, "verified", (t.n_ok or 0) + 1, os.time()
+            t.exit, t.status, t.ts = ex, "verified", os.time()
+            -- once per escape (the exit keeps growing on later calls: meta.refresh); walking its stored exit
+            -- again (meta.used) is a use, not new evidence that the place shuts him in
+            if not meta.refresh then
+                if meta.used then t.n_used = (t.n_used or 0) + 1 else t.n_ok = (t.n_ok or 0) + 1 end
+            end
             return t, "updated"
         end
     end

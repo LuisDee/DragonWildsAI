@@ -118,7 +118,7 @@ M.cfg = {
     lp_enabled = true,
     lp_grid_m = 9,             -- grid radius (19 x 19 cells at 1 m: ~720 traces)
     lp_cell_cm = 100,
-    lp_budget = 16,            -- traces per frame while standing to sample/verify (~1 ms each)
+    lp_budget = 64,            -- traces per frame while standing to sample/verify (0.08 ms each live, 2026-11-01; 16 stood ~2.5 s a plan)
     lp_cache_ttl_s = 30,       -- world-aligned cell cache shared by plans and prefetch (builds change)
     prefetch_every = 3,        -- while moving: sample one cell ahead (2 traces) every N frames, so a
                                -- later plan mostly hits the cache (cuts the ~0.9 s standstill)
@@ -140,6 +140,10 @@ M.cfg = {
     mem_min_trip_cm = 3000,    -- use a remembered route only for trips longer than this
     trap_leave_cm = 1500,      -- leaving a stuck spot by this much makes the path since then its exit ...
     trap_extend_cm = 1000,     -- ... and the exit keeps growing for this much more walking (well clear)
+    trap_straight_x = 1.15,    -- ... unless he walked straight out (path <= this x the distance) the way that failed
+    prov_walk = true,          -- while a long route streams in on the dev server (~10 s), walk toward the goal
+                               -- drop-guarded instead of standing; re-anchored on the route when it comes
+    prov_min_cm = 4000,        -- ... only for trips longer than this (short routes come back in < 1 s)
     oracle_primary_cm = 1000,  -- beyond this (or above jump height) the oracle route leads; the local
                                -- planner only handles the obstacle in front of the next waypoint
     unreachable_check_s = 1.5, -- while unreachable: re-check this often
@@ -463,6 +467,48 @@ local function water_sense_calibrate(st, pawn, me, fe, dx, dy, log)
     end
     _G.DW_WATER_CH = false
     if log then log("move: water sense: no trace channel sees the water surface (learning by wading only)") end
+end
+
+-- Is there water over this floor? true / false, nil when no channel sees water (not calibrated yet). The water
+-- channel also stops on solids (a roof or a bench above the floor): water only where the pawn trace, which
+-- passes through water to the bed, does NOT stop at that height (the church interior was marked water and every
+-- trip from it stood 2.5 s for a "water_ahead" plan, 2026-11-01).
+local function water_at(pawn, x, y, floor_z)
+    local c = rawget(_G, "DW_WATER_CH")
+    if not c then return nil end
+    local a, b = { X = x, Y = y, Z = floor_z + 300 }, { X = x, Y = y, Z = floor_z - 50 }
+    local ok, hit, out = pcall(trace_with, c, pawn, a, b)
+    if not (ok and type(out) == "table") then return nil end
+    if not (hit and out.ImpactPoint and out.ImpactPoint.Z > floor_z + 15) then return false end
+    local okr, hr, outr = pcall(raw_trace, pawn, a, b)
+    if okr and hr and outr.ImpactPoint and outr.ImpactPoint.Z >= out.ImpactPoint.Z - 10 then return false end
+    return true
+end
+
+-- A remembered water cell is looked at (once per cell per trip) before standing to plan round it, and when he
+-- walks dry on it: when the water channel sees no water over the floor at its centre (a false mark from a roof or
+-- a bench), it is forgotten. A shoreline cell whose centre is wet stays (walking its dry edge proves nothing).
+local function water_false_mark(st, pawn, fe, q, mem, NMm, log)
+    local cell = NMm.cfg.water_cell_cm or 200
+    local cx, cy = (math.floor(q.X / cell) + 0.5) * cell, (math.floor(q.Y / cell) + 0.5) * cell
+    local key = math.floor(cx) .. ":" .. math.floor(cy)
+    st.water_seen = st.water_seen or {}
+    if st.water_seen[key] ~= nil then return st.water_seen[key] end
+    local okf, hf, outf = pcall(raw_trace, pawn, { X = cx, Y = cy, Z = fe.Z + 150 }, { X = cx, Y = cy, Z = fe.Z - 400 })
+    local wet = (okf and hf and outf.ImpactPoint) and water_at(pawn, cx, cy, outf.ImpactPoint.Z) or nil
+    local false_mark = wet == false
+    st.water_seen[key] = false_mark
+    if log and not false_mark then
+        log(string.format("move: memory: water at (%.0f,%.0f) %s", cx, cy, wet and "confirmed" or "(cannot check: " ..
+            (not (okf and hf) and "no floor" or "no water channel") .. ")"))
+    end
+    if false_mark and NMm.clear_water and NMm.clear_water(mem, q) then
+        st.water_new = (st.water_new or 0) + 1
+        st.water_cleared = (st.water_cleared or 0) + 1
+        pcall(NMm.save, mem); st.water_new = 0
+        if log then log(string.format("move: memory: no water at (%.0f,%.0f) after all (a roof or a bench fooled the probe); forgotten", cx, cy)) end
+    end
+    return false_mark
 end
 
 local function make_trace(st, pawn)
@@ -874,7 +920,7 @@ end
 -- failing it. Straight steering at the raw goal is then drop-guarded (drop_ahead below): the one
 -- death this rule exists for was a beeline at a goal 30 m down into a KillZVolume (DISCOVERIES).
 local function route_fallback(st, why, log)
-    st.nav_required, st.nav_deferred_required, st.nav_wait_t = nil, nil, nil
+    st.nav_required, st.nav_deferred_required, st.nav_wait_t, st.prov = nil, nil, nil, nil
     st.local_authority, st.local_binding = nil, nil
     st.nav_fallback = tostring(why or "no_route")
     if log then log("move: no admitted route (" .. st.nav_fallback .. "); local planning, drop-guarded") end
@@ -1185,9 +1231,7 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
             return (#avoid().zones > 0) and M.cfg.avoid_dry_slack_cm or nil
         end)(),
         water_probe = not observe and rawget(_G, "DW_WATER_CH") and function(x, y, floor_z)
-            local c = rawget(_G, "DW_WATER_CH")
-            local ok, hit, out = pcall(trace_with, c, pawn, { X = x, Y = y, Z = floor_z + 300 }, { X = x, Y = y, Z = floor_z - 50 })
-            if ok and hit and out.ImpactPoint and out.ImpactPoint.Z > floor_z + 15 then
+            if water_at(pawn, x, y, floor_z) then
                 local mem, NMm = nav_mem()
                 if mem then NMm.mark_water(mem, { X = x, Y = y, Z = floor_z }) end
                 return true
@@ -1804,6 +1848,29 @@ local function nav_response(f, pending)
         st.local_observe_done = true
     end
     st.path, st.wp, st.path_partial = pts, 2, r.partial
+    if st.prov then
+        -- he walked on while it was computed: continue from the route point with the shortest way on (straight to
+        -- it, then the route), among points within 5 m of the nearest at his level
+        local hh, best, bi = st.half_h or 90, math.huge, nil
+        for i = 2, #pts do
+            if math.abs((me.Z - hh) - pts[i].Z) < 250 then
+                local d = d2(me, pts[i]); if d < best then best, bi = d, i end
+            end
+        end
+        if bi then
+            local rem, score, pick = 0, math.huge, bi
+            for i = #pts, 2, -1 do
+                if i < #pts then rem = rem + d2(pts[i], pts[i + 1]) end
+                if math.abs((me.Z - hh) - pts[i].Z) < 250 then
+                    local d = d2(me, pts[i])
+                    if d <= best + 500 and d + rem < score then score, pick = d + rem, i end
+                end
+            end
+            st.wp = pick
+        end
+        if log then log(string.format("move: route came after %.1f s of walking; joining it at point %d/%d", t - (st.prov_t or t), st.wp, #pts)) end
+        st.prov = nil
+    end
     local lastp = pts[#pts]
     if r.partial then st.nav_end = v(lastp) end
     if st.mode == "go_to" and not reached(st, lastp, goal) then
@@ -2001,8 +2068,19 @@ local function route_tick(f)
         st.nav_wait_t = st.nav_wait_t or t
         if st.nav_fail or (not st.nav_pending and not st.nav_live) or t - st.nav_wait_t > M.cfg.nav_timeout_s then
             route_fallback(st, st.nav_fail or (st.nav_pending and "oracle_timeout") or st.nav_wait_reason or "oracle_unavailable", log)
+        elseif M.cfg.prov_walk and st.nav_pending and not st.prov_stalled and not st.unreach and dist > M.cfg.prov_min_cm
+            and not (st.mode == "go_to" and t - st.t0 > st.timeout_s) then
+            -- waiting for a long route (the dev server streams the corridor in: 9.8-11.9 s standing at the start of
+            -- every 150+ m trip, live 2026-11-01): walk toward the goal meanwhile, drop-guarded like the fallback
+            -- (killz); when the route comes it is re-anchored where he is now (nav_response). Stalled -> stand as before.
+            if not st.prov then
+                st.prov, st.prov_t = true, t
+                if log then log(string.format("move: route pending (%.0f m trip); walking toward the goal meanwhile", dist / 100)) end
+            end
+            return
         else
             -- waiting for the route: stand, with the progress clocks paused
+            st.prov = nil
             st.status = st.unreach and "unreachable" or "planning"
             st.prog_t, st.prog_pos, st.win_t, st.win_pos = t, v(me), t, v(me)
             if st.prog_tr then st.prog_tr.last_t = nil end
@@ -2077,6 +2155,8 @@ local function arrival(f)
         return
     end
     local hold = st.idle and (st.tol_cm + M.cfg.follow_hysteresis_cm) or st.tol_cm
+    -- he is walking off (> 2.5 m/s): go now, not once he is a further metre away (a human reacts in ~0.5 s)
+    if st.idle and (st.leader_cms or 0) > 250 then hold = st.tol_cm end
     -- the leader stands in a zone and its edge is just ahead: wait here, at the edge
     local edge_hold = false
     if f.zone_goal and not zone_in and dist > hold then
@@ -2162,8 +2242,9 @@ local function trap_tick(f)
     if cand then
         cand.path = cand.path or {}
         local cp = cand.path
-        if (cp[#cp] and d2(fe, cp[#cp]) > 1000) or os.time() - (cand.t or 0) > 600 then
-            -- a teleport (respawn, Unstuck, lodestone) or a stale candidate: not an escape route
+        if (cp[#cp] and d2(fe, cp[#cp]) > 1000) or (not cp[#cp] and d2(fe, cand.at) > 1000) or os.time() - (cand.t or 0) > 600 then
+            -- a teleport (respawn, Unstuck, lodestone, a ladder fixture; also between the stuck and the first
+            -- sample) or a stale candidate: not an escape route
             _G.DW_TRAP_CAND, cand = nil, nil
         elseif not cp[#cp] or d2(fe, cp[#cp]) >= M.cfg.trip_spacing_cm then
             cp[#cp + 1] = fe
@@ -2178,12 +2259,27 @@ local function trap_tick(f)
     if not (k0 and mem and #cp - k0 >= 2) then _G.DW_TRAP_CAND = nil; return end
     local ex = {}
     for k = k0, #cp do ex[#ex + 1] = cp[k] end
-    local okt, trap, how = pcall(NMm.learn_trap, mem, cand.at, ex, { src = "learned" })
+    local walked = 0
+    for k = k0 + 1, #cp do walked = walked + d2(cp[k - 1], cp[k]) end
+    local function heading_off(a, b) -- degrees between the leg cand.at->a and cand.at->b
+        local ax, ay, bx, by = a.X - cand.at.X, a.Y - cand.at.Y, b.X - cand.at.X, b.Y - cand.at.Y
+        local la, lb = math.sqrt(ax * ax + ay * ay), math.sqrt(bx * bx + by * by)
+        if la < 1 or lb < 1 then return 180 end
+        return math.deg(math.acos(math.max(-1, math.min(1, (ax * bx + ay * by) / (la * lb)))))
+    end
+    if not cand.trap and not cand.learned and cand.toward and walked <= M.cfg.trap_straight_x * d2(cp[k0], fe)
+        and heading_off(fe, cand.toward) < 45 then
+        -- he walked straight out the very way that "failed": nothing shut him in there (the stuck passed); a
+        -- learned exit would only make every later start there walk that way first (t161, 2026-11-01)
+        if log then log(string.format("move: memory: walked straight out of (%.0f,%.0f) the way that failed: not a trap", cand.at.X / 100, cand.at.Y / 100)) end
+        _G.DW_TRAP_CAND = nil
+        return
+    end
+    -- n_ok counts escapes from a fresh stuck once; walking a known trap's exit again counts as n_used
+    local okt, trap, how = pcall(NMm.learn_trap, mem, cand.at, ex, { src = "learned", used = cand.trap ~= nil, refresh = cand.learned })
     if cand.toward and not cand.learned then pcall(NMm.taboo, mem, cand.at, cand.toward, "failed approach") end
     pcall(NMm.save, mem)
     if log and not cand.learned then log(string.format("move: memory: trap %s %s, exit %d pts", tostring(okt and trap and trap.id), tostring(how), #ex)) end
-    local walked = 0
-    for k = k0 + 1, #cp do walked = walked + d2(cp[k - 1], cp[k]) end
     cand.learned = true
     cand.extend_to = cand.extend_to or (walked + M.cfg.trap_extend_cm)
     if walked >= cand.extend_to then _G.DW_TRAP_CAND = nil end
@@ -2216,6 +2312,8 @@ local function water_tick(f)
             if st.use_lp and not st.trail_i and not goal_wet then st.lpath, st.water_replan = nil, true end
         end
     elseif not wet then
+        -- walking dry on a cell marked water: looked at, forgotten when its centre is dry (water_false_mark)
+        if mem and okm and mmode == 1 and NMm.is_water(mem, fe) then water_false_mark(st, pawn, fe, fe, mem, NMm, log) end
         if st.in_water and mem and (st.water_new or 0) > 0 then pcall(NMm.save, mem); st.water_new = 0 end
         st.in_water = nil
     end
@@ -2856,7 +2954,8 @@ local function probe(f)
         local mem, NMm = nav_mem()
         if mem and next(mem.water or {}) then
             for _, k in ipairs({ 300, 600, 900 }) do
-                if NMm.is_water(mem, { X = fe.X + dx * k, Y = fe.Y + dy * k }) then
+                local q = { X = fe.X + dx * k, Y = fe.Y + dy * k }
+                if NMm.is_water(mem, q) and not water_false_mark(st, pawn, fe, q, mem, NMm, log) then
                     if t - (st.water_plan_t or -100) > 5 and lp_begin(st, pawn, me, far_goal(f), "water_ahead", log) then
                         st.water_plan_t = t
                         st.status = "planning"
@@ -2897,9 +2996,14 @@ end
 -- per probe_every_s, more than the 1.5 m look-ahead.
 local function killz(f)
     local st, pawn, t, dt, me, log, src, dx, dy = f.st, f.pawn, f.t, f.dt, f.me, f.log, f.src, f.dx, f.dy
-    if not (st.nav_fallback and src == "straight" and not st.wade and not st.in_water) then return end
+    if not ((st.nav_fallback or st.prov) and src == "straight" and not st.wade and not st.in_water) then return end
     st.traces = (st.traces or 0) + 1
     if not drop_ahead(pawn, me, me.Z - (st.half_h or 90), dx, dy) then return end
+    if st.prov then -- a drop ahead while the route is still coming: stop walking provisionally, wait for it
+        st.prov, st.prov_stalled = nil, "drop_ahead"
+        if log then log("move: drop ahead on the provisional walk; waiting for the route") end
+        return true
+    end
     st.win_t, st.win_pos = t, v(me)
     if st.prog_t then st.prog_t = st.prog_t + dt end
     if st.use_lp and st.lp_plans_np < M.cfg.lp_max_plans then
@@ -2919,7 +3023,7 @@ end
 local function steer_input(f)
     local st, gen, pc, pawn, t, goal, dx, dy = f.st, f.gen, f.pc, f.pawn, f.t, f.goal, f.dx, f.dy
     local function bound()
-        if not st.nav_required then return true end
+        if not st.nav_required or st.prov then return true end
         if st.local_authority then return local_route_owned(st, gen, pawn, pc, goal) end
         return route_owned(st, gen, pawn, pc)
     end
@@ -3125,6 +3229,9 @@ local function report_unreachable(f, needs, at)
     local detail = string.format("dz=%.1fm d=%.1fm lp_fail=%s%s%s", (goal.Z - me.Z) / 100, dist / 100, tostring(st.lp_fail), walls,
         (st.dz0 and math.abs((goal.Z - me.Z) - st.dz0) > 150) and string.format(" (height gap was %.1fm at start)", st.dz0 / 100) or "")
     if log then log("move: unreachable: " .. reason .. " " .. detail) end
+    -- a trap candidate only when walls kept him from a goal some way off: a goal above his reach, a leader's move
+    -- he lacks, his load, or a goal he is already beside (on or in an object) say nothing about being shut in
+    local confined = reason == "no_route" and dist > 300
     local hname, hpawn = nearest_player(pawn, me, M.cfg.help_player_cm)
     if hname and not st.asked_help then
         local mem, NMm = nav_mem()
@@ -3139,12 +3246,12 @@ local function report_unreachable(f, needs, at)
         st.unreach = { reason = reason, since = t, check_t = t, leader_pos = v(goal), my_pos = v(me), detail = detail }
         st.unreach_episodes = (st.unreach_episodes or 0) + 1
         pcall(emit_move_event, "unreachable", { reason = reason, leader_pos = goal, my_pos = me, detail = detail, mode = "follow" })
-        mark_trap(st, me)
+        if confined then mark_trap(st, me) end
         st.status = "unreachable"
         return true
     end
     pcall(emit_move_event, "unreachable", { reason = reason, leader_pos = goal, my_pos = me, detail = detail, mode = "go_to" })
-    mark_trap(st, me)
+    if confined then mark_trap(st, me) end
     if hname and hpawn and not st.lead_done then return wait_for_lead(st, hname, hpawn, me, t, reason, detail) end
     return stop(st, { status = "failed", reason = "unreachable", why = reason, detail = detail, dist_m = dist / 100, at_m = at }, log)
 end
@@ -3176,6 +3283,11 @@ local function give_up(f)
         return
     end
     if t - st.prog_t <= M.cfg.give_up_s then return end
+    if st.prov then -- no progress on the provisional walk: stand and wait for the route (as before), no escape ladder
+        st.prov, st.prov_stalled = nil, "no_progress"
+        if log then log("move: no progress on the provisional walk; waiting for the route") end
+        return
+    end
     -- no progress because he is already there (a local-plan jump kept the arrival check off: chat run 8,
     -- on top of the Water Anima Vent, 0 m left, 1.2 m up of 1.76 allowed -> "no_route")
     if st.mode == "go_to" and reached(st, me, goal) and standing_check(pawn) == true then
@@ -3287,7 +3399,7 @@ local function tick(st, gen, log)
     if f.zone_in and st.zone_exit and not st.escape then f.aim, f.src, f.idxp = st.zone_exit, "avoid_exit", true end
     local aim, src = f.aim, f.src
     if st.local_authority and src ~= "local" then route_fallback(st, "local route unavailable", log) end
-    if st.nav_required and src == "straight" then route_fallback(st, "route ended before destination", log) end
+    if st.nav_required and src == "straight" and not st.prov then route_fallback(st, "route ended before destination", log) end
     st.source, st.aim = src, aim
     local dx, dy = aim.X - me.X, aim.Y - me.Y
     local dl = math.sqrt(dx * dx + dy * dy)
