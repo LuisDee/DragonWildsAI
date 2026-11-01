@@ -5,6 +5,7 @@ Read this whole file before doing anything. It is the single source of truth for
 ---
 
 ## 00. READ FIRST: docs/HANDOVER-2026-10-31.md (Codex audit, Luis's new live-first direction, TASK-0). It overrides anything below.
+Then docs/HANDOVER-2026-11-01.md: where Rung 1 ended (chat ladder 8/8, mean 2.1 calls), tonight's clean-up wave, and the Rung 2 session plan with Luis + proposed /goal.
 
 ## 000. Working mode (Luis, 2026-10-31, binding; overrides every review/gate/design-note rule below and in GOAL.md)
 - **Loop:** research + analyse → quick change → **instantly live test** → works? keep and push further : bin it. Local tests are not progress; live behaviour is.
