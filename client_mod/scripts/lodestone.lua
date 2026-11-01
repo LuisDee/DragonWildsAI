@@ -373,7 +373,7 @@ M.MANIFEST = {
         args = { type = "object", properties = obj() }, reasons = { "state_unavailable", "companion_down" } },
     teleport = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 170,
         detail_is_speech = true,
-        description = "Fast-travel like a player: walk to the nearest lodestone, use it, pick the destination on its map; checks you arrived.",
+        description = "Fast-travel like a player to a far lodestone: walk to the nearest lodestone, use it, pick the destination on its map; checks you arrived. Getting to a lodestone itself is a walk: go_to it.",
         args = { type = "object", required = { "to" }, properties = obj({
             to = { description = "A lodestone id from lodestones, or [x, y, z] metres (the lodestone nearest that point)." } }) },
         reasons = { "not_unlocked", "missing_materials", "unknown_target", "already_there", "too_far", "path_blocked",
