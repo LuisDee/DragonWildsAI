@@ -8,8 +8,9 @@ collided with it). Hold it with `run`, which refreshes it every REFRESH_S while 
     .venv\\Scripts\\python.exe -m tools.live_lock run chat-ladder -- .venv\\Scripts\\python.exe -m tools.chat_ladder run --confirm
     .venv\\Scripts\\python.exe -m tools.live_lock status
 
-Taking the lock sends the body a `stop` first (clean=True; --no-clean to skip), so no job is left over from the last
-owner. Release it only after your own brain is stopped: a brain left running keeps driving him under the next owner.
+Taking the lock sends the body a `stop` first and gets him up out of any bed or shelter (clean=True; --no-clean to
+skip), so no job or rest is left over from the last owner. Release it only after your own brain is stopped: a brain
+left running keeps driving him under the next owner.
 
 Waiters queue first come, first served (a ticket lock: one file per waiter in logs/state/live_queue, oldest live
 ticket claims next; a dead waiter's ticket is dropped). With plain 5 s polling the agent that happened to poll first
@@ -131,6 +132,33 @@ def stop_body(timeout_s: float = 15.0) -> str:
     return out[0] if out else f"no answer in {timeout_s:.0f} s"
 
 
+def get_up(timeout_s: float = 15.0) -> str:
+    """Out of a bed or shelter the last owner left him in, the player's way (client_mod/commands/get_up.lua: an
+    interact press ends a rest), checked from his rest component (live 19:59Z: a rung1 rest left him lying in a Summon
+    Shelter and the next agent's craft failed "resting")."""
+    try:
+        from tools.scenario_run import run_client_cmd
+        cmd = LOCK.parents[2] / "client_mod" / "commands" / "get_up.lua"
+
+        def read() -> dict:
+            return (run_client_cmd(cmd, "lock_get_up_read", {"press": False}, timeout_s) or {}).get("result") or {}
+        r = read()
+        if not r.get("ok"):
+            return f"get-up check: {r.get('reason') or 'no answer'}"
+        if not r.get("resting_in"):
+            return "up"
+        bed = r["resting_in"]
+        run_client_cmd(cmd, "lock_get_up", None, timeout_s)
+        t_end = time.time() + 4.0
+        while time.time() < t_end:
+            time.sleep(0.5)
+            if not read().get("resting_in"):
+                return f"got up from {bed}"
+        return f"still in {bed} after a get-up press"
+    except Exception as exc:  # the client may be down or respawning; the lock is still held
+        return f"get-up check: {type(exc).__name__}: {exc}"[:200]
+
+
 def _ticket(owner: str, qdir: Path | None = None) -> Path:
     qdir = qdir or QUEUE
     qdir.mkdir(parents=True, exist_ok=True)
@@ -177,7 +205,7 @@ def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, 
             ticket.unlink()
         except OSError:
             pass
-    log(f"live lock: {owner} holds it" + (f"; stop left-over jobs: {stop_body()}" if clean else ""))
+    log(f"live lock: {owner} holds it" + (f"; stop left-over jobs: {stop_body()}; {get_up()}" if clean else ""))
     stop = threading.Event()
 
     def beat():
