@@ -86,9 +86,11 @@ local function damage(a, amount)
     local sp = a.species
     if a.fams[1] == "FellableTree" and not a.stump and a.hp <= a.max / 2 then
         a.stump, a.hp = true, a.max / 2
-        local felled = new_actor("BP_FelledTree_" .. sp .. "_C", { "FelledTree" }, { X = a.pos.X + 300, Y = a.pos.Y, Z = 0 }, 105, { species = sp })
+        local felled = new_actor("BP_FelledTree_" .. sp .. "_C", { "FelledTree" }, { X = a.pos.X + 300, Y = a.pos.Y, Z = 0 }, 105,
+                                 { species = sp, CollapseState = 0 })
         Wd.pending[#Wd.pending + 1] = { t = T + 2.0, fn = function()
-            kill(felled)
+            -- Wd.linger: the live trunk stays LifeSpanAfterCanopyCollapse s after it collapses (CollapseState 1)
+            if Wd.linger then felled.CollapseState = 1 else kill(felled) end
             new_actor("BP_SplittableLog_" .. sp .. "_C", { "SplittableTreeLog" }, { X = a.pos.X + 300, Y = a.pos.Y + 50, Z = 0 }, 105, { species = sp })
         end }
     elseif a.fams[1] == "SplittableTreeLog" and a.hp <= 0 then
@@ -372,6 +374,19 @@ do
     local bt = G.best_tool({ hotbar = { { item = "ITEM_Logging_Axe_Stone" }, { item = "ITEM_Logging_Axe_Mithril" }, { item = "ITEM_Pickaxe_Mithril" } } },
         P.RESOURCES.oak, TOOLS)
     check("best tool = highest tier axe", bt and bt.entry.item == "ITEM_Logging_Axe_Mithril", bt and bt.entry.item)
+end
+
+-- ================================================================ 1b. the felled trunk lingers after it collapses
+do -- live 2026-11-01 19:1xZ: every felled tree waited ~10 s on "settle timeout" (the trunk outlives its collapse)
+    reset({ held = nil })
+    fake_pc.Pawn = Wd.pawn
+    Wd.linger = true
+    add_foliage_tree("Oak", { X = 1500, Y = 400, Z = 0 })
+    local res = run_job({ resource = "oak", count = 6 }, 300)
+    local log = table.concat(res.data and res.data.phase_log or {}, " | ")
+    check("linger: ok", res.ok == true, tostring(res.reason) .. " " .. log)
+    check("linger: settled on CollapseState, no settle timeout", log:find("settled", 1, true) ~= nil and not log:find("settle timeout", 1, true), log)
+    Wd.linger = nil
 end
 
 -- ================================================================ 1. oak: the whole chain from a foliage tree

@@ -23,7 +23,8 @@
 --              attack = "primary" | "special", reach_cm (stand this close to the aim point)}
 --   children = stages worked at the site after the root breaks, in priority order (same fields;
 --              bonus = true: only with args.stumps; at_root = true: the root actor itself (the stump))
---   settle   = {class, match, max_s}: wait while this transient actor exists near the site
+--   settle   = {class, match, max_s, done_prop?}: wait while this transient actor exists near the site
+--              (done_prop: a property that turns non-zero when it has finished, e.g. FelledTree.CollapseState)
 --   site_radius_cm / collect_radius_cm
 --   verified = what was seen in game
 -- }
@@ -39,7 +40,7 @@ local function tree(species, min_tier, aliases, opts)
         item = WOOD .. species, aliases = aliases, mode = "chop", tool = "axe", min_tier = min_tier, trains = "Woodcutting",
         root = { class = "FellableTree", match = cls, exclude = opts.exclude or { "Sapling" }, foliage = true,
                  attack = "primary", reach_cm = 120 },
-        settle = { class = "FelledTree", match = "FelledTree_" .. species, max_s = 10 },
+        settle = { class = "FelledTree", match = "FelledTree_" .. species, max_s = 10, done_prop = "CollapseState" },
         children = {
             { name = "splittable", class = "SplittableTreeLog", match = "SplittableLog_" .. species, attack = "primary", reach_cm = 140 },
             { name = "log", class = "TreeLog", match = "^BP_Log_" .. species, attack = "primary", reach_cm = 140 },

@@ -1114,7 +1114,13 @@ local function step_settle(J, me)
     if st and s then
         for _, a in ipairs(W.actors(st.class)) do
             local p = W.loc(a)
-            if p and U.dist2d(p, s) < (J.profile.site_radius_cm or 1200) and matches(W.class(a), st.match) then busy = true end
+            if p and U.dist2d(p, s) < (J.profile.site_radius_cm or 1200) and matches(W.class(a), st.match) then
+                -- the game's own "finished falling" (AFelledTree.CollapseState, replicated: 0 None, 1/2 collapsed);
+                -- the trunk then lingers LifeSpanAfterCanopyCollapse s, so "still there" alone always ran to max_s
+                -- (rung 3 / quest clone 2026-11-01 19:1xZ: ~10 s "settle timeout" after every tree)
+                local done = st.done_prop and tonumber(U.try(function() return a[st.done_prop] end))
+                if not (done and done ~= 0) then busy = true end
+            end
         end
     end
     local waited = J.t - J.phase_t
