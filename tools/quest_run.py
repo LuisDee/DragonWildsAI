@@ -49,8 +49,10 @@ def quest_row(q: dict | None, name: str) -> dict:
     return {"state": "absent"}
 
 
-def timeline(rows: list[dict], t0: float) -> dict:
-    """Tool calls (start, duration, result), speech, and the idle stretches between brain activity."""
+def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
+    """Tool calls (start, duration, result), speech, and the idle stretches between brain activity (and, given t_end,
+    the stand from the last activity to the end of the run: live 17:2xZ a chain stopped on its budget and he stood
+    193 s to the deadline, which the stretches between calls never saw)."""
     calls, open_ = [], {}
     says = []
     busy: list[tuple[float, float]] = []  # intervals with a tool running or a model call in flight
@@ -90,6 +92,8 @@ def timeline(rows: list[dict], t0: float) -> dict:
         if a - cur > IDLE_S:
             idle.append({"from": round(cur - t0, 1), "s": round(a - cur, 1)})
         cur = max(cur, b)
+    if t_end is not None and t_end - cur > IDLE_S:
+        idle.append({"from": round(cur - t0, 1), "s": round(t_end - cur, 1), "to_end": True})
     return {"calls": calls, "says": says, "idle": idle, "last_busy": cur}
 
 
@@ -185,18 +189,19 @@ def cmd_run(a) -> int:
                 except Exception:
                     pass
     rows = cl.brain_rows([brain_file], t0 - 1, ended + 3)
-    tl = timeline(rows, t0)
+    tl = timeline(rows, t0, ended)
     calls = cl.model_calls(rows)
     rec = {"run": time.strftime("%Y%m%d-%H%M%S", time.gmtime(t0)), "quest": a.quest, "until": a.until,
            "lines": sent, "fixtures": fixtures, "ended": why, "wall_s": round(ended - t0, 1), "steps": steps,
            "done": steps[-1].get("state") == "complete" if a.until == "complete" else len(steps) > 1,
            "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
+           "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
-    print(json.dumps({k: rec[k] for k in ("quest", "ended", "wall_s", "done", "steps", "idle_total_s", "haiku", "sonnet", "usd")}, indent=1))
+    print(json.dumps({k: rec[k] for k in ("quest", "ended", "wall_s", "done", "steps", "idle_total_s", "longest_stand_s", "haiku", "sonnet", "usd")}, indent=1))
     for c in tl["calls"]:
         print(f"  {c['t']:6.1f}s {c['tool']:<12} {c.get('dur_s')!s:>6}s ok={c.get('ok')} {c.get('reason') or ''} "
               f"{json.dumps(c.get('args'))[:80]} | {c.get('detail', '')}")

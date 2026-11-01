@@ -97,7 +97,7 @@ function W.markers(now)
         local at = U.loc(a)
         local okp, x, y, z = pcall(function() return at.X, at.Y, at.Z end)
         if not (U.valid(q) and okp and type(x) == "number") then return end
-        rows[#rows + 1] = { id = U.short(a), quest = text(U.try(function() return q.QuestName end)), key = text(U.try(function() return a.QuestLocationName end)),
+        rows[#rows + 1] = { id = U.short(a), quest = text(U.try(function() return q.QuestName end)), asset = U.short(q), key = text(U.try(function() return a.QuestLocationName end)),
                             kind = M.MARKER[num(U.try(function() return a.Type end)) or -1], radius_m = (num(U.try(function() return a.Radius end)) or 0) / 100,
                             default = U.try(function() return a.bShownByDefault end) == true, x = x, y = y, top = z }
     end, M.cfg.markers_cap)
@@ -129,7 +129,7 @@ function W.where(pc, now)
             if zc == nil or (type(zc) == "table" and now and now - zc.miss >= 10) then MK.z[m.id] = ground_z(pawn, m.x, m.y, m.top) or { miss = now or 0 } end
             local z = type(MK.z[m.id]) == "number" and MK.z[m.id] or nil
             local xy = { math.floor(m.x / 10 + 0.5) / 10, math.floor(m.y / 10 + 0.5) / 10 }
-            out[#out + 1] = { quest = m.quest, key = m.key, kind = m.kind, radius_m = m.radius_m, xy = xy,
+            out[#out + 1] = { quest = m.quest, asset = m.asset, key = m.key, kind = m.kind, radius_m = m.radius_m, xy = xy,
                               position = z and { xy[1], xy[2], math.floor(z * 10 + 0.5) / 10 } or nil,
                               distance_m = okh and math.floor(math.sqrt((m.x - hx) ^ 2 + (m.y - hy) ^ 2) / 100 + 0.5) or nil }
         end
@@ -147,12 +147,13 @@ function M.marker_name(key)
     end
     return #w > 0 and table.concat(w, " ") or tostring(key)
 end
--- marker rows -> {quest = {{name, kind, radius_m, position | xy, distance_m, inside}}}, nearest first
+-- marker rows -> {quest asset (or name) = {{name, kind, radius_m, position | xy, distance_m, inside}}}, nearest first
 function M.where_by_quest(rows, per)
     local by = {}
     for _, m in ipairs(rows or {}) do
-        local t = by[m.quest] or {}
-        by[m.quest] = t
+        local k = m.asset or m.quest -- two quests can share a name (live 17:2xZ: a finished First Steps' "Doric Objective"
+        local t = by[k] or {}         -- marker showed under the new First Steps)
+        by[k] = t
         t[#t + 1] = { name = M.marker_name(m.key), kind = m.kind, radius_m = (m.radius_m or 0) > 0 and m.radius_m or nil,
                       position = m.position, xy = (not m.position) and m.xy or nil, distance_m = m.distance_m,
                       inside = (m.kind == "area" and m.distance_m and m.radius_m and m.distance_m <= m.radius_m) or nil }
@@ -171,7 +172,7 @@ function M.summary(rows, opts)
     for _, r in ipairs(rows or {}) do
         if r.state == "given" then
             local a = { quest = r.quest, step = r.objective or r.objective_key, detail = r.sub, hint = r.hint, main = r.main,
-                        where = opts.where and opts.where[r.quest] or nil }
+                        where = opts.where and opts.where[r.asset or r.quest] or nil }
             if next(r.ints or {}) then a.counters = r.ints end
             if next(r.bools or {}) then a.flags = r.bools end
             active[#active + 1] = a

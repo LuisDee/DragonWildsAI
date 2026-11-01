@@ -88,6 +88,13 @@ local wb = Qm.where_by_quest({ { quest = "Ratcatcher", key = "Windmill_Area_FTUE
 check("where: nearest first, inside an area, xy only without a ground height", wb.Ratcatcher[1].name == "Vannaka"
     and wb.Ratcatcher[2].inside == true and wb.Ratcatcher[2].xy and not wb.Ratcatcher[2].position and wb.Ratcatcher[1].radius_m == nil)
 
+-- live 17:2xZ: two quests named "First Steps"; the finished one's marker must not show under the new one
+local fs = Qm.where_by_quest({ { quest = "First Steps", asset = "Q_FS1", key = "Doric_Objective_FTUE", kind = "target", position = { 109, 1848, -32 }, distance_m = 19 },
+                               { quest = "First Steps", asset = "Q_FS2", key = "Objective", kind = "target", position = { 485, 1776, -35 }, distance_m = 397 } })
+check("where: keyed by quest asset", #fs.Q_FS2 == 1 and fs.Q_FS2[1].distance_m == 397 and fs.Q_FS1[1].name == "Doric Objective")
+local sm = Qm.summary({ { quest = "First Steps", asset = "Q_FS1", state = "complete" }, { quest = "First Steps", asset = "Q_FS2", state = "given", objective = "Speak to the Wise Old Man" } }, { where = fs })
+check("summary: the active quest gets only its own markers", sm.active[1].where and #sm.active[1].where == 1 and sm.active[1].where[1].distance_m == 397)
+
 check("manifest read tool", Qm.MANIFEST.quests.kind == "read" and Qm.MANIFEST.quests.llm)
 local src = assert(io.open(root .. "/client_mod/scripts/quests.lua", "rb")):read("*a"):gsub("%-%-[^\n]*", "")
 check("no quest/NPC names in logic", not src:find("Zanik", 1, true) and not src:find("Rune Mysteries", 1, true))

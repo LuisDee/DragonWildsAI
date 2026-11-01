@@ -135,13 +135,16 @@ function M.resolve(shown, pick)
     return nil, "no_match"
 end
 
--- Quest rows -> what changed (state, objective, ints, bools). rows: {{quest, state, objective, ints={}, bools={}}}
+-- Quest rows -> what changed (state, objective, ints, bools). rows: {{quest, asset, state, objective, ints={}, bools={}}}
+-- Matched by the quest's asset: two quests can share a name (live 2026-11-01: "Rune Mysteries" complete AND active,
+-- and matching by name read the hand-in as "Quest Rune Mysteries is complete").
 function M.quest_diff(q0, q1)
+    local function key(r) return r.asset or r.quest end
     local by = {}
-    for _, r in ipairs(q0 or {}) do if r.quest then by[r.quest] = r end end
+    for _, r in ipairs(q0 or {}) do if key(r) then by[key(r)] = r end end
     local out = {}
     for _, r in ipairs(q1 or {}) do
-        local a = r.quest and by[r.quest]
+        local a = key(r) and by[key(r)]
         local d = { quest = r.quest }
         local any = false
         if not a then d.from, d.to, d.objective, any = "ungiven", r.state, r.objective, true
@@ -347,7 +350,7 @@ function W.quests(pc)
     local rows = Q and Q.W and Q.W.rows and Q.W.rows(pc)
     if not rows then return nil end
     local out = {}
-    for i, r in ipairs(rows) do out[i] = { quest = r.quest, state = r.state, objective = r.objective_key, step = r.objective, ints = r.ints or {}, bools = r.bools or {} } end
+    for i, r in ipairs(rows) do out[i] = { quest = r.quest, asset = r.asset, state = r.state, objective = r.objective_key, step = r.objective, ints = r.ints or {}, bools = r.bools or {} } end
     return out
 end
 -- A UI press through the input gate: allowed only while the open modal is the dialogue itself (finding 7b).
@@ -607,6 +610,9 @@ local function frame(J)
             if J.ep and J.ep.moving then pcall(function() J.api.call("move", "stop") end) end
             J.ep = nil
             C().counts.talks = C().counts.talks + 1
+            -- the bag baseline from the moment it opened: pickups and kills on the walk over are not "given" (live
+            -- 16:27Z: an Animal Hide Scrap picked up on the way read as Vannaka's)
+            J.inv0, J.names0 = W.carried(J.api)
             C().conv = { npc = J.target.id, npc_name = J.target.name, pawn_id = W.pawn_id(pawn), base = J.q0, since = J.t, last_call = J.t }
             W.claim()
             return step_read(J)
@@ -740,8 +746,11 @@ function M.start(log, args, ctx)
     local sc = W.scalars(pc)
     local note = conv_check(pc, sc, now)
     local has_target = type(args.target) == "string" and args.target ~= ""
+    -- target with choose/leave (live 17:2xZ: Haiku sent {target, choose} on an open dialogue): with the dialogue
+    -- open the target only names it, so answer / leave it; with none open, start one (its options come back)
     if has_target and (args.choose ~= nil or args.leave) then
-        return bad("invalid_args", "mixed_args", "Start a conversation with target first, then answer with choose in the next call.")
+        if sc.active then has_target = false
+        else args = { target = args.target }; note = note or "I wasn't talking to anyone yet, so I opened the conversation; pick from its options next." end
     end
     if args.leave == true then
         if not sc.active then return bad("invalid_args", "not_in_conversation", note or "I'm not talking to anyone.") end
@@ -802,7 +811,12 @@ function M.start(log, args, ctx)
         return { ok = true }
     end
     if sc.active then
-        if sc.npc == args.target then
+        local cv = C().conv
+        local function is(x) return x ~= nil and tostring(x):lower() == tostring(args.target):lower() end
+        -- CurrentNPC reads nil on the client (live 17:2xZ: "I'm already talking to nil"): an unknown NPC, or the one
+        -- talk opened, is this conversation
+        local other = sc.npc and not is(sc.npc) and not (cv and (is(cv.npc) or is(cv.npc_name)))
+        if not other then
             local J = new_job(log, ctx, "read", pc, { q0 = C().conv and C().conv.base, note = note })
             if not C().conv then C().conv = { npc = sc.npc, pawn_id = W.pawn_id(pawn), base = J.q0, since = now, last_call = now } end
             set_phase(J, "read")
@@ -810,7 +824,7 @@ function M.start(log, args, ctx)
             if not J.done then run(J) end
             return { ok = true }
         end
-        return bad("invalid_args", "already_talking", string.format("I'm already talking to %s; leave that conversation first.", tostring(sc.npc)))
+        return bad("invalid_args", "already_talking", string.format("I'm already talking to %s; leave that conversation first.", tostring((cv and cv.npc_name) or sc.npc)))
     end
     local api = ctx and ctx.api or M.api
     local SK = W.skills()
@@ -875,7 +889,9 @@ function M.sweep_orphan(log)
     local sc = W.scalars(pc)
     if not sc.active then c.orphan = nil; return { ok = true, state = "none" } end
     local cv = c.conv
-    local owned = c.job ~= nil or (cv and cv.npc == sc.npc and now - (cv.last_call or now) < M.cfg.abandon_s)
+    -- CurrentNPC reads nil on the client (live 17:2xZ: the sweep Cancelled the Wise Old Man's open dialogue between two
+    -- of the brain's calls): a recorded conversation owns an open dialogue unless it is plainly another NPC's
+    local owned = c.job ~= nil or (cv and (sc.npc == nil or cv.npc == nil or cv.npc == sc.npc) and now - (cv.last_call or now) < M.cfg.abandon_s)
     if owned then c.orphan = nil; return { ok = true, state = "owned" } end
     local o = c.orphan
     if not o or o.npc ~= sc.npc then c.orphan = { npc = sc.npc, since = now, cancels = 0 }; return { ok = true, state = "orphan_seen" } end

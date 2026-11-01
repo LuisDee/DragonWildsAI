@@ -206,6 +206,11 @@ do
     local qd = K.quest_diff({ { quest = "A", state = "given", ints = { n = 1 }, bools = {} } },
                            { { quest = "A", state = "given", ints = { n = 2 }, bools = { b = true } }, { quest = "B", state = "given" } })
     check("quest diff: ints and bools", #qd == 2 and qd[1].ints.n.to == 2 and qd[1].bools.b.to == true and qd[2].from == "ungiven")
+    -- live 2026-11-01: two quests named "Rune Mysteries" (one complete, one given); the hand-in only moved the given one
+    local RM = { { quest = "Rune Mysteries", asset = "Q_RM1", state = "complete" }, { quest = "Rune Mysteries", asset = "Q_RM2", state = "given", objective = "Objective2", step = "Bring 50 Ash Logs" } }
+    qd = K.quest_diff(RM, { RM[1], { quest = "Rune Mysteries", asset = "Q_RM2", state = "given", objective = "Objective3", step = "Return to Zanik." } })
+    local w = K.outcome_words(qd)
+    check("quest diff: two quests of one name matched by asset", #qd == 1 and qd[1].step == "Return to Zanik." and w == "Rune Mysteries, next step: Return to Zanik.", w)
     check("conversation mode word", K.is_conversation_mode("DIM_ConversationUI") and not K.is_conversation_mode("DIM_SpellcastingMode"))
 end
 
@@ -286,7 +291,10 @@ end
 -- ---------------------------------------------------------------- args, ended elsewhere, pause, screens
 do
     reset()
-    check("mixed args", K.HANDLERS.talk(nil, { target = "BP_NPC_WiseOldMan_C_1", choose = 1 }, { api = K.api }).data.why == "mixed_args")
+    local mx = talk({ target = "BP_NPC_WiseOldMan_C_1", choose = 1 })
+    check("target + choose with no dialogue: opens it, says so, picks nothing", mx.ok and #mx.data.options == 4 and mx.data.chose == nil
+        and tostring(mx.data.note):find("opened the conversation", 1, true) ~= nil, mx.data and mx.data.note)
+    reset()
     check("{} when not talking", K.HANDLERS.talk(nil, {}, { api = K.api }).data.why == "not_in_conversation")
     check("leave when not talking", K.HANDLERS.talk(nil, { leave = true }, { api = K.api }).data.why == "not_in_conversation")
     talk({ target = "BP_NPC_WiseOldMan_C_1" })
@@ -360,6 +368,20 @@ do
     reset()
     talk({ target = "BP_NPC_WiseOldMan_C_1" })
     check("owned conversation is not an orphan", K.sweep_orphan().state == "owned")
+end
+
+-- ---------------------------------------------------------------- live 17:2xZ: CurrentNPC reads nil on the client
+do
+    reset()
+    talk({ target = "BP_NPC_WiseOldMan_C_1" })
+    Wd.npc = nil
+    check("nil npc: our open dialogue is owned, not swept", K.sweep_orphan().state == "owned")
+    T = T + 1.5
+    check("nil npc: still owned a moment later, no Cancel", K.sweep_orphan().state == "owned" and count(Wd.presses, "cancel") == 0)
+    local r = talk({ target = "BP_NPC_WiseOldMan_C_1" })
+    check("nil npc: target while talking re-reads it", r.ok and #r.data.options == 4, r.data and r.data.detail)
+    r = talk({ target = "BP_NPC_WiseOldMan_C_1", choose = 2 })
+    check("target + choose on an open dialogue answers it", r.ok and r.data.chose == "I made a fishing net!", r.data and (r.data.chose or r.data.detail))
 end
 
 -- ---------------------------------------------------------------- contract
