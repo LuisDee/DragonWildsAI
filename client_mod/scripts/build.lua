@@ -792,6 +792,47 @@ function M.roof_hint(anchor_box, new_box, edges, placed, profile)
     return lead .. " A roof or ceiling tile covers a room from the tops of its walls: on " .. table.concat(ons, " or ")
         .. " puts one over this floor from the wall on that edge."
 end
+-- Does a piece at pos stand on this floor piece (its box at floor.position, turned floor.yaw)? -> metres from the
+-- floor's centre | nil. Its bottom (pos z: a placed piece's location is its foot) within 0.6 m of the floor's top.
+function M.on_floor(pos, floor, box)
+    if not (pos and floor and floor.position and box) then return nil end
+    local p = floor.position
+    local c = math.rad(floor.yaw or 0)
+    local dx, dy = pos[1] - p[1], pos[2] - p[2]
+    local lx, ly = dx * math.cos(c) + dy * math.sin(c), -dx * math.sin(c) + dy * math.cos(c)
+    if math.abs(lx - box.origin[1]) > box.extent[1] or math.abs(ly - box.origin[2]) > box.extent[2] then return nil end
+    if math.abs((pos[3] or 0) - (p[3] + box.origin[3] + box.extent[3])) > 0.6 then return nil end
+    return math.sqrt(dx * dx + dy * dy)
+end
+-- The floor (a foundation or a floor tile, by the game's placement profile) a just-placed piece stands on, and whose:
+-- the fact a station/furniture reply carries (live 20:5xZ: a Crafting Table "near me" stood in the middle of his
+-- 1.5 m foundation and he found out only when its wall went red). -> {id, name, from_centre_m, mine, words} | nil
+function W.floor_under(api, pos, self_id)
+    local list = pos and W.built_pieces(api, pos, 8)
+    if not list then return nil end
+    local best, bd, bbox
+    for _, e in ipairs(list) do
+        if e.id ~= self_id and e.data then
+            local prof = W.piece_profile(api, e.data) or {}
+            local box = prof.box
+            if box and (prof.profile == "FoundationProfile" or (prof.profile == "BaseProfile" and not M.thin_axis(box))) then
+                local d = M.on_floor(pos, e, box)
+                if d and (not bd or d < bd) then best, bd, bbox = e, d, box end
+            end
+        end
+    end
+    if not best then return nil end
+    local mine
+    local dm = api.module("deconstruct")
+    if dm and type(dm.mark_mine) == "function" then
+        local row = { piece = best.piece, position = best.position }
+        if pcall(dm.mark_mine, api, { row }) then mine = row.mine == true end
+    end
+    local words = string.format("It stands on %s%s (%s)%s, %.1f m from its centre (the floor is %.1f x %.1f m).",
+        mine and "your " or "the ", tostring(best.name), best.id, mine == false and ", not placed by you" or "",
+        bd, bbox.extent[1] * 2, bbox.extent[2] * 2)
+    return { id = best.id, name = best.name, from_centre_m = r1(bd), mine = mine, words = words }
+end
 -- Built pieces standing where a new piece would go (its box at spot, turned yaw, plus margin_m): the truthful
 -- "what is in the way" for a red preview (live 20:5xZ: a Crafting Table in the middle of a medium foundation kept its
 -- S wall red; the model guessed it). rows: census {id, name, position}; skip: ids to leave out. -> up to 2 rows
@@ -1239,6 +1280,11 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             .. rel .. " at " .. where .. ", where its preview was."
     end
     if not spent_all then line = line .. " My materials didn't visibly go down, so I can't say what it used." end
+    local floor_words -- a piece placed freely (a station, a crate): which floor it stands on and where on it
+    if s and s.position and not job.on then
+        local okf, fl = pcall(W.floor_under, api, s.position, s.id)
+        if okf and fl then floor_words, line = fl.words, line .. " " .. fl.words end
+    end
     -- mine: the game keeps no owner per piece (dump 26161880: FBuildingReplicatedEntry, FClientVisible/ServerOnly
     -- BuildingPieceState and ABaseBuildingActor carry none), so his own ledger (deconstruct.lua my_pieces.json) is what
     -- marks get_state.structures mine. The build-complete telemetry fills it too, but missed pieces placed in quick
@@ -1317,7 +1363,8 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         flush = att and att.flush, gap_m = att and att.gap_m, offset_m = att and att.offset_m, level_m = att and att.level_m,
         facing_off_deg = att and att.facing_off_deg, snap_moved_m = att and att.snap_moved_m,
         rejected_previews_before_placing = #rej > 0 and rej or nil,
-        fit = fit or (s and ("It stands at " .. where .. ".")) or nil, stayed = job.stayed or nil }, RESULT_MT) }
+        fit = fit or (s and ("It stands at " .. where .. "." .. (floor_words and (" " .. floor_words) or ""))) or nil,
+        stayed = job.stayed or nil }, RESULT_MT) }
 end
 M._success = success
 
@@ -1403,6 +1450,10 @@ function M.batch_result(api, b, last, t_s)
     if fail or #built < n then
         data.detail, data.why = text, fail and (fail.r.data or {}).why or "not_all_built"
         data.failed_item = fail and fail.k or nil
+        -- the failed piece's own measurements (where I aimed, where the cursor and ghost landed), as a single build
+        -- returns them (live 21:15Z: a batch door "3.63 m from the flush spot" left nothing to debug)
+        local fd = fail and fail.r.data or {}
+        data.preview_reads, data.ghost_off_m, data.in_the_way = fd.preview_reads, fd.ghost_off_m, fd.in_the_way
         return { ok = false, reason = fail and fail.r.reason or "verification_failed", data = data }
     end
     data.built = text
@@ -1760,6 +1811,12 @@ local function step(api, job, t)
                         d.in_the_way = names
                         d.detail = d.detail .. " Within 0.6 m of where it would go stands " .. table.concat(names, " and ") .. "."
                     end
+                end
+                -- a door aimed at a door-frame wall's side (live 21:16Z twice, "on 107" and "107:N"): it goes IN the frame
+                -- (live 20:29Z: Door on 94:in built square); the frame by the game's asset id
+                if job.on.side ~= "in" and tostring(a.piece or ""):find("Doorframe", 1, true) and M.thin_axis(job.on.box)
+                    and a.box and job.on.box.extent[3] < a.box.extent[3] then
+                    d.detail = d.detail .. " A door goes into the frame's opening: on '" .. a.id .. ":in'."
                 end
                 if job.on.side == "top" then
                     local edges

@@ -501,6 +501,18 @@ do
         and count(G.presses, "place") == 0 and tostring(da.detail):find("couldn't get the Campfire to sit flush on the E side of the Square Foundation", 1, true)
         and tostring(da.detail):find("Nothing was placed", 1, true) and type(da.ghost_off_m) == "number", r and (tostring(r.reason) .. " " .. tostring(da.detail)))
 
+    -- a door aimed at a door frame's side (live 21:16Z, "on 107" then "107:N"): the reply says it goes in the frame
+    do
+        local p0, b0, n0 = anchor.piece, anchor.box, anchor.name
+        anchor.piece, anchor.box, anchor.name = "DA_T1_Wall_Large_Doorframe", WB, "WALL WITH DOOR FRAME"
+        attach_game({ snap = false, box = { origin = { 0, 0, 1.1 }, extent = { 0.75, 0.1, 1.1 } }, built_at = { 10, 0, 0 } })
+        r = build({ piece = "campfire", on = "BP_Foundation_C_A:N" })
+        da = r and r.data or {}
+        check("attach: a door that never lands on a frame's side -> nothing placed, and the reply says it goes in on ':in'",
+            r and not r.ok and tostring(da.detail):find("A door goes into the frame's opening: on 'BP_Foundation_C_A:in'.", 1, true),
+            r and (tostring(r.reason) .. " " .. tostring(da.detail)))
+        anchor.piece, anchor.box, anchor.name = p0, b0, n0
+    end
     -- a roof aimed at a foundation's top (live brain run 19:42Z, twice: "the closest its preview came was 1.68 m"):
     -- the reply says roofs snap onto wall tops and names the on that reaches over this floor from its walls
     local RB = { origin = { 0, 0, 0.75 }, extent = { 1.5, 1.5, 0.75 } }
@@ -531,6 +543,30 @@ do
         { 139.1153, 1866.7596, -31.4401 }, MW, 0, { F = true })
     check("standing_in: the table on the medium foundation is where its S wall would go (live 20:5xZ); the far crate and the anchor aren't",
         #sin == 1 and sin[1].id == "T", #sin)
+    -- a station placed freely: which floor it stands on, whose, and where on it (live 20:5xZ: the table in the
+    -- middle of his medium foundation)
+    local MFL = { id = "BuildingPiece_100", name = "Medium Square Foundation", piece = "DA_T1_Foundation_Medium", data = "MFD",
+                  position = { 139.1153, 1866.0096, -31.4401 }, yaw = 0 }
+    check("on_floor: the table at the foundation's middle is on it (0.2 m from its centre); a spot 2 m off isn't",
+        math.abs((Bd.on_floor({ 139.23, 1866.18, -31.43 }, MFL, MF) or 9) - 0.2) < 0.01 and Bd.on_floor({ 141.2, 1866.0, -31.43 }, MFL, MF) == nil)
+    do
+        local bp1, pp1 = Wb.built_pieces, Wb.piece_profile
+        Wb.built_pieces = function() return { MFL, { id = "T9", name = "Crafting Table", data = "TD", position = { 139.23, 1866.18, -31.43 } } } end
+        Wb.piece_profile = function(_, d)
+            if d == "MFD" then return { box = MF, profile = "FoundationProfile" } end
+            return { box = { origin = { 0, 0, 0.5 }, extent = { 1.0, 0.5, 0.5 } }, profile = "FloorPropNonOverlapProfile" }
+        end
+        DEC = { mark_mine = function(_, rows) rows[1].mine = true end }
+        local fl = Wb.floor_under(api, { 139.23, 1866.18, -31.43 }, "T9")
+        check("floor_under: names his foundation, the distance from its centre and its size",
+            fl and fl.id == "BuildingPiece_100" and fl.mine == true
+            and fl.words == "It stands on your Medium Square Foundation (BuildingPiece_100), 0.2 m from its centre (the floor is 1.5 x 1.5 m).", fl and fl.words)
+        DEC = { mark_mine = function() end }
+        fl = Wb.floor_under(api, { 139.23, 1866.18, -31.43 }, "T9")
+        check("floor_under: someone else's floor says so", fl and fl.mine == false and fl.words:find("on the Medium Square Foundation (BuildingPiece_100), not placed by you", 1, true), fl and fl.words)
+        DEC = nil
+        Wb.built_pieces, Wb.piece_profile = bp1, pp1
+    end
     check("roof_hint: not for a small piece (a crate) or on a wall's own top",
         Bd.roof_hint(FB, { origin = { 0, 0, 0.4 }, extent = { 0.5, 0.4, 0.4 } }, {}) == nil and Bd.roof_hint(WB, RB, {}) == nil)
     attach_game({ snap = false, box = RB, built_at = { 10, 0, 0 }, edges = { N = "Wall BP_Wall_C_9", E = "open", S = "open", W = "open" } })
@@ -764,6 +800,10 @@ do
         r and not r.ok and r.reason == "blocked" and tostring(da.detail):find("Built 1 of 2 pieces", 1, true)
         and tostring(da.detail):find("Stopped at #2", 1, true) and tostring(da.detail):find("BP_X", 1, true)
         and da.failed_item == 2 and G.mode == "None", r and (tostring(r.reason) .. " " .. tostring(da.detail)))
+    local br = Bd.batch_result(api, { items = { { piece = "Door", on = "#2:in" } },
+        results = { { ok = false, reason = "blocked", data = { detail = "x", why = "not_snapped", ghost_off_m = 3.63, preview_reads = { { off_m = 3.63 } } } } } }, nil, 9)
+    check("batch: a failed piece's own preview reads and ghost offset come back with the batch (live 21:15Z: none did)",
+        br and not br.ok and br.data.ghost_off_m == 3.63 and br.data.preview_reads and br.data.preview_reads[1].off_m == 3.63)
     r = build({ pieces = { { piece = "campfire", on = "#2:E" }, { piece = "campfire", on = "#1:E" } } })
     check("batch: each names the other -> invalid_args, nothing pressed", r and r.reason == "invalid_args", r and r.reason)
     r = build({ pieces = { { on = "BP_Foundation_C_A:E" } } })
