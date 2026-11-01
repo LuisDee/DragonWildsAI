@@ -92,6 +92,12 @@ def clear(save: dict, ids: dict[str, str], names: set[str], suffixes: set[str], 
     inv = out["GameProgress"].get("Inventory") or {}
     for slot in [k for k, v in inv.items() if isinstance(v, dict) and v.get("ItemData") in (strip or {})]:
         del inv[slot]  # a cleared quest's deliverable: a player meeting the quest holds none
+    # a loadout slot can hold a bag item by its slot index ({"PlayerInventoryItemIndex": 40}: his Air Runes); one left
+    # pointing at a stripped slot makes the server refuse the character (live ClaudeQ6 21:18Z: "CharCantLoad" x3)
+    lo = out["GameProgress"].get("Loadout") or {}
+    for slot in [k for k, v in lo.items() if isinstance(v, dict) and "PlayerInventoryItemIndex" in v
+                 and str(v["PlayerInventoryItemIndex"]) not in inv]:
+        del lo[slot]
     out["meta_data"]["char_guid"] = uuid.uuid4().hex.upper()
     out["meta_data"]["char_name"] = name
     qp = out["GameProgress"]["QuestProgress"]
@@ -187,9 +193,10 @@ def render(text: str, out: dict) -> str:
     if ue_json(src["GameProgress"]["QuestProgress"], depth) != text[a:b]:
         raise SystemExit("QuestProgress does not round-trip in the game's layout; not writing")
     body = text[:a] + ue_json(out["GameProgress"]["QuestProgress"], depth) + text[b:]
-    gone = [k for k in src["GameProgress"].get("Inventory") or {} if k not in out["GameProgress"].get("Inventory") or {}]
-    if gone:
-        body = _drop(body, "Inventory", gone)
+    for key in ("Inventory", "Loadout"):
+        gone = [k for k in src["GameProgress"].get(key) or {} if k not in out["GameProgress"].get(key) or {}]
+        if gone:
+            body = _drop(body, key, gone)
     for k in ("char_guid", "char_name"):
         old = f'"{k}": {json.dumps(src["meta_data"][k])}'
         if body.count(old) != 1:
@@ -217,6 +224,8 @@ def cmd_make(a) -> int:
     inv0, inv1 = src["GameProgress"].get("Inventory") or {}, out["GameProgress"].get("Inventory") or {}
     stripped = [{"slot": k, "item": strip[v["ItemData"]], "count": v.get("Count", 1)} for k, v in inv0.items()
                 if k not in inv1 and isinstance(v, dict)]
+    lo0, lo1 = src["GameProgress"].get("Loadout") or {}, out["GameProgress"].get("Loadout") or {}
+    stripped += [{"loadout_slot": k, **v} for k, v in lo0.items() if k not in lo1]
     KEEP_DIR.mkdir(parents=True, exist_ok=True)
     (KEEP_DIR / f"{a.name}.json").write_bytes(text)
     tmp = target.with_suffix(".json.tmp")

@@ -51,11 +51,16 @@ def test_the_cleared_quests_deliverables_leave_the_bag_and_every_other_slot_keep
         "1": {"GUID": "b", "ItemData": axe, "Durability": 760, "AddedToInventoryTimestamp": 6.3928642787233e+17},
         "5": {"GUID": "c", "ItemData": roast, "Count": 4, "AddedToInventoryTimestamp": 6.3929156627561e+17},
         "MaxSlotIndex": 72}
+    # a loadout slot holding a bag slot by index (live: his Air Runes, {"PlayerInventoryItemIndex": 40}) goes with it
+    s["GameProgress"]["Loadout"] = {"2": {"GUID": "d", "ItemData": "x", "Durability": 0},
+                                    "6": {"PlayerInventoryItemIndex": 5}, "7": {"PlayerInventoryItemIndex": 1},
+                                    "MaxSlotIndex": 8}
     raw = "{\r\n" + qc.ue_json(s, 0)[3:]
     raw = raw.replace("6.3928642787233e+17", "6.3928642787232998e+17")  # as the game printed it (ClaudeDev.json)
     assert "6.3928642787232998e+17" in raw
     out = qc.clear(json.loads(raw), IDS, set(), set(), "ClaudeQ6", {club: "ITEM_Club_Stone", roast: "ITEM_Consumable_Meat_Rat_Roast"})
     assert list(out["GameProgress"]["Inventory"]) == ["1", "MaxSlotIndex"]  # the axe is a tool: it stays
+    assert list(out["GameProgress"]["Loadout"]) == ["2", "7", "MaxSlotIndex"]  # nothing left pointing at no item
     text = qc.render(raw, out)
     assert json.loads(text) == out and "6.3928642787232998e+17" in text
     assert '"1":\r\n\t\t\t{' in text and '"0":' not in text.split('"Inventory"')[1].split('"MaxSlotIndex"')[0]
