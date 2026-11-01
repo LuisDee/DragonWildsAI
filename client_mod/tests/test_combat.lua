@@ -498,6 +498,16 @@ do
     check("assess kebbit = fight", a.decision == "fight", a.why .. " " .. a.u_fight)
     check("assess strong = flee", Cm.assess(me, { { name = "Troll", hp = 900, pl = 5 } }, Cm.orders).why == "too_strong")
     check("assess boss = flee", Cm.assess(me, { { name = "Dragon", hp = 9000, pl = 2, boss = true } }, Cm.orders).why == "boss")
+    -- a PL gap of 2 his numbers win is a fight (live 21:50Z: PL-2 Giant Rat vs his PL 0, 17 s to kill vs 40 s to die,
+    -- he ran on the gap alone and was run down); losing numbers, or a gap of 4+, still flee
+    local me0 = { hp = 100, max_hp = 100, pl = 0, dps = 7.6 }
+    local rat = { name = "Giant Rat", hp = 130, max_hp = 130, pl = 2, dps_obs = 1.6 }
+    local ar = Cm.assess(me0, { rat }, Cm.orders)
+    check("assess: PL gap 2 but winnable -> fight", ar.decision == "fight" and ar.verdict ~= "too_strong", tostring(ar.why) .. " " .. tostring(ar.verdict) .. " " .. tostring(ar.u_fight))
+    local ar2 = Cm.assess(me0, { { name = "Giant Rat", hp = 900, max_hp = 900, pl = 2, dps_obs = 8 } }, Cm.orders)
+    check("assess: PL gap 2 and losing numbers -> too_strong", ar2.why == "too_strong", tostring(ar2.why))
+    local ar3 = Cm.assess(me0, { { name = "Giant Rat", hp = 20, max_hp = 20, pl = 4, dps_obs = 0.5 } }, Cm.orders)
+    check("assess: PL gap 4 -> too_strong whatever the numbers", ar3.why == "too_strong", tostring(ar3.why))
     check("assess outnumbered", Cm.assess(me, { keb, keb, keb }, Cm.orders).why == "outnumbered")
     check("assess low hp", Cm.assess({ hp = 30, max_hp = 100, pl = 2, dps = 15 }, { { name = "Kebbit", hp = 200, max_hp = 200, pl = 1 } }, Cm.orders).why == "low_hp")
     -- low HP but almost won (kills it in 3.2 s, it needs 9.4 s): running only gives it free hits (live 11:28)
@@ -779,6 +789,39 @@ do
     local result, ev = Cm._state().last.result, emitted[#emitted]
     check("flee: deadline before safe dwell reports unconfirmed safety", not result.ok and result.data.still_chased == false and result.data.detail == "safety was not yet confirmed" and ev.still_chased == false and ev.detail == result.data.detail)
     Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do -- a flee it keeps hitting him through turns into a fight (21:50Z: bitten 100 -> 40 HP over a 15 s flee, then killed)
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_12", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 70
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    check("caught: setup fled", f and f.phase == "flee" and f.flee_hp0 ~= nil, f and f.phase)
+    f.flee_hp0 = 70; f.t = T
+    Cm._state().attackers[f.target_id] = T
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = 45, max_hp = 100 })
+    check("caught: 25 HP lost while running -> turns to fight", f.phase == "approach" and tostring(f.cornered):find("kept hitting me", 1, true) ~= nil,
+          tostring(f.phase) .. " " .. tostring(f.cornered))
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do -- at the flee's time limit with it still after him (beyond cornered_m) he fights, not hand his legs back
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_13", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    f.flee_hp0 = 40
+    enemy.loc = { X = pawn.loc.X + 1200, Y = pawn.loc.Y, Z = pawn.loc.Z }
+    Cm._state().attackers[f.target_id] = T
+    f.phase_t, f.t = T - Cm.cfg.flee_timeout_s - 1, T
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = 40, max_hp = 100 })
+    check("still chased at the bound (12 m) -> fight, not unsafe", f.phase == "approach" and tostring(f.cornered):find("kept up", 1, true) ~= nil,
+          tostring(f.phase) .. " " .. tostring(f.cornered) .. " " .. tostring(Cm._state().last and Cm._state().last.result and Cm._state().last.result.reason))
+    Cm.guard_stop(nil); A.reset(nil)
 end
 
 -- ================================================================ 6. telegraph -> block with the shield; inputs that do nothing fail loudly
@@ -2237,6 +2280,23 @@ do
     run_until(function() return Cm._state().fight == nil end, 10)
     local res2 = Cm._state().last.result
     check("magic: no runes -> not_enough_resources (no_runes)", res2.reason == "not_enough_resources" and res2.data.why == "no_runes", res2.reason)
+    -- the held staff known to hit for 1 while his best melee does more: the reflex/attack fights with the melee
+    -- weapon instead (live 22:05Z: the Ash Shortbow he had out at ~4 a hit, a Stone Club in the bag)
+    inv_list.loadout = { { item = "ITEM_Rune_Fire", name = "Fire Rune", count = 40, loadout_slot = "MagicAmmo1", slot = 6 } }
+    Cm._state().hit_dmg = Cm._state().hit_dmg or {}
+    local staff_name = (Cm.weapons().items.ITEM_Staff_Ash or {}).name
+    Cm._state().hit_dmg[staff_name] = 1
+    held.right, held.left = nil, "ITEM_Staff_Ash"
+    INV.equips = {}
+    gob.hp = 90
+    Cm.attack(nil, "Goblin Runt", { force = true })
+    run_until(function() local f = Cm._state().fight; return f == nil or (f.equip_plan ~= nil) end, 5)
+    local f3 = Cm._state().fight
+    local plan_w = f3 and f3.equip_plan and f3.equip_plan.weapon or (Cm._state().last and Cm._state().last.weapon)
+    check("weak held staff (learned 1/hit) -> his melee weapon instead", plan_w ~= nil and plan_w ~= "ITEM_Staff_Ash", tostring(plan_w))
+    Cm._state().hit_dmg[staff_name] = nil
+    Cm.stop(nil)
+    run_until(function() return Cm._state().fight == nil end, 5)
     eis.InjectInputVectorForAction = real_inject
     FindAllOf = real_find
     world.ranged = nil
@@ -2647,6 +2707,56 @@ do
     check("step in: a gap up a ledge goes to the follow", follows > f0)
     fake_move.follow, world.walk_input = follow0, nil
     Cm.stop(nil, "test"); A.reset(nil)
+end
+
+-- ================================================================ live 2026-11-01 22:05-22:08 (Luis's session)
+reset_world()
+do -- an attacker already on him and at least as fast: no flee, he fights (a cow hit him 36 in the flee's first 0.4 s)
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestCow_C_21", "Cow", { X = 300, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    enemy.CharacterMovement = obj({ MaxWalkSpeed = 750 }, "CMC /x")
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.decision ~= nil end, 4)
+    local f = Cm._state().fight
+    check("no flee: in reach and faster -> fights, says why", f and f.phase ~= "flee" and f.decision == "fight"
+        and tostring(f.cornered):find("can't outrun", 1, true) ~= nil, f and (tostring(f.phase) .. " " .. tostring(f.cornered)))
+    Cm.guard_stop(nil); A.reset(nil)
+end
+reset_world()
+do -- the same threat farther than its reach: the flee still happens
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestCow_C_22", "Cow2", { X = 900, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    enemy.CharacterMovement = obj({ MaxWalkSpeed = 750 }, "CMC /x")
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    check("flee: fast threat 9 m away -> still flees", f and f.phase == "flee", f and f.phase)
+    Cm.guard_stop(nil); A.reset(nil)
+end
+do -- the out-of-reach check counts the ground a closing attacker covers before its impact
+    local info = { key = "CowT:Charge", dmg_time = 0.8 }
+    local ctx = { dist_cm = 650, stamina = 100, can_parry = false, can_block = false, evade_cost = 15, hp_frac = 1, max_hp = 100 }
+    local fixed = function() return 0.5 end
+    check("plan: 6.5 m, standing -> out_of_reach", Dm.plan(info, ctx, {}, fixed).why == "out_of_reach")
+    ctx.closing_cms = 400
+    local p = Dm.plan(info, ctx, {}, fixed)
+    check("plan: 6.5 m, closing at 4 m/s -> defends", p.action ~= "none" and (p.closing_cm or 0) > 0, tostring(p.action) .. " " .. tostring(p.why))
+end
+reset_world()
+do -- attacking a creature someone else killed: the reason says whose kill it was, not "already dead"
+    local gob = new_creature("BP_AI_TestGob_C_23", "Gob", { X = 200, Y = 0, Z = 0 }, { hp = 60, alert = 4 })
+    local buddy = new_creature("BP_AI_TestBuddy_C_24", "Buddy", { X = 250, Y = 0, Z = 0 }, { hp = 60 })
+    local hook = hooks["/Script/Dominion.DamageComponent:Multicast_ApplyDamageFromGameplayEffect"]
+    Cm.guard_start(nil) -- (hooks on)
+    hook = hooks["/Script/Dominion.DamageComponent:Multicast_ApplyDamageFromGameplayEffect"]
+    gob.hp = 0
+    local e = { Amount = 60, Instigator = buddy, bIsFatalHit = true }
+    hook({ get = function() return gob.DamageComp end }, { get = function() return e end })
+    local r = Cm.attack(nil, "BP_AI_TestGob_C_23")
+    check("already dead: names the killer and his own hits", r.reason == "unknown_target" and r.data and r.data.killed_by == "Buddy"
+        and tostring(r.data.detail):find("killed by Buddy", 1, true) ~= nil and tostring(r.data.detail):find("never hit it", 1, true) ~= nil,
+        r.data and tostring(r.data.detail))
+    Cm.guard_stop(nil); A.reset(nil)
 end
 
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))

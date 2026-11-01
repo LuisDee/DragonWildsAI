@@ -79,14 +79,26 @@ T_H = {"tannery": lambda: luis("make tannery"),
 
 # ------------------------------------------------------------------ context: worn gear counts as carried
 class Ctx4(g.Ctx):
-    """rung1's Ctx, whose inventory rows also carry what he wears (name "worn:<name>"), so the armour check can see a
-    crafted piece go from the bag onto him (an equipped piece leaves the bag)."""
+    """rung1's Ctx, whose inventory rows also carry his loadout: worn gear as "worn:<name>" (the armour check sees a
+    crafted piece go from the bag onto him; an equipped piece leaves the bag), and the Ammo / MagicAmmo stacks under
+    their own names with their counts when no bag stack of that item is listed (the slot references a bag stack, so
+    it is counted once; the compact inventory reply keeps only the slot's name). Held items are hotbar references,
+    already counted."""
     def stacks(self) -> list[dict]:
-        inv = cp.inventory(self.cli)
-        rows = cp.inv_rows(inv)
-        for slot, name in (inv.get("worn") or {}).items():
-            if name and not str(slot).startswith(("MagicAmmo", "Ammo")):
-                rows.append({"name": f"worn:{name}", "item": None, "count": 1, "slot": f"worn:{slot}"})
+        d = cp._data(self.cli.request("inventory", {"raw": True}, timeout=20))
+        rows = [{"name": r.get("name") or r.get("item"), "item": r.get("item"), "count": r.get("count")}
+                for where in ("hotbar", "bag") for r in d.get(where) or [] if isinstance(r, dict)]
+        for r in d.get("loadout") or []:
+            slot = str(r.get("loadout_slot") or r.get("slot") or "") if isinstance(r, dict) else ""
+            if not slot or slot in ("HeldRight", "HeldLeft") or not (r.get("name") or r.get("item")):
+                continue
+            if slot.startswith(("MagicAmmo", "Ammo")):
+                if any(x.get("item") == r.get("item") for x in rows if not x.get("slot")):
+                    continue  # the slot references a bag stack (live 21:36Z: 33 crafted arrows counted 66, 11 shots 22)
+                rows.append({"name": r.get("name") or r.get("item"), "item": r.get("item"), "count": r.get("count"),
+                             "slot": slot})
+            else:
+                rows.append({"name": f"worn:{r.get('name') or r.get('item')}", "item": None, "count": 1, "slot": f"worn:{slot}"})
         return rows
 
 
@@ -331,6 +343,9 @@ def it_armour(ctx) -> dict:
 def it_bow(ctx) -> dict:
     preflight_char(ctx)
     shed_note = shed(ctx, "bow", BOW_RX)
+    # his dev-granted Wooden Arrows go too: the wiki calls them an unused prototype (no recipe, no base damage) and
+    # live they hit a kebbit for ~3 of its 30 HP (probe 2026-11-01 20:21Z: 14 arrows, 89 s); Luis shot Stone ones
+    shed_note += shed(ctx, "bow", r"^wooden arrows?$")
     r3.place(ctx, SPOT["bow"])
     # a shortbow (12 Ash, 3 Thread) or Luis's longbow (16 Ash, 6 Thread) + an arrow batch (1 Stone, 2 Ash, 1 Feathers)
     fixtures = shed_note + stock(ctx, "bow", {ASH: 20, THREAD: 6, STONE: 2, FEATHER: 2})

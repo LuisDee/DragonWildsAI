@@ -186,6 +186,20 @@ function D.threat(info, max_hp)
     return th
 end
 
+-- The farthest this creature's attacks have reached (learned hit distance, else default reach + lunge), cm; nil if
+-- none of its attacks is known.
+function D.max_reach_cm(creature)
+    if not creature then return nil end
+    local pre, best = tostring(creature) .. ":", nil
+    for key, r in pairs(S().attacks or {}) do
+        if key:sub(1, #pre) == pre then
+            local d = math.max(r.hit_from_cm or 0, D.cfg.default_reach_cm + (r.lunge_cm or 0))
+            if not best or d > best then best = d end
+        end
+    end
+    return best
+end
+
 -- ------------------------------------------------------------------ learning which answer works (bandit)
 -- Thompson sampling over Beta posteriors per (attack key, response), with a prior from the rules.
 -- Reward: avoided / parried = 1, blocked = 0.75, hit = scaled by the damage taken, whiff = no update.
@@ -238,7 +252,11 @@ function D.plan(info, ctx, orders, rng)
     local p = { impact_s = T, src = src, key = key, threat = th, dist_cm = ctx.dist_cm }
     local style = orders.defense or "auto"
     if style == "none" then p.action, p.why = "none", "orders"; return p end
-    if ctx.dist_cm and ctx.dist_cm > th.reach_cm + cfg.reach_margin_cm then p.action, p.why = "none", "out_of_reach"; return p end
+    -- out of reach counts the ground it covers before the impact: a creature closing in at v cm/s gains v x T
+    -- (live 2026-11-01 22:08: "none, out_of_reach" on a cow that had just stepped away and came back in for 36)
+    local closing = math.max(0, ctx.closing_cms or 0) * T
+    p.closing_cm = closing > 0 and math.floor(closing) or nil
+    if ctx.dist_cm and ctx.dist_cm > th.reach_cm + cfg.reach_margin_cm + closing then p.action, p.why = "none", "out_of_reach"; return p end
     local st = ctx.stamina or 0
     local blockable = not info.unblockable
     local parryable = blockable and not info.unparryable

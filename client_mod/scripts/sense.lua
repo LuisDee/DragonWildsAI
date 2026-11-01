@@ -319,6 +319,29 @@ local function tags_of(container, pattern)
     return #out > 0 and out or nil
 end
 
+-- A player's summon: an AI of a class some FollowerDataAsset spawns (FollowerComponent:ToggleFollower, e.g. the
+-- Pharaoh's Sceptre's Kalphite "Buddy"). On a client neither IsFollower() nor IsConfused() reads true on it, and the
+-- player's .Follower is not replicated (live 2026-11-01 22:10Z, Luis's Buddy), but the loaded data asset names the
+-- class: DA.FollowerClass:GetObjectID():GetAssetPathName(). Read from the game's own assets, cached 10 s.
+local SUMMON = { t = -99, set = {} }
+function M.summon_classes()
+    local t = os.clock()
+    if t - SUMMON.t < 10 then return SUMMON.set end
+    local set = {}
+    local ok, list = pcall(FindAllOf, "FollowerDataAsset")
+    for _, da in ipairs((ok and type(list) == "table") and list or {}) do
+        local p = U.str(U.try(function() return da.FollowerClass:GetObjectID():GetAssetPathName() end))
+        local cls = p and p:match("%.([%w_]+)$")
+        if cls then set[cls] = true end
+    end
+    SUMMON.t, SUMMON.set = t, set
+    return set
+end
+function M.is_summon(a)
+    local cw = U.class_word(a)
+    return cw ~= nil and M.summon_classes()[cw] == true
+end
+
 local function describe_creature(a, origin)
     local d = base(a, origin)
     local data = P(a, "LoadedData")
@@ -334,6 +357,7 @@ local function describe_creature(a, origin)
     d.power_level = num(P(a, "PowerLevel"))
     d.boss = (U.valid(data) and U.try(function() return data.bIsBoss end) == true) or nil
     d.follower = U.try(function() return a:IsFollower() end) == true or nil
+    if M.is_summon(a) then d.follower, d.summon = true, true end -- a player's summon: never a threat or a target
     d.tags = U.valid(data) and tags_of(U.try(function() return data.GameplayTags end), "Faction") or nil
     return d
 end
