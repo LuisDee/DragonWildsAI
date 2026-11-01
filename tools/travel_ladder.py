@@ -33,7 +33,10 @@ MOVEMENT LADDER (2026-11-01, co-play B5/B6/B7/B15/C2), judged against a human:
     .venv\\Scripts\\python.exe -m tools.travel_ladder --follow [--only follow_church_loop]
 """
 import argparse
+import atexit
+import contextlib
 import json
+import os
 import math
 import subprocess
 import threading
@@ -343,14 +346,58 @@ def ghosts() -> dict:
     return json.loads(GHOSTS.read_text(encoding="utf-8")) if GHOSTS.exists() else {}
 
 
+# The house-exit leg (main 2026-11-01 16:5xZ): Claude stands inside his own house on the dev base (two foundation cells,
+# walls round, the door on the west edge of the south cell) and the leader walks out through the door and on along
+# Luis's own recorded path past the base (follow_church_loop's tail, reversed). The door is a real door: when it is
+# shut, Claude opens it as a player would. The human model walks the same path and spends DOOR_S at the door (a press
+# on the way up to it and the swing; an assumption: Luis's baseline has no door). Positions: get_state.structures
+# 16:50Z (door BP_T1_Door_C at 94.71, 1853.14; floor top -31.81 = centre -30.93). Speeds: 4.5 m/s inside the house
+# (two 3 m rooms and a doorway), then V_TRAVEL.
+DOOR_S = 1.0
+HOUSE_EXIT = {"door": [94.71, 1853.14, -30.31], "claude_start": [96.21, 1850.2, -30.93],
+              "path": [([96.21, 1851.6, -30.93], 4.5), ([96.21, 1853.14, -30.93], 4.5), ([94.71, 1853.14, -30.93], 4.5),
+                       ([92.9, 1853.14, -30.91], 4.5), ([89.52, 1858.33, -30.89], V_TRAVEL),
+                       ([92.62, 1861.62, -30.45], V_TRAVEL), ([96.96, 1863.28, -30.73], V_TRAVEL),
+                       ([100.68, 1865.55, -30.69], V_TRAVEL)]}
+
+
+def make_ghost(name: str, spec: dict, dt_s: float = 0.2) -> dict:
+    """A ghost track along spec["path"] ([(xyz m, speed m/s to reach it)], the first point is the leader's start),
+    sampled every dt_s like the recorder's tracks. spec["door"] marks a door on the way: the human model pauses
+    DOOR_S where the path passes it, and the run first checks the door is still there."""
+    pts = [p for p, _ in spec["path"]]
+    track, t = [[0.0, round(pts[0][0] * 100), round(pts[0][1] * 100), round(pts[0][2] * 100), 0]], 0.0
+    for k in range(1, len(pts)):
+        a, b, v = pts[k - 1], pts[k], spec["path"][k][1]
+        n = max(1, round(d3(a, b) / v / dt_s))
+        for i in range(1, n + 1):
+            u = i / n
+            t += d3(a, b) / v / n
+            track.append([round(t, 2)] + [round((a[j] + (b[j] - a[j]) * u) * 100) for j in range(3)] + [0])
+    length = sum(d3(pts[k - 1], pts[k]) for k in range(1, len(pts)))
+    g = {"name": name, "who": "synthetic", "window": ["-", "-"], "recording": None, "claude_start": spec["claude_start"],
+         "duration_s": round(t, 1), "length_m": round(length, 1), "real_s": round(t, 1), "track": track}
+    if spec.get("door"):
+        g["door"] = spec["door"]
+        s_door = min(range(len(pts)), key=lambda k: d2(pts[k], spec["door"]))
+        g["pauses"] = [[round(sum(d3(pts[k - 1], pts[k]) for k in range(1, s_door + 1)), 2), DOOR_S]]
+    GHOSTS.parent.mkdir(parents=True, exist_ok=True)
+    allg = ghosts()
+    allg[name] = g
+    GHOSTS.write_text(json.dumps(allg, indent=0), encoding="utf-8")
+    return g
+
+
 def _pts(track):
     return [(p[0], (p[1] / 100, p[2] / 100, p[3] / 100)) for p in track]
 
 
 def human_follower(track, delay_s: float, hold_s: float, dist_m: float = 3.0, react_s: float = 0.5,
-                   dt_s: float = 0.1, start=None):
+                   dt_s: float = 0.1, start=None, pauses=None):
     """A model human follower: walks the leader's own path (the track), dist_m behind along it, reacting react_s late,
-    at most V_SPRINT. Returns rows like the ghost's samples: (el_s, ghost xyz, follower xyz) in metres."""
+    at most V_SPRINT, waiting wait_s where the path passes each pause [(metres along the path, wait_s)] (a door).
+    Returns rows like the ghost's samples: (el_s, ghost xyz, follower xyz) in metres."""
+    todo, wait_end = sorted(pauses or []), None
     pts = _pts(track)
     cum = [0.0]
     for k in range(1, len(pts)):
@@ -380,8 +427,13 @@ def human_follower(track, delay_s: float, hold_s: float, dist_m: float = 3.0, re
         g, _ = ghost_at(el - delay_s)
         _, s_seen = ghost_at(el - delay_s - react_s)
         want = s_seen - dist_m
+        if wait_end is not None and el < wait_end:
+            want = s_f
         if want > s_f:
             s_f = min(want, s_f + V_SPRINT * dt_s)
+            if todo and s_f >= todo[0][0]:
+                s_f, wait_end = todo[0][0], el + todo[0][1]
+                todo.pop(0)
         f = along(max(s_f, 0.0)) if s_f >= 0 else (start or pts[0][1])
         rows.append((round(el, 2), g, f))
         el += dt_s
@@ -438,6 +490,11 @@ def run_follow(dev, name: str, g: dict, delay_s: float = 2.0, hold_s: float = 10
     cmds = ROOT / "client_mod" / "commands"
     c = client()
     c.request("stop", {}, timeout=10)
+    if g.get("door"):  # the house may have grown or changed: the leg holds only while its door is where it was
+        st0 = c.request("get_state", {}, timeout=30)
+        rows0 = ((st0 or {}).get("data") or {}).get("structures") or []
+        if not any(r.get("name") == "Door" and d2(r.get("position") or [0, 0], g["door"]) < 0.5 for r in rows0):
+            raise RuntimeError(f"no door at {g['door']} any more: re-make the leg (--make-house-exit) for the house as built")
     s = place(dev, c, g["claude_start"])
     if reflex_busy(c):
         s = place(dev, c, g["claude_start"])
@@ -465,7 +522,7 @@ def run_follow(dev, name: str, g: dict, delay_s: float = 2.0, hold_s: float = 10
     m_rows = [(r[0], (r[1] / 100, r[2] / 100, r[3] / 100), (r[4] / 100, r[5] / 100, r[6] / 100)) for r in rows
               if r[4] or r[5]]
     me = score_follow(m_rows, delay_s, g["duration_s"], hold_s)
-    h_rows = human_follower(g["track"], delay_s, hold_s, start=s)
+    h_rows = human_follower(g["track"], delay_s, hold_s, start=s, pauses=g.get("pauses"))
     hu = score_follow(h_rows, delay_s, g["duration_s"], hold_s)
     me["within_human"] = within_human(m_rows, h_rows, delay_s, g["duration_s"], hold_s)
     srcs: dict[str, int] = {}
@@ -491,7 +548,14 @@ def main() -> None:
     ap.add_argument("--follow", action="store_true", help="the ghost-leader follow legs")
     ap.add_argument("--extract-ghost", nargs=3, metavar=("NAME", "FROM", "TO"), help="cut a ghost track from the recorder")
     ap.add_argument("--who", default="luisdeburnaybast")
+    ap.add_argument("--make-house-exit", action="store_true", help="(re)make follow_house_exit from HOUSE_EXIT")
     a = ap.parse_args()
+    if a.make_house_exit:
+        g = make_ghost("follow_house_exit", HOUSE_EXIT)
+        hu = score_follow(human_follower(g["track"], 2.0, 10.0, start=g["claude_start"], pauses=g.get("pauses")),
+                          2.0, g["duration_s"], 10.0)
+        print(f"{g['name']}: {g['length_m']} m, {g['duration_s']} s, door pause {g.get('pauses')}, human model {hu}")
+        return
     if a.extract_ghost:
         g = extract_ghost(*a.extract_ghost, who=a.who)
         print(f"{g['name']}: {g['length_m']} m, {g['duration_s']} s as a ghost ({g['real_s']} s recorded), "
@@ -511,6 +575,13 @@ def main() -> None:
             print(f"{n:20s} ghost {g['who']} {g['window']}: {g['length_m']} m in {g['duration_s']} s")
         return
     from evals.bench.devrun import default_dev
+    from tools import live_lock
+    # every command that drives the body (the stop before each leg, the teleports) goes out inside the live lock: a
+    # caller's window (tools.live_lock run / held, which sets DW_LIVE_OWNER) or this run's own (main 2026-11-01)
+    cur, lock = live_lock.read(), contextlib.ExitStack()
+    atexit.register(lock.close)
+    if not (cur and not cur["stale"] and cur["owner"] == os.environ.get("DW_LIVE_OWNER")):
+        lock.enter_context(live_lock.held("movement", wait_s=3000))
     dev = default_dev()
     dev.guard()
     run_id = time.strftime("%Y%m%d-%H%M%S")

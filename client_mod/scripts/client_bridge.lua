@@ -615,6 +615,8 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
         if not (d and d.position) then return fail("unknown_target", { target = target, detail = "no remembered grave like that" }) end
         if not has_z(d.position) then return fail("verification_failed", { detail = "destination height unavailable" }) end
         coords = to_m(d.position)
+        local gt = d.grave_id and M.API.find_thing(d.grave_id, M.GOTO_FIND_M) -- the grave itself, once seen and bound
+        if gt and gt.position and has_z(gt.position) then coords = to_m(gt.position) end
     end
     -- every id that look / get_state return resolves (BUGS L8): a perceived thing's position, except
     -- creatures and players, which move.lua tracks as moving actors

@@ -118,6 +118,8 @@ M.cfg = {
     lp_enabled = true,
     lp_grid_m = 9,             -- grid radius (19 x 19 cells at 1 m: ~720 traces)
     lp_cell_cm = 100,
+    door_find_cm = 450,        -- a shut door this near when a local plan fails is opened (E), as a player does
+    door_reach_cm = 170,       -- he presses from here (the detector's camera ray reaches ~2.5 m from the pawn)
     lp_budget = 64,            -- traces per frame while standing to sample/verify (0.08 ms each live, 2026-11-01; 16 stood ~2.5 s a plan)
     lp_cache_ttl_s = 30,       -- world-aligned cell cache shared by plans and prefetch (builds change)
     prefetch_every = 3,        -- while moving: sample one cell ahead (2 traces) every N frames, so a
@@ -882,6 +884,118 @@ local function lazy(path, key)
     return m
 end
 
+-- ------------------------------------------------------------------ doors
+-- A shut door in the way (his own house on the dev base, 2026-11-01): a player presses E on it. Built doors are
+-- BP_BaseBuilding_BaseActor_C children (BP_T1_Door_C) with a HingeInteraction whose prompt reads "Open Door" when
+-- shut and "Close Door" when open (probe 16:5xZ). The press is the game's own interact key (inventory.lua), aimed
+-- from the camera the way the interaction detector casts.
+local INV_PATH = ROOT .. "/client_mod/scripts/inventory.lua"
+local function inv_mod() return lazy(INV_PATH, "press_interact") or nil end
+function M.set_inventory(m) MODS[INV_PATH] = m or false end
+local function door_prompt(a)
+    local ok, s = pcall(function() return a.HingeInteraction.InteractionPrompt:ToString() end)
+    return ok and type(s) == "string" and s or nil
+end
+local function door_name(a)
+    local ok, s = pcall(function() return a:GetFName():ToString() end)
+    return ok and s or tostring(a)
+end
+-- the shut door nearest to him (and toward the goal) within r_cm, or nil
+local function shut_door_near(me, goal, r_cm)
+    local best, bs
+    local okf, all = pcall(FindAllOf, "BP_BaseBuilding_BaseActor_C")
+    for _, a in ipairs(okf and type(all) == "table" and all or {}) do
+        local okl, l = pcall(function() return a:K2_GetActorLocation() end)
+        if okl and l and math.abs(l.X - me.X) < r_cm and math.abs(l.Y - me.Y) < r_cm and math.abs(l.Z - me.Z) < 300 then
+            local d = d2(me, l)
+            local pr = d <= r_cm and door_prompt(a)
+            if pr and pr:lower():find("open", 1, true) then
+                local score = d + 0.5 * (goal and d2(goal, l) or 0)
+                if not bs or score < bs then best, bs = { actor = a, at = v(l), name = door_name(a), prompt = pr }, score end
+            end
+        end
+    end
+    return best
+end
+local function door_begin(st, t, log)
+    if st.door or not st.pawn then return false end
+    local okm, me = pcall(function() return st.pawn:K2_GetActorLocation() end)
+    if not (okm and me) then return false end
+    local d = shut_door_near(me, st.lp_far or st.goal, M.cfg.door_find_cm)
+    st.door_tried = st.door_tried or {}
+    if not d or (st.door_tried[d.name] or 0) >= 2 then return false end
+    st.door_tried[d.name] = (st.door_tried[d.name] or 0) + 1
+    d.t0, d.phase, d.presses = t, "approach", 0
+    st.door = d
+    if log then log(string.format("move: a shut door at (%.0f,%.0f) is in the way (%s); opening it", d.at.X / 100, d.at.Y / 100, tostring(d.prompt))) end
+    return true
+end
+local function door_end(st, t, ok, why, log)
+    local d = st.door
+    st.door = nil
+    if ok then
+        st.doors_opened = (st.doors_opened or 0) + 1
+        _G.DW_LP_CACHE = nil -- the cells it shut are open now
+        st.lp_fail_t, st.lp_fail, st.lpath, st.lwp = nil, nil, nil, nil
+        if log then log(string.format("move: opened the door at (%.0f,%.0f) in %.1f s", d.at.X / 100, d.at.Y / 100, t - d.t0)) end
+    else
+        st.door_fail = why
+        if log then log(string.format("move: the door at (%.0f,%.0f) didn't open: %s", d.at.X / 100, d.at.Y / 100, why)) end
+    end
+end
+-- one frame: walk up to it, aim from the camera, press when the detector targets it, verify the prompt flipped
+local function door_step(f)
+    local st, pawn, pc, t, me, log = f.st, f.pawn, f.pc, f.t, f.me, f.log
+    local d = st.door
+    local okv, valid = pcall(function() return d.actor:IsValid() end)
+    if not (okv and valid) then door_end(st, t, false, "it's gone", log); return false end
+    if t - d.t0 > 8 then door_end(st, t, false, "timed out (" .. d.phase .. ")", log); return false end
+    st.win_t, st.win_pos = t, v(me)
+    if st.prog_t then st.prog_t = st.prog_t + (f.dt or 0) end
+    st.status = "door"
+    local dist = d2(me, d.at)
+    if d.phase == "approach" then
+        if dist > M.cfg.door_reach_cm and t - d.t0 < 4 then
+            local ux, uy = (me.X - d.at.X) / dist, (me.Y - d.at.Y) / dist
+            local dx, dy = d.at.X + ux * (M.cfg.door_reach_cm - 60) - me.X, d.at.Y + uy * (M.cfg.door_reach_cm - 60) - me.Y
+            local l = math.sqrt(dx * dx + dy * dy)
+            if l > 20 then
+                pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
+                pawn:AddMovementInput({ X = dx / l, Y = dy / l, Z = 0 }, 1.0, false)
+                return true
+            end
+        end
+        d.phase, d.aim_t = "aim", t
+    end
+    if d.phase == "aim" then
+        local okc, cam = pcall(function() return pc.PlayerCameraManager:GetCameraLocation() end)
+        local o = (okc and type(cam) == "table" and tonumber(cam.X)) and cam or me
+        local dx, dy, dz = d.at.X - o.X, d.at.Y - o.Y, d.at.Z - o.Z
+        pc:SetControlRotation({ Pitch = math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy))), Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
+        local inv = inv_mod()
+        if not inv then door_end(st, t, false, "no interact key (inventory module)", log); return false end
+        local okt, tg = pcall(inv.interact_target, pawn)
+        local on = okt and type(tg) == "table" and tg.prompt and tostring(tg.prompt):lower():find("door", 1, true)
+        if on and t - d.aim_t > 0.1 then
+            pcall(inv.press_interact, log)
+            d.phase, d.press_t, d.presses = "wait", t, d.presses + 1
+        elseif t - d.aim_t > 2.0 then
+            door_end(st, t, false, "I couldn't get it in my sights (" .. tostring(okt and type(tg) == "table" and tg.prompt or "nothing targeted") .. ")", log)
+            return false
+        end
+        return true
+    end
+    if d.phase == "wait" then
+        if t - d.press_t < 0.5 then return true end
+        local pr = door_prompt(d.actor)
+        if pr and not pr:lower():find("open", 1, true) then door_end(st, t, true, nil, log); return false end
+        if d.presses < 2 then d.phase, d.aim_t = "aim", t; return true end
+        door_end(st, t, false, "it stayed shut after 2 presses", log)
+        return false
+    end
+    return false
+end
+
 -- ------------------------------------------------------------------ local planner glue
 local function lp_cache()
     _G.DW_LP_CACHE = _G.DW_LP_CACHE or { cells = {}, ttl = M.cfg.lp_cache_ttl_s }
@@ -1273,7 +1387,7 @@ local function lp_work(st, t, log)
             if not pts then
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, why
                 if log then log("move: local plan failed: " .. tostring(why)) end
-                if not st.lp_observe then st.want_trail = true end -- ordinary replans only
+                if not st.lp_observe then st.want_trail = true; door_begin(st, t, log) end -- ordinary replans only
                 return false
             end
             st.lp_pts, st.lp_state, st.lp_rounds = pts, "verifying", 0
@@ -1289,7 +1403,7 @@ local function lp_work(st, t, log)
             if not pts then
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, "verify_exhausted"
                 if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ") hops=" .. tostring(P.hops) .. " steeps=" .. tostring(P.steeps) .. " firstseg=" .. tostring(P.first_blocks)) end
-                if not st.lp_observe then st.want_trail = true end
+                if not st.lp_observe then st.want_trail = true; door_begin(st, t, log) end
                 return false
             end
             st.lp_pts = pts
@@ -3006,41 +3120,97 @@ end
 -- 2026-11-01 15:56 (quests run, explore): a local plan led along a 63-73 degree shoulder above a 36 m cliff,
 -- he slid off it and died.
 local report_unreachable -- (defined with the give-up ladder below)
+-- "a 36 m drop ahead" / "a drop of more than 18 m ahead" / "a slope too steep to stand on ahead, down to a 40 m drop"
+function M.drop_words(st)
+    if not st.drop_m then return "a drop ahead" end
+    local d = st.drop_more and string.format("a drop of more than %d m", st.drop_m) or string.format("a %d m drop", st.drop_m)
+    if st.drop_steep then return "a slope too steep to stand on ahead, down to " .. d end
+    return d .. " ahead"
+end
+-- The fall hazard straight ahead along (dx, dy) from me: a drop deeper than safe_cm under both probes (0.7 and
+-- 1.2 m, none past max_cm), or ground too steep to stand on (normal under walk_z, going down) that runs on into
+-- such a drop within 6 m. Returns fall_cm, steep (or nil when it is safe), traces used.
+local function fall_hazard(pawn, me, dx, dy, half_h, safe, walk_z, max_cm)
+    local feet = me.Z - (half_h or 90)
+    -- the fall from his feet to whatever is below (x, y): the floor, or deep water's surface (a swim, not a fall)
+    local function fall_at(x, y)
+        local ok, hit, out = pcall(raw_trace, pawn, { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - safe - 300 })
+        if not ok then return nil end
+        local fall = (hit and out.ImpactPoint) and (feet - out.ImpactPoint.Z) or (safe + 300)
+        local nz = hit and out.ImpactNormal and tonumber(out.ImpactNormal.Z) or 1
+        if fall > safe and rawget(_G, "DW_WATER_CH") then
+            local a, b = { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - safe - 300 }
+            local okw, hw, outw = pcall(trace_with, _G.DW_WATER_CH, pawn, a, b)
+            local wz = okw and hw and type(outw) == "table" and outw.ImpactPoint and outw.ImpactPoint.Z
+            if wz and (not (hit and out.ImpactPoint) or wz > out.ImpactPoint.Z + 15) then fall, nz = math.min(fall, feet - wz), 1 end
+        end
+        return fall, nz
+    end
+    local worst, steep, n, drops, traces = nil, false, 0, 0, 0
+    for _, k in ipairs({ 70, 120 }) do
+        if k > (max_cm or 1e9) + 40 then break end -- past the goal: he stops before it (a goal on an edge is fine)
+        local fall, nz = fall_at(me.X + dx * k, me.Y + dy * k)
+        if not fall then return nil, nil, traces end
+        traces, n = traces + 1, n + 1
+        if fall > safe then drops, worst = drops + 1, math.max(worst or 0, fall)
+        elseif nz < walk_z and fall > 30 then steep = true end -- too steep to stand on, going down: he'd slide
+    end
+    if n == 0 or drops < n then worst = nil end -- a drop counts when every probe finds it (not a gap he steps over)
+    -- a slope too steep to stand on slides him down it whatever he presses (live 2026-11-01 16:37: a 6 m walk to his
+    -- grave on a cliff-top shoulder, normals 0.3-0.46, slid him off the cliff): follow it down to where it ends
+    if not worst and steep then
+        for _, k in ipairs({ 200, 300, 450, 600 }) do
+            local fall, nz = fall_at(me.X + dx * k, me.Y + dy * k)
+            if not fall then return nil, nil, traces end
+            traces = traces + 1
+            if fall > safe then return fall, true, traces end
+            if nz >= walk_z then return nil, nil, traces end -- it levels out within a safe fall
+        end
+        return nil, nil, traces
+    end
+    return worst, false, traces
+end
+local function fall_limits(st, pawn)
+    if not st.safe_fall_cm then -- the engine's own number (MinFallDamageHeight: below it a fall does no damage)
+        local oks, sf = pcall(function() return pawn.CharacterMovement.MinFallDamageHeight end)
+        st.safe_fall_cm = (oks and tonumber(sf) and tonumber(sf) > 100) and tonumber(sf) or 1500
+    end
+    if not st.walk_z then
+        local okw, wz = pcall(function() return pawn.CharacterMovement.WalkableFloorZ end)
+        st.walk_z = (okw and tonumber(wz) and tonumber(wz) > 0.3 and tonumber(wz) < 0.99) and tonumber(wz) or 0.70
+    end
+    return st.safe_fall_cm, st.walk_z
+end
+-- For other walkers (a skill's facing nudge toward a grave on an edge): the words for a lethal fall straight ahead
+-- along (dx, dy) (unit, world), or nil when a step that way is safe.
+function M.unsafe_ahead(pawn, dx, dy)
+    local okm, me = pcall(function() return pawn:K2_GetActorLocation() end)
+    if not (okm and me) then return nil end
+    local lim = rawget(_G, "DW_FALL_LIMITS") or {}
+    _G.DW_FALL_LIMITS = lim
+    local safe, walk_z = fall_limits(lim, pawn)
+    local okh, hh = pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    local worst, steep = fall_hazard(pawn, me, dx, dy, (okh and tonumber(hh)) or 90, safe, walk_z, nil)
+    if not worst then return nil end
+    local st = { drop_m = math.floor(worst / 100 + 0.5), drop_more = worst >= safe + 300, drop_steep = steep }
+    return M.drop_words(st)
+end
 local function cliff_guard(f)
     local st, pawn, t, me, log, dx, dy = f.st, f.pawn, f.t, f.me, f.log, f.dx, f.dy
     if st.wade or st.in_water or st.jump_t or (st.ticks or 0) % 2 ~= 0 then return end
     local okg, ground = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
     if okg and ground == false then return end -- airborne (a planned jump or drop): the landing was checked
-    if not st.safe_fall_cm then -- the engine's own number (MinFallDamageHeight: below it a fall does no damage)
-        local oks, sf = pcall(function() return pawn.CharacterMovement.MinFallDamageHeight end)
-        st.safe_fall_cm = (oks and tonumber(sf) and tonumber(sf) > 100) and tonumber(sf) or 1500
-    end
-    local safe = st.safe_fall_cm
-    local feet = me.Z - (st.half_h or 90)
-    local worst = nil
-    for _, k in ipairs({ 70, 120 }) do
-        if k > (f.dist or 1e9) + 40 then break end -- past the goal: he stops before it (a goal on an edge is fine)
-        local x, y = me.X + dx * k, me.Y + dy * k
-        local ok, hit, out = pcall(raw_trace, pawn, { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - safe - 300 })
-        if not ok then return end
-        local fall = (hit and out.ImpactPoint) and (feet - out.ImpactPoint.Z) or (safe + 300)
-        if fall > safe and rawget(_G, "DW_WATER_CH") then -- deep water off a shore is a swim, not a fall
-            local a, b = { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - safe - 300 }
-            local okw, hw, outw = pcall(trace_with, _G.DW_WATER_CH, pawn, a, b)
-            local wz = okw and hw and type(outw) == "table" and outw.ImpactPoint and outw.ImpactPoint.Z
-            if wz and (not (hit and out.ImpactPoint) or wz > out.ImpactPoint.Z + 15) then fall = math.min(fall, feet - wz) end
-        end
-        if fall <= safe then return end
-        worst = math.max(worst or 0, fall)
-    end
+    local safe = fall_limits(st, pawn)
+    local worst, steep, traces = fall_hazard(pawn, me, dx, dy, st.half_h, safe, st.walk_z, f.dist)
+    st.traces = (st.traces or 0) + (traces or 0)
+    st.drop_steep = steep or nil
     if not worst then return end
-    st.traces = (st.traces or 0) + 2
     st.drop_m = math.floor(worst / 100 + 0.5)
     st.drop_more = worst >= safe + 300 -- no floor within reach of the trace: "more than N m"
     st.cliff_n = (st.cliff_n or 0) + 1
     st.win_t, st.win_pos = t, v(me)
-    if log then log(string.format("move: %s%d m drop ahead at (%.0f,%.0f) on %s (safe fall %d m); not stepping off",
-        st.drop_more and "more than a " or "a ", st.drop_m, me.X / 100, me.Y / 100, tostring(f.src), math.floor(safe / 100))) end
+    if log then log(string.format("move: %s at (%.0f,%.0f) on %s (safe fall %d m); not stepping off",
+        M.drop_words(st), me.X / 100, me.Y / 100, tostring(f.src), math.floor(safe / 100))) end
     _G.DW_LP_CACHE = nil
     st.lpath, st.lwp = nil, nil
     if st.cliff_n <= 2 and st.use_lp and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and
@@ -3048,7 +3218,7 @@ local function cliff_guard(f)
         st.status = "planning"
         return true
     end
-    st.lp_fail = string.format("%s%d m drop ahead", st.drop_more and "more than a " or "a ", st.drop_m)
+    st.lp_fail = M.drop_words(st)
     report_unreachable(f, "drop_ahead", nil)
     return true
 end
@@ -3452,6 +3622,7 @@ local function tick(st, gen, log)
         st.win_t, st.win_pos = t, v(me)
         return
     end
+    if st.door and door_step(f) then return end
     f.path = st.path
     trail_entry(f)
     f.aim, f.src, f.idxp = goal, "straight", false
@@ -3996,9 +4167,7 @@ local WHY = {
     not_on_wheel = function() return "Windstep isn't available on my spell wheel" end,
     no_route = function(th) return "there's no way through to " .. th .. " from here" end,
     drop_ahead = function()
-        local st = rawget(_G, "DW_MOVE") or {}
-        local d = st.drop_m and string.format("%s%d m ", st.drop_more and "more than a " or "a ", st.drop_m) or "a "
-        return "there's " .. d .. "drop ahead, more than I can fall safely, and no other way down"
+        return "there's " .. M.drop_words(rawget(_G, "DW_MOVE") or {}) .. ", more than I can fall safely, and no other way down"
     end,
     target_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,
     leader_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,

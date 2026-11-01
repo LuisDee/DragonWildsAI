@@ -112,6 +112,11 @@ function W.face(api, pos, nudge)
     local dx, dy = pos[1] - here[1], pos[2] - here[2]
     local l = math.sqrt(dx * dx + dy * dy)
     if l < 0.05 then return end
+    -- a nudge is a step: never toward a lethal edge (live 2026-11-01 16:37: a walk to his grave on a cliff-top
+    -- shoulder slid him off); aim only then
+    local mv = api.module("move")
+    local okh, bad = pcall(function() return mv and type(mv.unsafe_ahead) == "function" and mv.unsafe_ahead(pawn, dx / l, dy / l) end)
+    if okh and bad then return end
     pcall(function() pawn:AddMovementInput({ X = dx / l, Y = dy / l, Z = 0 }, M.cfg.nudge_scale, false) end)
 end
 
@@ -1407,11 +1412,10 @@ local function start_recover_grave(api, args, ctx)
         if newest and not is_newest then -- truthful: this was an older grave; the newest one is still out there
             d.newest_grave = { iso = newest.iso, position = newest.position, go_to = "my_grave:" .. tostring(newest.ts) }
         end
-        M.death_recovered("recover_grave", mine.position, mine.id)
         local n = 0
         for _, v in pairs(d.gained or {}) do n = n + v end
         d.count = n
-        if n == 0 then
+        if n == 0 then -- nothing came back: the grave still holds his things (live 2026-11-01 17:14: marked recovered anyway)
             return api.fail("verification_failed", { grave = mine.id,
                 detail = "I used my grave but nothing came back into my inventory." })
         end
@@ -1419,6 +1423,7 @@ local function start_recover_grave(api, args, ctx)
         local lh = mem.last_held
         if lh and lh.item then
             local lr = api.call("inventory", "list")
+        M.death_recovered("recover_grave", mine.position, mine.id)
             local held = lr.ok and type(lr.data.held) == "table" and lr.data.held or {}
             local holding = held.right_item or held.left_item
             if not holding and lr.ok and find_carried(api, lr.data, lh.item) then
@@ -1796,9 +1801,16 @@ function M.record_death(api, ts)
     for _, r in ipairs(mem.last_items or {}) do lost[#lost + 1] = r end
     local here = api.my_position() or (mem.last_pos)
     local list = deaths()
-    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, lost = lost, recovered = false }
+    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, body_position = body, lost = lost, recovered = false }
     while #list > M.MAX_DEATHS do table.remove(list, 1) end
     save_deaths()
+    -- the game leaves the grave where he last stood, not where a fall ends (live 2026-11-01 15:56: grave on the cliff
+    -- top, body 63 m below): move.lua's last grounded spot when it is fresh and he is below it
+    local body, g = nil, rawget(_G, "DW_LAST_GROUND")
+    local age = g and tonumber(g.t) and (tonumber(ts) or os.time()) - g.t
+    if age and age >= -2 and age <= 15 and (not here or here[3] < g.Z / 100 - 2) then
+        body, here = here, { math.floor(g.X + 0.5) / 100, math.floor(g.Y + 0.5) / 100, math.floor(g.Z + 0.5) / 100 }
+    end
 end
 local function nearest_death(pos, grave_id)
     local best, bd
@@ -1947,7 +1959,6 @@ function M.state_extras(api, data)
         end
     end
     -- every unrecovered grave (BUGS L22), with distance and what he lost there; the newest is death_memory
-    if out.my_grave then M.grave_seen(out.my_grave) end
     local here = data.position
     local list = {}
     for _, dm in ipairs(M.graves_remembered()) do
@@ -1992,6 +2003,7 @@ function M.state_extras(api, data)
     if others > 0 then out.other_graves = others end
     -- the in-game clock and the sleep window (sense.time_of_day), and how full the bag is
     local sense = api.module("sense")
+        M.grave_seen(out.my_grave) -- bind it to its death (it ran before my_grave was set, so it never bound)
     if sense and type(sense.time_of_day) == "function" then
         local okt, tod = pcall(sense.time_of_day)
         if okt and type(tod) == "table" then out.time_of_day = tod end

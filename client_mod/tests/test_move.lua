@@ -83,7 +83,21 @@ KSL_BASE = function(self, ctx, a, b, ch, cx, ign, dbg, out)
         return true -- a downward trace through Claude lands on his head/gear
     end
     if a.X == b.X and a.Y == b.Y and HOLES then
-        for _, h in ipairs(HOLES) do if a.X > h[1] and a.X < h[2] and a.Y > h[3] and a.Y < h[4] then return false end end
+        for _, h in ipairs(HOLES) do if a.X > h[1] and a.X < h[2] and a.Y > h[3] and a.Y < h[4] then
+            if h[5] and ch == 1 and a.Z > h[5] and b.Z < h[5] then -- deep water: the camera channel sees its surface
+                out.Distance = a.Z - h[5]; out.ImpactPoint = { X = a.X, Y = a.Y, Z = h[5] }; out.ImpactNormal = { X = 0, Y = 0, Z = 1 }
+                return true
+            end
+            return false
+        end end
+    end
+    if a.X == b.X and a.Y == b.Y and STEEP then -- {x0, x1, y0, y1, drop per cm, normal Z}: a slope down in +X
+        for _, sl in ipairs(STEEP) do if a.X > sl[1] and a.X < sl[2] and a.Y > sl[3] and a.Y < sl[4] then
+            local top = FLOOR - (a.X - sl[1]) * sl[5]
+            if a.Z < top or b.Z > top then return false end
+            out.Distance = a.Z - top; out.ImpactPoint = { X = a.X, Y = a.Y, Z = top }; out.ImpactNormal = { X = -0.8, Y = 0, Z = sl[6] }
+            return true
+        end end
     end
     if a.X == b.X and a.Y == b.Y then
         local top = wall_top(a.X, a.Y) or FLOOR
@@ -2655,10 +2669,95 @@ do
     run(200)
     local r = MD.status().result
     check("lethal drop: a plain go_to stops before the edge and names the drop", r and r.status == "failed" and pawn.loc.X < 300
-        and r.why == "drop_ahead" and tostring(r.detail):find("drop ahead", 1, true),
+        and r.why == "drop_ahead" and tostring(r.detail):find("drop", 1, true),
         r and (tostring(r.status) .. " " .. tostring(r.why) .. " " .. tostring(r.detail) .. " x=" .. pawn.loc.X))
-    check("lethal drop: the words say so", tostring(MD.why_words("drop_ahead", "it")):find("drop ahead", 1, true), MD.why_words("drop_ahead", "it"))
+    check("lethal drop: the words say so", tostring(MD.why_words("drop_ahead", "it")):find("drop of more than 8 m ahead, more than I can fall safely", 1, true), MD.why_words("drop_ahead", "it"))
+    MD.stop(log); _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
+    -- deep water off the shore (its surface 1 m down, its bed out of reach) is a swim, not a fall
+    local saved_ch = rawget(_G, "DW_WATER_CH")
+    _G.DW_WATER_CH = { name = "cam", ch = 1 }
+    HOLES = { { 300, 3000, -3000, 3000, -100 } }
+    local nl = #logs
+    MD.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, nav = false })
+    run(60)
+    local said = false
+    for i = nl + 1, #logs do if logs[i]:find("(safe fall", 1, true) then said = logs[i] end end
+    check("lethal drop: deep water off a shore is not a drop", not said, said)
+    MD.stop(log); HOLES = nil; _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
+    -- a slope too steep to stand on (normal 0.4) running down to the edge: he stops before stepping onto it
+    -- (live 2026-11-01 16:37: a 6 m walk to his grave slid him off the cliff-top shoulder)
+    STEEP = { { 300, 500, -3000, 3000, 1.5, 0.4 } }
+    HOLES = { { 500, 3000, -3000, 3000 } }
+    MD.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, nav = false })
+    run(200)
+    r = MD.status().result
+    check("lethal drop: a steep slope down to a drop is refused before he steps on it", r and r.status == "failed"
+        and pawn.loc.X < 300 and tostring(r.detail):find("too steep", 1, true),
+        r and (tostring(r.status) .. " " .. tostring(r.detail) .. " x=" .. pawn.loc.X))
+    MD.stop(log); HOLES = nil; _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
+    -- the same slope ending on a floor within a safe fall is just a bank: no refusal from the slope
+    HOLES = nil
+    local nl2 = #logs
+    MD.go_to(log, { 4, 0, 0 }, { tolerance_m = 1, nav = false })
+    run(60)
+    said = false
+    for i = nl2 + 1, #logs do if logs[i]:find("(safe fall", 1, true) then said = logs[i] end end
+    check("lethal drop: a steep bank that ends on the floor is not refused", not said, said)
+    STEEP = nil
+    _G.DW_WATER_CH = saved_ch
     HOLES = nil; MD.stop(log); _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
+end
+
+-- DOOR (his own house on the dev base, 2026-11-01): a room walled on every side, its only way out a shut door. A
+-- local plan finds no way; he walks up to the door, aims at it, presses E once (the game's interact key) and walks
+-- out when the prompt flips. A door that stays shut fails honestly.
+do
+    M.stop(log); walls, raised, oracle, frame_hook, air, HOLES, STEEP = {}, {}, nil, nil, 0, nil, nil; pump_oracle()
+    luis.loc = { X = 90000, Y = 90000, Z = 0 }
+    local leaf = { -20, 0, -60, 60, true }
+    walls = { { -20, 320, 150, 170, true }, { -20, 320, -170, -150, true }, { 300, 320, -170, 170, true },
+              { -20, 0, -170, -60, true }, { -20, 0, 60, 170, true }, leaf }
+    local shut, presses, aims_ok = true, 0, 0
+    local door = obj({ HingeInteraction = obj({ InteractionPrompt = { ToString = function() return shut and "Open Door" or "Close Door" end } }),
+                       K2_GetActorLocation = function() return { X = -10, Y = 0, Z = 60 } end,
+                       GetFName = function() return { ToString = function() return "BP_T1_Door_C_1" end } end })
+    local stuck_door = false
+    local base_find = FindAllOf
+    FindAllOf = function(c) if c == "BP_BaseBuilding_BaseActor_C" then return { door } end return base_find(c) end
+    local near = function() return math.sqrt((pawn.loc.X + 10) ^ 2 + pawn.loc.Y ^ 2) < 250 end
+    local inv = { interact_target = function() if near() then aims_ok = aims_ok + 1; return { actor = "BP_T1_Door_C_1", prompt = shut and "Open Door" or "Close Door" } end return { none = true } end,
+                  press_interact = function() presses = presses + 1
+                      if near() and not stuck_door then shut = false
+                          for i, w in ipairs(walls) do if w == leaf then table.remove(walls, i) break end end end
+                      return { ok = true } end }
+    _G.DW_LP_CACHE = nil
+    pawn.loc = { X = 150, Y = 0, Z = 0 }
+    local MDo = dofile(MOVE)
+    MDo.set_inventory(inv)
+    local nl = #logs
+    MDo.go_to(log, { -8, 0, 0 }, { tolerance_m = 1, nav = false })
+    run(600)
+    local r = MDo.status().result
+    local opened = false
+    for i = nl + 1, #logs do if logs[i]:find("opened the door", 1, true) then opened = logs[i] end end
+    check("door: shut door opened with one press, then out through it", r and r.status == "arrived" and presses == 1 and opened,
+        (r and tostring(r.status) .. " " .. tostring(r.detail) or "nil") .. " presses=" .. presses .. " x=" .. pawn.loc.X .. " " .. tostring(opened))
+    MDo.stop(log)
+    -- a door that won't open (locked, someone else's): no endless pressing, an honest failure
+    shut, presses, stuck_door = true, 0, true
+    walls[#walls + 1] = leaf
+    _G.DW_LP_CACHE = nil
+    pawn.loc = { X = 150, Y = 0, Z = 0 }
+    nl = #logs
+    MDo.go_to(log, { -8, 0, 0 }, { tolerance_m = 1, nav = false, timeout_s = 40 })
+    run(500)
+    r = MDo.status().result
+    local said = false
+    for i = nl + 1, #logs do if logs[i]:find("didn't open", 1, true) then said = logs[i] end end
+    check("door: one that stays shut is not pressed forever, and the failure says so", r and r.status == "failed" and presses <= 4 and said,
+        (r and tostring(r.status) .. " " .. tostring(r.detail) or "nil") .. " presses=" .. presses .. " " .. tostring(said))
+    MDo.stop(log)
+    FindAllOf = base_find; walls = {}; _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
 end
 
 -- ENCUMBERED (live 2026-11-01 13:2x: 446.5 of 300 weight): no jump attempts (they fail in game), and the honest reason
