@@ -46,3 +46,8 @@ def test_remembered_grave_items_are_owned():
 
 def test_describe_never_raises():
     assert gear_plan.describe({"gear": None, "nearby_entities": None})[0].startswith("Gear vs this area")
+
+
+def test_weak_creatures_alone_do_not_cap_him_at_his_starter_tier():
+    p = gear_plan.plan(_state(nearby_entities=[{"name": "Kebbit", "power_level": 1, "alive": True}]))
+    assert p["slots"]["body"]["best_pl"] == 2 and p["pl_full_set"] == 2

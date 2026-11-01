@@ -33,8 +33,8 @@ def test_an_element_spell_says_its_element_and_when_it_is_worth_casting():
 def test_the_gear_line_is_one_line_and_only_when_he_is_under_geared(monkeypatch):
     from brain import gear_plan
     p = {"pl_now": 0, "pl_full_set": 2, "enemy_pl": 2, "enemies": ["Cow PL 2"], "slots": {}}
-    monkeypatch.setattr(gear_plan, "plan", lambda state: p)
-    monkeypatch.setattr(gear_plan, "lines", lambda plan, max_opts=3: ["Gear vs this area: you are PL 0", "  head: a",
+    monkeypatch.setattr(gear_plan, "plan", lambda state, stash=None: p)
+    monkeypatch.setattr(gear_plan, "lines", lambda plan, max_opts=3, compact=False: ["Gear vs this area: you are PL 0", "  head: a",
                                                                       "  body: b"])
     assert situation.gear_line({}) == "Gear vs this area: you are PL 0 Per slot: head: a | body: b"
     p["pl_now"] = 2

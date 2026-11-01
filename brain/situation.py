@@ -766,6 +766,7 @@ COVERED_KEYS = frozenset({
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
+    "containers_remembered",
 })
 
 
@@ -944,13 +945,13 @@ def gear_line(state: dict) -> str | None:
     below the enemies here: a full block was 6 lines and pushed the stations and places off the summary."""
     from . import gear_plan  # lazy: item and recipe data load on first use
     try:
-        p = gear_plan.plan(state)
+        p = gear_plan.plan(state, stash=state.get("containers_remembered") or None)  # brain/stash.py
         if p.get("enemy_pl") is None or p.get("pl_now", 0) >= p["enemy_pl"]:
             return None
-        ls = gear_plan.lines(p, max_opts=1)
+        ls = gear_plan.lines(p, max_opts=1, compact=True)
     except Exception:  # perception is best effort; never block a decision on it
         return None
-    return (ls[0] + (" Per slot: " + " | ".join(x.strip() for x in ls[1:]) if ls[1:] else ""))[:3 * LINE_CHARS] if ls else None
+    return (ls[0] + (" Per slot: " + " | ".join(x.strip() for x in ls[1:]) if ls[1:] else ""))[:4 * LINE_CHARS] if ls else None  # 5 slots fit
 
 
 def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | None = None,

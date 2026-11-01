@@ -98,6 +98,8 @@ class BridgeClient(GameInterface):
         self._unknown_events: dict[str | None, int] = {}  # event type -> count (logged once each)
         # called with every successful get_state's data (map memory: observe + annotate remembered options)
         self.state_hooks: list[Callable[[dict], None]] = []
+        # called with (tool, args, result) after every answered request (brain/stash.py: containers he saw inside)
+        self.result_hooks: list[Callable[[str, dict, dict], None]] = []
 
     # ---------------------------------------------------------------- plumbing
 
@@ -182,8 +184,14 @@ class BridgeClient(GameInterface):
         except BaseException:
             self._inflight.discard(req_id)
             raise
-        return self._await(req_id, tool, dict(args or {}), sent_at, sent_at + timeout, self._started,
-                           detachable=not probe)
+        res = self._await(req_id, tool, dict(args or {}), sent_at, sent_at + timeout, self._started,
+                          detachable=not probe)
+        for hook in self.result_hooks:
+            try:
+                hook(tool, dict(args or {}), res)
+            except Exception as exc:  # memory is best effort; never break a tool call
+                self.log.log("result_hook_error", tool=tool, error=repr(exc))
+        return res
 
     def reattach(self, request_id: str) -> ActionResult | None:
         """Watch a detached request again (the model called the same action while the body still does it): its

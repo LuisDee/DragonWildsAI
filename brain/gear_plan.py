@@ -194,7 +194,10 @@ def plan(state: dict, cat: dict | None = None, stash: dict | None = None) -> dic
                  or (o["status"] == "unlocks" and all(_reachable_item(n, cat, have, unlocked) for n in o["unlocks_with"]["hold"]))]
         # for this region: crafted gear up to the enemies' PL here (matching them closes the gap; the next tier's
         # materials come from the next region: bronze is Ghornfell's). Gear he already owns counts at any PL.
-        cap = max(enemy_pl, 1) if enemy_pl is not None else None
+        # (at least one tier above the best piece he wears: kebbits alone in sight must not cap him at his T1 starter)
+        worn_top = max((int((cat.get(v) or {}).get("power_level") or 0) for k, v in gear.items()
+                        if isinstance(v, str) and k in ("Head", "Body", "Legs")), default=0)
+        cap = max(enemy_pl or 0, worn_top + 1)
         reach = [o for o in reach if cap is None or o["pl"] <= cap or o["status"] == "owned"]
         top = max((o["pl"] for o in reach), default=None)
         best = sorted([o for o in reach if o["pl"] == top], key=lambda o: (o["status"] != "owned", o["status"] != "craftable_now", o["name"] or ""))
@@ -218,12 +221,15 @@ def _reachable_item(name: str, cat: dict, have: dict[str, int], unlocked: set[st
     return not _by_output().get(iid)  # a raw resource (gathered, dropped): no recipe at all
 
 
-def lines(p: dict, max_opts: int = 3) -> list[str]:
-    """Short perception lines (one for the summary, one per slot that can improve)."""
+def lines(p: dict, max_opts: int = 3, compact: bool = False) -> list[str]:
+    """Short perception lines (one for the summary, one per slot that can improve). compact: what he is short of but not
+    the full cost or where the short inputs come from, and the slots with gear he already owns first (the one-line
+    summary is cut at its length: the crate's shield came last and was cut, 2026-11-02)."""
     if not p:
         return []
-    out = [f"Gear vs this area: you are PL {p['pl_now']} (your armour's power level: mean of head, body, legs, rounded down;"
-           f" weapons don't count); enemies here: {', '.join(p['enemies']) or 'none seen'}. Best armour you can reach makes you"
+    why = ("mean of worn head, body, legs, rounded down" if compact else
+           "your armour's power level: mean of head, body, legs, rounded down; weapons don't count")
+    out = [f"Gear vs this area: you are PL {p['pl_now']} ({why}); enemies here: {', '.join(p['enemies']) or 'none seen'}. Best armour you can reach makes you"
            f" PL {p['pl_full_set']}."]
     for slot, s in p["slots"].items():
         worn_pl = int(s["worn_pl"] or 0) if s["worn"] else (0 if slot in ARMOUR_SLOTS else None)
@@ -237,19 +243,26 @@ def lines(p: dict, max_opts: int = 3) -> list[str]:
                 d = f"craftable now at {o.get('station')} ({', '.join(o['needs'])})"
             else:
                 d = ("recipe unlocked" if o["status"] == "craftable" else
-                     "recipe unlocks when you hold " + " + ".join(o["unlocks_with"]["hold"]) +
+                     ("unlocks holding " if compact else "recipe unlocks when you hold ") + " + ".join(o["unlocks_with"]["hold"]) +
                      (" near " + " ".join(o["unlocks_with"]["near"]) if o["unlocks_with"]["near"] else ""))
-                d += f"; needs {', '.join(o['needs'])}"
+                if not compact:
+                    d += f"; needs {', '.join(o['needs'])}"
                 if o.get("short"):
                     d += f"; short {', '.join(o['short'])}"
-                if o.get("via"):
+                if o.get("via") and not compact:
                     d += f" ({'; '.join(o['via'])})"
             extra = f", {o['weight'].lower()}" if o.get("weight") and o["weight"] != "None" else ""
             extra += f", {o['kind']}" if o.get("kind") else ""
             extra += f", x{o['dmg_mult']:.1f} damage" if o.get("dmg_mult") else ""
             parts.append(f"{o['name']} (PL {o['pl']}{extra}): {d}")
+        if compact and s["best"][max_opts:]:  # the other ways to the same PL, by name and style: the model picks
+            parts[-1] += "; or " + ", ".join(f"{o['name']}" + (f" ({o['weight'].lower()})" if o.get("weight") and o["weight"] != "None" else "")
+                                             for o in s["best"][max_opts:max_opts + 2])
         label = {"right_hand": "weapon", "left_hand": "off-hand"}.get(slot, slot)
-        out.append(f"  {label}: wearing {s['worn'] or 'nothing'}{f' (PL {worn_pl})' if worn_pl is not None else ''} -> " + " | ".join(parts))
+        now = f"{s['worn'] or 'nothing'}{f' (PL {worn_pl})' if worn_pl is not None and s['worn'] else ''}"
+        out.append(f"  {label}: {'' if compact else 'wearing '}{now} -> " + " | ".join(parts))
+    if compact:
+        out[1:] = sorted(out[1:], key=lambda x: "you have one" not in x)
     return out
 
 

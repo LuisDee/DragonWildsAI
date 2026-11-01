@@ -47,6 +47,7 @@ from .bridge_client import BridgeClient
 from .budget import Budget, default_spend_fn
 from .capabilities import Capabilities, discover
 from .map_memory import MapMemory, annotate
+from .stash import Stash
 from .controller import Controller
 from .dry_run_llm import DryRunController, DryRunPlanner
 from .executor import Executor
@@ -142,8 +143,12 @@ class LiveAgent(Agent):
     def _addressed_line(self, event: Event) -> bool:
         if isinstance(event, CommandReceived):
             return True
-        return isinstance(event, ChatHeard) and \
-            chat_route(event.text, self.prefixes, self.controller.name)[0] in ("command", "ping")
+        if not isinstance(event, ChatHeard):
+            return False
+        # the same "addressed" the chat decision uses: named, or from the player he is with (live 2026-11-01: Luis's
+        # unnamed "come to me urgently" waited 142-162 s for a 678 m go_to to end; p90 of his unnamed lines 42 s)
+        return chat_route(event.text, self.prefixes, self.controller.name)[0] in ("command", "ping") or \
+            self._with(event.player) is not None
 
     # ---------------------------------------------------------------- chat
     def _said(self, text: str) -> None:
@@ -413,6 +418,10 @@ class LiveSession:
         # remembered options beyond sight (state["remembered"]); the Director reads the same file
         self.map = MapMemory(Path(state_dir) / "map_memory.json", background=True)  # writes off the state path
         self.client.state_hooks.append(lambda data: (self.map.observe(data), annotate(data, self.map)))
+        # containers he saw inside (take/store/inspect results), per world: gear_plan counts their gear as his
+        self.stash = Stash(Path(state_dir) / "containers.json")
+        self.client.result_hooks.append(self.stash.observe_result)
+        self.client.state_hooks.append(self.stash.observe_state)
         self.executor = Executor(self.client, self.store, self.log)
         self.planner = Planner(planner_llm, self.store.skills, self.log)
         self.knowledge = open_knowledge(self.log) if opts.knowledge else None

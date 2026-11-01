@@ -921,6 +921,10 @@ def test_l2a_live_agent_marks_addressed_lines_as_interrupting(tmp_path):
     assert r.body.interrupt_check is not None
     assert r.body.interrupt_check(ChatHeard(player="Zezima", text="claude stop"))
     assert not r.body.interrupt_check(ChatHeard(player="Bob", text="nice weather"))
+    # an unnamed line from the player he is with gets the floor too (the chat decision's own "addressed")
+    agent._with = lambda player: "the only player around" if player == "Zezima" else None
+    assert r.body.interrupt_check(ChatHeard(player="Zezima", text="come to me urgently"))
+    assert not r.body.interrupt_check(ChatHeard(player="Bob", text="nice weather"))
     assert agent
 
 
