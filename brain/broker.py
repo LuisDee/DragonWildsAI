@@ -624,6 +624,33 @@ class EventBroker:
     def remember_activity(self, ev: Activity) -> None:
         self._activity.append((self.clock(), ev))
 
+    def killed(self, target: str, extra: list[Activity] = (), within_s: float = 120.0) -> str | None:
+        """A target that is gone because a fight killed it, in words, from the kill the body reported (its own
+        combat_end, outcome killed: by id, else by name): "That Giant Rat is dead: your combat reflex killed it 11 s
+        ago." None when no such kill is known (live 20:09Z ClaudeQ4: go_to <rat id> said only target_not_visible)."""
+        t = str(target or "").strip().lower()
+        now = time.time()
+        best = None
+        for ev in [e for _, e in self._activity] + list(extra):
+            f = ev.fields()
+            if ev.kind != "combat_end" or f.get("outcome") != "killed":
+                continue
+            by_id = str(f.get("target_id") or "").lower() == t
+            if not (by_id or str(f.get("target") or "").lower() == t):
+                continue
+            ago = now - float(ev.ts) if ev.ts else None
+            if ago is not None and ago > within_s:
+                continue
+            if best is None or (by_id, -(ago or 0)) > (best[0], -(best[1] or 0)):  # the id's own kill, else the latest
+                best = (by_id, ago, f.get("target") or target, ev.by)
+        if best is None:
+            return None
+        by_id, ago, name, by = best
+        who = {"reflex": "your combat reflex", "brain": "you"}.get(by or "", f"a fight started by {by or 'someone'}")
+        when = f" {ago:.0f} s ago" if ago is not None else ""
+        return (f"That {name} is dead: {who} killed it{when}." if by_id
+                else f"A {name} is dead: {who} killed one{when}.")
+
     def busy_with(self, within_s: float = 20.0) -> dict | None:
         """Who else had the body just now, from the activity the body reported (a reflex drinking, eating,
         fleeing): for a busy result that doesn't name its owner. {by, name, what}; None when nothing recent."""

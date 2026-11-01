@@ -254,6 +254,30 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
 HOLD_RELEASE = ROOT / "client_mod" / "commands" / "quest_hold_release.lua"
 
 
+def leave_dialogue(cli, tries: int = 3, settle_s: float = 1.5) -> list[dict]:
+    """Leave any conversation he has open the way a player does (talk {target, leave}: the panel's Cancel), and
+    check that it closed, so each quest run starts clean (live ClaudeQ3/Q4: Doric's after-quest dialogue was still
+    open when the next quest's first talk read it back). Returns what was left, [] when nothing was open."""
+    out = []
+    for _ in range(tries):
+        try:
+            st = cli.request("get_state", {}, timeout=15)
+        except Exception:
+            break
+        conv = ((st.get("data") or {}).get("conversation") if isinstance(st, dict) else None) or None
+        if not conv:
+            break
+        who = conv.get("npc") or conv.get("speaker")
+        try:
+            r = cli.request("talk", {"target": who, "leave": True} if who else {"leave": True}, timeout=20) or {}
+        except Exception as exc:
+            r = {"ok": False, "reason": repr(exc)[:120]}
+        d = r.get("data") if isinstance(r.get("data"), dict) else {}
+        out.append({"npc": who, "ok": r.get("ok"), "reason": r.get("reason"), "detail": obs.short(d.get("detail") or "", 120)})
+        time.sleep(settle_s)  # the after-quest dialogue can open a moment after the last one ended
+    return out
+
+
 def hold_release(calls: list[dict], done: list[dict], t0: float, send=None) -> None:
     """TEMPORARY guard (movement's finding, 2026-11-01): an Anima Vent is a Hold interaction and the body's interact
     press never lets go, so a siphon roots him (ClaudeQ2 19:20Z: xy frozen until a client restart). After each finished
@@ -317,6 +341,7 @@ def cmd_run(a) -> int:
             print("brain did not start")
             return 5
         cli = cl._debug_client()
+        left_before = leave_dialogue(cli)  # each quest starts clean: a dialogue left open by the last run is closed
         q0 = quests(cli)
         steps = [{"t": 0.0, **quest_row(q0, a.quest)}]
         t0 = time.time()
@@ -368,11 +393,11 @@ def cmd_run(a) -> int:
             cl.stop_brain(p)
             # the body may still run the brain's last job (live 16:0xZ: a grave interact outlived the run and the next
             # lock holder's calls were all refused "busy"): stop it, and leave an open dialogue, before the lock goes
-            for tool in ("stop", "talk"):
-                try:
-                    cli.request(tool, {"leave": True} if tool == "talk" else {}, timeout=15)
-                except Exception:
-                    pass
+            try:
+                cli.request("stop", {}, timeout=15)
+            except Exception:
+                pass
+            left_after = leave_dialogue(cli)
     rows = cl.brain_rows([brain_file], t0 - 1, ended + 3)
     tl = timeline(rows, t0, ended)
     calls = cl.model_calls(rows)
@@ -384,7 +409,7 @@ def cmd_run(a) -> int:
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name,
-           "hold_releases": released}
+           "hold_releases": released, "dialogue_left": {"before": left_before, "after": left_after}}
     try:
         bar = human_bar(rows, len(sent))
         rec["human"] = bar

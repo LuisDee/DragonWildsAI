@@ -79,3 +79,20 @@ def test_an_anima_vent_interact_is_let_go_once_and_recorded():
     q.hold_release(calls, done, time.time(), send)
     q.hold_release(calls, done, time.time(), send)  # the next poll: not again
     assert sent == ["quest_hold_release"] and done[0]["after"] == 391.3 and done[0]["ok"] is True
+
+
+def test_an_open_dialogue_is_left_by_name_and_checked_closed():
+    class Cli:
+        def __init__(self):
+            self.open, self.sent = True, []
+
+        def request(self, tool, args, timeout=None):
+            self.sent.append((tool, args))
+            if tool == "get_state":
+                return {"ok": True, "data": {"conversation": {"npc": "Doric", "speaker": "Doric"}} if self.open else {}}
+            self.open = False
+            return {"ok": True, "data": {"detail": "The conversation ended."}}
+    c = Cli()
+    assert q.leave_dialogue(c, settle_s=0) == [{"npc": "Doric", "ok": True, "reason": None, "detail": "The conversation ended."}]
+    assert c.sent == [("get_state", {}), ("talk", {"target": "Doric", "leave": True}), ("get_state", {})]
+    assert q.leave_dialogue(c, settle_s=0) == []  # nothing open: one read, nothing pressed

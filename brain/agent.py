@@ -330,6 +330,27 @@ class Agent:
             if not self._in_pump:
                 self.flush_situations()
 
+    def _killed_note(self, task: Task, outcome: Outcome, wait_s: float = 1.0) -> None:
+        """A target that is gone because a fight killed it: the result says so (live 20:09Z ClaudeQ4: go_to <rat id>
+        -> unknown_target "target_not_visible"; his combat reflex had killed that rat during the walk, and the kill
+        event reached the brain 0.5 s after the result). Peeks at the body's events (kept for the chain's news), waits
+        up to wait_s when the target is a creature id or the result names a fight. Informs only: reason unchanged."""
+        target = (task.args or {}).get("target")
+        if outcome.ok or outcome.reason != Reason.UNKNOWN_TARGET or not isinstance(target, str) or not target:
+            return
+        data = outcome.data if isinstance(outcome.data, dict) else None
+        fight = "_Character_C_" in target or "combat" in str((data or {}).get("detail") or "")
+        deadline = time.monotonic() + (wait_s if fight else 0.0)
+        while True:
+            self._stash.extend(self.game.poll_events())
+            note = self.broker.killed(target, extra=[e for e in self._stash if isinstance(e, Activity)])
+            if note or time.monotonic() >= deadline:
+                break
+            time.sleep(0.2)
+        if note and data is not None:
+            data["detail"] = f"{note} {data.get('detail') or ''}".strip()
+            self.log.log("target_was_killed", tool=task.skill, target=target, note=note)
+
     def _run_task(self, task: Task) -> Outcome:
         """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""
         # the same call as the action the body is still doing since the player spoke: the executor re-attaches to it
@@ -337,6 +358,7 @@ class Agent:
         self.broker.action_started(task.skill, task.args, continuing=bool(continues and continues(task)))
         self.broker.note_busy()
         outcome = self.executor.run_task(task)
+        self._killed_note(task, outcome)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
         if self._directed is not None:
             rec = {"tool": task.skill, "args": dict(task.args), "ok": outcome.ok, "reason": outcome.reason,
