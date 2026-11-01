@@ -385,9 +385,29 @@ function M.run(log, args)
         local at = args.at or {}
         local x, y, z = (tonumber(at[1]) or 0) * 100, (tonumber(at[2]) or 0) * 100, (tonumber(at[3]) or 0) * 100
         local before = U.loc(target)
-        local ok, res = pcall(function() return target:K2_TeleportTo({ X = x, Y = y, Z = z }, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
+        local function tp(dx, dy, dz)
+            return pcall(function() return target:K2_TeleportTo({ X = x + dx, Y = y + dy, Z = z + dz }, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
+        end
+        local ok, res = tp(0, 0, 0)
+        local offset = nil
+        -- false = he does not fit there even after the engine's small nudge (UE docs, K2_TeleportTo): something now stands
+        -- on the spot (live 2026-11-01 14:43Z: the dev base's build/deconstruct tests put pieces and stations over the
+        -- chat ladder's start [88.8, 1852.1]). Take the nearest spot that fits, at most 2.5 m away (the ladders accept
+        -- a start within 3 m), half a metre up so a slope doesn't block it; at = exact true wants the spot itself only.
+        if ok and res == false and args.exact ~= true then
+            for _, r in ipairs({ 100, 175, 250 }) do
+                for k = 0, 7 do
+                    local dx, dy = r * math.cos(k * math.pi / 4), r * math.sin(k * math.pi / 4)
+                    ok, res = tp(dx, dy, 50)
+                    if not ok or res ~= false then offset = { dx / 100, dy / 100, 0.5 }; break end
+                end
+                if offset then break end
+            end
+        end
         local after = U.loc(target)
-        return { ok = ok and res ~= false, error = (not ok) and tostring(res) or nil, returned = ok and res or nil,
+        return { ok = ok and res ~= false,
+                 error = (not ok) and tostring(res) or (res == false and "destination_blocked" or nil),
+                 returned = ok and res or nil, offset_m = (ok and res ~= false) and offset or nil,
                  before = before and { before.X / 100, before.Y / 100, before.Z / 100 } or nil,
                  after = after and { after.X / 100, after.Y / 100, after.Z / 100 } or nil }
     end

@@ -121,12 +121,18 @@ def main(argv=None) -> int:
     r = sub.add_parser("run", help="hold the lock (refreshed) while a command runs")
     r.add_argument("owner")
     r.add_argument("--wait", type=float, default=1800.0, help="seconds to wait for the lock")
-    r.add_argument("command", nargs=argparse.REMAINDER)
-    a = ap.parse_args(argv)
+    # the command is everything after "--" (split here: a REMAINDER positional swallowed options given after the
+    # owner, so `run chat-ladder --wait 3000 -- cmd` ran "--wait" as the command, WinError 2, live 15:1xZ)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    tail = None
+    if "--" in argv:
+        i = argv.index("--")
+        argv, tail = argv[:i], argv[i + 1:]
+    a, extra = ap.parse_known_args(argv)
     if a.cmd == "status":
         print(read() or "free")
         return 0
-    cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
+    cmd = tail if tail is not None else extra
     if not cmd:
         ap.error("run needs a command after --")
     with held(a.owner, a.wait):

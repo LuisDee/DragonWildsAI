@@ -417,14 +417,18 @@ def recent_bridge_driver(window_s: float = 60.0) -> str | None:
     return None
 
 
+READ_ONLY_TOOLS = ("get_state", "inventory", "move_status", "census", "arbiter_status", "map_players")
+
+
 def foreign_driver(since: float) -> str | None:
     """A body command on the debug channel since `since` that this harness never sends (it sends only me and stop there;
-    its brain drives through brain_to_client): BODY started a run mid-ladder."""
+    its brain drives through brain_to_client): BODY started a run mid-ladder. Pure reads by another agent (status
+    queries) don't move him and are ignored (live 2026-11-01 15:01Z: one `inventory` read cut a locked run short)."""
     for r in reversed(_tail_rows(CLIENT_BRIDGE / "debug_to_client.jsonl")):
         t = r.get("ts")
         if not isinstance(t, (int, float)) or t < since:
             break
-        if r.get("tool") not in ("ping", "capabilities", "me", "stop"):
+        if r.get("tool") not in ("ping", "capabilities", "me", "stop", *READ_ONLY_TOOLS):
             return f"debug_to_client.jsonl: {r.get('tool')} {time.time() - t:.0f} s ago"
     return None
 
