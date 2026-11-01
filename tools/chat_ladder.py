@@ -570,8 +570,9 @@ def cmd_run(a) -> int:
     cli = _debug_client()
     if a.food:  # he sets off carrying food like a player would: the rung measures travel, not foraging (chat run 4:
         try:    # starving at 31 %, he picked berries mid-request and cooked a chicken mid-leg). The fed reflex eats it.
-            _dev().setup("grant", purpose="chat ladder: food for the trip", item="ITEM_Consumable_Meat_Fillet", count=a.food)
-            print(f"food: granted {a.food} Fillet (dev fixture)")
+            for item in ("ITEM_Consumable_Meat_Fillet", "ITEM_Consumable_Water_Clean"):  # run 5: thirsty at the
+                _dev().setup("grant", purpose="chat ladder: food for the trip", item=item, count=a.food)  # vent, he
+            print(f"food: granted {a.food} Fillet + {a.food} Clean Water (dev fixture)")  # fetched and boiled water
         except Exception as exc:
             print(f"food: not granted ({exc})")
     proc, bfile = (start_brain(a, before["spent_usd"]) if a.start_brain else (None, None))
@@ -692,7 +693,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--use-running-brain", action="store_true")
     r.add_argument("--world", default=WORLD)
     r.add_argument("--max-haiku", type=int, default=20)
-    r.add_argument("--food", type=int, default=4, help="Fillets granted at the start (dev fixture; 0 = none)")
+    r.add_argument("--food", type=int, default=4, help="Fillets and Clean Waters granted at the start (dev fixture; 0 = none)")
     r.add_argument("--usd", type=float, default=0.50, help="the brain's spend cap above today's spend")
     sub.add_parser("report")
     a = ap.parse_args(argv)
