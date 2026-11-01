@@ -1894,7 +1894,9 @@ local function step(api, job, t)
         for _, c in ipairs(job.piece.cost or {}) do
             local before = (job.counts0[c.item] or 0) + ((job.storage0 or {})[c.item] or 0)
             local now = (counts[c.item] or 0) + (storage[c.item] or 0)
-            if now < before then spent[c.item] = before - now else all_fell = false end
+            -- at most the game's cost: the storage read is around where I stand, so a walk away from a stocked crate
+            -- reads as logs spent (live 23:5xZ: a Door "used 15 Ash Logs" after a 52 s walk; it costs 2)
+            if now < before then spent[c.item] = math.min(before - now, tonumber(c.count) or (before - now)) else all_fell = false end
             if (job.counts0[c.item] or 0) < (counts[c.item] or 0) then all_fell = false end
         end
         local cp = W.hook("complete")
