@@ -208,7 +208,8 @@ test("manifest: one entry per implemented tool; primitives offered, compounds de
         assert(by[t].args and by[t].args.type == "object", "schema " .. t)
         assert(type(by[t].description) == "string" and #by[t].description > 20, "description " .. t)
     end
-    for _, t in ipairs({ "fetch", "come_to", "recover_grave", "give" }) do -- compounds: tested, not offered (PRINCIPLES 4b)
+    assert(by.give and by.give.llm == true and by.give.moves == true, "give is offered (the 4b exception in its entry)")
+    for _, t in ipairs({ "fetch", "come_to", "recover_grave" }) do -- compounds: tested, not offered (PRINCIPLES 4b)
         assert(by[t] and by[t].llm == false, "compound demoted " .. t)
     end
     assert(by.interact.moves == true and by.interact.priority == "command" and by.interact.timeout_s >= 100)
@@ -546,6 +547,61 @@ test("give: walk to the player, drop at his feet, verified by the count falling"
     assert(F.dropped and F.dropped[2] == 2)
     assert(rpc("give", { player = "Luis", item = "Dragon Bones", count = 1 }).reason == "not_in_inventory")
     assert(rpc("give", { player = "Luis", item = "Oak Logs", count = 99 }).reason == "not_enough_resources")
+end)
+
+test("give: steps in front of him, drops, finds the NEW pile by his feet and says where (an older pile is not it)", function()
+    reset()
+    F.follow = "near" -- the follow stops at (3, 2.5): 1.5 m from Luis at (3, 4)
+    local sk, inv = B.module("skills"), B.module("inventory")
+    local drop0 = inv.drop
+    inv.drop = function(log, what, count)
+        local r = drop0(log, what, count)
+        table.insert(F.world.items, { id = "wi_gift", class = "BP_WorldItem_C", name = "Oak Logs", item = "ITEM_Resources_Wood_Oak",
+                                      count = count, position = { 3, 3.2, 3 }, dropped_by = "Claude" })
+        return r
+    end
+    local _, id = rpc("give", { player = "Luis", item = "Oak Logs", count = 2 })
+    local r = run(id, 30)
+    inv.drop = drop0
+    assert(r and r.ok and r.data.pile and r.data.pile.id == "wi_gift" and r.data.pile.dist_m == 0.8, json.encode(r))
+    assert(r.data.detail == "I dropped 2 Oak Logs at your feet (0.8 m from you): pick them up.", r.data.detail)
+    assert(r.data.picked_up == false and r.data.inventory_left == 6, json.encode(r.data))
+    -- the spot: 1.9 m from him toward me (his facing unreadable in the fakes)
+    assert(r.data.spot and math.abs(r.data.spot[1] - 3) < 1e-6 and math.abs(r.data.spot[2] - 2.1) < 1e-6, json.encode(r.data))
+    -- seen by his feet, then gone (he took it): says he picked it up
+    reset(); F.follow = "near"; F.dropped = nil
+    local looks = 0
+    local census0 = B.API.census_things
+    B.API.census_things = function(r_m, ...)
+        local rows = census0(r_m, ...)
+        if F.dropped and r_m == 8 then -- give's pile looks (player_row reads at 150 m)
+            looks = looks + 1
+            if looks == 2 then rows[#rows + 1] = { category = "items", id = "wi_gift2", item = "ITEM_Resources_Wood_Oak", count = 2,
+                                                   position = { 3, 3.5, 3 } } end
+        end
+        return rows
+    end
+    _, id = rpc("give", { player = "Luis", item = "Oak Logs", count = 2 })
+    r = run(id, 80, 0.25) -- fast steps (0.25: exact in binary; the shared clock T stays exact for later tests)
+    B.API.census_things = census0
+    assert(r and r.ok and r.data.picked_up == true and r.data.detail:find("you picked them up", 1, true), json.encode(r))
+    -- the pile never shows (the old Oak Logs pile 2.8 m from him is not it): still true, says so
+    reset(); F.follow = "near"
+    _, id = rpc("give", { player = "Luis", item = "Oak Logs", count = 2 })
+    r = run(id, 30)
+    assert(r and r.ok and r.data.pile_seen == false and r.data.detail:find("can't see them on the ground", 1, true), json.encode(r))
+    -- pure helpers
+    local sp = sk.give_spot({ 10, 10, 0 }, 90, nil, 1.2)
+    assert(math.abs(sp[1] - 10) < 1e-6 and math.abs(sp[2] - 11.2) < 1e-6, "in front along his yaw")
+    local rows = { { category = "items", id = "a", item = "X", count = 5, position = { 10, 10.5, 0 } },
+                   { category = "items", id = "b", item = "X", count = 3, position = { 11, 10, 0 } } }
+    local pl = sk.give_pile(rows, "X", { 10, 10, 0 }, { a = 5 })
+    assert(pl.id == "b" and pl.count == 3 and pl.stacks == 1, "an unchanged older pile is skipped")
+    pl = sk.give_pile(rows, "X", { 10, 10, 0 }, { a = 2 })
+    assert(pl.id == "a" and pl.count == 6 and pl.stacks == 2, "a pile that grew counts its growth; every drop is its own item (live)")
+    assert(sk.give_pile(rows, "X", { 30, 30, 0 }, {}) == nil, "too far from his feet")
+    assert(sk._facing_off({ yaw = 90, position = { 0, 0, 0 } }, { 0, 5, 0 }) < 1e-6, "facing him")
+    assert(math.abs(sk._facing_off({ yaw = -168, position = { 0, 0, 0 } }, { 5, 0, 0 }) - 168) < 1e-6, "facing away")
 end)
 
 test("give: unreadable counts fail truthfully before or after drop", function()

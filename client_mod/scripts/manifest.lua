@@ -56,7 +56,7 @@ M.TOOLS = {
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
         reasons = { "path_blocked", "verification_failed", "interrupted", "timeout", "companion_down" } },
     drop = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10,
-        description = "Drop carried items at your feet (to give: go_to the player first).",
+        description = "Drop carried items at your feet (to hand them to a player use give).",
         args = { type = "object", required = { "item", "count" }, properties = obj({
             item = str("A carried item: its name (e.g. 'Oak Logs') or item id from inventory."),
             count = { type = "integer", minimum = 1, description = "How many." },

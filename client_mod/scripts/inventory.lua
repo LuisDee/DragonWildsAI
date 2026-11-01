@@ -683,6 +683,125 @@ function M.drop(log, what, count)
     return { ok = true, item = d, amount = total, drops = drops }
 end
 
+-- ------------------------------------------------------------------ split (the inventory UI's split)
+-- A player holds Shift ("Grant Split Stack"), drags a stack and picks the amount in the split widget
+-- (USplitStackButtonUIInput, bHalfStackDefaultSplit); dropping it on a free slot runs the screen's own
+-- UInventoryUIAPI:HandleInternalSplitToSlot(FromSlotNum, FromSlotType, Amount, ToSlotNum, ToSlotType)
+-- (dump Dominion.hpp:25107; live 2026-11-01: 21 stone, Amount 3 -> 18 + 3). Scalars only.
+-- Which stack to split `want` off: the smallest that keeps some (count > want), bag before hotbar.
+-- stacks = rows {slot, slot_type, count} -> row | nil, biggest (the largest stack's count)
+function M.split_plan(stacks, want)
+    local one, biggest = nil, 0
+    local function hot(r) return r.slot_type == "QuickAction" and 1 or 0 end
+    for _, r in ipairs(stacks or {}) do
+        local c = tonumber(r.count) or 0
+        if c > biggest then biggest = c end
+        if want >= 1 and c > want and (not one or hot(r) < hot(one) or (hot(r) == hot(one) and c < one.count)) then one = r end
+    end
+    return one, biggest
+end
+
+-- Split `count` of `what` off one of his stacks into a free slot of `to` ("bag" | "hotbar"; default the
+-- stack's own page) or slot `to_slot`. -> {ok, item = row, from = {slot, slot_type, count}, to = {slot, slot_type}, amount}
+function M.split(log, what, count, to, to_slot)
+    count = math.floor(tonumber(count) or 0)
+    if count < 1 then return { ok = false, reason = "invalid_args", detail = "count must be at least 1" } end
+    local l = M.list(log)
+    if not l.ok then return l end
+    local d, where = M.find(l, what)
+    if not d then return { ok = false, reason = "not_in_inventory", detail = "I don't have any " .. tostring(what) .. "." } end
+    if where == "loadout" then return { ok = false, reason = "invalid_args", item = d, detail = "The " .. tostring(d.name) .. " is equipped; I can only split a stack in my bag or hotbar." } end
+    local stacks, have = {}, 0
+    for _, w in ipairs({ "hotbar", "bag" }) do
+        for _, r in ipairs(l[w] or {}) do
+            if r.item == d.item and r.slot and SLOT_TYPE[r.slot_type] then stacks[#stacks + 1] = r; have = have + (r.count or 0) end
+        end
+    end
+    local name = tostring(d.name or d.item)
+    local src, biggest = M.split_plan(stacks, count)
+    if not src then
+        if have < count then
+            return { ok = false, reason = "not_enough_resources", item = d, have = have, want = count,
+                     detail = string.format("I only have %d %s.", have, name) }
+        end
+        return { ok = false, reason = "invalid_args", item = d, have = have, want = count, stacks = #stacks,
+                 detail = string.format("My biggest stack of %s holds %d, so there is nothing to split %d off; it is already a stack of its own.",
+                                        name, biggest, count) }
+    end
+    local page = to and M.MOVE_PAGES[tostring(to):lower()] or src.slot_type
+    if not page then return { ok = false, reason = "invalid_args", detail = "to must be bag or hotbar" } end
+    local slot = tonumber(to_slot) or M.free_slot(page)
+    if not slot then
+        return { ok = false, reason = "inventory_full", item = d,
+                 detail = "I have no free " .. (page == "QuickAction" and "hotbar" or "bag") .. " slot to put the split stack in." }
+    end
+    local api = M.ui_api()
+    if not api then return { ok = false, reason = "no InventoryUIAPI" } end
+    say(log, string.format("HandleInternalSplitToSlot(%d, %s, %d, %d, %s) %s (stack of %s)", src.slot, tostring(src.slot_type),
+        count, slot, page, tostring(d.item), tostring(src.count)))
+    local ok, err = pcall(function() api:HandleInternalSplitToSlot(src.slot, SLOT_TYPE[src.slot_type], count, slot, SLOT_TYPE[page]) end)
+    if not ok then return { ok = false, reason = tostring(err), item = d } end
+    return { ok = true, item = d, amount = count, from = { slot = src.slot, slot_type = src.slot_type, count = src.count },
+             to = { slot = slot, slot_type = page } }
+end
+
+-- The stack at (slot_type, slot) in a listing, or nil.
+function M.stack_at(l, slot_type, slot)
+    for _, w in ipairs({ "hotbar", "bag" }) do
+        for _, r in ipairs(l and l[w] or {}) do if r.slot_type == slot_type and r.slot == slot then return r end end
+    end
+end
+
+-- ------------------------------------------------------------------ bridge tools (client_bridge module HANDLERS)
+-- split {item, count, to?}: a waiter (no pawn, like drop); answers once the listing shows both stacks.
+M.SPLIT_WAIT_S = 4
+M.HANDLERS = {}
+M.HANDLERS.split = function(log, args, ctx)
+    local api = ctx and ctx.api
+    if not api then return { ok = false, reason = "body_error", data = { detail = "split needs the bridge api (ctx.api)" } } end
+    if type(args.item) ~= "string" or args.item == "" then return api.fail("invalid_args", { detail = "item is required" }) end
+    local r = M.split(log, args.item, args.count, args.to, args.slot)
+    if not r.ok then
+        local code = r.reason
+        if code ~= "invalid_args" and code ~= "not_in_inventory" and code ~= "not_enough_resources" and code ~= "inventory_full" then code = "body_error" end
+        return api.fail(code, { item = r.item and r.item.item or args.item, have = r.have, want = r.want,
+                                detail = r.detail or ("I couldn't split the stack: " .. tostring(r.reason) .. ".") })
+    end
+    local it, n, from, to = r.item, r.amount, r.from, r.to
+    local name = tostring(it.name or it.item)
+    local w = { kind = "split" }
+    w.poll = function()
+        local l = M.list(log)
+        if not l.ok then return nil end
+        local a, b = M.stack_at(l, from.slot_type, from.slot), M.stack_at(l, to.slot_type, to.slot)
+        if a and b and a.item == it.item and b.item == it.item and a.count == from.count - n and b.count == n then
+            return { ok = true, data = { item = it.item, name = name, count = n, left = a.count,
+                from = { slot = from.slot, page = from.slot_type == "QuickAction" and "hotbar" or "bag", count = a.count },
+                to = { slot = to.slot, page = to.slot_type == "QuickAction" and "hotbar" or "bag", count = b.count },
+                detail = string.format("I split my %d %s into %d and %d.", from.count, name, a.count, b.count) } }
+        end
+    end
+    w.expire = function()
+        return api.fail("verification_failed", { item = it.item, count = n,
+            detail = string.format("I tried to split %d %s off my stack of %d, but my inventory didn't change.", n, name, from.count) })
+    end
+    return { wait = w, wait_s = M.SPLIT_WAIT_S }
+end
+
+local OBJ = { __jsontype = "object" }
+local function obj(t) return setmetatable(t or {}, OBJ) end
+M.MANIFEST = {
+    split = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10, detail_is_speech = true,
+        description = "Split a carried stack in two: take count off it into a free slot, the rest stays (e.g. to drop, store "
+            .. "or give only part). drop, store and give take the amount themselves, so split only when a separate stack is wanted.",
+        args = { type = "object", required = { "item", "count" }, properties = obj({
+            item = { type = "string", description = "A carried item's name or id." },
+            count = { type = "integer", minimum = 1, description = "How many go into the new stack." },
+            to = { type = "string", enum = { "bag", "hotbar" }, description = "Where the new stack goes (default: beside the old one)." } }) },
+        ground = obj({ item = "carried" }),
+        reasons = { "not_in_inventory", "not_enough_resources", "inventory_full", "verification_failed", "invalid_args" } },
+}
+
 -- ------------------------------------------------------------------ stay fed and watered (reflex)
 -- A game-thread loop (LoopInGameThreadWithDelay, started by a short command; never blocks the
 -- command runner). Every cfg.period_ms it reads hydration / sustenance from the pawn and:

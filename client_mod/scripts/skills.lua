@@ -1234,7 +1234,11 @@ local function start_come_to(api, args, ctx, opts)
     local dist = math.max(1, tonumber(args.distance) or M.cfg.come_to_m)
     local job = { kind = opts.kind or "come_to", phase = "start" }
     local function begin()
-        local r = api.call("move", "follow", who, dist, { owner_token = job.token })
+        -- opts.goal / opts.as_player: give's stand-in leader (W.stand_in), followed like a player. opts.token(): the
+        -- owning job's arbiter token when come_to runs inside another skill (give): its own job never acquires one, so
+        -- a restart after the arbiter adopted the first follow was refused "busy: skill:give" (live 14:57Z)
+        local r = api.call("move", "follow", opts.goal or who, dist, { owner_token = job.token or (opts.token and opts.token()),
+                                                                     as_player = opts.as_player })
         if not r.ok then return r end
         if r.data.target_visible == false then
             api.call("move", "stop")
@@ -1257,7 +1261,7 @@ local function start_come_to(api, args, ctx, opts)
             return nil
         end
         if st.status == "near" then
-            local here, p = api.my_position(), player_row(api, who)
+            local here, p = api.my_position(), (opts.pose and opts.pose()) or player_row(api, who)
             local d = here and p and dist2d(here, p.position)
             if d and d <= dist + 1.5 then
                 api.call("move", "stop")
@@ -1391,12 +1395,96 @@ local function start_recover_grave(api, args, ctx)
 end
 
 -- ------------------------------------------------------------------ give
+-- Dragonwilds has no trade window or give action between players (dump 26161880: no trade class, no player give RPC;
+-- the wiki's inventory page lists drop, move and split only). A player hands items over by dropping them at the
+-- other's feet (a dropped world item is not magnetised: he collects it with E) or through a shared chest (store).
+-- So give = walk to him (come_to: by sight, or his game-map marker out of sight), step to a spot in front of him and
+-- face him, drop the count (inventory.drop, the UI's drop), then check the pile lies by him and say where.
+-- Live 2026-11-01 (build 26161880): a dropped stack lands ~1.4 m in front of the dropper along HIS facing (actor yaw),
+-- and every drop is its own world item (two drops of 1 Stone = two items 0.15 m apart; the game never merges them; a
+-- player takes them all with the secondary interaction, as Luis's "pile" did).
+M.cfg.give_front_m = 1.9   -- the spot in front of him (along his facing) where he stands to drop (lands ~0.5 m from him)
+M.cfg.give_face_deg = 25   -- face him this well before dropping (the drop flies along my facing)
+M.cfg.give_face_s = 1.0    -- turn toward him (movement-input nudges) at most this long
+M.cfg.give_reach_m = 3.5   -- after stepping round him: further than this from him = he walked off, catch up again
+M.cfg.give_pile_m = 3.0    -- the pile counts as "by him" within this many metres of his feet
+M.cfg.give_pile_s = 3.0    -- after the bag shrank: look this long for the pile on the ground
+M.cfg.give_look_every = 4  -- verify steps between two pile looks (~0.4 s at the bridge's 10 Hz)
+-- A stand-in leader for live harness tests without a second player (the movement ladder's ghost_leader.lua,
+-- _G.DW_GHOST, started by client_mod/commands/move_ghost_follow.lua): player = "dw_ghost".
+function W.stand_in(name)
+    if name ~= "dw_ghost" then return nil end
+    local g = rawget(_G, "DW_GHOST")
+    return type(g) == "table" and g.dw_ghost and g or nil
+end
+-- Where the receiver stands and faces: {pos = {x, y, z} m, yaw = deg | nil}, or nil out of sight.
+function W.pose(api, who, stand_in)
+    if stand_in then
+        local ok, p = pcall(function() return stand_in:K2_GetActorLocation() end)
+        if ok and p then return { pos = { p.X / 100, p.Y / 100, p.Z / 100 } } end
+        return nil
+    end
+    local row = player_row(api, who)
+    if not (row and row.position) then return nil end
+    local a = api.actor_of and api.actor_of(row)
+    local ok, yaw = pcall(function() return a:K2_GetActorRotation().Yaw end)
+    return { pos = row.position, yaw = ok and tonumber(yaw) or nil, name = row.name }
+end
+-- The spot to drop from: give_front_m in front of him along his facing; facing unknown: on the line from him to me.
+function M.give_spot(pos, yaw, me, front_m)
+    front_m = front_m or M.cfg.give_front_m
+    local ux, uy
+    if yaw then ux, uy = math.cos(math.rad(yaw)), math.sin(math.rad(yaw))
+    elseif me then
+        local dx, dy = me[1] - pos[1], me[2] - pos[2]
+        local l = math.sqrt(dx * dx + dy * dy)
+        if l > 0.05 then ux, uy = dx / l, dy / l end
+    end
+    if not ux then ux, uy = 1, 0 end
+    return { pos[1] + ux * front_m, pos[2] + uy * front_m, pos[3] }
+end
+-- World items of `item` in census rows: {id = count} (the snapshot before the drop).
+function M.piles_of(rows, item)
+    local o = {}
+    for _, t in ipairs(rows or {}) do
+        if t.category == "items" and t.item == item and t.id then o[t.id] = tonumber(t.count) or 1 end
+    end
+    return o
+end
+-- What he just dropped by the receiver: the world items of `item` that are new since `before` (or grew), within
+-- give_pile_m of the receiver's feet. rows = census things. -> {id (nearest), count (sum), stacks, dist_m (nearest)} | nil
+function M.give_pile(rows, item, at, before)
+    before = before or {}
+    local best, bd, sum, k = nil, nil, 0, 0
+    for _, t in ipairs(rows or {}) do
+        local was = t.id and before[t.id]
+        local c = tonumber(t.count) or 1
+        if t.category == "items" and t.item == item and t.position and (not was or c > was) then
+            local d = dist2d(t.position, at)
+            if d and d <= M.cfg.give_pile_m then
+                sum, k = sum + (was and c - was or c), k + 1
+                if not best or d < bd then best, bd = t, d end
+            end
+        end
+    end
+    return best and { id = best.id, count = sum, stacks = k, dist_m = math.floor(bd * 10 + 0.5) / 10 } or nil
+end
+-- How far (degrees) my facing is from the bearing to `pos`, or nil.
+local function facing_off(me, pos)
+    if not (me and me.yaw and me.position and pos) then return nil end
+    local b = math.deg(math.atan(pos[2] - me.position[2], pos[1] - me.position[1]))
+    return math.abs((b - me.yaw + 540) % 360 - 180)
+end
+M._facing_off = facing_off
+
 local function start_give(api, args, ctx)
     if not need_str(args.player) or not need_str(args.item) then
         return api.fail("invalid_args", { detail = "player and item are required" })
     end
     local n = math.floor(tonumber(args.count) or 0)
     if n < 1 then return api.fail("invalid_args", { detail = "count must be >= 1" }) end
+    local who = args.player
+    local ghost = W.stand_in(who)
     local lr = api.call("inventory", "list")
     if not lr.ok then return lr end
     local row = find_carried(api, lr.data, args.item)
@@ -1410,32 +1498,116 @@ local function start_give(api, args, ctx)
         return api.fail("not_enough_resources", { item = row.item, have = have, want = n,
             detail = "I only have " .. have .. " " .. tostring(row.name) .. "." })
     end
-    local job = { kind = "give", phase = "walk", row = row }
-    local walk = start_come_to(api, { player = args.player, distance = M.cfg.give_m }, ctx, { kind = "give" })
+    local name = tostring(row.name or row.item)
+    local job = { kind = "give", phase = "walk", row = row, t0 = api.now() }
+    local walk = start_come_to(api, { player = who, distance = M.cfg.give_m }, ctx,
+        { kind = "give", goal = ghost and { actor = ghost } or nil, as_player = ghost and true or nil,
+          token = function() return job.token end,
+          pose = ghost and function() local p = W.pose(api, who, ghost); return p and { position = p.pos } end or nil })
     if walk.ok == false then return walk end
     job.walk = walk
-    job.on_resume = function() if job.phase == "walk" then walk.on_resume() end end
+    job.on_resume = function() if job.phase == "walk" or job.phase == "place" then job.phase = "walk"; walk.on_resume() end end
+    -- turn toward him (the drop flies along my facing), then drop
+    local function face_then_drop(t)
+        job.phase, job.face_until = "face", t + M.cfg.give_face_s
+        return nil
+    end
+    local function drop_now(t)
+        job.before = count_of(api, row.item)
+        if job.before == nil then return api.fail("verification_failed", { detail = "I couldn't read my inventory count before dropping." }) end
+        local p = W.pose(api, who, ghost)
+        if p then job.at = p.pos end
+        job.dropped_from = api.my_position()
+        job.piles_before = M.piles_of(api.census_things(8, 40), row.item)
+        local dr = api.call("inventory", "drop", row.item, n)
+        if not dr.ok then return dr end
+        job.drops = dr.data and dr.data.drops
+        job.phase, job.until_t, job.t_drop = "verify", t + M.cfg.give_wait_s, t
+        return nil
+    end
     job.step = function(t)
         if job.phase == "walk" then
             local r = walk.step(t)
             if not r then return nil end
             if not r.ok then return r end
-            job.before = count_of(api, row.item)
-            if job.before == nil then return api.fail("verification_failed", { detail = "I couldn't read my inventory count before dropping." }) end
-            local dr = api.call("inventory", "drop", row.item, n)
-            if not dr.ok then return dr end
-            job.phase, job.until_t = "verify", t + M.cfg.give_wait_s
+            job.t_walk = t
+            local p = W.pose(api, who, ghost)
+            local here = api.my_position()
+            if not (p and here) then return face_then_drop(t) end
+            job.spot = M.give_spot(p.pos, p.yaw, here)
+            if dist2d(here, job.spot) <= 0.6 then return face_then_drop(t) end
+            local mr = api.call("move", "go_to", job.spot, { tolerance_m = 0.5, timeout_s = 10, local_plan = false,
+                                                              allow_unstuck = false, owner_token = job.token })
+            if not mr.ok then return face_then_drop(t) end
+            job.phase, job.place_until = "place", t + 10
+            return nil
+        end
+        if job.phase == "place" then
+            local st = api.move_status()
+            if st.mode == "go_to" and t < job.place_until then return nil end
+            if st.mode == "go_to" then api.call("move", "stop") end
+            local p, here = W.pose(api, who, ghost), api.my_position()
+            local d = p and here and dist2d(p.pos, here)
+            if d and d > M.cfg.give_reach_m then -- he walked off while I stepped round him: catch up again
+                job.phase = "walk"; walk.on_resume()
+                return nil
+            end
+            return face_then_drop(t)
+        end
+        if job.phase == "face" then
+            local p = W.pose(api, who, ghost)
+            local off = p and facing_off(api.me and api.me() or nil, p.pos)
+            if not off or off <= M.cfg.give_face_deg or t >= job.face_until then
+                job.face_off = off and math.floor(off + 0.5) or nil
+                return drop_now(t)
+            end
+            W.face(api, p.pos, true)
             return nil
         end
         local now_n = count_of(api, row.item)
-        if now_n ~= nil and now_n <= job.before - n then
-            return { ok = true, data = { item = row.item, name = row.name, count = n, player = args.player, at = "feet",
-                                         inventory_left = now_n } }
+        if not job.left and now_n ~= nil and now_n <= job.before - n then job.left, job.t_left = now_n, t end
+        if job.left then
+            -- a census costs ~100-200 ms of game thread: one look every M.cfg.give_look_every steps (the bridge polls at
+            -- ~10 Hz; its clock api.now() has whole-second resolution, so steps pace it, not t)
+            job.steps = (job.steps or 0) + 1
+            if job.steps % M.cfg.give_look_every ~= 1 and t < job.t_left + M.cfg.give_pile_s then return nil end
+            local p = W.pose(api, who, ghost)
+            local at = (p and p.pos) or job.at
+            local pile = at and M.give_pile(api.census_things(8, 40), row.item, at, job.piles_before)
+            -- a dropped stack flies for a moment (live: first read 1.1 m from him, at rest 0.44 m): report it once two
+            -- looks agree, or the last one seen when the time is up
+            local settled = pile and job.last_pile and job.last_pile.count == pile.count
+                and math.abs(job.last_pile.dist_m - pile.dist_m) <= 0.2
+            -- seen by his feet, then gone from the ground in two looks running: he took it
+            job.misses = (not pile and job.last_pile ~= nil) and (job.misses or 0) + 1 or 0
+            local gone = job.misses >= 2
+            if pile then job.last_pile = pile else pile = job.last_pile end
+            if settled or gone or t >= job.t_left + M.cfg.give_pile_s then
+                local data = { item = row.item, name = name, count = n, player = who, at = "feet", inventory_left = job.left,
+                               spot = job.spot, dropped_from = job.dropped_from, drops = job.drops and #job.drops or nil,
+                               face_off_deg = job.face_off,
+                               walk_s = job.t_walk and math.floor((job.t_walk - job.t0) * 10 + 0.5) / 10 or nil,
+                               total_s = math.floor((t - job.t0) * 10 + 0.5) / 10, picked_up = false }
+                if gone then
+                    data.pile, data.picked_up = pile, true
+                    data.detail = string.format("I dropped %d %s at your feet and %s gone from the ground already: you picked %s up.",
+                        n, name, n == 1 and "it's" or "they're", n == 1 and "it" or "them")
+                elseif pile then
+                    data.pile = pile
+                    data.detail = string.format("I dropped %d %s at your feet (%.1f m from you)%s: pick %s up.", n, name, pile.dist_m,
+                        pile.stacks > 1 and (" in " .. pile.stacks .. " stacks side by side") or "", n == 1 and "it" or "them")
+                else
+                    data.pile_seen = false
+                    data.detail = string.format("I dropped %d %s by you (they left my bag), but I can't see them on the ground now; someone may have picked them up.", n, name)
+                end
+                return { ok = true, data = data }
+            end
+            return nil
         end
         if t >= job.until_t then
             return api.fail("verification_failed", { item = row.item, count = n,
                 detail = now_n == nil and "I dropped it, but couldn't read my inventory to verify the result."
-                    or ("I dropped the " .. tostring(row.name) .. " but it didn't leave my inventory.") })
+                    or ("I dropped the " .. name .. " but it didn't leave my inventory.") })
         end
         return nil
     end
@@ -2361,7 +2533,7 @@ local SPEAKS = true
 -- PRINCIPLES 4b (Luis): primitives first, the MODEL composes ("walk to him" + "drop the logs"). Offered
 -- to the LLM: interact (frame-coupled: approach + face + press + verify), consume, move_item, equip (and
 -- the bridge's go_to / follow / stop / drop / look / inspect / inventory). The compounds fetch, come_to,
--- recover_grave and give stay as tested debug tools (llm = false), not offered.
+-- recover_grave stays a tested debug tool (llm = false), not offered; give is offered (see its entry).
 local COMPOUND = " (Compound kept for debugging; the model composes the primitives instead.)"
 M.MANIFEST = {
     interact = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 6, timeout_s = 110,
@@ -2469,12 +2641,17 @@ M.MANIFEST = {
         description = "Go to your own gravestone, Take All, verify, re-equip the last held tool." .. COMPOUND,
         args = { type = "object", properties = obj() },
         reasons = { "nothing_in_range", "ambiguous_target", "path_blocked", "not_interactable", "verification_failed", "timeout" } },
-    give = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 15, timeout_s = 120,
+    -- offered (PRINCIPLES 4b exception): stepping in front of a player who may move and checking the pile lands at his
+    -- feet are coupled faster than the model can act; go_to + drop leaves it up to 3 m away, side unknown
+    give = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 15, timeout_s = 120,
         detail_is_speech = SPEAKS,
-        description = "Walk to a player and drop carried items at their feet." .. COMPOUND,
+        description = "Hand carried items to a player the way players do (the game has no trade): walk to him (any "
+            .. "distance), step in front of him, face him, drop the count at his feet and check it lies there. He "
+            .. "picks it up himself.",
         args = { type = "object", required = { "player", "item", "count" }, properties = obj({
             player = str("The player's exact name."), item = str("A carried item's name or id."),
             count = { type = "integer", minimum = 1, description = "How many." } }) },
+        ground = obj({ item = "carried", player = "player" }),
         reasons = { "not_in_inventory", "not_enough_resources", "path_blocked", "unknown_target", "verification_failed", "timeout" } },
 }
 

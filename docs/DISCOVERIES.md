@@ -2548,3 +2548,33 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
     - Campfire (holds 77 Ash Logs) and Spinning Wheel (2 Fur);
     - 3 Ash farm plots;
     - foundations 19/20/21 and 23, which those stations stand on.
+
+## Giving, splitting and dropped piles (2026-11-01 14:51-15:05 UTC, dev, ClaudeDev; game build 26161880, client 26162923; split-give agent)
+- **There is no trade or give action between players.**
+  - The dump has no trade class and no player give RPC. The only "give" is `UDominionRuntimeBlueprintLibrary.TryGiveItemToPlayer(PlayerController, ItemData, Count)` (Dominion.hpp:20915), a server-side Blueprint library call (quests, scripts), not a player action.
+  - The wiki's Inventory page says items "can be dropped, moved, or split via a key-bound user hot-key"; nothing on trading. Control guides: Shift = Grant Split Stack, Ctrl = Grant Quick Transfer, X = Destroy Item; on a controller, tap LT = drop/transfer, hold a face button = split, the D-pad drives the split widget (`USplitStackButtonUIInput`, `bHalfStackDefaultSplit`).
+  - So a player gives by dropping at the other's feet (player drops are not magnetised: he collects them with E, or F for all) or through a shared chest (skills.lua `store` / `take`).
+- **Split = the inventory screen's `HandleInternalSplitToSlot`, the same server RPC as Luis's.**
+  - Luis (recorder, 12:42:45Z): `split_put` = `InventoryController:Server_SplitAndPutStack` (his inventory, raw slot 8, amount 2), then a whole-stack drop 0.84 s later. His task took 10 s, with 6.2 s before the first RPC (open the screen, Shift-drag, pick the amount).
+  - Claude, new `split` tool (inventory.lua): the server logged `split_put` (raw slot 30 = bag slot 22, amount 40) at 14:51:55.7Z. The listing showed 80 → 40 + 40 (new stack in bag slot 6), verified in **0.28 s** round trip (request → verified result).
+- **Drops:**
+  - `drop 1` took 0.37 s round trip; the server logged `drop` (raw slot 14, AmountOverride 1).
+  - The world item lands **~1.4 m in front of the dropper, along his actor yaw**: Claude at (363.05, 1735.54) with yaw -168 put it at (361.65, 1735.21).
+  - **Every drop is its own world item; the game never merges them.** Two 1-Stone drops made two `BP_RuntimeSpawnedWorldItem_C` (count 1 each) 0.15 m apart.
+  - Luis's "pile" (8 drops of 1 Stone, 12:42:12-12:42:16Z) was taken by ONE `PlayerInteractionManager:Server_RequestInteraction` with **`bIsSecondaryInteraction = true`** (the secondary "collect all"; his split pickup used `false`), +8 Stone in one press. So the pile bar is one secondary press over 8 world items, not one world item. This is the first live evidence that the secondary collect-all works.
+  - `AWorldItem.NameOfPlayerCharacterThatDroppedItem` reads empty (`dropped_by` nil) on Claude's client for his own drops, so the dropper can't be read client side.
+- **give (skills.lua, now offered to the model):**
+  - It walks with come_to (by sight, or his map marker when out of sight), then steps to a spot 1.9 m in front of him along his facing (facing unread: on the line from him to Claude).
+  - It turns toward him with movement-input nudges (to within 25°, at most 1 s), drops with `inventory.drop`, and checks that the bag shrank.
+  - It then looks for the NEW world items of that item within 3 m of his feet, until two looks agree. A stack flies for a moment: the first read was 1.1 m from him, at rest 0.44 m.
+  - It reports the resting distance and the number of stacks. If the pile is seen and then gone in two looks running, it says "you picked them up".
+  - **Live, against a stand-in receiver** (ghost_leader.lua at a fixed spot; no second player was on):
+    - give 3 Stone from ~10 m: **3.3 s** request → verified result (walk 2 s); give 7 after a 4.4 s walk away: **6.1 s** (walk 4 s).
+    - Piles at rest lay 0.38-0.67 m from his feet; the reports said 0.4 m (true).
+    - give 50 = a 40 + a 10 stack: "in 2 stacks side by side", 0.61 and 0.67 m from him.
+    - Claude stood 1.7-1.8 m from him.
+- **Bug found and fixed:** give's inner come_to restarted its follow without the give job's arbiter token, which was refused "busy: skill:give (command) is using my legs" (live 14:57Z).
+  - Cause: the first follow starts before the job owns the pawn, and the arbiter adopts it. The job's acquire then replaces that owner and the follow stops. The restart had no token.
+  - Fix: come_to takes `opts.token()` (the owning job's token).
+- **Not verified live:** give to a real player (his facing from his actor yaw, the census row, the map-marker walk). That needs Luis.
+- **Sources (search before building):** https://dragonwilds.runescape.wiki/w/Inventory; https://www.bisecthosting.com/blog/runescape-dragonwilds-controls-guide-keyboard-mouse-gamepad-controller; https://gamever.io/knowledge-base/controller-support-keybinds-in-dragonwilds-what-works-and-what-doesnt. Searches for a Dragonwilds trade or give mechanic found none (the results were older RuneScape trade windows and storage guides: https://allthings.how/runescape-dragonwilds-how-linked-chests-and-crafting-stations-work/). Decision: reuse the game's own client paths (the drop and split handlers); adapt MINDcraft's `!givePlayer` (go to the player, then toss) for the step in front, the facing and the pile check.

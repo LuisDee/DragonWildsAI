@@ -189,12 +189,13 @@ def test_manifest_drives_the_offered_tools(lua_caps, tmp_path):
     rig = Rig(tmp_path, lua_caps)
     caps = rig.caps
     assert caps.has_manifest and caps.source == "capabilities"
-    body_offered = rig.offered() - {"remember", "run_skill", "start_goal"}
+    body_offered = rig.offered() - {"remember", "run_skill", "start_goal", "food_options"}
     assert body_offered == set(caps.llm_tools())
-    for t in ("interact", "consume", "move_item", "equip", "go_to", "follow", "stop", "drop", "look", "inspect", "inventory"):
+    for t in ("interact", "consume", "move_item", "equip", "go_to", "follow", "stop", "drop", "look", "inspect", "inventory",
+              "give"):  # give: the 4b exception (skills.lua MANIFEST.give)
         assert t in body_offered, t
     # never a tool the body lacks or a demoted compound
-    for t in ("pickup", "fetch", "come_to", "recover_grave", "give", "attack", "gather", "craft", "cast", "sleep",
+    for t in ("pickup", "fetch", "come_to", "recover_grave", "attack", "gather", "craft", "cast", "sleep",
               "set_reflex_rule", "list_rules"):
         assert t not in body_offered, t
     # the body's own words and schemas reach the model
@@ -227,7 +228,7 @@ def test_old_body_without_manifest_offers_only_its_tools(tmp_path):
     game = FakeClientBody(grave_world())
     log = JsonlLogger(tmp_path / "b.jsonl")
     c = Controller(FakeLLM(), game, StateStore(tmp_path / "s", rig_caps.registry()), log, available_tools=caps.tools, caps=caps)
-    assert c.offered() - {"remember", "run_skill", "start_goal"} == {"follow", "stop", "go_to"}
+    assert c.offered() - {"remember", "run_skill", "start_goal", "food_options"} == {"follow", "stop", "go_to"}
 
 
 # --------------------------------------------------------------------------- today's lines, scripted model
