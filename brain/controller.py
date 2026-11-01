@@ -115,7 +115,7 @@ ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "
                 "gather"]
 # Actions that can run for minutes: the reply is said when they start, progress lines while they run,
 # and a short result line when they end (a failure still overrides, single voice).
-LONG_ACTIONS = {"gather"}
+LONG_ACTIONS = {"gather", "build_blueprint"}
 # How to name a skill in "I can't ... yet".
 SKILL_PHRASES = {"fetch": "pick that up", "consume": "eat or drink that", "come_to": "come to you",
                  "recover_grave": "get my things from my grave", "follow": "follow you", "stop": "stop", "go_to": "walk somewhere", "attack": "fight",

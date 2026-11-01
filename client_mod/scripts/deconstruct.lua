@@ -117,7 +117,6 @@ function M.order(list)
     end)
     return list
 end
-local function owner_words(p) return p.mine and "my" or "someone else's" end
 -- May this piece come down? -> nil (yes) | {why, words}
 function M.policy(p, opts)
     opts = opts or {}
@@ -131,7 +130,9 @@ function M.policy(p, opts)
         return { why = "not_mine", words = "the " .. p.name .. " isn't mine and this is the group's world, so I only take down my own pieces here" }
     end
     if M.KEEP_KINDS[p.kind] and not p.mine and not opts.include_stations then
-        return { why = "not_mine", words = "the " .. p.name .. " is " .. owner_words(p) .. " " .. p.kind:gsub("_", " ") .. ", so I'm leaving it unless its owner wants it gone (include_stations)" }
+        -- not in his ledger is all that is known (the game keeps no owner per piece): never "someone else's" (live
+        -- 21:07Z: his own 19:04 wheel, missed by the ledger, was called someone else's)
+        return { why = "not_mine", words = "the " .. p.name .. " is a " .. p.kind:gsub("_", " ") .. " I have no record of placing (the game keeps no owner on pieces; I go by my own list of what I built), so I'm leaving it unless its owner wants it gone (include_stations)" }
     end
 end
 -- The plan: the pieces to take down (in order) and the ones left standing with the reason.

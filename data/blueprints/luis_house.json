@@ -1,0 +1,153 @@
+{
+  "id": "luis_house",
+  "name": "Luis's house (3 x 3 cells)",
+  "about": "Luis's own base house (census 2026-11-01, pieces 15-45; his 24-piece base took 146 s): 9 Square Foundations, 12 walls round the outside (6 walls, 5 window frames, 1 door frame on the E middle; he set no door), 4 45 degree Hip Roofs on the corner cells and 4 45 degree Roofs on the edge cells, each on the outer wall's top. His Square Tile over the middle (on the roofs' ridge, 6 m up) is left out: there is no verified way to attach it yet, so the middle cell stays open above.",
+  "door_side": "E",
+  "pieces": [
+    {
+      "key": "c",
+      "piece": "DA_T1_Foundation_Large",
+      "at": true
+    },
+    {
+      "key": "n",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "c:N"
+    },
+    {
+      "key": "s",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "c:S"
+    },
+    {
+      "key": "e",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "c:E"
+    },
+    {
+      "key": "w",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "c:W"
+    },
+    {
+      "key": "ne",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "n:E"
+    },
+    {
+      "key": "nw",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "n:W"
+    },
+    {
+      "key": "se",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "s:E"
+    },
+    {
+      "key": "sw",
+      "piece": "DA_T1_Foundation_Large",
+      "on": "s:W"
+    },
+    {
+      "key": "w_nw_n",
+      "piece": "DA_T1_Wall_Large",
+      "on": "nw:N"
+    },
+    {
+      "key": "w_n",
+      "piece": "DA_T1_Wall_Large_Windowframe",
+      "on": "n:N"
+    },
+    {
+      "key": "w_ne_n",
+      "piece": "DA_T1_Wall_Large",
+      "on": "ne:N"
+    },
+    {
+      "key": "w_ne_e",
+      "piece": "DA_T1_Wall_Large_Windowframe",
+      "on": "ne:E"
+    },
+    {
+      "key": "w_e",
+      "piece": "DA_T1_Wall_Large_Doorframe",
+      "on": "e:E"
+    },
+    {
+      "key": "w_se_e",
+      "piece": "DA_T1_Wall_Large_Windowframe",
+      "on": "se:E"
+    },
+    {
+      "key": "w_se_s",
+      "piece": "DA_T1_Wall_Large",
+      "on": "se:S"
+    },
+    {
+      "key": "w_s",
+      "piece": "DA_T1_Wall_Large_Windowframe",
+      "on": "s:S"
+    },
+    {
+      "key": "w_sw_s",
+      "piece": "DA_T1_Wall_Large",
+      "on": "sw:S"
+    },
+    {
+      "key": "w_sw_w",
+      "piece": "DA_T1_Wall_Large",
+      "on": "sw:W"
+    },
+    {
+      "key": "w_w",
+      "piece": "DA_T1_Wall_Large_Windowframe",
+      "on": "w:W"
+    },
+    {
+      "key": "w_nw_w",
+      "piece": "DA_T1_Wall_Large",
+      "on": "nw:W"
+    },
+    {
+      "key": "h_nw",
+      "piece": "DA_T1_Roof_Large_Hip_Diagonal",
+      "on": "w_nw_n:S"
+    },
+    {
+      "key": "h_ne",
+      "piece": "DA_T1_Roof_Large_Hip_Diagonal",
+      "on": "w_ne_e:W"
+    },
+    {
+      "key": "h_se",
+      "piece": "DA_T1_Roof_Large_Hip_Diagonal",
+      "on": "w_se_s:N"
+    },
+    {
+      "key": "h_sw",
+      "piece": "DA_T1_Roof_Large_Hip_Diagonal",
+      "on": "w_sw_w:E"
+    },
+    {
+      "key": "r_n",
+      "piece": "DA_T1_Roof_Large_Diagonal",
+      "on": "w_n:S"
+    },
+    {
+      "key": "r_e",
+      "piece": "DA_T1_Roof_Large_Diagonal",
+      "on": "w_e:W"
+    },
+    {
+      "key": "r_s",
+      "piece": "DA_T1_Roof_Large_Diagonal",
+      "on": "w_s:N"
+    },
+    {
+      "key": "r_w",
+      "piece": "DA_T1_Roof_Large_Diagonal",
+      "on": "w_w:E"
+    }
+  ]
+}

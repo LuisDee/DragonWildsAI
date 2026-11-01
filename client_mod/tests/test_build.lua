@@ -1039,5 +1039,58 @@ do
     table_.BuildingPieceDataIndex, campfire.BuildingPieceDataIndex = 26, 26
 end
 
+-- blueprints (data/blueprints/*.json): Luis's house and his own verified small house as relative pieces
+do
+    local ids = Bd.blueprint_ids()
+    check("blueprints: the index lists small_house and luis_house", table.concat(ids, ","):find("small_house", 1, true)
+        and table.concat(ids, ","):find("luis_house", 1, true), table.concat(ids, ","))
+    local sh = Bd.blueprint_load("small_house")
+    local lh = Bd.blueprint_load("luis_house")
+    check("blueprints: both load (11 and 29 pieces)", sh and #sh.pieces == 11 and lh and #lh.pieces == 29, sh and #sh.pieces)
+    local none, why = Bd.blueprint_load("castle")
+    check("blueprints: an unknown one says which exist", none == nil and why:find("small_house", 1, true), why)
+    local it = Bd.blueprint_items(sh, { 10, 20, -31 }, nil)
+    check("blueprint_items: first foundation at the spot, the rest by #k refs on their own sides, the door in its frame",
+        it[1].at[1] == 10 and it[1].on == nil and it[2].on == "#1:S" and it[8].on == "#2:W" and it[9].on == "#8:in"
+        and it[10].on == "#3:S" and it[11].on == "#7:N", it[2].on .. " " .. it[8].on .. " " .. it[9].on)
+    local rt = Bd.blueprint_items(sh, "me", "S") -- door from W to S: every side turned 270 (W -> S)
+    check("blueprint_items: facing S turns its W door to S (N->W, S->E, W->S), in/top untouched, 'me' = beside me",
+        rt[1].near == "me" and rt[2].on == "#1:E" and rt[8].on == "#2:S" and rt[9].on == "#8:in" and rt[3].on == "#1:W",
+        rt[2].on .. " " .. rt[8].on .. " " .. rt[3].on)
+    -- the Luis house layout matches his census (pieces 15-45): corner hips from the outer walls toward the cell
+    local li = Bd.blueprint_items(lh, { 0, 0, 0 }, nil)
+    local by = {}
+    for k, p in ipairs(lh.pieces) do by[p.key] = k end
+    check("blueprint_items: Luis's NE hip roof goes on the NE window frame's W side, its door frame on the E middle",
+        li[by.h_ne].on == "#" .. by.w_ne_e .. ":W" and li[by.w_e].piece == "DA_T1_Wall_Large_Doorframe" and li[by.w_e].on == "#" .. by.e .. ":E")
+    -- materials first: a blueprint he can't pay for says what it needs and places nothing
+    local b0 = Bd.HANDLERS.buildables
+    Bd.HANDLERS.buildables = function(_, a)
+        local cost = { DA_T1_Foundation_Large = 4, DA_T1_Wall_Large = 4, DA_T1_Wall_Large_Doorframe = 4, DA_T1_Door = 2, DA_T1_Roof_Large_Diagonal = 6 }
+        local n = cost[a.about]
+        return { ok = true, data = { pieces = n and { { id = a.about, name = a.about, cost = { { item = "ITEM_Resources_Wood_Ash", name = "Ash Logs", count = n } } } } or {} } }
+    end
+    reset_game({ no_hook = true })
+    CARRIED.ITEM_Resources_Wood_Ash = 12
+    local r = Bd.HANDLERS.build_blueprint(nil, { blueprint = "small_house" }, { api = api, id = "bp1" })
+    check("build_blueprint: short of logs -> missing_materials with the whole cost (2x4 + 5x4 + 4 + 2 + 2x6 = 46), nothing pressed",
+        r and r.ok == false and r.reason == "missing_materials" and tostring(r.data.detail):find("needs 46 Ash Logs (I have 12)", 1, true)
+        and #G.presses == 0, r and tostring(r.data and r.data.detail))
+    Bd.HANDLERS.buildables = function() return { ok = true, data = { pieces = {} } } end
+    r = Bd.HANDLERS.build_blueprint(nil, { blueprint = "small_house" }, { api = api, id = "bp2" })
+    check("build_blueprint: a piece not unlocked -> says which", r and r.ok == false and tostring(r.data.detail):find("isn't among the pieces I can build", 1, true))
+    Bd.HANDLERS.buildables = b0
+    check("build_blueprint: in the manifest, its description naming the blueprints", Bd.MANIFEST.build_blueprint
+        and Bd.MANIFEST.build_blueprint.description:find("'luis_house'", 1, true) and Bd.MANIFEST.build_blueprint.llm == true)
+    -- a blueprint batch goes on past a piece the game wouldn't take; what goes on it is not tried
+    local bb = { items = { { piece = "F", key = "f1" }, { piece = "W", key = "w1", on = "#1:N" }, { piece = "R", key = "r1", on = "#2:S" }, { piece = "W", key = "w2", on = "#1:E" } },
+                 results = { { ok = true, data = { structure = "BP_1", name = "F", fit = "It stands at [0, 0, 0]." } },
+                             { ok = false, reason = "blocked", data = { detail = "the preview was red there" } }, nil,
+                             { ok = true, data = { structure = "BP_4", name = "W", fit = "It stands squarely on the E edge." } } }, keep_going = true }
+    local br = Bd.batch_result(api, bb, nil, 30)
+    check("batch (blueprint): built 2 of 4, #2 failed with why, #3 (on the failed one) not tried",
+        br and not br.ok and tostring(br.data.detail):find("Built 2 of 4", 1, true) and tostring(br.data.detail):find("#2 (w1 on #1:N) failed: the preview was red there", 1, true)
+        and tostring(br.data.detail):find("Not tried (they go on a piece that failed or the run stopped): #3", 1, true), br and br.data.detail)
+end
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

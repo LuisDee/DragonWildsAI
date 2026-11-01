@@ -1376,9 +1376,10 @@ local function ref_of(on)
     local k, side = tostring(on or ""):match("^#(%d+):?(.*)$")
     return tonumber(k), side
 end
-function M.batch_items(list)
+function M.batch_items(list, max)
+    max = max or M.cfg.build.batch_max
     if type(list) ~= "table" or #list == 0 then return nil, "pieces must be a list of {piece, on, ...}" end
-    if #list > M.cfg.build.batch_max then return nil, "at most " .. M.cfg.build.batch_max .. " pieces in one go" end
+    if #list > max then return nil, "at most " .. max .. " pieces in one go" end
     local items = {}
     for k, it in ipairs(list) do
         if type(it) ~= "table" or type(it.piece) ~= "string" or it.piece == "" then
@@ -1424,7 +1425,7 @@ function M.batch_pick(api, b)
 end
 function M.batch_result(api, b, last, t_s)
     local lines, built, spent = {}, {}, {}
-    local fail
+    local fail, fails = nil, {}
     for k = 1, #b.items do
         local r = b.results[k]
         if r and r.ok then
@@ -1433,19 +1434,31 @@ function M.batch_result(api, b, last, t_s)
                                   attached_to = d.attached_to, side = d.side, fit = d.fit }
             lines[#lines + 1] = "#" .. k .. " " .. tostring(d.name) .. " (" .. tostring(d.structure) .. "): " .. tostring(d.fit or "built")
             if type(d.spent) == "table" then for item, c in pairs(d.spent) do spent[item] = (spent[item] or 0) + c end end
-        elseif r and not fail then fail = { k = k, r = r } end
+        elseif r then
+            fails[#fails + 1] = { k = k, r = r }
+            fail = fail or fails[#fails]
+        end
     end
     local untried = {}
     for k = 1, #b.items do if not b.results[k] then untried[#untried + 1] = "#" .. k end end
     local n = #b.items
     local head = string.format("Built %d of %d pieces in %d s", #built, n, math.floor((t_s or 0) + 0.5))
     local text = head .. (#lines > 0 and (": " .. table.concat(lines, " ")) or ".")
-    if fail then
-        local it = b.items[fail.k]
-        text = text .. " Stopped at #" .. fail.k .. " (" .. tostring(it.piece) .. (it.on and (" on " .. tostring(it.on)) or "") .. "): "
-            .. tostring((fail.r.data or {}).detail or fail.r.reason)
+    if fail and b.keep_going then -- a blueprint goes on past a piece that wouldn't sit; what stands on it can't
+        for _, f in ipairs(fails) do
+            local it = b.items[f.k]
+            text = text .. " #" .. f.k .. " (" .. tostring(it.key or it.piece) .. (it.on and (" on " .. tostring(it.on)) or "") .. ") failed: "
+                .. tostring((f.r.data or {}).detail or f.r.reason)
+        end
+        if #untried > 0 then text = text .. " Not tried (they go on a piece that failed or the run stopped): " .. table.concat(untried, ", ") .. "." end
+    else
+        if fail then
+            local it = b.items[fail.k]
+            text = text .. " Stopped at #" .. fail.k .. " (" .. tostring(it.piece) .. (it.on and (" on " .. tostring(it.on)) or "") .. "): "
+                .. tostring((fail.r.data or {}).detail or fail.r.reason)
+        end
+        if #untried > 0 then text = text .. " Not tried: " .. table.concat(untried, ", ") .. "." end
     end
-    if #untried > 0 then text = text .. " Not tried: " .. table.concat(untried, ", ") .. "." end
     local data = { built_pieces = built, spent = api.object(spent), presses = last and last.data and last.data.presses or nil }
     if fail or #built < n then
         data.detail, data.why = text, fail and (fail.r.data or {}).why or "not_all_built"
@@ -1462,13 +1475,21 @@ end
 function M.batch_next(api, job, res)
     local b = job.batch
     b.results[b.i], b.done[b.i] = res, true
-    if not res.ok then b.over = true; return false end
-    local k = M.batch_pick(api, b)
-    if not k then b.over = true; return false end
-    local args = M.batch_args(b, k)
-    b.i = k
-    local nj = start_build(api, args, b.ctx)
-    if nj.ok == false then b.results[k], b.done[k], b.over = nj, true, true; return false end
+    -- a blueprint goes on past a piece the game wouldn't take (blocked); anything else (stopped, no materials,
+    -- the menu, a timeout) ends it
+    if not res.ok and not (b.keep_going and res.reason == "blocked") then b.over = true; return false end
+    local k, args, nj
+    repeat
+        k = M.batch_pick(api, b)
+        if not k then b.over = true; return false end
+        args = M.batch_args(b, k)
+        b.i = k
+        nj = start_build(api, args, b.ctx)
+        if nj.ok == false then
+            b.results[k], b.done[k] = nj, true
+            if not (b.keep_going and nj.reason == "blocked") then b.over = true; return false end
+        end
+    until nj.ok ~= false
     -- the same job table goes on: the poll closure, the arbiter token and the open build screen stay with it
     local keep = { batch = true, token = true, own = true, presses = true, phase_s = true, phase_at = true, last_phase = true }
     for key in pairs(job) do if not keep[key] then job[key] = nil end end
@@ -1511,7 +1532,21 @@ local function step(api, job, t)
                 local n = ta == 2 and { -math.sin(yaw), math.cos(yaw) } or { math.cos(yaw), math.sin(yaw) }
                 local h = here or job.center
                 if (h[1] - job.center[1]) * n[1] + (h[2] - job.center[2]) * n[2] < 0 then n = { -n[1], -n[2] } end
-                axis, out_m = n, 1.0 + cfg.stand_extra_m + 1.0
+                out_m = 1.0 + cfg.stand_extra_m + 1.0
+                -- a frame in a house: stand on its side that is off every floor (outside). Inside a closed room the
+                -- camera boom presses against the far wall and its ray starts in that wall (live run 6, 22:5xZ: the
+                -- door's cursor stuck on the N wall's inner face 2.8 m from the S frame, every read, so the door
+                -- never snapped; run 5's frame stood on a floor with no wall behind me)
+                local a0 = job.on.anchor
+                local fz = a0.position[3] + a0.box.origin[3] - a0.box.extent[3]
+                -- read just across the frame (0.75 m), not at the stand spot: 3.5 m out from a 3 m room is past its far
+                -- wall, off the floor (live retest 23:02Z: he stood N of the N wall, the ray hit its outer face)
+                local function floored(m)
+                    local okf, f = pcall(W.floor_under, api, { job.center[1] + m[1] * 0.75, job.center[2] + m[2] * 0.75, fz }, a0.id)
+                    return okf and f ~= nil
+                end
+                if floored(n) and not floored({ -n[1], -n[2] }) then n = { -n[1], -n[2] } end
+                axis = n
             end
             -- standing height: on the floor under it, never the piece's own height (live 17:44Z: a ceiling's stand
             -- point at the wall top, 2.1 m up, so the go_to never arrived and kept steering the camera level at its
@@ -1933,9 +1968,10 @@ M.HANDLERS.build = function(log, args, ctx)
     args = args or {}
     local batch
     if args.pieces ~= nil then
-        local items, bad = M.batch_items(args.pieces)
+        local bo = ctx.batch_opts or {} -- build_blueprint: a longer list, going on past a piece that failed
+        local items, bad = M.batch_items(args.pieces, bo.max)
         if not items then return { ok = false, reason = "invalid_args", data = { detail = bad } } end
-        batch = { items = items, results = {}, done = {}, t0 = api.now(), ctx = ctx }
+        batch = { items = items, results = {}, done = {}, t0 = api.now(), ctx = ctx, keep_going = bo.keep_going }
         batch.i = M.batch_pick(api, batch)
         if not batch.i then return { ok = false, reason = "invalid_args", data = { detail = "every piece names another one with #k: none can go first" } } end
         args = M.batch_args(batch, batch.i)
@@ -2115,6 +2151,133 @@ function M.state_extras(api)
     return nil
 end
 
+-- ------------------------------------------------------------------ blueprints (CLAUDE.md phase 7: relative pieces)
+-- data/blueprints/<id>.json: {id, name, about, door_side, pieces = {{key, piece, at | on = "<key>:<side>"}}}. The
+-- first piece goes at the spot; every other one attaches to an earlier one by key, the sides as compass words for
+-- the blueprint's own door_side. build_blueprint turns it (facing = the side the door faces) and runs it as one
+-- `pieces` batch: the build screen stays open, each piece is placed by the verified attach primitives and checked
+-- from the census, and a piece the game won't take is reported while the rest go on.
+M.cfg.blueprints = { dir = ROOT .. "/data/blueprints", max = 40 }
+local function json_lib() local m = mem(); m.json = m.json or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))(); return m.json end
+local function read_json(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local txt = f:read("a") or ""; f:close()
+    local ok, d = pcall(function() return json_lib().decode(txt) end)
+    return ok and type(d) == "table" and d or nil
+end
+function M.blueprint_ids()
+    local ix = read_json(M.cfg.blueprints.dir .. "/index.json")
+    return type(ix) == "table" and type(ix.blueprints) == "table" and ix.blueprints or {}
+end
+function M.blueprint_load(id)
+    id = tostring(id or ""):lower():gsub("[^%w_]", "_")
+    local bp = id ~= "" and read_json(M.cfg.blueprints.dir .. "/" .. id .. ".json")
+    if not (bp and type(bp.pieces) == "table" and #bp.pieces > 0) then
+        return nil, "I have no blueprint called '" .. id .. "'; I know: " .. table.concat(M.blueprint_ids(), ", ") .. "."
+    end
+    return bp
+end
+local COMPASS, CIDX = { "N", "E", "S", "W" }, { N = 1, E = 2, S = 3, W = 4 }
+-- The blueprint as a batch: "#k" refs, sides turned so its door faces `facing`, the first piece at `at`.
+-- -> items | nil, why
+function M.blueprint_items(bp, at, facing)
+    local f = facing and CIDX[tostring(facing):upper():sub(1, 1)]
+    local rot = f and ((f - (CIDX[bp.door_side or "N"] or 1)) % 4) or 0
+    local index, items = {}, {}
+    for k, p in ipairs(bp.pieces) do
+        if type(p) ~= "table" or type(p.piece) ~= "string" then return nil, "blueprint piece #" .. k .. " has no piece" end
+        index[p.key or ("#" .. k)] = k
+        local it = { piece = p.piece, key = p.key }
+        if p.on then
+            local key, side = tostring(p.on):match("^([^:]+):?(.*)$")
+            local r = index[key]
+            if not r then return nil, "blueprint piece " .. tostring(p.key) .. " goes on '" .. tostring(key) .. "', which comes later or isn't in it" end
+            local c = CIDX[side]
+            it.on = "#" .. r .. (side ~= "" and (":" .. (c and COMPASS[(c - 1 + rot) % 4 + 1] or side)) or "")
+        elseif type(at) == "table" then it.at = at
+        elseif at == nil or at == "me" then it.near = "me"
+        else it.at = at end
+        items[k] = it
+    end
+    return items
+end
+-- What the whole blueprint costs, from buildables (the game's own costs) -> {item = {name, need}}, unknown ids
+function M.blueprint_cost(ctx, items)
+    local need, unknown, rows = {}, {}, {}
+    for _, it in ipairs(items) do
+        local row = rows[it.piece]
+        if row == nil then
+            local r = M.HANDLERS.buildables(nil, { about = it.piece, max = 5 }, ctx)
+            row = false
+            for _, p in ipairs(((r or {}).data or {}).pieces or {}) do if p.id == it.piece then row = p end end
+            rows[it.piece] = row
+        end
+        if row then
+            it.name = row.name
+            for _, c in ipairs(row.cost or {}) do
+                local n = need[c.item] or { name = c.name, need = 0 }
+                n.need = n.need + (tonumber(c.count) or 0)
+                need[c.item] = n
+            end
+        else unknown[#unknown + 1] = it.piece end
+    end
+    return need, unknown
+end
+M.HANDLERS.build_blueprint = function(log, args, ctx)
+    local api = ctx and ctx.api
+    if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
+    args = args or {}
+    local bp, why = M.blueprint_load(args.blueprint)
+    if not bp then return api.fail("invalid_args", { detail = why, blueprints = M.blueprint_ids() }) end
+    local items, bad = M.blueprint_items(bp, args.at, args.facing)
+    if not items then return api.fail("invalid_args", { detail = bad }) end
+    local need, unknown = M.blueprint_cost(ctx, items)
+    if #unknown > 0 then
+        return api.fail("missing_materials", { blueprint = bp.id, why = "not_unlocked",
+            detail = "I can't build the " .. bp.name .. " yet: " .. table.concat(unknown, ", ") .. " isn't among the pieces I can build." })
+    end
+    local have, short, total = api.counts() or {}, {}, {}
+    for item, n in pairs(need) do
+        total[#total + 1] = n.need .. " " .. tostring(n.name)
+        local h = tonumber(have[item]) or 0
+        if h < n.need then short[#short + 1] = { item = item, name = n.name, need = n.need, have = h } end
+    end
+    table.sort(total)
+    if #short > 0 then
+        local w = {}
+        for _, m in ipairs(short) do w[#w + 1] = string.format("%d %s (I have %d)", m.need, tostring(m.name), m.have) end
+        return api.fail("missing_materials", { blueprint = bp.id, missing = short,
+            detail = "The " .. bp.name .. " (" .. #items .. " pieces) needs " .. table.concat(w, ", ") .. ". Nothing was placed." })
+    end
+    ctx.batch_opts = { max = M.cfg.blueprints.max, keep_going = true }
+    local r = M.HANDLERS.build(log, { pieces = items }, ctx)
+    ctx.batch_opts = nil
+    -- the batch's reply, headed by the blueprint and what it costs
+    local head = "Blueprint " .. bp.name .. " (" .. #items .. " pieces, " .. table.concat(total, ", ") .. "): "
+    local function wrap(res)
+        if type(res) == "table" and type(res.data) == "table" then
+            if res.data.built then res.data.built = head .. res.data.built end
+            if res.data.detail then res.data.detail = head .. res.data.detail end
+            res.data.blueprint = bp.id
+        end
+        return res
+    end
+    if type(r) == "table" and r.pending then
+        local a = r.pending
+        local poll0 = a.poll
+        a.kind = "build_blueprint"
+        a.timeout_s = M.cfg.build.timeout_s * #items
+        a.poll = function(self, ...)
+            local res = poll0(self, ...)
+            if res then return wrap(res) end
+            return res
+        end
+        return r
+    end
+    return wrap(r)
+end
+
 -- ------------------------------------------------------------------ manifest (client_mod/scripts/manifest.lua shape)
 local OBJ = { __jsontype = "object" }
 local function obj(t) return setmetatable(t or {}, OBJ) end
@@ -2147,5 +2310,31 @@ M.MANIFEST = {
         reasons = { "no_permission", "host_only", "unknown_target", "ambiguous_target", "missing_materials", "blocked", "invalid_args",
                     "limit_reached", "too_far", "path_blocked", "interrupted", "verification_failed", "timeout" } },
 }
+-- build_blueprint's description names the blueprints on disk (data, not code: a new house is a new json file)
+do
+    local known = {}
+    local okb = pcall(function()
+        for _, id in ipairs(M.blueprint_ids()) do
+            local bp = M.blueprint_load(id)
+            if bp then known[#known + 1] = "'" .. bp.id .. "': " .. tostring(bp.name) .. ", " .. #bp.pieces .. " pieces, door on its " .. tostring(bp.door_side) .. " side. " .. tostring(bp.about or "") end
+        end
+    end)
+    M.MANIFEST.build_blueprint = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 120, timeout_s = 2400,
+        detail_is_speech = true,
+        description = "Build a whole saved blueprint, piece by piece, the build screen kept open: its first foundation at the spot, "
+            .. "then each piece on the one before it the way the blueprint says (foundations, walls on their edges, the door in "
+            .. "its frame, roofs on the walls' tops). Needs all its materials first (not ok missing_materials says how many). "
+            .. "Each piece is checked from the census; a piece the game won't take is reported and the rest go on. ok: every "
+            .. "piece built; not ok: what was built, what failed and why, and what was not tried. Blueprints: "
+            .. (okb and #known > 0 and table.concat(known, " | ") or "(none readable)"),
+        args = { type = "object", properties = obj({
+            blueprint = { type = "string", description = "The blueprint's id." },
+            at = { description = "Where its first foundation goes: [x, y, z] metres, an id, or 'me' (beside where you stand NOW, the default). "
+                .. "A request that said 'here' meant where you stood when asked: that is the Asked line's (x, y, z), so pass those numbers; 'me' after walking off to gather is somewhere else." },
+            facing = { type = "string", enum = { "N", "E", "S", "W" }, description = "The side its door faces (default: the blueprint's own)." } }),
+            required = { "blueprint" } },
+        reasons = { "no_permission", "host_only", "unknown_target", "missing_materials", "blocked", "invalid_args", "too_far",
+                    "path_blocked", "interrupted", "verification_failed", "timeout" } }
+end
 
 return M

@@ -1,0 +1,19 @@
+{
+  "id": "small_house",
+  "name": "Small house (2 cells)",
+  "about": "2 Square Foundations (N-S), 5 walls, a door frame with its door, two 45 degree roofs on the long walls' tops. 2 x 3 m inside. Built and verified piece by piece live 2026-11-01 (his house BuildingPiece_61-78: every wall square, door in its frame, both roofs on the wall tops at floor + 4.5 m, Luis's roof height).",
+  "door_side": "W",
+  "pieces": [
+    {"key": "f1", "piece": "DA_T1_Foundation_Large", "at": true},
+    {"key": "f2", "piece": "DA_T1_Foundation_Large", "on": "f1:S"},
+    {"key": "wn", "piece": "DA_T1_Wall_Large", "on": "f1:N"},
+    {"key": "wnw", "piece": "DA_T1_Wall_Large", "on": "f1:W"},
+    {"key": "wne", "piece": "DA_T1_Wall_Large", "on": "f1:E"},
+    {"key": "wse", "piece": "DA_T1_Wall_Large", "on": "f2:E"},
+    {"key": "ws", "piece": "DA_T1_Wall_Large", "on": "f2:S"},
+    {"key": "fr", "piece": "DA_T1_Wall_Large_Doorframe", "on": "f2:W"},
+    {"key": "door", "piece": "DA_T1_Door", "on": "fr:in"},
+    {"key": "r1", "piece": "DA_T1_Roof_Large_Diagonal", "on": "wn:S"},
+    {"key": "r2", "piece": "DA_T1_Roof_Large_Diagonal", "on": "ws:N"}
+  ]
+}

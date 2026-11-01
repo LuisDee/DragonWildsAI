@@ -101,7 +101,7 @@ def fresh_spot(pts: list[list[float]], base: list[float], nav: dict, clear_m: fl
 def build_results(rows: list[dict]) -> list[dict]:
     out = []
     for r in rows:
-        if r.get("kind") != "tool_result" or r.get("tool") != "build":
+        if r.get("kind") != "tool_result" or r.get("tool") not in ("build", "build_blueprint"):
             continue
         res = r.get("result") or {}
         d = res.get("data") if isinstance(res.get("data"), dict) else {}
