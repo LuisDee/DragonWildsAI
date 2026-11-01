@@ -198,7 +198,9 @@ class Ops:
     """Everything outside the bridge. Tests replace it with a fake."""
 
     def brain_running(self) -> bool:
-        return bool(self._procs("python.exe", "run_live"))
+        # the brain module itself (-m brain.run_live, or brain/run_live.py): a bare "run_live" also matched
+        # `pytest tests/test_run_live.py` and aborted ladder windows with no brain up (live 2026-11-01 15:33Z, 16:0xZ)
+        return any(re.search(r"brain[./\\]run_live", x) for x in self._procs("python.exe", "run_live"))
 
     def dev_server_running(self) -> bool:
         return bool(self._procs("RSDragonwildsServer-Win64-Shipping.exe", ""))
