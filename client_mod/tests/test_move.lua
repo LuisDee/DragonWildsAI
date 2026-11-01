@@ -2374,6 +2374,54 @@ do
         tostring(r.detail):find("drop ahead", 1, true), r and (tostring(r.status) .. " " .. tostring(r.detail) .. " x=" .. pawn.loc.X))
     M.cfg.lp_max_plans = old_plans; HOLES = nil; M.stop(log)
 end
+-- Steering hands on in order within ONE frame: a source that runs out (a local segment done, the trail caught up)
+-- gives the frame to the next one (trail, then a remembered route), never a frame of straight steering.
+do
+    M.stop(log); walls, raised, oracle, frame_hook, air, HOLES = {}, {}, nil, nil, 0, nil; pump_oracle()
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 20, 0, 0 }, { nav = false, local_plan = false, sprint = false })
+    local st = _G.DW_MOVE
+    st.mem_checked = true
+    st.lpath, st.lwp = { { X = -100, Y = 0, Z = -90, act = "walk" }, { X = 0, Y = 0, Z = -90, act = "walk" } }, 2
+    st.crumbs, st.trail_i = { { X = -100, Y = 0, Z = 0 }, { X = 0, Y = -500, Z = 0 } }, 2
+    step(1)
+    check("steering: a finished local segment hands the same frame to the trail",
+        st.lpath == nil and st.source == "trail" and pawn.input and pawn.input.Y < -0.9, tostring(st.source))
+    M.stop(log); pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 20, 0, 0 }, { nav = false, local_plan = false, sprint = false })
+    st = _G.DW_MOVE
+    st.mem_checked = true
+    st.crumbs, st.trail_i = { { X = -100, Y = 0, Z = 0 }, { X = 0, Y = 0, Z = 0 } }, 2
+    st.mpath, st.mwp = { { X = 0, Y = 0, Z = -90 }, { X = 0, Y = 500, Z = -90 } }, 2
+    step(1)
+    check("steering: a caught-up trail hands the same frame to the remembered route",
+        st.trail_i == nil and st.source == "memory" and pawn.input and pawn.input.Y > 0.9, tostring(st.source))
+    M.stop(log)
+end
+-- A malformed oracle answer is never a route: each shape below falls back with "invalid_route".
+do
+    for _, case in ipairs({
+        { "one point", "points={{0,0,0}}" },
+        { "two coordinates", "points={{0,0,0},{5,0}}" },
+        { "four coordinates", "points={{0,0,0},{5,0,0,1}}" },
+        { "named key in a point", "points={{0,0,0},{5,0,0,x=1}}" },
+        { "NaN coordinate", "points={{0,0,0},{0/0,0,0}}" },
+        { "infinite coordinate", "points={{0,0,0},{1/0,0,0}}" },
+        { "string coordinate", "points={{0,0,0},{'5',0,0}}" },
+        { "non-boolean partial", "partial='no',points={{0,0,0},{5,0,0}}" },
+        { "non-boolean goal_projected", "goal_projected=1,points={{0,0,0},{5,0,0}}" },
+        { "points not a table", "points=5" },
+    }) do
+        local name, body = case[1], case[2]
+        M.stop(log); pawn.loc = { X = 0, Y = 0, Z = 0 }; _G.DW_TRAP_CAND = nil
+        offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
+        oracle = function(id) return ("return {id=%d,ok=true," .. body .. "}"):format(id) end
+        pump_oracle(); M.go_to(log, { 20, 0, 0 }, { local_plan = false }); run(3)
+        check("malformed oracle route rejected: " .. name, _G.DW_MOVE.path == nil and _G.DW_MOVE.nav_fallback == "invalid_route",
+            tostring(_G.DW_MOVE.nav_fallback))
+    end
+    M.stop(log); oracle = nil; pump_oracle()
+end
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
