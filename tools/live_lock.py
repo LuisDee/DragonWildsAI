@@ -20,6 +20,7 @@ quests, pickup and needs took turns).
 from __future__ import annotations
 
 import argparse
+import json
 import ctypes
 import os
 import subprocess
@@ -33,6 +34,8 @@ from pathlib import Path
 LOCK = Path(__file__).resolve().parents[1] / "logs" / "state" / "live_owner.txt"
 QUEUE = LOCK.parent / "live_queue"
 AUDIT = LOCK.parent / "live_lock.log"  # one line per claim / release / stale takeover: who drove him when
+PRIORITY = LOCK.parent / "live_priority.json"
+DEFAULT_RANK = 5
 STALE_S = 300
 REFRESH_S = 60
 
@@ -167,8 +170,18 @@ def _ticket(owner: str, qdir: Path | None = None) -> Path:
     return t
 
 
+def priorities(path: Path | None = None) -> dict[str, int]:
+    """logs/state/live_priority.json {owner: rank}: a lower rank claims first, then oldest first (unlisted owners rank
+    DEFAULT_RANK). The ladder is climbed in order, so the rung being worked on gets the one body first (main
+    2026-11-01 21:3xZ: rung 1's follow and grave had 3 gate tries all day while rung 3 had 51)."""
+    try:
+        return {str(k): int(v) for k, v in json.loads((path or PRIORITY).read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
 def queue(qdir: Path | None = None) -> list[dict]:
-    """The waiters, oldest first; a ticket whose process is gone is removed."""
+    """The waiters in claim order (rank, then oldest first); a ticket whose process is gone is removed."""
     qdir = qdir or QUEUE
     out = []
     for t in (qdir.iterdir() if qdir.exists() else []):
@@ -183,7 +196,8 @@ def queue(qdir: Path | None = None) -> list[dict]:
                 pass
             continue
         out.append({"ticket": t, "ns": int(ns), "owner": owner, "pid": int(pid)})
-    return sorted(out, key=lambda x: x["ns"])
+    rank = priorities()
+    return sorted(out, key=lambda x: (rank.get(x["owner"], DEFAULT_RANK), x["ns"]))
 
 
 @contextmanager
