@@ -104,7 +104,10 @@ def build(catalog: dict) -> dict:
             "mult": stats.get("damage_multiplier"),
             "block": stats.get("blocking_damage_negation"),
             "slot": item.get("slot"),
-            "kind": prim and prim["kind"],
+            # a weapon that aims (secondary "aim": bows) fights at range: aim, then the primary releases the shot. The
+            # longbow's unaimed primary is a melee bash (damage_class Melee), which made it "melee" and combat clubbed
+            # with it
+            "kind": "ranged" if prim and sec.get("kind") == "aim" else prim and prim["kind"],
             "prim": prim and {k: v for k, v in prim.items() if k != "kind"},
             "spec": spec and {k: v for k, v in spec.items() if k not in ("kind", "n", "stam")},
             "can_block": sec.get("kind") == "block",
