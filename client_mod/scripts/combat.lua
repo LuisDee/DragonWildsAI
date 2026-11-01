@@ -1090,8 +1090,8 @@ function M.emit_activity(ev)
     json_mod = json_mod or U.try(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
     if not json_mod then return end
     ev.type = "activity"
-    ev.ts = os.time()
-    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local okw, walltime = pcall(require, "walltime") -- ms ts + act/ep (telemetry items 2, 5)
+    if okw then walltime.stamp(ev) else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
     local line = U.try(function() return json_mod.encode(ev) end)
     if not line then return end
     local fh = io.open(M.ACTIVITY_PATH, "a")

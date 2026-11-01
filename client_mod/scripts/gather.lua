@@ -190,8 +190,8 @@ end
 local json_mod
 function W.emit(ev)
     json_mod = json_mod or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))()
-    ev.ts = os.time()
-    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local okw, walltime = pcall(require, "walltime") -- ms ts + act/ep (telemetry items 2, 5)
+    if okw then walltime.stamp(ev) else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
     local line = U.try(function() return json_mod.encode(ev) end)
     if not line then return end
     local f = io.open(ROOT .. "/client_io/events/gather.jsonl", "a")

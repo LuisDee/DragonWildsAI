@@ -215,7 +215,9 @@ local function finish(a, res)
     if a.done then return end
     a.done = true
     if S.action == a then S.action = nil end
-    ev("client_action_end", { kind = a.kind, id = a.id, ok = res.ok, reason = res.reason })
+    local cur = rawget(_G, "__dwc_act")
+    if type(cur) == "table" and cur.act == a.id then rawset(_G, "__dwc_act", nil) end
+    ev("client_action_end", { kind = a.kind, id = a.id, ep = a.ep, call = a.call, ok = res.ok, reason = res.reason })
     -- the general stray-screen guard (input.after_action, BUGS B-stuck-focused-ui): an action that left a HUD
     -- screen open (a Campfire's Processing + Inventory panels) must not leave him in DIM_FocussedInGameUI
     local inp = not rawget(_G, "DW_PAUSE") and M.module("input") or nil
@@ -1372,15 +1374,21 @@ local function dispatch(tool, args, ctx)
     if type(res) == "table" and res.pending then
         local a = res.pending
         a.id, a.kind, a.started, a.chan = ctx.id, a.kind or tool, now_s(), ctx.chan
+        local m = type(ctx.msg) == "table" and ctx.msg or {} -- the cmd's correlation ids (brain/protocol.py cmd)
+        a.ep, a.call, a.run = m.ep, m.call, m.run
         S.action = a
-        ev("client_action_start", { kind = a.kind, id = a.id })
+        rawset(_G, "__dwc_act", { act = a.id, ep = a.ep, call = a.call, kind = a.kind }) -- walltime.stamp reads it
+        ev("client_action_start", { kind = a.kind, id = a.id, ep = a.ep, call = a.call, run = a.run })
         return nil -- replied by finish()
     end
     if type(res) == "table" and res.hold then
         local a = res.hold
         a.id, a.kind, a.started, a.replied, a.chan = ctx.id, a.kind or tool, now_s(), true, ctx.chan
+        local m = type(ctx.msg) == "table" and ctx.msg or {}
+        a.ep, a.call, a.run = m.ep, m.call, m.run
         S.action = a
-        ev("client_action_start", { kind = a.kind, id = a.id, held = true })
+        rawset(_G, "__dwc_act", { act = a.id, ep = a.ep, call = a.call, kind = a.kind })
+        ev("client_action_start", { kind = a.kind, id = a.id, ep = a.ep, call = a.call, run = a.run, held = true })
         return norm(res.result)
     end
     return norm(res)
