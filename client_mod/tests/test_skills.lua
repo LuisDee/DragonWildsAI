@@ -1102,6 +1102,67 @@ test("interact on the bed he is lying in: one press gets him up, verified by the
     assert(#F.move.calls == 0, "no walking to get up")
 end)
 
+-- HOLD interactions (an Anima Vent's siphon, InteractionType 1): live 2026-11-01 19:20Z the one-frame IA_Interact press
+-- was never let go and he stood rooted at the vent. The press remembers a hold; the release is the manager's
+-- InteractActionStop, sent once; a tap interaction never gets one; every skill job's end lets go.
+test("hold interaction: the press remembers it, release_held lets go once with InteractActionStop", function()
+    local native = assert(loadfile(REPO .. "/client_mod/scripts/inventory.lua"))()
+    local press, stop, subsystem, sent = {}, {}, {}, {}
+    local vent = { AnimaVentData = { DisplayName = "Air Anima Vent" } }
+    local ic = { InteractionType = 1, InteractionPrompt = "Siphon", GetOwner = function() return vent end }
+    native.pawn = function() return { InteractionManager = { InteractAction = press, InteractActionStop = stop },
+                                      InteractableDetector = { CurrentInteractable = ic } } end
+    native.U.valid = function(o) return o ~= nil end
+    native.U.find_first = function() return subsystem end
+    native.U.short = function(o) return o == vent and "BP_AnimaVent_C_1" or "IA" end
+    native.U.find_object = function() return function(sub, ia) sent[#sent + 1] = ia end end
+    rawset(_G, "DW_HELD_INTERACTION", nil)
+    local r = native.press_interact(nil)
+    local h = native.held_interaction()
+    assert(r.ok and r.hold and sent[1] == press and h and h.name == "Air Anima Vent" and h.prompt == "Siphon", json.encode(h))
+    local rr = native.release_held(nil, "test")
+    assert(rr and rr.ok and sent[2] == stop and rr.released == "Air Anima Vent" and native.held_interaction() == nil, json.encode(rr))
+    assert(native.release_held(nil, "again") == nil and #sent == 2, "no second release")
+    ic.InteractionType = 0 -- a tap (a pickup): no hold remembered, no release ever sent
+    native.press_interact(nil)
+    assert(native.held_interaction() == nil and native.release_held(nil) == nil and #sent == 3, "a tap is never released")
+    -- a hold pressed by another path (no bookkeeping): a still caller's scan finds him in the replicated
+    -- PlayersCurrentlyInteracting of the detector's Hold target, and the release then works
+    ic.InteractionType = 1
+    local me = {}
+    local pawn = { InteractionManager = { InteractAction = press, InteractActionStop = stop }, InteractableDetector = { CurrentInteractable = ic } }
+    native.pawn = function() return pawn end
+    native.U.short = function(o) return o == vent and "BP_AnimaVent_C_1" or (o == pawn and "me") or (o == me and "me") or "IA" end
+    ic.PlayersCurrentlyInteracting = { ForEach = function(self, f) f(1, { get = function() return me end }) end }
+    assert(native.held_interaction() == nil, "no scan: only what he pressed")
+    local hs = native.held_interaction({ scan = true })
+    assert(hs and hs.found and hs.name == "Air Anima Vent", json.encode(hs))
+    local r2 = native.release_held(nil, "scan")
+    assert(r2 and r2.ok and sent[#sent] == stop, json.encode(r2))
+    ic.PlayersCurrentlyInteracting = { ForEach = function(self, f) end }
+    assert(native.held_interaction({ scan = true }) == nil, "not in the list: not held")
+end)
+
+test("hold interaction: a skill job's end lets go of the hold it pressed", function()
+    reset()
+    local sk = B.module("skills")
+    local bed = { id = "BP_Magic_SummonShelter_C_3", class = "BP_Magic_SummonShelter_C", name = "Summon Shelter",
+                  kind = "resting_area", prompt = "Sleep", position = { 1, 3, 3 } }
+    table.insert(F.world.interactables, bed)
+    local lying = true
+    local r0 = sk.W.resting_in
+    sk.W.resting_in = function() return lying and bed.id or nil end
+    local inv = B.module("inventory")
+    local p0, rel0 = inv.press_interact, inv.release_held
+    local released = 0
+    inv.press_interact = function() lying = false; return { ok = true } end
+    inv.release_held = function() released = released + 1; return { ok = true } end
+    local r1, id = rpc("interact", { target = bed.id })
+    local r = r1 or run(id, 10)
+    sk.W.resting_in, inv.press_interact, inv.release_held = r0, p0, rel0
+    assert(r and r.ok and released >= 1, json.encode(r) .. " released=" .. released)
+end)
+
 test("BUGS L2d: movement while lying in a bed fails at once with reason resting (bed named)", function()
     reset()
     local sk = B.module("skills")

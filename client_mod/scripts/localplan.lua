@@ -66,6 +66,7 @@ function LP.new(o)
     self.steep = {}                            -- edge key -> true: a "slope" walk that is really a step
     self.wall_pts = {}                         -- horizontal-check hit points: edges passing near one are walls
     self.hop = {}                              -- edge key -> true: a LOW obstacle (clear at jump height): jump it
+    self.avoid = o.avoid                       -- optional {LP.edge_key(from) .. ">" .. LP.edge_key(to) = true}: moves that failed on this trip
     self.cell_cost = o.cell_cost               -- optional fn(x, y, floor_z) -> extra cost in cells (known water, avoid zones)
     self.dry_slack = o.dry_slack or 300        -- aim at a zero-cost cell when it is at most this much further from the goal
     self.water_probe = o.water_probe           -- optional fn(x, y, floor_z) -> true if water covers that floor
@@ -99,6 +100,12 @@ local function cell_floors(trace, x, y, feet, lo_off, hi_off, depth, head, walk_
     local zs = {}
     local function standable(nz) return not (walk_z and tonumber(nz) and nz < walk_z) end
     local lo_ok, hi_ok = lo and not lo_pen and standable(lo_nz), hi and not hi_pen and standable(hi_nz)
+    -- the top of anything here that is no floor (a trace that started inside a solid, or a too-steep face): such a
+    -- cell is a wall, not a hole, for the leap test (a 9 m wall's cells have no floor and read as a gap to jump)
+    local solid
+    if lo and not lo_ok then solid = lo end
+    if hi and not hi_ok and (not solid or hi > solid) then solid = hi end
+    zs.solid_z = solid
     if lo_ok and hi_ok and hi > lo + 5 and hi <= lo + head then
         -- something sits less than head clearance above the low floor: the low floor has NO
         -- headroom (e.g. the ground under a ramp, live 19:22 church start area), and the upper
@@ -112,6 +119,16 @@ local function cell_floors(trace, x, y, feet, lo_off, hi_off, depth, head, walk_
 end
 
 local function ckey(x, y, cell) return math.floor(x / cell + 0.5) .. ":" .. math.floor(y / cell + 0.5) end
+-- a world key for a planned point (cell centre x, y and floor z, cm): the mover remembers a jump that failed on this
+-- trip by it, and the next plan leaves that move out (live 2026-11-01 19:01Z: the same double jump onto the Bramblemead
+-- landing was planned and missed twice, while the leap from the other landing was there)
+function LP.edge_key(x, y, z) return math.floor(x / 100 + 0.5) .. ":" .. math.floor(y / 100 + 0.5) .. ":" .. math.floor(z / 100 + 0.5) end
+function LP:avoided(a, b)
+    if not self.avoid then return false end
+    local ax, ay = self:pos(a.i, a.j)
+    local bx, by = self:pos(b.i, b.j)
+    return self.avoid[LP.edge_key(ax, ay, a.z) .. ">" .. LP.edge_key(bx, by, b.z)] == true
+end
 
 local function cache_get(cache, k, feet, now)
     local e = cache and cache.cells[k]
@@ -147,7 +164,7 @@ function LP:sample(i, j)
         self.traces = self.traces + 2
         if self.cache then self.cache.cells[k] = { t = now, feet = self.feet, zs = zs } end
     end
-    local layers = {}
+    local layers = { solid_z = zs.solid_z }
     for _, z in ipairs(zs) do layers[#layers + 1] = { z = z, i = i, j = j } end
     if self.water_probe and zs[1] then
         local okw = pcall(self.water_probe, x, y, zs[1]) -- marks water cells (navmem) as a side effect
@@ -227,6 +244,51 @@ function LP:crosses_wall(a, b)
     return false
 end
 
+-- LEAP over a gap (mineflayer-pathfinder's parkour move, getMoveParkourForward): from a run-up node r, the take-off
+-- cell T straight ahead has a floor at r's level, the 1-2 cells beyond T are a hole (every floor there is more than
+-- LEAP_HOLE_CM lower, or none), and the next cell has a floor at T's level (LEAP_RISE_CM up to LEAP_FALL_CM down).
+-- Live 2026-11-01 18:31Z: the two stair landings up to the Bramblemead Wise Old Man are 1.6-1.8 m apart over a
+-- 3.6 m drop, and that leap is the only way up. The edge starts at the run-up cell, so the last walk into the
+-- take-off is straight along the leap and he leaves the edge at walking speed. Cardinal directions only.
+local LEAP_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+local LEAP_EXTRA = 3 -- cells of extra cost: a leap is a risk, a walk round wins when there is one
+local LEAP_HOLE_CM, LEAP_RISE_CM, LEAP_FALL_CM = 100, 45, 150
+function LP:leaps(r)
+    local out = {}
+    local e = self.env
+    if not (type(e.jump) == "number" and e.jump > 80) then return out end
+    local function level(i, j, z, down, up)
+        for _, n in ipairs(self.nodes[key(i, j)] or {}) do
+            if n.z - z <= up and z - n.z <= down then return n end
+        end
+    end
+    for _, d in ipairs(LEAP_DIRS) do
+        local ti, tj = r.i + d[1], r.j + d[2]
+        local t = level(ti, tj, r.z, e.step, e.step)
+        if t and not self.blocked[ekey(r, t)] then
+            for gap = 1, 2 do
+                local hole = true
+                for k = 1, gap do
+                    local layers = self.nodes[key(ti + d[1] * k, tj + d[2] * k)]
+                    if layers == nil then hole = false; break end -- not sampled (outside the window)
+                    if layers.solid_z and layers.solid_z > t.z - LEAP_HOLE_CM then hole = false; break end -- a wall or a face
+                    for _, n in ipairs(layers) do
+                        if n.z > t.z - LEAP_HOLE_CM then hole = false; break end
+                    end
+                    if not hole then break end
+                end
+                if not hole then break end
+                local to = level(ti + d[1] * (gap + 1), tj + d[2] * (gap + 1), t.z, LEAP_FALL_CM, LEAP_RISE_CM)
+                if to and not self.blocked[ekey(t, to)] and not self:crosses_wall(t, to) and not self:avoided(t, to) then
+                    out[#out + 1] = { to = to, takeoff = t, cells = gap + 1 }
+                    break
+                end
+            end
+        end
+    end
+    return out
+end
+
 -- A* over the sampled nodes from the node nearest to the centre at our level, toward `goal`
 -- (cm). If the goal is off-grid, the target is the reachable node closest to it.
 function LP:plan(goal)
@@ -250,7 +312,7 @@ function LP:plan(goal)
         local x, y = self:pos(n.i, n.j)
         return math.sqrt((x - goal.X) ^ 2 + (y - goal.Y) ^ 2 + ((n.z - goal.Z) * 0.5) ^ 2)
     end
-    local g, came, act = { [start] = 0 }, {}, {}
+    local g, came, act, via = { [start] = 0 }, {}, {}, {}
     local open, closed = { start }, {}
     local best_n, best_h = start, h(start)
     local best_dry, best_dry_h = nil, math.huge   -- with a cell cost (water): the best DRY target
@@ -276,7 +338,7 @@ function LP:plan(goal)
                 for dj = -1, 1 do
                     if di ~= 0 or dj ~= 0 then
                         for _, nb in ipairs(self.nodes[key(cur.i + di, cur.j + dj)] or {}) do
-                            if not closed[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) then
+                            if not closed[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) and not self:avoided(cur, nb) then
                                 local kind, extra = self:edge(cur, nb)
                                 if kind and self.cell_cost then
                                     local nx, ny = self:pos(nb.i, nb.j)
@@ -286,12 +348,22 @@ function LP:plan(goal)
                                     local step = ((di ~= 0 and dj ~= 0) and 1.414 or 1) * cell + extra * cell
                                     local ng = g[cur] + step
                                     if not g[nb] or ng < g[nb] then
-                                        g[nb], came[nb], act[nb] = ng, cur, kind
+                                        g[nb], came[nb], act[nb], via[nb] = ng, cur, kind, nil
                                         open[#open + 1] = nb
                                     end
                                 end
                             end
                         end
+                    end
+                end
+            end
+            for _, lp in ipairs(self:leaps(cur)) do
+                local nb = lp.to
+                if not closed[nb] then
+                    local ng = g[cur] + (lp.cells + 1 + LEAP_EXTRA) * cell
+                    if not g[nb] or ng < g[nb] then
+                        g[nb], came[nb], act[nb], via[nb] = ng, cur, "jump", lp.takeoff
+                        open[#open + 1] = nb
                     end
                 end
             end
@@ -307,7 +379,11 @@ function LP:plan(goal)
     local rev, n = {}, best_n
     while n do
         local x, y = self:pos(n.i, n.j)
-        rev[#rev + 1] = { X = x, Y = y, Z = n.z, act = act[n] or "walk", node = n }
+        rev[#rev + 1] = { X = x, Y = y, Z = n.z, act = act[n] or "walk", node = n, leap = via[n] ~= nil or nil }
+        if via[n] then -- the take-off cell, walked into straight along the leap (the run-up)
+            local tx, ty = self:pos(via[n].i, via[n].j)
+            rev[#rev + 1] = { X = tx, Y = ty, Z = via[n].z, act = "walk", node = via[n] }
+        end
         n = came[n]
     end
     local pts = {}

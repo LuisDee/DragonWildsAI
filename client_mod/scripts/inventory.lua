@@ -336,9 +336,67 @@ function M.press_interact(log, opts)
     local sub = U.find_first("EnhancedInputLocalPlayerSubsystem")
     local fn = U.find_object(M.IA_INTERACT_FN)
     if not (sub and fn) then return { ok = false, reason = "no input subsystem / inject function" } end
-    say(log, "inject " .. tostring(U.short(ia)))
+    -- a HOLD interaction (UInteractionComponent.InteractionType 1, e.g. an Anima Vent's siphon) runs until the key
+    -- is let go: remember it, so the skill that pressed it (or a walk) lets go (M.release_held)
+    local held
+    if not secondary then
+        local det = pawn and U.try(function() return pawn.InteractableDetector end)
+        local ic = U.valid(det) and U.try(function() return det.CurrentInteractable end)
+        local itype = U.valid(ic) and U.try(function() return ic.InteractionType end) or nil
+        if itype ~= nil and tonumber(itype) == 1 then held = M.hold_row(ic) end
+    end
+    say(log, "inject " .. tostring(U.short(ia)) .. (held and (" (hold: " .. tostring(held.name or held.actor) .. ")") or ""))
     local ok, err = pcall(function() fn(sub, ia, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end)
-    return { ok = ok, reason = (not ok) and tostring(err) or nil, action = U.short(ia) }
+    if ok and held then held.t = os.clock(); rawset(_G, "DW_HELD_INTERACTION", held) end -- (a global: a hot reload keeps it)
+    return { ok = ok, reason = (not ok) and tostring(err) or nil, action = U.short(ia), hold = held and true or nil }
+end
+
+function M.hold_row(ic)
+    local a = U.try(function() return ic:GetOwner() end)
+    return { ic = ic, actor = U.valid(a) and U.short(a) or nil, prompt = text(U.try(function() return ic.InteractionPrompt end)),
+             name = U.valid(a) and (text(U.try(function() return a.AnimaVentData.DisplayName end)) or U.class_word(a)) or nil }
+end
+
+-- The hold interaction he is pressing (DW_HELD_INTERACTION, set by press_interact): {actor, name, prompt, s} or nil. A human
+-- holding E on an Anima Vent stands rooted while it siphons (montage AM_PlayerM_Sorcery_Spellcast_AnimaRuneSiphoning, and
+-- it keeps draining the vent); the game ends it on the manager's InteractActionStop (IA_InteractHold), the release
+-- (live 2026-11-01 19:20Z: never let go, he stood rooted at the vent for minutes; 20:23Z the same, freed by the release).
+-- opts.scan: also catch a hold pressed by another path: the detector's Hold target lists him in its replicated
+-- PlayersCurrentlyInteracting (a TArray read: only from a caller that is standing still, never across a teleport).
+function M.held_interaction(opts)
+    local h = rawget(_G, "DW_HELD_INTERACTION")
+    if h and not U.valid(h.ic) then rawset(_G, "DW_HELD_INTERACTION", nil); h = nil end
+    if not h and type(opts) == "table" and opts.scan and not rawget(_G, "DW_PAUSE") then
+        local pawn = M.pawn()
+        local det = pawn and U.try(function() return pawn.InteractableDetector end)
+        local ic = U.valid(det) and U.try(function() return det.CurrentInteractable end)
+        local itype = U.valid(ic) and U.try(function() return ic.InteractionType end) or nil
+        if itype ~= nil and tonumber(itype) == 1 then
+            local me, mine = U.short(pawn), false
+            pcall(function() ic.PlayersCurrentlyInteracting:ForEach(function(_, e)
+                local c = e:get(); if U.valid(c) and U.short(c) == me then mine = true end end) end)
+            if mine then h = M.hold_row(ic); h.t, h.found = os.clock(), true; rawset(_G, "DW_HELD_INTERACTION", h) end
+        end
+    end
+    if not h then return nil end
+    return { actor = h.actor, name = h.name, prompt = h.prompt, found = h.found, s = h.t and math.floor((os.clock() - h.t) * 10 + 0.5) / 10 or nil }
+end
+
+-- Let go of the interact key: one frame of the manager's InteractActionStop, as a human releasing E. Only when a
+-- hold was pressed, so a tap interaction is never sent a stray release. -> {ok, released = name} | nil
+function M.release_held(log, why)
+    local h = rawget(_G, "DW_HELD_INTERACTION")
+    if not h then return nil end
+    rawset(_G, "DW_HELD_INTERACTION", nil)
+    local pawn = M.pawn()
+    local mgr = pawn and U.try(function() return pawn.InteractionManager end)
+    local ia = U.valid(mgr) and U.try(function() return mgr.InteractActionStop end)
+    local sub = U.find_first("EnhancedInputLocalPlayerSubsystem")
+    local fn = U.find_object(M.IA_INTERACT_FN)
+    if not (U.valid(ia) and sub and fn) then return { ok = false, reason = "no InteractActionStop / input subsystem" } end
+    say(log, "release " .. tostring(U.short(ia)) .. " (let go of " .. tostring(h.name or h.actor) .. (why and ("; " .. why) or "") .. ")")
+    local ok, err = pcall(function() fn(sub, ia, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end)
+    return { ok = ok, reason = (not ok) and tostring(err) or nil, released = h.name or h.actor, prompt = h.prompt }
 end
 
 -- Collect what the detector targets, if it is a dropped world item.

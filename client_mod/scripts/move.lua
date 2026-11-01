@@ -117,6 +117,12 @@ M.cfg = {
     -- local planner
     lp_enabled = true,
     lp_grid_m = 9,             -- grid radius (19 x 19 cells at 1 m: ~720 traces)
+    lp_grid_up_m = 13,         -- ... when the goal is near but well above him (a stair or ramp up to it may turn back
+                               -- past him: the Bramblemead Wise Old Man's switchback reaches 12 m out, 18:31Z)
+    leap_land_cm = 130,
+    below_max_cm = 500,        -- a go_to spot hanging over his floor up to this above his feet: arrived right under it        -- a leap's landing counts within this of the planned cell (he leaves the edge at speed)
+    cam_taken_deg = 1.0,       -- the control rotation moved this far from move's own last write: another skill aims
+    cam_yield_s = 0.6,         -- ... and move leaves the camera alone this long (renewed while it keeps aiming)
     lp_cell_cm = 100,
     door_find_cm = 450,        -- a shut door this near when a local plan fails is opened (E), as a player does
     door_reach_cm = 170,       -- he presses from here (the detector's camera ray reaches ~2.5 m from the pawn)
@@ -454,6 +460,32 @@ local function trace_with(c, ctx, a, b)
     return hit == true, out
 end
 
+-- The calibrated channel is kept across client runs of the same build (client_io/state/water_channel.lua). A fresh
+-- client used to trust every remembered water cell until he next waded: live 2026-11-01 18:07Z, five false
+-- church-door cells ("cannot check: no water channel") put a local plan round "water" on the grave walk, ~13 s.
+local WATER_CH_FILE = ROOT .. "/client_io/state/water_channel.lua"
+local CLIENT_BUILD = os.getenv("DW_CLIENT_BUILD") or "26162923"
+local function water_ch_load()
+    -- (false = a wade where no channel saw the surface, e.g. too shallow: the stored channel still holds)
+    if type(rawget(_G, "DW_WATER_CH")) == "table" then return end
+    local okl, fn = pcall(loadfile, WATER_CH_FILE)
+    if not (okl and type(fn) == "function") then return end
+    local okr, c = pcall(fn)
+    if okr and type(c) == "table" and c.build == CLIENT_BUILD and type(c.name) == "string" and (tonumber(c.ch) or tonumber(c.ot)) then
+        _G.DW_WATER_CH = { ch = tonumber(c.ch), ot = tonumber(c.ot), name = c.name, stored = true }
+    end
+end
+local function water_ch_save(c)
+    local tmp = WATER_CH_FILE .. ".tmp"
+    local f = io.open(tmp, "w")
+    if not f then return end
+    f:write(string.format("return { build = %q, name = %q, ch = %s, ot = %s }", CLIENT_BUILD, tostring(c.name), tostring(c.ch), tostring(c.ot)))
+    f:close()
+    os.remove(WATER_CH_FILE)
+    os.rename(tmp, WATER_CH_FILE)
+end
+pcall(water_ch_load)
+
 local function water_sense_calibrate(st, pawn, me, fe, dx, dy, log)
     if rawget(_G, "DW_WATER_CH") ~= nil then return end
     local x, y = me.X + dx * 90, me.Y + dy * 90 -- beside Claude (his own gear blocks traces)
@@ -463,6 +495,7 @@ local function water_sense_calibrate(st, pawn, me, fe, dx, dy, log)
             tostring(ok and type(out) == "table" and out.ImpactPoint and math.floor(out.ImpactPoint.Z) or out), fe.Z)) end
         if ok and hit and out.ImpactPoint and out.ImpactPoint.Z > fe.Z + 15 and out.ImpactPoint.Z < fe.Z + 250 then
             _G.DW_WATER_CH = c
+            pcall(water_ch_save, c)
             if log then log("move: water sense: channel '" .. c.name .. "' sees the surface") end
             return
         end
@@ -497,7 +530,8 @@ local function water_false_mark(st, pawn, fe, q, mem, NMm, log)
     st.water_seen = st.water_seen or {}
     if st.water_seen[key] ~= nil then return st.water_seen[key] end
     local okf, hf, outf = pcall(raw_trace, pawn, { X = cx, Y = cy, Z = fe.Z + 150 }, { X = cx, Y = cy, Z = fe.Z - 400 })
-    local wet = (okf and hf and outf.ImpactPoint) and water_at(pawn, cx, cy, outf.ImpactPoint.Z) or nil
+    local wet = nil -- (not "x and water_at() or nil": that turned a dry "false" into nil, so no false mark was ever forgotten)
+    if okf and hf and outf.ImpactPoint then wet = water_at(pawn, cx, cy, outf.ImpactPoint.Z) end
     local false_mark = wet == false
     st.water_seen[key] = false_mark
     if log and not false_mark then
@@ -512,6 +546,7 @@ local function water_false_mark(st, pawn, fe, q, mem, NMm, log)
     end
     return false_mark
 end
+M._water_false_mark = water_false_mark -- fake-engine regression access
 
 local function make_trace(st, pawn)
     return function(a, b, horizontal)
@@ -931,6 +966,45 @@ local function door_begin(st, t, log)
     if log then log(string.format("move: a shut door at (%.0f,%.0f) is in the way (%s); opening it", d.at.X / 100, d.at.Y / 100, tostring(d.prompt))) end
     return true
 end
+-- ------------------------------------------------------------------ the camera is shared: one choke point
+-- Every control-rotation write of move goes through cam_write. Other skills aim the same camera: build env.aim,
+-- deconstruct, gather/spells W.aim, interact face, client_bridge aim_at, farm/fishing/shoot face, the ranged aimer.
+-- Live 2026-11-01 ~16:30Z the build's ceiling and roof failures read camera pitch 0 and move's yaw over every aim.
+-- Before a write, the controller's rotation is compared with move's own last write: more than cam_taken_deg apart
+-- means another skill aimed since, and move leaves the camera alone for cam_yield_s, renewed while that rotation
+-- keeps changing; then it takes it back. AddMovementInput is world-space, so walking goes on meanwhile.
+-- -> true (written), false (yielding), "taken" (another skill took it just now). st.cam is reset per move.
+local function rot_apart(a, b)
+    local function d(x, y) return math.abs(((tonumber(x) or 0) - (tonumber(y) or 0) + 540) % 360 - 180) end
+    return math.max(d(a.Yaw, b.Yaw), d(a.Pitch, b.Pitch))
+end
+local function cam_write(st, pc, rot, t)
+    local c = st.cam or {}
+    st.cam = c
+    if st.ws_job or st.ws_exec then c.w, c["until"], c.ref = nil, nil, nil end -- his own Windstep cast aims the camera
+    local ok, cur = pcall(function() return pc:GetControlRotation() end)
+    cur = (ok and type(cur) == "table" and tonumber(cur.Yaw)) and { Yaw = cur.Yaw, Pitch = cur.Pitch } or nil
+    if c["until"] then
+        if cur and c.ref and rot_apart(cur, c.ref) > M.cfg.cam_taken_deg then c["until"], c.ref = t + M.cfg.cam_yield_s, cur end
+        if t < c["until"] then return false end
+        c["until"], c.ref = nil, nil -- the other writer stopped moving it: take the camera back
+    elseif c.w and cur and rot_apart(cur, c.w) > M.cfg.cam_taken_deg then
+        c["until"], c.ref, c.taken_n = t + M.cfg.cam_yield_s, cur, (c.taken_n or 0) + 1
+        return "taken"
+    end
+    pc:SetControlRotation(rot)
+    c.w = { Yaw = rot.Yaw, Pitch = rot.Pitch }
+    return true
+end
+-- a go_to that is the aiming skill's own child walk (its explicit arbiter owner still holds the pawn): aiming means
+-- standing still, so the walk ends (stopped, camera_taken) instead of yielding
+local function camera_taken_by_owner(st)
+    if st.mode ~= "go_to" or not st.owner_token or st.owner_implicit then return false end
+    local a = move_arbiter and move_arbiter()
+    local ok, holds = pcall(function() return a and a.holds and a.holds(st.owner_token) end)
+    return ok and holds == true
+end
+
 local function door_end(st, t, ok, why, log)
     local d = st.door
     st.door = nil
@@ -961,7 +1035,7 @@ local function door_step(f)
             local dx, dy = d.at.X + ux * (M.cfg.door_reach_cm - 60) - me.X, d.at.Y + uy * (M.cfg.door_reach_cm - 60) - me.Y
             local l = math.sqrt(dx * dx + dy * dy)
             if l > 20 then
-                pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
+                cam_write(st, pc, { Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 }, t)
                 pawn:AddMovementInput({ X = dx / l, Y = dy / l, Z = 0 }, 1.0, false)
                 return true
             end
@@ -972,7 +1046,7 @@ local function door_step(f)
         local okc, cam = pcall(function() return pc.PlayerCameraManager:GetCameraLocation() end)
         local o = (okc and type(cam) == "table" and tonumber(cam.X)) and cam or me
         local dx, dy, dz = d.at.X - o.X, d.at.Y - o.Y, d.at.Z - o.Z
-        pc:SetControlRotation({ Pitch = math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy))), Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
+        cam_write(st, pc, { Pitch = math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy))), Yaw = math.deg(math.atan(dy, dx)), Roll = 0 }, t)
         local inv = inv_mod()
         if not inv then door_end(st, t, false, "no interact key (inventory module)", log); return false end
         local okt, tg = pcall(inv.interact_target, pawn)
@@ -1335,9 +1409,10 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
         for k, x in pairs(st.env) do penv[k] = x end
         penv.jump, penv.djump, penv.superjump = 0, 0, nil
     end
+    local up_near = far and d2(me, far) < 1500 and (far.Z - (me.Z - hh)) > 300
     local planner = LP.new({ trace = trace, center = v(me), feet_z = me.Z - hh,
-        radius_m = M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = penv,
-        cache = not observe and lp_cache() or nil, now = function() return now(pawn) end, self_pos = v(me),
+        radius_m = up_near and M.cfg.lp_grid_up_m or M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = penv,
+        cache = not observe and lp_cache() or nil, now = function() return now(pawn) end, self_pos = v(me), avoid = st.jump_fail,
         cell_cost = not observe and function(x, y, fz)
             local mem, NMm = nav_mem()
             local c = (mem and not st.wade and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0 -- opts.wade: water is no detour
@@ -1413,7 +1488,7 @@ local function lp_work(st, t, log)
             st.lpath, st.lwp, st.lp_state = st.lp_pts, 2, nil
             st.lp_jumped = {}
             local acts = {}
-            for _, p in ipairs(st.lpath) do acts[#acts + 1] = p.act:sub(1, 1) end
+            for _, p in ipairs(st.lpath) do acts[#acts + 1] = p.leap and "l" or p.act:sub(1, 1) end
             st.lp_stand_s = t - (st.lp_t0 or t)
             local zs, AZm = live_zones(t)
             if AZm and #zs > 0 then
@@ -1476,7 +1551,9 @@ local function trip_report(st, result)
     local endd, moved = tr.dist or d2(tr.last, tr.goal), tr.path / 100
     local arrived = result.status == "arrived"
     local fall = tr.fall
-    if tr.air_top and tr.air_top - tr.last.Z > fall then fall = tr.air_top - tr.last.Z end
+    local from = tr.air_top and (tr.air_from or tr.air_top)
+    if from and from - tr.last.Z > fall then fall = from - tr.last.Z end
+    local net = d2(tr.start, tr.last) / 100
     local bits = {}
     if not arrived and st.mode == "go_to" then
         bits[#bits + 1] = string.format("%.0f m left (closest %.0f m)", endd / 100, tr.best / 100)
@@ -1492,6 +1569,8 @@ local function trip_report(st, result)
         end
     end
     if fall > 300 then bits[#bits + 1] = string.format("fell %.1f m", fall / 100) end
+    -- ground covered that got him nowhere (round in circles, back and forth): the net move says it
+    if moved >= 3 and net < moved * 0.5 then bits[#bits + 1] = string.format("I ended up %.0f m from where I started", net) end
     -- endurance 0 (no rest) scales his stamina down: no sprint, and jumps fail (live 21:14-21:24: sprint 0 s on every
     -- trip, "a double jump never left the ground", the ladder 10/10 -> 7/10 until he rested)
     local okE, endu = pcall(function() return st.pawn.EnduranceComponent:GetCurrentEndurance() end)
@@ -1522,7 +1601,7 @@ local function trip_report(st, result)
     local act = rawget(_G, "__dwc_act")
     local row = { type = "trip", id = st.cmd_id or (type(act) == "table" and act.act or nil), ts = now_ts(), iso = os.date("!%Y-%m-%dT%H:%M:%SZ"), mode = st.mode, status = result.status,
         reason = result.reason, gen = st.gen, target = st.target_name, start = pm(tr.start), ["end"] = pm(tr.last), goal = pm(tr.goal),
-        d0_m = m1(tr.d0 / 100), end_m = m1(endd / 100), closest_m = m1(tr.best / 100), walked_m = m1(moved), s = m1(secs),
+        d0_m = m1(tr.d0 / 100), end_m = m1(endd / 100), closest_m = m1(tr.best / 100), walked_m = m1(moved), net_m = m1(net), s = m1(secs),
         sprint_s = m1(tr.sprint_t), src_s = src, zmin_m = m1(tr.zmin / 100), zmax_m = m1(tr.zmax / 100),
         fell_m = fall > 300 and m1(fall / 100) or nil, nav_end = pm(st.nav_end), nav_fallback = fb, nav_requests = st.nav_requests,
         lp_runs = st.lp_runs, stuck_total = st.stuck_total, backtracks = st.backtracks, notes = st.trip_notes,
@@ -1658,8 +1737,13 @@ function M.verify_arrival()
         return st.goal
     end)
     local near = okp and okg and reached(st, here, goal)
+    -- right under a spot that hangs in the air over his floor (overhead()): that is the arrival
+    local bo = st.below_ok
+    local below = near == false and type(bo) == "table" and d2(here, goal) <= st.tol_cm and here.Z < goal.Z
+        and math.abs(bo.X - goal.X) < 1 and math.abs(bo.Y - goal.Y) < 1 and math.abs(bo.Z - goal.Z) < 1
+    if below then near = true end
     if near ~= true then return { ok = false, reason = "verification_failed", detail = near == false and "position differs from requested destination" or "position or destination unavailable" } end
-    return { ok = true, position = { here.X / 100, here.Y / 100, here.Z / 100 },
+    return { ok = true, below = below or nil, position = { here.X / 100, here.Y / 100, here.Z / 100 },
         target_position = { goal.X / 100, goal.Y / 100, goal.Z / 100 }, tolerance_m = st.tol_cm / 100,
         vertical_distance_m = math.abs(here.Z - goal.Z) / 100, vertical_tolerance_m = 2 * st.half_h / 100 }
 end
@@ -1748,7 +1832,11 @@ end
 local function stop(st, result, log) finish(st, result, log); return true end
 local function step_tol(st) return math.max((st.env and st.env.step or 45) + 20, 60) end -- a reached point's height slack
 local function jump_cm(st) return (st.env and st.env.jump) or 165 end
-local function face(pc, from, to) pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(to.Y - from.Y, to.X - from.X)), Roll = 0 }) end
+local function face(pc, from, to, st, t)
+    local rot = { Pitch = 0, Yaw = math.deg(math.atan(to.Y - from.Y, to.X - from.X)), Roll = 0 }
+    if st and t then return cam_write(st, pc, rot, t) end
+    pc:SetControlRotation(rot)
+end
 local function note(st, text) st.trip_notes = st.trip_notes or {}; st.trip_notes[#st.trip_notes + 1] = text end
 -- (a new escape or route also gets a fresh detour budget: st.best_t)
 local function restart_progress(st, t, me) st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.best_t, st.detour_spent = t, v(me), 0, nil, t, nil end
@@ -1895,7 +1983,9 @@ local function trip_tick(f)
                src_t = {}, sprint_t = 0, fall = 0 }
         st.trip_rec = tr
     else
-        local step = math.sqrt((me.X - tr.last.X) ^ 2 + (me.Y - tr.last.Y) ^ 2 + (me.Z - tr.last.Z) ^ 2)
+        -- walked = ground covered (2D): hops on the spot are no walking (live 19:20Z, rooted by a vent's hold
+        -- interaction, every go_to "walked 17-20 m" of his own up-and-down hops and ended where it began)
+        local step = math.sqrt((me.X - tr.last.X) ^ 2 + (me.Y - tr.last.Y) ^ 2)
         if step < 1500 then tr.path = tr.path + step end -- a teleport/respawn is not walking
         if dist < tr.best then tr.best = dist end
         tr.zmin, tr.zmax = math.min(tr.zmin, me.Z), math.max(tr.zmax, me.Z)
@@ -1924,10 +2014,18 @@ local function trip_tick(f)
     -- the last spot he stood on (the game leaves his grave there after a deadly fall, not where the body ends:
     -- live 2026-11-01 15:56 the death read (38.6, 1740.3, -94.0), the grave stood at (45.0, 1744.9, -30.6))
     if okf and not falling then _G.DW_LAST_GROUND = { X = me.X, Y = me.Y, Z = me.Z, t = os.time() } end
-    if okf and falling then tr.air_top = math.max(tr.air_top or me.Z, me.Z)
-    elseif okf and tr.air_top then
-        if tr.air_top - me.Z > tr.fall then tr.fall = tr.air_top - me.Z end
-        tr.air_top = nil
+    -- a fall is the drop from where he left the ground to where he lands: his own jump's height is no fall (a hop
+    -- on the spot read "fell 3.3 m", live 19:20Z)
+    if okf and falling then
+        tr.air_top = math.max(tr.air_top or me.Z, me.Z)
+        tr.air_from = tr.air_from or tr.ground_z or me.Z
+    elseif okf then
+        if tr.air_top then
+            local drop = (tr.air_from or tr.air_top) - me.Z
+            if drop > tr.fall then tr.fall = drop end
+            tr.air_top, tr.air_from = nil, nil
+        end
+        tr.ground_z = me.Z
     end
 end
 
@@ -2267,6 +2365,70 @@ local function leader_far(f)
     end
 end
 
+-- go_to: he stands at the goal's x,y but the goal is above the arrival's height (two capsule half-heights). Live
+-- 2026-11-01 17:25-17:44Z: a build spot 2.1 m over his house floor ran "stuck n=159" for 19 min (stuck, local plans,
+-- double jumps, backtracks); 18:14Z and 18:31Z: the Bramblemead Wise Old Man 3-6 m up on his platform, 60 s of the
+-- same under it. One downward trace at the goal says which it is:
+--   * nothing to stand on between the goal and his head (or his floor): the spot hangs in the air over his floor,
+--     and standing right under it IS the arrival (arrived, below = true, below_m);
+--   * a floor up there that a jump reaches: the local plan's jump edges get 12 s;
+--   * a floor higher than that: one local plan from here looks for a way up (a stair or ramp round the back), and
+--     with none the go_to fails at once, goal_above, with that floor's height.
+-- Right under it the trace stops above his head: his gear (helmet, held tool) blocks Visibility traces.
+local function overhead(f, early)
+    local st, pawn, t, me, goal, log = f.st, f.pawn, f.t, f.me, f.goal, f.log
+    local hh = st.half_h or 88
+    if goal.Z - me.Z <= 2 * hh or standing_check(pawn) ~= true then st.ovh = nil; return nil end
+    local feet = me.Z - hh
+    local o = st.ovh
+    if not (o and d2(o.at, me) < 50 and math.abs(o.at.Z - me.Z) < 30 and d2(o.goal, goal) < 30) then
+        local close = d2(me, goal) < 60
+        local stop_z = close and (me.Z + hh + 30) or (feet - 100)
+        local fz
+        if goal.Z + 30 > stop_z then
+            local ok, hit, out = pcall(raw_trace, pawn, { X = goal.X, Y = goal.Y, Z = goal.Z + 30 }, { X = goal.X, Y = goal.Y, Z = stop_z })
+            if not ok then return nil end
+            fz = (hit and type(out) == "table" and out.ImpactPoint) and tonumber(out.ImpactPoint.Z) or nil
+        end
+        o = { at = v(me), goal = v(goal), t = t, floor = (fz and fz > feet + step_tol(st)) and fz or nil }
+        st.ovh = o
+    end
+    if early and o.floor then return nil end -- (before routing: only the no-floor answers; a floor is the planners' job)
+    local above = (goal.Z - me.Z) / 100
+    if not o.floor and goal.Z - feet > M.cfg.below_max_cm then
+        local detail = string.format("the spot is %.0f m up in the air above me, with nothing up there to stand on", (goal.Z - feet) / 100)
+        if log then log("move: goal above: " .. detail) end
+        return stop(st, { status = "failed", reason = "goal_above", why = detail, dist_m = d2(me, goal) / 100, s = t - st.t0, detail = detail }, log)
+    end
+    if not o.floor then
+        st.below_ok = { X = goal.X, Y = goal.Y, Z = goal.Z }
+        st.lp_jump_exec, st.ws_exec = nil, nil
+        if log then log(string.format("move: the goal hangs %.1f m over the floor here, nothing to stand on up there: arrived, right under it", above)) end
+        return stop(st, { status = "arrived", below = true, below_m = m1(above), dist_m = d2(me, goal) / 100, s = t - st.t0,
+            detail = string.format("I'm right under it: the spot is %.1f m above the floor here, with nothing up there to stand on", above) }, log)
+    end
+    local rise = o.floor - feet
+    local reach = math.max(jump_cm(st), (st.env and st.env.double_jump and st.env.dj_measured and st.env.djump) or 0) + 60
+    local function give_up(what)
+        local detail = string.format("the spot is on a floor %.1f m above me%s", rise / 100, what)
+        if log then log("move: goal above: " .. detail) end
+        return stop(st, { status = "failed", reason = "goal_above", why = detail, height = height_reason(st, rise, "target", t),
+            rise_m = m1(rise / 100), dist_m = d2(me, goal) / 100, s = t - st.t0, detail = detail }, log)
+    end
+    if rise <= reach then
+        if t - o.t > 12 then return give_up(", and 12 s of trying didn't get me up there") end
+        return nil
+    end
+    if st.lp or st.lpath then return nil end -- a local plan is looking for (or walking) a way up
+    local nf = 0 -- one plan from here, and one more each time a jump on the way failed (that move is left out)
+    for _ in pairs(st.jump_fail or {}) do nf = nf + 1 end
+    if (o.lp_tried or -1) < nf and st.use_lp ~= false and lp_module() then
+        o.lp_tried = nf
+        if lp_begin(st, pawn, me, goal, "goal_overhead", log) then st.status = "planning"; return true end
+    end
+    return give_up(", higher than I can jump, and I see no way up from here")
+end
+
 -- go_to: arrived (standing or wading at the goal), out of every zone (escape), or past the deadline.
 -- follow: idle in range (or at the edge of a zone the leader stands in); standing in a zone near him, step out first.
 local function arrival(f)
@@ -2289,6 +2451,10 @@ local function arrival(f)
                 return stop(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log)
             end
             if t - st.t0 <= st.timeout_s then st.status = "awaiting_landing"; return true end
+        end
+        if at_goal == false and d2(me, goal) <= st.tol_cm and not in_flight(st.ws_exec) and not in_flight(st.lp_jump_exec) then
+            local r = overhead(f)
+            if r ~= nil then return r end
         end
         if t - st.t0 > st.timeout_s then return stop(st, { status = "failed", reason = "timeout", dist_m = dist / 100 }, log) end
         return
@@ -2319,7 +2485,7 @@ local function arrival(f)
             pcall(emit_move_event, "reachable_again", { leader_pos = goal, my_pos = me, after_s = math.floor((t - st.unreach.since) * 10) / 10 })
             st.unreach = nil
         end
-        if st.face_when_near then face(pc, me, goal) end
+        if st.face_when_near then face(pc, me, goal, st, t) end
         st.stuck_n, st.win_t, st.win_pos = 0, t, v(me)
         st.prog_t, st.prog_pos = t, v(me)
         st.lp, st.lp_state, st.lpath = nil, nil, nil
@@ -2347,7 +2513,7 @@ local function unreachable_hold(f)
     end
     if t - u.check_t > M.cfg.unreachable_check_s then u.check_t = t end
     st.win_t, st.win_pos = t, v(me)
-    face(pc, me, goal)
+    face(pc, me, goal, st, t)
     return true
 end
 
@@ -2495,7 +2661,7 @@ local function lead_tick(f)
             st.status = "waiting_for_lead"
             if st.prog_t then st.prog_t = st.prog_t + dt end
             st.win_t, st.win_pos = t, v(me)
-            face(pc, me, hl)
+            face(pc, me, hl, st, t)
             return true
         end
         ld.phase = "trail"
@@ -2771,9 +2937,25 @@ end
 local function steer_typed_jump(f, p)
     local st, gen, pc, pawn, t, me, goal, log = f.st, f.gen, f.pc, f.pawn, f.t, f.me, f.goal, f.log
     local function traversal_failure(detail)
+        -- a jump that took off and landed wrong is left out of this trip's next plans (the planner then finds the
+        -- other way, e.g. the leap from the other landing: live 19:01Z the same double jump missed twice)
+        local fp, fi = st.lpath, st.lwp
+        local edge_fault = type(detail) == "string" and (detail:find("landing", 1, true) or detail:find("unavailable", 1, true))
+        if edge_fault and fp and fi and fp[fi] and fp[fi - 1] then
+            local LPm = lp_module()
+            if LPm and LPm.edge_key then
+                local a0, b0 = fp[fi - 1], fp[fi]
+                st.jump_fail = st.jump_fail or {}
+                st.jump_fail[LPm.edge_key(a0.X, a0.Y, a0.Z) .. ">" .. LPm.edge_key(b0.X, b0.Y, b0.Z)] = true
+            end
+        end
         st.local_authority, st.local_binding, st.lpath, st.lp_jump_exec = nil, nil, nil, nil
         st.jump_double = false
-        if st.mode ~= "follow" then
+        st.trav_fails = (st.trav_fails or 0) + 1
+        -- follow too (a fight's approach): one missed landing was "no_route" at once, and the fight ended path_blocked
+        -- while the rat stood 22 m up an open slope he then walked (live 2026-11-01 20:09:02Z and 20:09:07Z, ClaudeQ4
+        -- Ratcatcher); a follow gives up only on the third failed jump of the trip
+        if st.mode ~= "follow" or st.trav_fails < 3 then
             -- go_to: a missed landing is one failed local plan, not the end of the trip (live 2026-10-31 19:59: "jump
             -- landing missed" ended a 225 m walk 48 m short); re-plan from where he landed, the give-up ladder still
             -- ends real non-progress
@@ -2815,7 +2997,7 @@ local function steer_typed_jump(f, p)
     if grounded == false then j.saw_air = true end
     if j.saw_air and grounded == true then
         local dz = math.abs((me.Z - st.half_h) - p.Z)
-        if d2(me, p) < M.cfg.lp_radius_cm and dz < step_tol(st) then
+        if d2(me, p) < (p.leap and M.cfg.leap_land_cm or M.cfg.lp_radius_cm) and dz < step_tol(st) then
             pcall(emit_self_edge, st, prev, p, p.act)
             if not owned(bind) then return true end
             if st.local_authority and st.lwp == #st.lpath then p.act = "walk" end
@@ -3279,7 +3461,13 @@ local function steer_input(f)
         return route_owned(st, gen, pawn, pc)
     end
     if not bound() then return true end
-    pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
+    if cam_write(st, pc, { Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 }, t) == "taken" then
+        if f.log then f.log(string.format("move: another skill took the camera; %s", camera_taken_by_owner(st) and
+            "its own walk ends here (aiming means standing still)" or "walking on without turning it for a moment")) end
+        if camera_taken_by_owner(st) then
+            return stop(st, { status = "stopped", reason = "camera_taken", detail = "the skill I walk for took the camera to aim" }, f.log)
+        end
+    end
     if st.hold_gap then
         st.hold_gap = nil
         st.move_acc, st.bt_tested = M.cfg.self_stuck_cm, t -- holding on purpose: not wedged
@@ -3342,6 +3530,26 @@ local function trail_back(sc, cm)
     return back, acc
 end
 
+-- Why he can't move at all when it is the game holding him, not the ground: a hold interaction he is pressing (a vent's
+-- siphon), his movement input ignored, movement switched off (MOVE_None), or an animation's root motion. nil = none.
+local function rooted_why(st, pawn, pc)
+    local inv = inv_mod()
+    local okh, h = pcall(function() return inv and inv.held_interaction and inv.held_interaction({ scan = true }) end)
+    if okh and type(h) == "table" then
+        return string.format("I'm held in place by the %s (%s is a hold: it lasts while I hold the key)", tostring(h.name or h.actor or "thing"),
+            tostring(h.prompt or "its use")), h
+    end
+    local ok1, ign = pcall(function() return pc:IsMoveInputIgnored() end)
+    if ok1 and ign == true then return "the game is ignoring my movement input right now" end
+    local ok2, mode = pcall(function() return pawn.CharacterMovement.MovementMode end)
+    if ok2 and tonumber(mode) == 0 then return "the game has switched my movement off" end
+    local ok3, rm = pcall(function() return pawn:IsPlayingRootMotion() end)
+    if ok3 and rm == true then
+        local okm, m = pcall(function() local x = pawn:GetCurrentMontage(); return x and x:IsValid() and x:GetFName():ToString() or nil end)
+        return "an animation" .. ((okm and m) and (" (" .. m .. ")") or "") .. " is holding me in place"
+    end
+end
+
 -- stuck = moved less than stuck_min_cm in a stuck_window_s window while pushing. The ladder: step off a perch
 -- (1st), a local plan (1st), else a jump (a double jump from the 2nd), a strafe (3rd+), once a backtrack (3rd).
 local function stuck_tick(f)
@@ -3365,6 +3573,21 @@ local function stuck_tick(f)
         tostring(st.trail_i), #st.crumbs)
     st.last_stuck = ev
     if log then log(ev) end
+    -- held by a hold interaction (a vent's siphon roots him): let go at the first stuck, not after the give-up ladder
+    -- (live 20:39Z: a hold pressed without bookkeeping was found and let go only by wedged(), 8 s in)
+    if n == 1 and not st.held_let_go then
+        local _, held = rooted_why(st, pawn, pc)
+        if held then
+            st.held_let_go = true
+            local inv = inv_mod()
+            local okr, rr = pcall(function() return inv.release_held(log, "a walk could not move") end)
+            if okr and type(rr) == "table" and rr.ok then
+                note(st, string.format("I let go of the %s (holding it kept me in place)", tostring(held.name or held.actor)))
+                st.win_t, st.win_pos = t, v(me)
+                return
+            end
+        end
+    end
     -- pushing against a shut door ahead (his house door, the trail through it: live 18:08:33-35 he pushed 2 s, re-planned
     -- "walls everywhere", and only then opened it): open it at the first stuck
     if n == 1 and not st.door then
@@ -3432,6 +3655,24 @@ end
 local function wedged(f, at)
     local st, pawn, t, me, goal, dist, log = f.st, f.pawn, f.t, f.me, f.goal, f.dist, f.log
     if log then log("move: self-stuck (moved " .. math.floor(st.move_acc or 0) .. " cm in " .. M.cfg.give_up_s .. " s). " .. tostring(st.last_stuck)) end
+    -- the game holding him is no trap of the ground (no nav memory mark): let go of a held interaction once and walk
+    -- on, else say what holds him
+    local rwhy, held = rooted_why(st, pawn, f.pc)
+    if rwhy then
+        if log then log("move: rooted: " .. rwhy) end
+        if held and not st.held_let_go then
+            st.held_let_go = true
+            local inv = inv_mod()
+            local okr, rr = pcall(function() return inv.release_held(log, "a walk could not move") end)
+            if okr and type(rr) == "table" and rr.ok then
+                note(st, string.format("I let go of the %s (holding it kept me in place)", tostring(held.name or held.actor)))
+                st.bt_tested, st.bt_pos, st.move_acc = nil, nil, 0
+                st.prog_t, st.prog_pos, st.win_t, st.win_pos = t, v(me), t, v(me)
+                return true
+            end
+        end
+        return stop(st, { status = "failed", reason = "rooted", why = rwhy, detail = rwhy, dist_m = dist / 100, at_m = at }, log)
+    end
     mark_trap(st, me)
     local hname, hpawn = nearest_player(pawn, me, M.cfg.help_player_cm)
     if not st.asked_help then
@@ -3635,6 +3876,10 @@ local function tick(st, gen, log)
         st.timeout_s = math.min(M.cfg.deadline_cap_s, math.max(st.timeout_s, 3 * (dist + math.abs(goal.Z - me.Z)) / 450))
     end
     trip_tick(f)
+    -- a goal over his head with nothing up there to stand on is answered before any route is asked for (live 19:25Z:
+    -- the oracle took 17 s to say "invalid_route" for a spot 1 m beside him and 2.6 m up, and he stood all that time)
+    if st.mode == "go_to" and dist <= st.tol_cm and goal.Z - me.Z > 2 * (st.half_h or 88) and not st.ws_exec
+        and not st.lp_jump_exec and not st.jump_t and overhead(f, true) ~= nil then return end
     if route_tick(f) then return end
     -- "near" for the tracker: within tolerance, or a follow idling (incl. holding at a zone's edge)
     f.same_level = type(goal.Z) == "number" and type(me.Z) == "number" and math.abs(goal.Z - me.Z) <= 2 * st.half_h
@@ -3847,6 +4092,7 @@ local function start(log, mode, opts)
     end
     st.owner_token, st.owner_implicit = candidate, implicit
     st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped, st.nav_jumped = {}, {}, 0, {}, {}
+    st.below_ok, st.ovh, st.cam, st.jump_fail = nil, nil, nil, nil
     st.half_h = half_height
     st.t0 = now(pawn)
     if not (fresh() and admitted()) then return abort_start() end
@@ -3861,6 +4107,17 @@ local function start(log, mode, opts)
             math.max(0, os.time() - (rt.at or os.time())), tostring(rt.by or "a reflex"))
     end
     opts.resume_trip = nil
+    -- he can't walk while holding a hold interaction (an Anima Vent's siphon roots him): let go first, as a player
+    -- lets go of E before walking off (live 2026-11-01 19:20Z: the siphon was never let go; every walk stood still)
+    local inv0 = inv_mod()
+    local okh, h0 = pcall(function() return inv0 and inv0.held_interaction and inv0.held_interaction() end)
+    if okh and type(h0) == "table" then
+        local okr, rr = pcall(inv0.release_held, log, "a walk starts")
+        if okr and type(rr) == "table" and rr.ok then
+            st.trip_notes = st.trip_notes or {}
+            st.trip_notes[#st.trip_notes + 1] = string.format("I let go of the %s first (holding it kept me in place)", tostring(h0.name or h0.actor))
+        end
+    end
     st.timeout_s = opts.timeout_s or 120
     st.timeout_auto = opts.timeout_s == nil -- grows with the trip on the first tick (tick)
     st.sprint = opts.sprint ~= false

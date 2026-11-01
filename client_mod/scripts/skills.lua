@@ -187,6 +187,12 @@ local function acquire(api, job)
 end
 
 local function release(api, job, why)
+    -- a hold interaction pressed for this job (an Anima Vent's siphon) is let go when it ends, done or not, as a player
+    -- lets go of E (live 2026-11-01 19:20Z: never let go, he stood rooted at the vent until the client restarted)
+    local inv = not paused() and api.module and api.module("inventory")
+    if type(inv) == "table" and type(inv.release_held) == "function" then
+        pcall(inv.release_held, api.log, tostring(job.kind) .. " " .. tostring(why))
+    end
     if job.token and job.own ~= "released" then
         local move = rawget(_G, "DW_MOVE")
         if move and move.mode ~= "idle" and move.owner_token == job.token then

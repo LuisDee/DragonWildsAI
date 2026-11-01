@@ -402,7 +402,8 @@ do
     local follower=_G.DW_MOVE
     follower.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=300,Y=0,Z=210,act="jump"}} end,verify=function() return "ok" end}
     step(3); pawn.loc={X=-200,Y=0,Z=300}; air=0; step(1)
-    check("failed local jump preserves persistent follow",follower.mode=="follow" and follower.status=="unreachable" and follower.unreach and follower.unreach.reason=="no_route",follower.status)
+    -- (since 2026-11-01 20:09Z: one missed landing re-plans, like go_to; the third of the trip is no_route, tested below)
+    check("failed local jump preserves persistent follow",follower.mode=="follow" and not follower.unreach and follower.lp_fail=="jump landing missed" and follower.lpath==nil,follower.status)
     M.stop(log); air=0
     local changed=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
     changed.goal.X=801; step(1)
@@ -2826,6 +2827,180 @@ do
     for line in body:gmatch("[^\n]+") do if line:find('"type":"trip_progress"') then n = n + 1 end end
     check("long go_to: a progress line every 20 s", n >= 1 and body:find("m to go of 200") ~= nil, "lines=" .. n .. " " .. body:sub(1, 200))
     M.stop(log)
+end
+
+-- The goal above him at his x,y (coordinator 2026-11-01; live 17:25-17:44Z a build spot 2.1 m over his house floor
+-- ran "stuck n=159" for 19 min): a spot hanging in the air over his floor is an arrival right under it, verified;
+-- a spot on a floor 6 m up beside him fails at once (goal_above) with that floor's height, after one local plan.
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false; oracle = nil; pump_oracle()
+    GEAR = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local t0 = T
+    M.go_to(log, { 0.3, 0, 2.1 }, { tolerance_m = 0.8, nav = false })
+    run(60)
+    local s = M.status()
+    local va = M.verify_arrival()
+    check("goal hanging over his floor: arrived right under it, verified", s.result and s.result.status == "arrived" and s.result.below == true
+        and (s.result.s or 99) < 1.5 and va.ok and va.below == true, s.result and (tostring(s.result.status) .. " " .. tostring(s.result.reason) .. " " .. tostring(s.result.s)))
+    M.stop(log)
+    -- the same with the route oracle up but slow (live 19:25Z: 17 s standing for its "invalid_route")
+    oracle = function() return nil end; pump_oracle()
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 1.0, 0, 2.6 }, { tolerance_m = 1.5 })
+    run(60)
+    s = M.status()
+    check("goal hanging 1 m beside him with a slow oracle: arrived right under it, without waiting for a route",
+        s.result and s.result.status == "arrived" and s.result.below == true and (s.result.s or 99) < 1.5,
+        s.result and (tostring(s.result.status) .. " " .. tostring(s.result.reason) .. " " .. tostring(s.result.s)) or tostring(s.mode))
+    M.stop(log); oracle = nil; pump_oracle()
+    raised = { { 100, 900, -400, 400, 600, 600 } }
+    pawn.loc = { X = 30, Y = 0, Z = 0 }
+    t0 = T
+    M.go_to(log, { 1.5, 0, 6.9 }, { tolerance_m = 1.5, nav = false })
+    run(300)
+    s = M.status()
+    check("goal on a floor 6 m up beside him: goal_above at once, with its height", s.result and s.result.status == "failed"
+        and s.result.reason == "goal_above" and (s.result.rise_m or 0) > 5.5 and (s.result.s or T - t0) < 8 and tostring(s.result.detail):find("6.0 m above me", 1, true),
+        s.result and (tostring(s.result.status) .. " " .. tostring(s.result.reason) .. " " .. tostring(s.result.detail)))
+    M.stop(log); raised = {}
+end
+
+-- The camera is shared (coordinator 2026-11-01: the build's ceiling and roof aims read pitch 0 and move's yaw,
+-- ~16:30Z): another skill's aim mid-walk is left alone, renewed while it keeps aiming, and he walks on; then move
+-- takes the camera back. A go_to that is the aiming skill's own child walk ends, stopped camera_taken.
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false; oracle = nil; pump_oracle()
+    local rot = { Pitch = 0, Yaw = 0, Roll = 0 }
+    local writes = 0
+    pc.SetControlRotation = function(self, r) rot = { Pitch = r.Pitch, Yaw = r.Yaw, Roll = 0 }; writes = writes + 1 end
+    pc.GetControlRotation = function() return { Pitch = rot.Pitch, Yaw = rot.Yaw, Roll = 0 } end
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 40, 0, 0 }, { tolerance_m = 1, nav = false, local_plan = false })
+    run(15)
+    local aim_frames = 0
+    frame_hook = function()
+        aim_frames = aim_frames + 1
+        if aim_frames <= 90 then rot = { Pitch = -30, Yaw = 90 + aim_frames * 0.5, Roll = 0 } end -- 3 s (run(n) = 3n frames)
+    end
+    local w0, x0 = writes, pawn.loc.X
+    run(30)
+    check("camera: another skill's aim is left alone while he walks on", writes == w0 and pawn.loc.X > x0 + 100 and rot.Pitch == -30,
+        (writes - w0) .. " writes, moved " .. (pawn.loc.X - x0))
+    run(30)
+    check("camera: taken back once the other skill stops aiming", writes > w0 and math.abs(rot.Pitch) < 0.01 and math.abs(rot.Yaw) < 1,
+        rot.Pitch .. "," .. rot.Yaw)
+    M.stop(log); frame_hook = nil
+    local A = assert(loadfile(dir .. "/client_mod/scripts/arbiter.lua"))(); A.set_move(M)
+    local owner = A.request(log, { name = "test:build", level = "command", uses_move = true, adopt = false })
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local r = M.go_to(log, { 40, 0, 0 }, { tolerance_m = 1, nav = false, local_plan = false, owner_token = owner.token })
+    run(10)
+    rot = { Pitch = -40, Yaw = 45, Roll = 0 }
+    run(3)
+    local s = M.status()
+    check("camera: the aiming skill's own walk ends (stopped, camera_taken)", r.ok and s.result and s.result.status == "stopped" and s.result.reason == "camera_taken",
+        tostring(r.ok) .. " " .. tostring(s.mode) .. " " .. tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
+    A.release(log, owner.token, "test")
+    pc.SetControlRotation = function() end; pc.GetControlRotation = nil
+end
+
+-- the calibrated water channel survives a client restart (same build): a fresh client checks remembered water
+-- from his first trip instead of trusting it (live 18:07Z: false church-door cells, "cannot check: no water channel")
+do
+    os.execute('mkdir "' .. (dir .. "/client_io/state"):gsub("/", "\\") .. '" 2>nul')
+    local saved_ch = rawget(_G, "DW_WATER_CH")
+    local function seed(build)
+        local f = io.open(dir .. "/client_io/state/water_channel.lua", "w")
+        f:write(string.format('return { build = %q, name = "cam", ch = 1, ot = nil }\n', build)); f:close()
+    end
+    seed("26162923"); _G.DW_WATER_CH = nil; dofile(MOVE)
+    local c = rawget(_G, "DW_WATER_CH")
+    check("water channel: loaded from the last client run", type(c) == "table" and c.name == "cam" and c.ch == 1 and c.stored == true, c and c.name)
+    seed("26162923"); _G.DW_WATER_CH = false; dofile(MOVE) -- a shallow wade found no channel this run
+    c = rawget(_G, "DW_WATER_CH")
+    check("water channel: the stored one holds after a calibration that saw nothing", type(c) == "table" and c.name == "cam", tostring(c))
+    seed("11111111"); _G.DW_WATER_CH = nil; dofile(MOVE)
+    check("water channel: another build's channel is not trusted", rawget(_G, "DW_WATER_CH") == nil, tostring(rawget(_G, "DW_WATER_CH")))
+    os.remove(dir .. "/client_io/state/water_channel.lua")
+    _G.DW_WATER_CH = saved_ch
+end
+
+-- a remembered water cell over dry floor is forgotten when a water channel is known (the dry answer was read as
+-- "cannot check" and no false mark was ever cleared: live 19:26Z, every church-door cell stayed)
+do
+    local saved_ch = rawget(_G, "DW_WATER_CH")
+    _G.DW_WATER_CH = { ch = 0, name = "vis" }
+    local cleared = 0
+    local NMf = { cfg = { water_cell_cm = 200 }, clear_water = function() cleared = cleared + 1; return true end, save = function() end }
+    local st = {}
+    local q = { X = pawn.loc.X + 3000, Y = pawn.loc.Y, Z = pawn.loc.Z }
+    local fm = M._water_false_mark(st, pawn, { X = q.X, Y = q.Y, Z = FLOOR }, q, {}, NMf, log)
+    check("water memory: a dry cell is forgotten once the channel is known", fm == true and cleared == 1, tostring(fm) .. " " .. cleared)
+    _G.DW_WATER_CH = saved_ch
+end
+
+-- ROOTED by a hold interaction (live 2026-11-01 19:20Z: an Anima Vent's siphon pressed and never let go; every walk
+-- "walked 17-20 m" of hops on the spot and "fell 3.2 m (stuck)"): a walk lets go first; if it can't, the failure
+-- says what holds him, and the trip reports ground covered, not hops
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    local held, release_ok, releases = true, true, 0
+    local inv = { press_interact = function() return { ok = true } end, interact_target = function() return { none = true } end,
+        held_interaction = function() return held and { actor = "BP_AnimaVent_C_1", name = "Air Anima Vent", prompt = "Siphon" } or nil end,
+        release_held = function() releases = releases + 1; if release_ok then held = false; return { ok = true, released = "Air Anima Vent" } end
+            return { ok = false, reason = "no InteractActionStop" } end }
+    M.set_inventory(inv)
+    local real_add2 = pawn.AddMovementInput
+    pawn.AddMovementInput = function(self, d, sc) if held then return end return real_add2(self, d, sc) end
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 6, 0, 0 }, { tolerance_m = 1, nav = false })
+    run(150)
+    local s = M.status()
+    local tr = s.result and s.result.trip or ""
+    check("held: a walk lets go of the hold first and walks", s.result and s.result.status == "arrived" and releases == 1
+        and tostring(tr):find("let go of the Air Anima Vent", 1, true), tostring(s.result and s.result.status) .. " releases=" .. releases .. " " .. tostring(tr))
+    -- the release does not take: rooted, said in words; the trip covers 0 m of ground
+    M.stop(log)
+    held, release_ok, releases = true, false, 0
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 6, 0, 0 }, { tolerance_m = 1, nav = false })
+    run(400)
+    s = M.status()
+    tr = s.result and s.result.trip or ""
+    check("held: a hold he can't let go of fails as rooted, naming it", s.result and s.result.status == "failed" and s.result.reason == "rooted"
+        and tostring(s.result.detail):find("Air Anima Vent", 1, true), tostring(s.result and s.result.reason) .. " " .. tostring(s.result and s.result.detail))
+    check("held: the trip says he moved 0 m, not his hops", tostring(tr):find("^Moved 0 m") ~= nil and not tostring(tr):find("fell", 1, true), tostring(tr))
+    pawn.AddMovementInput = real_add2
+    M.set_inventory(nil)
+    M.stop(log)
+end
+
+-- A FOLLOW (a fight's approach) re-plans after a missed jump landing, like go_to; only the third failed jump of the
+-- trip is "no_route" (live 2026-11-01 20:09Z, ClaudeQ4 Ratcatcher: one missed landing on an open slope ended two
+-- attacks path_blocked/no_route 20-22 m from a rat standing still, and a go_to then walked there)
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
+    M.follow(log, "Zezima", 2, { nav = false })
+    run(5)
+    local mv = _G.DW_MOVE
+    local function miss()
+        local here = pawn.loc
+        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X + 300, Y = here.Y, Z = FLOOR, act = "jump" } }
+        mv.lwp = 2
+        mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
+                            started = T, saw_air = true }
+        air = 0
+        step(2)
+    end
+    miss()
+    check("follow: a missed jump landing re-plans, no no_route", mv.mode == "follow" and mv.unreach == nil and mv.trav_fails == 1
+        and mv.lp_fail == "jump landing missed", tostring(mv.unreach and mv.unreach.reason) .. " fails=" .. tostring(mv.trav_fails) .. " " .. tostring(mv.lp_fail))
+    miss(); miss()
+    check("follow: the third failed jump of the trip is no_route", mv.unreach and mv.unreach.reason == "no_route" and mv.trav_fails == 3,
+        tostring(mv.unreach and mv.unreach.reason) .. " fails=" .. tostring(mv.trav_fails))
+    M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end

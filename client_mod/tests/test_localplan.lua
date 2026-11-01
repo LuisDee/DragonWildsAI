@@ -221,5 +221,66 @@ do
     check("steep band (normal 0.4) is no floor: the route goes round it", p1 ~= nil and not over1 and over0, tostring(over1) .. " " .. tostring(over0))
 end
 
+-- LEAP over a gap (live 2026-11-01 18:31Z, the Bramblemead stair landings 1.6-1.8 m apart over a 3.6 m drop):
+-- a deck at z 0 for |y| < 300, cut by a 1.6 m gap at x 160-320 over ground at -360; void elsewhere (no way round).
+-- The route leaps from the take-off cell (x 100) to x 400 after a straight run-up (x 0 -> 100); with no jump
+-- (encumbered) there is no route across; a gap with a floor in it at deck level is walked, not leapt.
+do
+    local function deck(x, y) return math.abs(y) < 300 and (x < 160 or x > 320) end
+    local function pit(x, y) return math.abs(y) < 300 and x >= 160 and x <= 320 end
+    local bridge = false
+    local function trace_g(a, b, horizontal)
+        if horizontal then return nil end
+        local z = (deck(a.X, a.Y) or (bridge and pit(a.X, a.Y))) and 0 or (pit(a.X, a.Y) and -360 or nil)
+        if not z then return nil end
+        if a.Z < z then return z, true end
+        return z, false
+    end
+    local function route(jump, avoid)
+        local Pg = LP.new({ trace = trace_g, center = { X = 0, Y = 0, Z = 90 }, radius_m = 8, avoid = avoid,
+            env = { step = 45, jump = jump, djump = jump, drop = 600 } })
+        local s2 = "sampling"
+        while s2 ~= "ready" do s2 = Pg:step(64) end
+        return Pg:plan({ X = 700, Y = 0, Z = 0 })
+    end
+    local pg = route(165)
+    local li
+    for k, q in ipairs(pg or {}) do if q.leap then li = k end end
+    local L, T, R = li and pg[li], li and pg[li - 1], li and pg[li - 2]
+    check("leap: the route jumps the gap from the take-off cell", L and L.act == "jump" and L.X == 400 and L.Z == 0
+        and T and T.act == "walk" and T.X == 100, L and (L.X .. "," .. tostring(T and T.X)) or "no leap")
+    check("leap: a straight run-up into the take-off", R and R.Y == T.Y and R.X == T.X - 100, R and (R.X .. "," .. R.Y))
+    local last = pg and pg[#pg]
+    check("leap: the route goes on to the goal", last and last.X >= 600, last and last.X)
+    local av = {}
+    for y = -200, 200, 100 do av[LP.edge_key(100, y, 0) .. ">" .. LP.edge_key(400, y, 0)] = true end
+    local pa = route(165, av)
+    local across = false
+    for _, q in ipairs(pa or {}) do if q.X > 320 then across = true end end
+    check("leap: a leap that failed on this trip is left out of the next plan", not across, pa and #pa)
+    local p0, why0 = route(0)
+    local crossed = false
+    for _, q in ipairs(p0 or {}) do if q.X > 320 then crossed = true end end
+    check("leap: no jump (encumbered) -> no way across", not crossed, why0)
+    bridge = true
+    local pb = route(165)
+    local leapt = false
+    for _, q in ipairs(pb or {}) do if q.leap then leapt = true end end
+    check("leap: a floor across the gap is walked, not leapt", pb and not leapt and pb[#pb].X >= 600, tostring(leapt))
+    -- a 9 m wall in the "gap" (its cells have no floor: every trace starts inside it) is a wall, not a hole
+    -- (test_avoidzones' wall with two gaps was leapt straight through, 2026-11-01)
+    bridge = false
+    local wall = true
+    local trace_w0 = trace_g
+    trace_g = function(a, b, horizontal)
+        if wall and not horizontal and pit(a.X, a.Y) then if a.Z < 900 then return 900, true end return 900, false end
+        return trace_w0(a, b, horizontal)
+    end
+    local pw = route(165)
+    local over = false
+    for _, q in ipairs(pw or {}) do if q.leap or q.X > 320 then over = true end end
+    check("leap: a tall wall is not leapt as a gap", not over, pw and #pw)
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
