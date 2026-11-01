@@ -1323,8 +1323,8 @@ local function start_come_to(api, args, ctx, opts)
             if npc then
                 local n = tostring(npc.name or who)
                 return api.fail("unknown_target", { player = who, npc = npc.id, why = "not_a_player", detail = string.format(
-                    "%s is an NPC, not a player, so I can't %s them. I can go_to or talk to %s; a quest hand-in to an NPC happens in the conversation.",
-                    n, job.kind == "give" and "give things by dropping them at the feet of" or "follow", n) })
+                    "%s is an NPC, not a player, so I can't %s. I can go_to or talk to %s; a quest hand-in to an NPC happens in the conversation.",
+                    n, job.kind == "give" and "give things by dropping them at their feet" or "follow them", n) })
             end
             return api.fail("unknown_target", { player = who,
                 detail = "I can't see where you are from here, " .. who .. " (you're too far away for me to see)." })
