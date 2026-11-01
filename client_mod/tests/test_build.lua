@@ -439,6 +439,7 @@ do
             return out
         end
         Wb.preview_actor = function()
+            if o.no_preview then return nil end
             return { IsValid = function() return true end,
                      K2_GetActorLocation = function()
                          local a = (o.snap and o.snap_at) or G.aimed or { 0, 0, 0 }
@@ -494,6 +495,25 @@ do
     check("attach to an id I can't see: unknown_target, no press", r and r.reason == "unknown_target" and #G.presses == 0, r and r.reason)
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:up-ish" })
     check("attach with a side I don't know: invalid_args naming the sides", r and r.reason == "invalid_args" and tostring(r.data.detail):find("N, E, S, W or top", 1, true), r and r.reason)
+    -- an instance-only piece (live: the foundation) has no preview actor: aim AT the flush spot, press once the
+    -- cursor settled there green, then measure from the census (and say the snap itself wasn't seen)
+    attach_game({ no_preview = true, built_at = { 13, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("attach, no preview actor: aimed at the flush spot, settled, pressed; flush from the census; says it couldn't watch the snap",
+        r and r.ok and da.flush == true and da.snap_moved_m == 0 and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[1] - 13) < 1e-6
+        and tostring(da.built):find("can't watch this piece's preview snap", 1, true), r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)))
+    -- live 15:02Z: the cursor settles 0.6 m short and 0.2 m aside of the aim point -> the aim is corrected by the miss
+    attach_game({ no_preview = true, built_at = { 13, 0, 0 } })
+    Wb.mpc = function()
+        if not G.aimed then return nil end
+        return { index = 2, position = { G.aimed[1] - 0.6, G.aimed[2] + 0.2, -0.4 } }
+    end
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("attach, biased cursor: the aim is nudged by the miss until the cursor sits on the flush spot, then pressed",
+        r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[1] - 13.6) < 1e-6
+        and math.abs(G.aimed[2] + 0.2) < 1e-6, r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)) .. " aimed " .. (G.aimed and table.concat(G.aimed, ",") or "-"))
     attach_game({ snap = true, snap_only = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
     check("attach: a snap-only piece IS pressed once the snap is seen (no longer preview_ambiguous)", r and r.ok and r.data.flush == true, r and (tostring(r.reason) .. " " .. tostring(r.data.why)))
@@ -549,6 +569,29 @@ ARB.release(nil, fight.token, "won")
 r = nil
 for _ = 1, 400 do T = T + 0.2; r = a:poll(); if r then break end end
 check("after the fight: re-opened, placed, verified", r and r.ok and count(G.presses, "menu") == 2, r and r.reason)
+-- the lease is renewed while the build runs (live 2026-11-01: a 30 s walk to the spot ended "lease_expired")
+ARB.reset()
+reset_game()
+do
+    local walk_until, goal = T + 45, nil
+    local ms0, call0 = api.move_status, api.call
+    api.call = function(mod, fn, a)
+        if mod == "move" and fn == "go_to" then goal = a; return { ok = true } end -- a long walk, not a teleport
+        return call0(mod, fn, a)
+    end
+    api.move_status = function()
+        if T < walk_until then return { mode = "go_to" } end
+        if goal then G.pos = { goal[1], goal[2], goal[3] } end
+        return { mode = "idle", result = { status = "arrived" } }
+    end
+    h = Bd.HANDLERS.build(nil, { piece = "campfire", near = "bench_1" }, { api = api, id = "b5" })
+    a = h.pending
+    r = nil
+    for _ = 1, 600 do T = T + 0.2; ARB.status(); r = a:poll(); if r then break end end
+    api.move_status, api.call = ms0, call0
+    check("a 45 s walk to the spot: lease renewed every tick, the build finishes", r and r.ok and T >= walk_until,
+        r and (tostring(r.reason) .. " " .. tostring(r.data and r.data.why)))
+end
 ARB = nil
 
 -- 14. pause during Placement: no game call at all; afterwards it carries on

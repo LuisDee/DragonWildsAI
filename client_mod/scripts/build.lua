@@ -239,6 +239,9 @@ M.cfg.build = {
     -- positive snap signal colour 2 alone can't give (Valid vs NeedsSnapping). flush_tol_m: the census check after.
     snap_aim_m = 0.25, snap_tol_m = 0.06, snap_tol_z_m = 0.12, flush_tol_m = 0.06, stand_extra_m = 1.5, taken_m = 0.5,
     preview_waits = 6, edge_aim_m = 0.3,
+    -- no preview actor (instance-only pieces): the cursor must stop gliding (settle_m between reads) within
+    -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s)
+    settle_m = 0.03, cursor_tol_m = 0.2, cursor_checks = 14, corr_max_m = 2.0,
     -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
     -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
     -- NeedsSnapping press itself and Client_ShowValidityNotification names why. true = also require the hook.
@@ -272,11 +275,12 @@ M.REJECT_WORDS = {
     preview_none = "there was no surface it could go on there",
     preview_off_target = "the preview didn't land where I aimed",
     not_snapped = "the preview didn't snap onto the piece (it stayed where I aimed instead of sitting flush)",
+    settling = "the preview kept sliding and never settled where I aimed",
 }
 -- The success reply in the order the model reads it (dkjson __jsonorder; the bridge encodes data as is): what was
 -- placed and where first, the rejected preview spots last and labelled as such.
 M.RESULT_ORDER = { "built", "placed", "name", "piece", "structure", "position", "distance_m", "direction", "facing",
-                   "attached_to", "side", "flush", "gap_m", "offset_m", "level_m", "facing_off_deg",
+                   "attached_to", "side", "flush", "gap_m", "offset_m", "level_m", "facing_off_deg", "snap_moved_m",
                    "spent", "xp", "evidence", "rejected_previews_before_placing", "rotation_verified" }
 local RESULT_MT = { __jsontype = "object", __jsonorder = M.RESULT_ORDER }
 local COMPASS = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
@@ -902,11 +906,33 @@ local function preview_reader(api, job)
                                                 off_m = math.floor(off * 100 + 0.5) / 100, ghost_yaw = job.on.last.yaw and r1(job.on.last.yaw) or nil }
             local green = m.index == 2 and (not h or h.v == 0)
             local fresh = not h or h.seq > (job.aim_seq or 0)
-            if green and off <= M.cfg.build.snap_tol_m and dz <= M.cfg.build.snap_tol_z_m then
+            local cfg = M.cfg.build
+            if job.on.mode == "cursor" then
+                -- no preview actor to read (live 2026-11-01: an instance-only piece like the foundation has none; only
+                -- BP_BuildingHelper_C sits at the cursor, and the cursor glides ~1 m/s after each aim). Then: aimed AT
+                -- the flush spot, green, the cursor settled there -> press; the game's snap (Basic mode) pulls it onto
+                -- the grid (live: the first foundation landed exactly on Luis's grid this way) and the census after the
+                -- press says whether it really sits flush. snapped = "unseen".
+                local prev = job.on.prev_cursor
+                local moved = prev and math.sqrt((m.position[1] - prev[1]) ^ 2 + (m.position[2] - prev[2]) ^ 2) or math.huge
+                job.on.prev_cursor = m.position
+                if moved > cfg.settle_m then return { valid = false, why = "settling", position = at, fresh = fresh } end
+                if green and off <= cfg.cursor_tol_m and math.abs(dzs) <= 1.0 then
+                    return { valid = true, snapped = "unseen", position = at, fresh = fresh, colour = 2 }
+                end
+                -- settled off the spot (live: 0.6 m short and 0.2 m aside, the camera ray isn't the placement trace):
+                -- correct the aim by the miss, as a player nudges the mouse; the checker's next re-aim applies it
+                local c = job.on.corr or { 0, 0 }
+                c = { c[1] + (tg[1] - at[1]), c[2] + (tg[2] - at[2]) }
+                local cl = math.sqrt(c[1] ^ 2 + c[2] ^ 2)
+                if cl > cfg.corr_max_m then c = { c[1] / cl * cfg.corr_max_m, c[2] / cl * cfg.corr_max_m } end
+                job.on.corr, job.on.prev_cursor = c, nil
+            elseif green and off <= cfg.snap_tol_m and dz <= cfg.snap_tol_z_m then
                 return { valid = true, snapped = true, position = at, fresh = fresh, colour = 2 }
             end
             local why = (h and h.v ~= 0 and (M.STATES[h.v] or tostring(h.v))) or (job.short_materials and "MissingMaterials")
-                or (m.index == 2 and "not_snapped") or (m.index == 1 and "preview_red") or "preview_none"
+                or (m.index == 2 and (job.on.mode == "cursor" and "preview_off_target" or "not_snapped"))
+                or (m.index == 1 and "preview_red") or "preview_none"
             return { valid = false, why = why, position = at, fresh = fresh }
         end
         if not h then
@@ -965,6 +991,12 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         local a, side = job.on.anchor, job.on.side
         local where_on = (side == "top" and "on top of the " or ("on the " .. side .. " side of the ")) .. tostring(a.name) .. " (" .. a.id .. ")"
         att = s and M.flush_report(a, side, job.on.box, s, M.cfg.build.flush_tol_m)
+        local pp = job.preview and job.preview.position
+        if att and job.on.mode == "cursor" and type(pp) == "table" then
+            -- how far the game moved it from my cursor at the press: > 0 = its snap pulled it onto the plug
+            att.snap_moved_m = math.floor(math.sqrt((s.position[1] - pp[1]) ^ 2 + (s.position[2] - pp[2]) ^ 2) * 100 + 0.5) / 100
+            line = line .. " I can't watch this piece's preview snap, so I aimed at the flush spot and measured where it landed."
+        end
         if att then
             local parts = {}
             if math.abs(att.gap_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.gap_m), att.gap_m > 0 and "gap" or "overlap") end
@@ -990,7 +1022,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         spent = api.object(spent), xp = xp_gain or api.null, evidence = evidence, rotation_verified = false,
         attached_to = job.on and job.on.anchor.id or nil, side = job.on and job.on.side or nil,
         flush = att and att.flush, gap_m = att and att.gap_m, offset_m = att and att.offset_m, level_m = att and att.level_m,
-        facing_off_deg = att and att.facing_off_deg,
+        facing_off_deg = att and att.facing_off_deg, snap_moved_m = att and att.snap_moved_m,
         rejected_previews_before_placing = #rej > 0 and rej or nil }, RESULT_MT) }
 end
 M._success = success
@@ -1091,7 +1123,12 @@ local function step(api, job, t)
                 for _, th in ipairs(api.census_things(30, 20) or {}) do if th.category == "players" then out[#out + 1] = th end end
                 return out
             end,
-            aim = function(p) job.aim_seq, job.last_aim = W.hook_seq(), p; return W.aim(api, p) end,
+            aim = function(p)
+                local c = job.on and job.on.mode == "cursor" and job.on.corr
+                if c then p = { p[1] + c[1], p[2] + c[2], p[3] } end
+                job.aim_seq, job.last_aim = W.hook_seq(), p
+                return W.aim(api, p)
+            end,
             read = preview_reader(api, job),
         }
         job.env = env
@@ -1101,6 +1138,10 @@ local function step(api, job, t)
         -- still counts as snap (never press blind).
         local prof = W.piece_profile(api, job.data)
         local pa = W.preview_actor(api, job)
+        if job.on and not pa and (job.pa_waits or 0) < cfg.preview_waits then -- attaching: give a preview actor time to spawn
+            job.pa_waits = (job.pa_waits or 0) + 1
+            return nil
+        end
         if prof and prof.snap_only ~= nil then
             job.snap, job.snap_src = prof.snap_only, "piece data"
         elseif pa then
@@ -1140,7 +1181,11 @@ local function step(api, job, t)
             end
             spots, skipped = {}, {}
             local function add(p, mm) spots[#spots + 1] = { position = p, exact = true, match_m = mm } end
-            if axis then
+            job.on.mode = pa and "ghost" or "cursor"
+            if not pa then -- no ghost to watch: aim at the flush spot itself (the game snaps it), then just beside it
+                add(spot, 1.0)
+                add({ spot[1] + out[1] * 0.15, spot[2] + out[2] * 0.15, spot[3] }, 1.0)
+            elseif axis then
                 -- live 2026-11-01: aimed 0.25 / 0.5 m outside the flush spot, the free ghost landed 0.8-1.1 m further
                 -- out and never snapped. A player looks at the anchor's EDGE (its plugs) to snap: aim on its top just
                 -- inside the edge, then just outside it, then the old outside-the-spot points. The free ghost follows
@@ -1154,9 +1199,11 @@ local function step(api, job, t)
                     add({ edge[1] + axis[1] * o, edge[2] + axis[2] * o, top }, 2 * box.extent[i] + 1.5)
                 end
             end
-            for _, k in ipairs({ 1, 2 }) do
-                local o = cfg.snap_aim_m * k
-                add({ spot[1] + out[1] * o, spot[2] + out[2] * o, spot[3] }, 2 * cfg.snap_aim_m + 0.5)
+            if pa then
+                for _, k in ipairs({ 1, 2 }) do
+                    local o = cfg.snap_aim_m * k
+                    add({ spot[1] + out[1] * o, spot[2] + out[2] * o, spot[3] }, 2 * cfg.snap_aim_m + 0.5)
+                end
             end
         else
             spots, skipped = P.spots(env, job.center, { footprint_m = job.footprint, standoff_m = math.max(0.8, job.footprint / 2 + 0.3),
@@ -1165,7 +1212,8 @@ local function step(api, job, t)
             if #spots == 0 then spots = { { position = job.center, exact = true } } end
         end
         job.skipped = skipped
-        job.checker = P.checker(env, spots, { match_m = function(sp) return sp.match_m or cfg.match_m end, checks = job.on and 4 or 3,
+        local checks = (job.on and job.on.mode == "cursor" and cfg.cursor_checks) or (job.on and 4) or 3
+        job.checker = P.checker(env, spots, { match_m = function(sp) return sp.match_m or cfg.match_m end, checks = checks,
                                               budget_s = cfg.budget_s, compare = "2d" })
         job.phase = "check"
         return nil
@@ -1347,6 +1395,9 @@ M.HANDLERS.build = function(log, args, ctx)
             job.phase = "leave"
         end
         if not acquire() or job.own == "suspended" or api.reflex_owns_pawn() then self.started = api.now(); return nil end
+        -- the lease is renewed every tick it runs (arbiter rule; live 2026-11-01: never renewed, so any build longer
+        -- than lease_s, e.g. a 30 s walk to the spot, ended "interrupted: lease_expired")
+        if A and job.own == "owner" and job.token then A.renew(job.token) end
         if job.resumed then
             job.resumed = nil
             if job.reopen then job.reopen, job.phase, job.opens, job.sel_t, job.open_t = nil, "open", 0, nil, nil
