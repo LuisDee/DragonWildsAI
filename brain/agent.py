@@ -66,6 +66,13 @@ PROMISE_NOTE = ("You replied without calling any tool. That line has been said. 
 # decides; code never speaks the note itself (it can be reasoning, controller.py SAY_SCHEMA).
 UNHEARD_NOTE = ("Nobody heard that: you wrote plain text and called no tool, and only say(text) is heard in chat. If "
                 "it was meant for the player, say it now with say; otherwise reply with no text at all.")
+# Build run 2026-11-01 20:29:57Z: his line "roof only covers part, second piece won't seat. I'll keep at it" came with
+# a store call; the next turn returned no call and the request ended there. A later turn that stops with nothing,
+# right after a line of his was said, is told once what he last said; the model decides (never a veto, code never
+# speaks for him). Decided on the turn's shape only, never the line's words.
+STOP_NOTE = ("You stopped: no tool call and nothing said. Your last line to the player was: {line!r}. If it says you "
+             "will keep going or do more, call the tool(s) for that now. If you can't, say in a few words what's "
+             "stopping you. If it's done, reply with no text at all.")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
@@ -432,6 +439,7 @@ class Agent:
         acted = False
         turn = 0
         parked = None  # the no-progress breaker parked a step: this turn is the chain's last
+        prev_line, stop_checked = None, False  # the line said with the previous turn; the one-time STOP_NOTE check
         last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
         while True:
             if d.interrupts and self.active_goal:
@@ -472,6 +480,15 @@ class Agent:
                        and not t["failure"] and not d.speech and not (d.actions or d.goal or d.skill or d.refusals)
                        and getattr(self.controller, "say_channel", False) and self._wrote_text(d))
             more = more or unheard
+            # a line said beside work in a LATER turn (a first reply's "on it" + its call, then an empty report turn, is
+            # the normal end of a request: no check for that)
+            this_line = d.speech if line_said and d.speech and t["ran"] and turn > 0 else None
+            stop_check = (turn > 0 and not stop_checked and self.check_promises and bool(event.text) and not t["ran"]
+                          and not t["failure"] and bool(prev_line) and not d.speech
+                          and not (d.actions or d.goal or d.skill or d.refusals))
+            stop_checked = stop_checked or stop_check or promise_check or unheard  # never doubled with those
+            more = more or stop_check
+            stop_line, prev_line = prev_line, this_line
             if not more:
                 break
             spoke = self._player_spoke()
@@ -504,7 +521,8 @@ class Agent:
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
                                               note=PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
-                                              PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else None,
+                                              PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else
+                                              STOP_NOTE.format(line=stop_line) if stop_check else None,
                                               news=news)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))

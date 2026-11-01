@@ -138,7 +138,7 @@ local function step_world(dt)
         end
     end
     -- stamina regen
-    Wd.pawn.stamina = math.min(80, Wd.pawn.stamina + 5 * dt)
+    Wd.pawn.stamina = math.min(80, Wd.pawn.stamina + (Wd.regen_rate or 5) * dt)
 end
 
 -- ---------------------------------------------------------------- fake modules
@@ -320,7 +320,9 @@ W.inject = function(action)
     local rising = last_inj[action] ~= T - 0.01 and (last_inj[action] or -1) < T - 0.015
     last_inj[action] = T
     if rising and action == "IA_PrimaryAction" and not Wd.dead_inputs then
-        Wd.pawn.stamina = Wd.pawn.stamina - 4
+        -- Wd.late_stamina: the live client shows a swing's stamina cost only after gather's +0.35 s sample
+        if Wd.late_stamina then Wd.pending[#Wd.pending + 1] = { t = T + 0.5, fn = function() Wd.pawn.stamina = Wd.pawn.stamina - 4 end }
+        else Wd.pawn.stamina = Wd.pawn.stamina - 4 end
         swing()
         Wd.swings = (Wd.swings or 0) + 1
     end
@@ -466,6 +468,19 @@ do
     check("no effect -> path_blocked swing_no_effect", res.ok == false and res.reason == "path_blocked" and res.data.why == "swing_no_effect",
         tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
     check("no effect: tried several aims", (res.data and res.data.swings or 0) >= G.cfg.no_effect_swings * #G.cfg.aim_offsets.axe, res.data and res.data.swings)
+end
+
+-- ================================================================ 5b. swings that land late on stamina and do nothing
+do -- rung 3 gate 2026-11-01 19:59Z: "stamina 100->100 unverified" x6 on a split log while each press read 4 less
+   -- than the one before: the swings ran, so it is an aim problem (try other aims/sides), not broken inputs
+    reset({ no_effect = true })
+    Wd.late_stamina, Wd.regen_rate = true, 2
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 4 do add_foliage_tree("Oak", { X = 700 * i, Y = 0, Z = 0 }) end
+    local res = run_job({ resource = "oak", count = 2 }, 600)
+    check("late stamina, no effect -> swing_no_effect, not inputs_not_reaching_game",
+        res.ok == false and res.reason == "path_blocked" and res.data.why == "swing_no_effect",
+        tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
 end
 
 -- ================================================================ 6. aim search: the wedge is NOT where the prior says

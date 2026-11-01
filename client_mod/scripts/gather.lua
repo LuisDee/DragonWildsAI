@@ -1023,6 +1023,11 @@ local function step_swing(J, pawn, me, acts)
         J.pending = nil
         local st = pp.st_after ~= -1 and pp.st_after or nil
         local spent = pp.stamina and st and st < pp.stamina - 0.5
+        -- on the live client a swing's stamina cost often shows only after that sample (rung 3 gate 2026-11-01 19:59Z:
+        -- "stamina 100->100" on every swing, HIT or not, while each press read 4 less than the one before, and 6 such
+        -- misses on a split log ended in a false inputs_not_reaching_game): a press reading less than the press before
+        -- proves that swing ran, so the inputs reach the game and the miss is the aim's
+        if not spent and pp.stamina and pp.prev_stamina and pp.stamina < pp.prev_stamina - 0.5 then spent = true end
         local hp = T.kind == "actor" and W.hp(T.actor) or nil
         -- damage: HP fell since the press (or, for a tree that was still foliage, it now exists damaged)
         local hit = (hp and pp.hp and hp < pp.hp - 0.01)
@@ -1095,8 +1100,9 @@ local function step_swing(J, pawn, me, acts)
     end
     J.swings = J.swings + 1
     C().counts.swings = C().counts.swings + 1
-    J.pending = { t = J.t, stamina = st, hp = T.kind == "actor" and W.hp(T.actor) or nil, kind = T.kind,
-                  verify_at = J.t + (prim.dmg_ms or 600) / 1000 + 0.45 }
+    J.pending = { t = J.t, stamina = st, prev_stamina = J.press_stamina, hp = T.kind == "actor" and W.hp(T.actor) or nil,
+                  kind = T.kind, verify_at = J.t + (prim.dmg_ms or 600) / 1000 + 0.45 }
+    J.press_stamina = st
     J.next_press = J.t + (prim.next_ms or 1300) / 1000 + jitter(cfg.press_jitter_ms)
 end
 

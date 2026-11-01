@@ -132,3 +132,37 @@ def test_turn_zero_promise_note_offers_the_honest_out_and_its_line_is_said(tmp_p
     assert PROMISE_NOTE in _notes(r) and "what's stopping you" in PROMISE_NOTE
     assert r.body.said == ["heading to a flat spot for the shelter",
                            "actually can't pick a flat spot from here, no ground info"]
+
+
+def _stop_rig(tmp_path, monkeypatch, after_note):
+    """Build run 2026-11-01 20:29:57Z (logs/brain-live-20261101-212535-10756.jsonl, its last two turns): "... second
+    piece won't seat. I'll keep at it" came with a call, the next turn returned nothing, and the request ended.
+    The live say channel: only say calls are heard."""
+    monkeypatch.setenv("DW_SPEECH_CHANNEL", "say")
+    r = Replay(tmp_path, STATES[5], tools=TOOLS)
+    for _ in range(3):
+        r.body.act("go_to", ok(target="Zezima"))
+    r.model.replies["build me a house"] = FakeLLM.say("", FakeLLM.call("go_to", target="Zezima"))
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("go_to", target="Zezima"),
+                                 FakeLLM.call("say", text="roof only covers part, second piece won't seat. I'll keep at it")),
+                     FakeLLM.say(""),  # stops: no call, nothing said
+                     after_note, FakeLLM.say(""), FakeLLM.say("")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude build me a house"})
+    r.at(0).step()
+    return r
+
+
+def test_a_chain_turn_that_stops_right_after_his_line_is_told_once_and_may_go_on(tmp_path, monkeypatch):
+    from brain.agent import STOP_NOTE
+    r = _stop_rig(tmp_path, monkeypatch, FakeLLM.say("", FakeLLM.call("go_to", target="Zezima")))
+    stops = [n for n in _notes(r) if n.startswith(STOP_NOTE.split("{")[0])]
+    assert len(stops) == 1 and "I'll keep at it" in stops[0]
+    assert [c[0] for c in r.body.calls] == ["go_to", "go_to", "go_to"]  # the model chose to keep at it
+    assert r.body.said == ["roof only covers part, second piece won't seat. I'll keep at it"]  # code said nothing
+
+
+def test_the_stop_check_is_one_call_and_the_model_may_end_there(tmp_path, monkeypatch):
+    from brain.agent import STOP_NOTE
+    r = _stop_rig(tmp_path, monkeypatch, FakeLLM.say(""))
+    assert sum(n.startswith(STOP_NOTE.split("{")[0]) for n in _notes(r)) == 1
+    assert [c[0] for c in r.body.calls] == ["go_to", "go_to"] and len(r.body.said) == 1

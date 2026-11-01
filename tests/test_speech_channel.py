@@ -120,3 +120,22 @@ def test_say_only_followup_answers_its_tool_before_the_check(srig, check_outcome
     assert any("not said yet" in r["note"] for r in tool_msgs({"messages": checks[0]}, SAY_TOOL))
     assert srig.companion_said() == ["got the logs"]
     assert bool(srig.calls("go_to")) == (check_outcome == "action")
+
+
+def test_a_held_say_is_said_when_the_turn_then_acts_without_a_new_say(srig):
+    """Rung 3 gate 2026-11-01 19:03Z / 19:33Z: "on it, cooking the raw meat" beside a recipes read, then craft with
+    no say: the line he chose was never heard and he stood 6-7 s in silence. A turn that acts speaks the held line."""
+    srig.game.add_ground_item("oak_log", 2, [1, 0, 0])
+    srig.game.player_say("grab those logs")
+    srig.controller_llm.push(reply("grabbing them", FakeLLM.call("look", about="logs")),
+                             reply(None, FakeLLM.call("go_to", target=[1, 0, 0])))
+    srig.agent.step()
+    assert "grabbing them" in srig.companion_said()
+    assert rows(srig, "say_released") and rows(srig, "say_released")[0]["actions"] == ["go_to"]
+
+
+def test_a_held_say_is_dropped_when_the_turn_ends_without_an_action(srig):
+    srig.game.player_say("any sticks about?")
+    srig.controller_llm.push(reply("let me look", FakeLLM.call("look", about="sticks")), LLMResponse())
+    srig.agent.step()
+    assert "let me look" not in srig.companion_said()

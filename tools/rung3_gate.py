@@ -38,8 +38,10 @@ ASH, STONE = "ITEM_Resources_Wood_Ash", "ITEM_Resources_Stone"
 # where Luis stood at each task's start (server recorder 2026-11-01, rec_20261101T123634Z), except where Claude's own
 # house now stands (cells x 91.7-97.7, y 1845.6-1854.6; BUGS L46: a teleport in there boxes him in): axe, cook and the
 # spinning wheel start outside it at Luis's distance from the same stations
+# boil/cook start outside nav trap t227 (radius 8 m round (99.2, 1854.9), learned ~20:05Z): from inside it every walk
+# first took its 37-point exit (window 11: 26 m walked to end 5 m away), which Luis never had to
 SPOT = {"axe": [100.5, 1857.5, -31.0], "pickaxe": [98.97, 1860.57, -30.75], "chop": [118.18, 1868.42, -29.97],
-        "mine": [106.92, 1851.47, -31.48], "boil": [103.29, 1854.84, -31.14], "cook": [102.0, 1851.5, -31.3],
+        "mine": [106.92, 1851.47, -31.48], "boil": [109.0, 1855.0, -31.4], "cook": [109.0, 1855.0, -31.4],
         "wheel": [91.0, 1857.0, -31.0], "thread": [90.0, 1857.2, -31.0], "spade": [90.0, 1857.2, -31.0]}
 
 # item -> (line, check name, check regex on the inventory's names, count, Luis's task, stock {item id: n},
@@ -61,8 +63,10 @@ ITEMS3 = {
     # setup for thread/spade, not a Rung 3 item: Luis's wheel holds his fur in its only slot (never touched), so
     # Claude builds his own (it needs a roof: his house's ceiling); done = the wheel's 4 Flax spent, the station
     # census confirms it. Ungraded on time (Luis built his inside "make spade")
-    "wheel": ("claude build yourself a spinning wheel", "Flax", r"^flax$", 4, None,
-              {"ITEM_Resources_Flax": 6, ASH: 14, STONE: 2}, {}, 180),
+    # 18:03Z "build yourself a spinning wheel" put it under open sky (buildables said "Requires Shelter"); its menu
+    # then never opened (18:4xZ). Setup line says where, as Luis would tell a new player
+    "wheel": ("claude move one of your spinning wheels into your house, under the roof", "Flax", r"^flax$", 4, None,
+              {ASH: 14, STONE: 2}, {}, 180),
     "spade": ("claude make yourself a wooden spade", "Wooden Spade", r"wooden spade", 1, "make spade",
               {ASH: 6, "ITEM_Resources_Flax": 1}, {}, 240),
     "thread": ("claude spin some thread", "Coarse Thread", r"coarse thread", 2, "animal fur to thread",
@@ -144,10 +148,13 @@ def check_spent3(rec: dict, rows: list[dict]):
     tg = rec["target"]
     rx = re.compile(tg["rx"], re.I)
     inv = rec.get("inv") or []
-    base = inv[0][1] if inv else {}
+    def held(c):
+        return sum(v for k, v in c.items() if rx.search(k))
+    top = held(inv[0][1]) if inv else 0  # the most he held so far: a refund (deconstruct) then a rebuild counts too
     when, used = None, 0
     for t, c in inv[1:]:
-        used = sum(base.get(k, 0) - c.get(k, 0) for k in base if rx.search(k) and c.get(k, 0) < base.get(k, 0))
+        top = max(top, held(c))
+        used = top - held(c)
         if used >= tg["n"]:
             when = t
             break

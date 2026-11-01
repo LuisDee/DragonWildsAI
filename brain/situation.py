@@ -639,7 +639,10 @@ def consumable_facts(r: dict, order=(("hydration", "water"), ("sustenance", "foo
     return [f"{label} {r[k]}" for k, label in order if r.get(k) not in (None, "", "None")]
 
 
-CARRY_GROUPS = 12  # crafting reads its inputs here (rung 3, live 16:56Z: 6 rune stacks hid his logs and stone)
+# every carried item, most first, up to this many characters: crafting reads its inputs here (rung 3, live 16:56Z: 6
+# rune stacks hid his logs and stone; 19:33Z: a 12-item cut hid the 4 Dirty Water a boil needed, so he read inventory
+# first and stood 5.8 s saying nothing)
+CARRY_CHARS = 900
 
 
 def carrying(state: dict, names: dict[str, str]) -> str:
@@ -650,11 +653,17 @@ def carrying(state: dict, names: dict[str, str]) -> str:
     rows = sorted(((k, v) for k, v in inv.items() if v), key=lambda kv: -kv[1])
     carry = [f"{name_of_item(k, names)} x{v}" for k, v in rows if not str(k).startswith("ITEM_Rune_")]
     runes = [f"{name_of_item(k, names).removesuffix(' Rune')} {v}" for k, v in rows if str(k).startswith("ITEM_Rune_")]
-    more = len(carry) - CARRY_GROUPS
-    text = "Carrying: " + "; ".join(carry[:CARRY_GROUPS]) + (f"; +{more} more" if more > 0 else "") if carry else ""
+    shown, used = [], 0
+    for row in carry:
+        if used + len(row) > CARRY_CHARS:
+            break
+        shown.append(row)
+        used += len(row) + 2
+    more = len(carry) - len(shown)
+    text = "Carrying: " + "; ".join(shown) + (f"; +{more} more" if more > 0 else "") if carry else ""
     if runes:
         text += ("; " if text else "Carrying: ") + "runes " + ", ".join(runes)
-    return text[:LINE_CHARS + 120] or "Carrying: nothing"
+    return text[:CARRY_CHARS + 240] or "Carrying: nothing"
 
 
 def consumables(state: dict) -> list[str]:

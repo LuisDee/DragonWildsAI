@@ -235,6 +235,7 @@ class Decision:
     inventory: dict | None = None  # an inventory read this turn (data)
     effort: str | None = None  # the effort this request runs at, when not the client's default (addressed chat)
     situation: list[str] | None = None  # the situation lines the model last saw in this request (next_turn)
+    held_say: str | None = None  # a say the model made beside a read this turn (held until the turn acts)
 
 
 def current_observation(state: dict | None) -> dict:
@@ -673,6 +674,8 @@ class Controller:
         d.speech = self.speech_of(resp)
         d.messages = messages + [assistant_message(resp)]
         self._collect(resp.tool_calls, d, state)
+        if not d.speech and not d.refusals and not d.invalid:  # a refused call is no action to speak for
+            d.speech = self._release_held(resp, d)
         # A real action or a new goal pre-empts the current job; remember(), spells, standing
         # orders and chat do not.
         d.interrupts = bool(d.goal or d.skill or any(a.name not in self.non_interrupting() for a in d.actions))
@@ -700,7 +703,7 @@ class Controller:
             messages = messages + [assistant_message(resp)]
             for call in reads:
                 messages.append(tool_result_message(call, self._read(call, d)))
-            self._answer_says(messages, resp)
+            self._answer_says(messages, resp, d)
             if step == self.max_calls - 2:
                 messages.append({"role": "user", "content": "Last step: act now on what you found, or reply."})
         return resp, messages
@@ -715,7 +718,7 @@ class Controller:
         messages = messages + [assistant_message(resp)]
         for call in reads:  # the budget is spent: these are answered, not run
             messages.append(tool_result_message(call, {"ok": None, "note": "not run: no more looking this turn"}))
-        self._answer_says(messages, resp)
+        self._answer_says(messages, resp, d)
         messages.append({"role": "user", "content": FINAL_PASS_NOTE})
         tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
         try:
@@ -751,18 +754,29 @@ class Controller:
     def _say_result(failed: bool = False, held: bool = False) -> dict:
         """What a say call's tool result tells the model (every tool_use needs a tool_result)."""
         if held:
-            return {"ok": True, "note": "not said yet: only the say in the reply that ends your turn is heard; "
-                                        "call say again then if you still want to say it"}
+            return {"ok": True, "note": "not said yet: it is said when this turn ends in an action with no new say; "
+                                        "a new say replaces it, and a turn that ends without an action drops it"}
         if failed:
             return {"ok": None, "note": "not said: a step failed first; say what's true now"}
         return {"ok": True, "note": "said"}
 
-    def _answer_says(self, messages: list[dict], resp: LLMResponse) -> None:
+    def _answer_says(self, messages: list[dict], resp: LLMResponse, d: Decision | None = None) -> None:
         """A reply that only looked (its reads run inline) may also have called say: answer it (held)."""
         if self.say_channel:
             for call in resp.tool_calls:
                 if call.name == SAY_TOOL:
                     messages.append(tool_result_message(call, self._say_result(held=True)))
+            if d is not None:
+                d.held_say = self.speech_of(resp, log=False) or d.held_say
+
+    def _release_held(self, resp: LLMResponse, d: Decision) -> str | None:
+        """The say held beside a read, when the turn then acts without a new say (rung 3 gate 19:03Z / 19:33Z:
+        "on it, cooking the raw meat at the campfire" + recipes, then craft with no say: he stood 6-7 s in
+        silence and the line he chose was never heard). A turn that ends without an action drops it."""
+        if not d.held_say or not self.acts(resp):
+            return None
+        self.log.log("say_released", text=d.held_say, actions=[c.name for c in self.acts(resp)])
+        return d.held_say
 
     def _sent_effort(self, d: Decision | None = None) -> str | None:
         """The effort a call sends: the request's own level, else the client's default (logged, L27)."""
@@ -854,7 +868,7 @@ class Controller:
         d2 = Decision(effort=d.effort, situation=lines or d.situation)  # the same request keeps its effort (and cache)
         resp, msgs = self._loop(msgs, d2, label="turn")
         msgs = msgs + [assistant_message(resp)]
-        speech = self.speech_of(resp)
+        speech = self.speech_of(resp) or self._release_held(resp, d2)
         # After a turn whose actions all worked, a reply that only talks is the report itself: no check call (live
         # chat ladder 2026-10-31: "I'm at Vannaka" after a verified go_to cost a 3rd call that repeated the line;
         # logs: 15 such checks, 1 added a call, and that one was about an earlier failure).
