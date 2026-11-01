@@ -298,6 +298,10 @@ class Executor:
         key = _COUNTED[task.skill][0]
         if task.id in self._resolved_items:  # the body told us the real inventory key on an earlier try
             args = {**args, key: self._resolved_items[task.id]}
+        if not args.get(key) or "count" not in task.args:
+            # craft by recipe id alone has no item to count (live 18:22Z: KeyError 'item' ended the request with
+            # "my head glitched"): run it as asked, the body verifies it
+            return dict(task.args)
         remaining = task.args["count"] - _delta(task.skill, args, base, now)
         return {**task.args, "count": remaining} if remaining > 0 else None
 
