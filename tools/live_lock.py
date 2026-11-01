@@ -100,9 +100,10 @@ def try_claim(owner: str, pid: int | None = None, path: Path = LOCK) -> bool:
     return True
 
 
-def release(owner: str, path: Path = LOCK) -> None:
+def release(owner: str, path: Path = LOCK, pid: int | None = None) -> None:
+    """Only the holder's own claim: the same owner name may be waiting in another process (two "rung1" gates)."""
     cur = read(path)
-    if cur and cur["owner"] == owner:
+    if cur and cur["owner"] == owner and (pid is None or cur["pid"] in (0, pid)):
         try:
             path.unlink()
         except OSError:
@@ -191,7 +192,7 @@ def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, 
         yield
     finally:
         stop.set()
-        release(owner)
+        release(owner, pid=pid or os.getpid())
         log(f"live lock: {owner} released it")
 
 
