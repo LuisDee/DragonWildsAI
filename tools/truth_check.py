@@ -16,6 +16,10 @@ results, prompt observations, harness samples). Flags:
 A claim with no evidence either way is listed as unverified, never flagged (tau2-bench / "false success" practice:
 judge against environment state, not the closing message's confidence; arXiv 2606.09863).
 
+These regex flags are the cheap pre-signal and the fallback: the ladders' verdict comes from tools/truth_judge.py, an
+LLM judge that reads the facts check() also returns (each claim's position and metres to the goal at its time, every
+action result, trips, a position trace).
+
   .venv\Scripts\python.exe -m tools.truth_check --date 2026-10-30 --since 02:22:50 --until 02:28:30 --goal 50.65,1890.26,-34.88
 """
 from __future__ import annotations
@@ -427,8 +431,44 @@ def check(c: obs.Corpus, eps: list[obs.Episode], anomalies: list[dict], since: f
     tr = ground_truth(c, eps, anomalies, since, until, goal, events_dir)
     flags, unverified = judge(claims, tr, c, since, until, goal, tol_m, obs._Codes(obs.reason_vocab(c)), place)
     return {"truthful": not flags, "flags": flags, "unverified": unverified, "truth": tr.causes,
-            "claims": [asdict(x) | {"ts": obs._iso(x.ts)} for x in claims],
-            "saw_vs_reality": saw_vs_reality(c, eps, since, until, goal)}
+            "claims": [asdict(x) | {"ts": obs._iso(x.ts), "t": x.ts} | where(c, x.ts, goal) for x in claims],
+            "saw_vs_reality": saw_vs_reality(c, eps, since, until, goal),
+            # the rest of the ground truth, for tools/truth_judge.py (the LLM judge reads facts, not regex hits)
+            "actions": actions(eps, since, until), "trips": _trips(events_dir, since, until + 5),
+            "trace": trace(c, since, until), "start_pos": _r(obs.position_at(c, since, before_s=120, after_s=30))}
+
+
+def _r(p, n: int = 2):
+    return [round(v, n) for v in p] if p else None
+
+
+def where(c: obs.Corpus, t: float, goal: tuple | None) -> dict:
+    """Where he was when he said it: position, and the horizontal / vertical metres to the goal."""
+    here = obs.position_at(c, t, before_s=60, after_s=5)
+    out = {"pos": _r(here)}
+    if here and goal:
+        out |= {"goal_dist_m": round(obs.hdist(here, goal), 1), "dz_m": round(here[2] - goal[2], 1)}
+    return out
+
+
+def actions(eps: list[obs.Episode], since: float, until: float) -> list[dict]:
+    """Every body action that ended in the window, ok or not: the body's own result line."""
+    out = [{"ts": r["ts"], "end": r["end"], "tool": r["tool"], "ok": r["ok"], "reason": r["reason"],
+            "detail": short(r["detail"] or "", 240), "args": short(json.dumps(r.get("args"), default=str), 120)}
+           for e in eps for r in e.ran if obs._in(r["end"], since, until)]
+    return sorted(out, key=lambda x: x["end"])
+
+
+def trace(c: obs.Corpus, since: float, until: float, every_s: float = 6.0) -> list[tuple[float, list]]:
+    """Known positions in the window, at most one per every_s (the last one always kept)."""
+    pos = [(t, p) for t, p, _ in c.positions if obs._in(t, since, until)]
+    out: list[tuple[float, list]] = []
+    for t, p in pos:
+        if not out or t - out[-1][0] >= every_s:
+            out.append((t, _r(p)))
+    if pos and out[-1][0] != pos[-1][0]:
+        out.append((pos[-1][0], _r(pos[-1][1])))
+    return out
 
 
 def analyse_window(root, since: float, until: float, goal: tuple | None = None, tol_m: float = TOL_M,

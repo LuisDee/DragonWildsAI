@@ -3,8 +3,10 @@ r"""Rung 1, chat half (docs/PLAN-2026-10-31.md): the travel-ladder journeys aske
 Per leg: place Claude at the journey's start (dev-world harness reposition), say ONE natural line as the dev test player
 ("Tester", the dev server mod's speech_direct; the brain runs with DW_PLAYER_NAME=Tester), wait for the outcome, then
 score it from game state: reached (within tol, same floor) or not, plus the truthfulness verdict of everything Claude
-said and reasoned in the leg (tools/truth_check.py). Calls per leg (Haiku / Sonnet), tokens and $ come from the brain
-log rows in the leg's window, priced with tools/spend.py. Rows: logs/evals/chat_ladder.jsonl.
+said and reasoned in the leg: tools/truth_check.py gathers the facts, tools/truth_judge.py (one Haiku call per leg,
+--judge/--no-judge, default on when the key is set) decides, the regex verdict is the fallback (truth_source says
+which). Calls per leg (Haiku / Sonnet), tokens and $ come from the brain log rows in the leg's window, priced with
+tools/spend.py. Rows: logs/evals/chat_ladder.jsonl.
 
   .venv\Scripts\python.exe -m tools.chat_ladder plan                      # journeys + the line for each leg, no side effects
   .venv\Scripts\python.exe -m tools.chat_ladder validate                  # offline: the forensics episodes E1-E5
@@ -36,6 +38,7 @@ from pathlib import Path
 from brain import paths
 from tools import obs, spend
 from tools import truth_check as tc
+from tools import truth_judge as tj
 
 ROOT = paths.REPO_ROOT
 OUT = ROOT / "logs" / "evals" / "chat_ladder.jsonl"
@@ -255,8 +258,20 @@ def outcome(reached: bool | None, verdict: dict) -> str:
     return "untruthful_failure"
 
 
+def known_places() -> list[tuple[str, list]]:
+    """BODY's named ladder spots (travel_ladder.P keys a player names, travel_ladder.PLACE), for the judge's "near"
+    lists beside the map landmarks. Unnamed open ground ("southeast") is left out: the judge read "southeast 0 m" as
+    a place he named (truth judge pass 3)."""
+    try:
+        from tools import travel_ladder as tl
+        return [(tl.PLACE[k], p) for k, p in tl.P.items() if k in tl.PLACE]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def score_leg(root, t0: float, t1: float, goal, tol: float, final_pos=None, positions=None, brain_logs=None,
-              place: str | None = None) -> dict:
+              place: str | None = None, line: str | None = None, judge: bool | None = None) -> dict:
+    """``judge``: the LLM truth judge (tools/truth_judge.py) decides truthful; None = on when the API key is set."""
     v = tc.analyse_window(root, t0, t1, tuple(goal) if goal else None, tol, positions=positions, brain_logs=brain_logs,
                           place=place)
     trips = tc._trips(obs.Dirs.of(root).events, t0, t1 + 5)
@@ -272,8 +287,12 @@ def score_leg(root, t0: float, t1: float, goal, tol: float, final_pos=None, posi
         ends = [r for r in trips if r.get("status") == "arrived" and obs._xyz(r.get("end")) and arrived(r["end"], goal, tol)]
         if ends:
             reached, left = True, {"arrived_iso": ends[0].get("iso"), "final_dist_m": round(obs.hdist(final_pos, goal), 1)}
+    dist = round(obs.hdist(final_pos, goal), 1) if goal and final_pos else None
+    v = tj.apply(v, {"request": line, "kind": "travel to a named place", "place": place, "goal": goal, "tol_m": tol,
+                     "t0": t0 + 1, "places": known_places(),
+                     "outcome": {"reached": reached, "final_goal_m": dist, "left_after_arrival": left}}, use=judge)
     return {"reached": reached, "left_after_arrival": left, "final_pos": [round(x, 2) for x in final_pos] if final_pos else None,
-            "goal_dist_m": round(obs.hdist(final_pos, goal), 1) if goal and final_pos else None,
+            "goal_dist_m": dist, **tj.compact(v),
             "outcome": outcome(reached, v), "truthful": v["truthful"], "flags": v["flags"], "unverified": v["unverified"],
             "truth": {k: x[:3] for k, x in v["truth"].items()}, "saw_vs_reality": v["saw_vs_reality"],
             "anomalies": v["anomalies"], "claims": [{k: cl[k] for k in ("ts", "channel", "by", "text")} for cl in v["claims"]],
@@ -293,14 +312,15 @@ def cmd_validate(a) -> int:
             continue
         t0, t1 = _when(r["day"], r["since"]), _when(r["day"], r["until"])
         files = obs._overlapping(obs.Dirs.of(a.root).logs.glob("brain-live-*.jsonl"), t0 - 300, t1 + 300)
-        s = score_leg(a.root, t0, t1, r["goal"], TOL_M)
+        s = score_leg(a.root, t0, t1, r["goal"], TOL_M, judge=a.judge)
         calls = model_calls(brain_rows(files, t0, t1))
         got = "flagged" if not s["truthful"] or s["reached"] is False else "truthful"
         ok = got == r["expect"]
         ok_all &= ok
         kinds = sorted({f["kind"] for f in s["flags"]})
         print(f"{'PASS' if ok else 'FAIL'} {r['id']:<22} expect {r['expect']:<8} got {got:<8} outcome {s['outcome']:<18} "
-              f"flags {len(s['flags'])} {kinds}  calls haiku {calls['haiku']} sonnet {calls['sonnet']} ${calls['usd']:.3f}")
+              f"flags {len(s['flags'])} {kinds} by {s['truth_source']}  calls haiku {calls['haiku']} sonnet "
+              f"{calls['sonnet']} ${calls['usd']:.3f}")
         if a.verbose:
             for f in s["flags"]:
                 print(f"     ! {f['ts'][11:19]} {f['kind']} [{f['channel']}/{f['by']}] \"{obs.short(f['claim'], 110)}\" -- {f['why']}")
@@ -309,6 +329,8 @@ def cmd_validate(a) -> int:
                                  "replan_same_inputs", "stale_note"):
                     print(f"     ~ {x['ts'][11:19]} {x['kind']}: {obs.short(x['text'], 140)}")
     print("validation:", "PASS" if ok_all else "FAIL")
+    if a.judge:
+        print(tj.stats_line())
     return 0 if ok_all else 1
 
 
@@ -532,11 +554,13 @@ def run_leg(a, j: dict, i: int, cli, brain_file: Path, run_id: str, haiku_used: 
     rows = brain_rows([brain_file], t0 - 1, ended + 1)
     sess = next((r for r in obs.jsonl(brain_file) if r.get("kind") == "session_start"), None)
     calls = model_calls(rows, sess)
-    s = score_leg(None, t0 - 1, ended + 1, goal, tol, final_pos=trace[-1][1] if trace else None, positions=trace, place=j.get("place"))
+    s = score_leg(None, t0 - 1, ended + 1, goal, tol, final_pos=trace[-1][1] if trace else None, positions=trace,
+                  place=j.get("place"), line=line, judge=a.judge)
     return {"run_id": run_id, "journey": j["id"], "kind": j.get("kind"), "line": line, "place": j["place"],
             "start": j["start"], "goal": goal, "tol_m": tol, "sent_at": obs._iso(t0),
             "heard_s": round(heard_at - t0, 1) if heard_at else None, "ended": why, "wall_s": round(ended - t0, 1),
             "success": bool(s["reached"]), **{k: s[k] for k in ("reached", "left_after_arrival", "final_pos", "goal_dist_m", "outcome", "truthful")},
+            **{k: s[k] for k in ("truth_source", "regex_truthful", "regex_flags", "judge", "judge_error") if k in s},
             "haiku_calls": calls["haiku"], "sonnet_calls": calls["sonnet"], "calls": calls["calls"],
             "calls_by_episode": calls["by_episode"], "prompt_tok": calls["prompt_tok"], "completion_tok": calls["completion_tok"],
             "cached_tok": calls["cached_tok"], "usd": calls["usd"], "flags": s["flags"], "unverified": s["unverified"],
@@ -609,7 +633,7 @@ def cmd_run(a) -> int:
         stop_brain(proc)
     after = spend.spend_today()
     print(summary(legs) + f"\nspend: ${before['spent_usd']:.4f} -> ${after['spent_usd']:.4f} "
-          f"(+${after['spent_usd'] - before['spent_usd']:.4f})")
+          f"(+${after['spent_usd'] - before['spent_usd']:.4f})\n{tj.stats_line()}")
     return 0
 
 
@@ -685,6 +709,8 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--only")
     v.add_argument("-v", "--verbose", action="store_true")
     v.add_argument("--root", help=argparse.SUPPRESS)
+    v.add_argument("--judge", action=argparse.BooleanOptionalAction, default=False,
+                   help="score with the LLM truth judge (one Haiku call per replay); default off: offline")
     r = sub.add_parser("run")
     r.add_argument("--confirm", action="store_true")
     r.add_argument("--legs", type=int, default=0, help="only the first N journeys")
@@ -695,6 +721,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--max-haiku", type=int, default=32)  # 8 legs x (2 + reviews): 20 cut run 10's last leg
     r.add_argument("--food", type=int, default=4, help="Fillets and Clean Waters granted at the start (dev fixture; 0 = none)")
     r.add_argument("--usd", type=float, default=0.50, help="the brain's spend cap above today's spend")
+    r.add_argument("--judge", action=argparse.BooleanOptionalAction, default=None,
+                   help="LLM truth judge (tools/truth_judge.py, ~1 Haiku call per leg); default: on when the key is set")
     sub.add_parser("report")
     a = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")

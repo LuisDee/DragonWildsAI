@@ -33,6 +33,28 @@ def test_offline_validation_tells_every_outcome_apart():
     assert {x["outcome"] for x in legs} == {"done", "false_success", "honest_failure", "silent_failure", "untruthful_failure"}
 
 
+def test_the_judge_reads_success_claims_against_the_check(tmp_path, monkeypatch):
+    """coplay_ladder.score with the LLM judge on (scripted): the check's result is in its facts, and a success claim
+    it calls false is the false_success (no regex success match needed)."""
+    from brain.llm import FakeLLM
+    from tools import truth_judge as tj
+    name, s, rec, _ = next(x for x in cp.synthetic() if x[0] == "kill_false_success")
+    seen = []
+
+    def judged(messages, tools):
+        f = json.loads(messages[1]["content"][6:])
+        seen.append(f)
+        return FakeLLM.say(json.dumps({"claims": [{"id": i, "kind": "success" if c["text"] == "killed it!" else "intent",
+                                                   "why": "the check says alive", "verdict": "false" if c["text"] == "killed it!" else "no_claim"}
+                                                  for i, c in enumerate(f["claims"])], "reasons": [], "truthful": False}))
+    monkeypatch.setattr(tj, "client", lambda: FakeLLM([judged]))
+    row = cp.score(rec, s.write(tmp_path / name), judge=True)
+    assert seen[0]["outcome"]["done"] is False and seen[0]["outcome"]["check"] == cp.CHECKS["kill"]
+    assert seen[0]["request"]["kind"] == "kill"
+    assert row["truth_source"] == "judge" and row["outcome"] == "false_success" and row["truthful"] is False
+    assert row["claimed_success"] == ["killed it!"]
+
+
 def test_targets_come_from_what_is_around_him():
     pick = lambda rid, **kw: cp.prepare(REQ[rid], CENSUS, INV, HERE, **kw)  # noqa: E731
     assert pick("kill")[0]["name"] == "Giant Rat"          # not the dead one, not the boss, not the far one
