@@ -513,6 +513,24 @@ do
     hint = Bd.roof_hint(FB, RB, { N = "Wall BP_Wall_C_9" }, true)
     check("roof_hint, placed: says it is on the floor inside the walls, not covering the room", hint
         and hint:find("^ That puts it on the floor inside the walls, so it doesn't cover the room%.") and hint:find("'BP_Wall_C_9:S'", 1, true), hint)
+    check("roof_hint: by the game's placement profile when known (a medium roof yes, a table on a floor no)",
+        Bd.roof_hint(FB, { origin = { 0, 0, 0.4 }, extent = { 0.75, 0.75, 0.4 } }, {}, true, "RoofProfile") ~= nil
+        and Bd.roof_hint(FB, RB, {}, true, "FloorPropNonOverlapProfile") == nil)
+    check("thin_axis: a medium wall (75 x 50 x 75 cm extent, live) is wall-like; a wide low table and a crate aren't; a large wall is",
+        Bd.thin_axis({ origin = { 0, 0, 0.75 }, extent = { 0.75, 0.5, 0.75 } }) == 2 and Bd.thin_axis({ origin = { 0, 0, 0.5 }, extent = { 1.0, 0.5, 0.5 } }) == nil
+        and Bd.thin_axis({ origin = { 0, 0, 0.4 }, extent = { 0.5, 0.4, 0.4 } }) == nil and Bd.thin_axis(WB) == 2)
+    local MF = { origin = { 0, 0, -1.5 }, extent = { 0.75, 0.75, 1.5 } }
+    local MW = { origin = { 0, 0, 0.75 }, extent = { 0.75, 0.5, 0.75 } }
+    local mrep = Bd.flush_report({ position = { 139.1153, 1866.0096, -31.4401 }, yaw = 0, box = MF }, "N", MW,
+        { position = { 139.1153, 1865.2596, -31.4401 }, yaw = 0 }, 0.06)
+    check("medium wall on a medium foundation's N edge, where the game put it (live 20:5xZ) -> square", mrep and mrep.flush,
+        mrep and string.format("%s %s %s", mrep.gap_m, mrep.offset_m, mrep.facing_off_deg))
+    local sin = Bd.standing_in({ { id = "T", name = "Crafting Table", position = { 139.23, 1866.18, -31.43 } },
+                                 { id = "F", name = "Medium Square Foundation", position = { 139.1153, 1866.0096, -31.4401 } },
+                                 { id = "C", name = "Crate", position = { 145, 1866, -31.4 } } },
+        { 139.1153, 1866.7596, -31.4401 }, MW, 0, { F = true })
+    check("standing_in: the table on the medium foundation is where its S wall would go (live 20:5xZ); the far crate and the anchor aren't",
+        #sin == 1 and sin[1].id == "T", #sin)
     check("roof_hint: not for a small piece (a crate) or on a wall's own top",
         Bd.roof_hint(FB, { origin = { 0, 0, 0.4 }, extent = { 0.5, 0.4, 0.4 } }, {}) == nil and Bd.roof_hint(WB, RB, {}) == nil)
     attach_game({ snap = false, box = RB, built_at = { 10, 0, 0 }, edges = { N = "Wall BP_Wall_C_9", E = "open", S = "open", W = "open" } })
@@ -536,6 +554,8 @@ do
     check("attach: snapped, but the census shows it 0.3 m out -> ok (it was built) and says NOT flush with the gap",
         r and r.ok and da.flush == false and da.gap_m == 0.3 and tostring(da.built):find("NOT flush on the E side", 1, true)
         and tostring(da.built):find("0.30 m gap", 1, true), r and tostring(da.built))
+    check("attach: a batch's fit is that whole NOT-flush sentence, decimals and all (live 20:5xZ it read 'It stands at')",
+        tostring(da.fit):find("^It is NOT flush on the E side") and tostring(da.fit):find("0.30 m gap", 1, true), tostring(da.fit))
 
     attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 },
                   others = { { id = "BP_Wall_C_9", name = "Wall", position = { 13, 0, 0.5 } } } })
@@ -798,6 +818,21 @@ do
     check("edges: F2 S wall, N beside F1, E open (a wall 3 m low isn't on it), no ceiling; walls get no edges",
         ed.F2 and ed.F2.edges.S == "Wall W2" and ed.F2.edges.N == "beside: Square Foundation F1" and ed.F2.edges.E == "open"
         and ed.F2.ceiling == nil and ed.W1 == nil and ed.T1 == nil, ed.F2 and (ed.F2.edges.S .. "|" .. ed.F2.edges.E))
+    -- frames: a door in one (listed before its frame: the edge's wall is the taller piece), a frame with no door, a
+    -- window frame (live 20:29Z: 4 door-frame walls and 1 door read as a closed house)
+    local DB = { origin = { 0, 0, 1.1 }, extent = { 0.75, 0.1, 1.1 } }
+    ed = Bd.edges({
+        { id = "F3", name = "Square Foundation", position = { 20, 0, 0 }, yaw = 0, box = FB },
+        { id = "DR", name = "Door", piece = "DA_T1_Door", position = { 20, -1.5, 0 }, yaw = 0, box = DB },
+        { id = "D1", name = "WALL WITH DOOR FRAME", piece = "DA_T1_Wall_Large_Doorframe", position = { 20, -1.5, 0 }, yaw = 0, box = WB },
+        { id = "D2", name = "WALL WITH DOOR FRAME", piece = "DA_T1_Wall_Large_Doorframe", position = { 20, 1.5, 0 }, yaw = 0, box = WB },
+        { id = "WF", name = "WALL WITH WINDOW FRAME", piece = "DA_T1_Wall_Large_Windowframe", position = { 21.5, 0, 0 }, yaw = 90, box = WB },
+        { id = "W9", name = "Wall", piece = "DA_T1_Wall_Large", position = { 18.5, 0, 0 }, yaw = 90, box = WB } })
+    local f3 = ed.F3 or { edges = {}, inside = {} }
+    check("edges: the frame is the edge's wall, the door is in it; a frame with no door is an open doorway; a window frame an opening; a plain wall nothing",
+        f3.edges.N == "WALL WITH DOOR FRAME D1" and f3.inside.N == "Door DR" and f3.edges.S == "WALL WITH DOOR FRAME D2"
+        and f3.inside.S == "an open doorway, no door in it" and f3.inside.E == "a window opening" and f3.edges.W == "Wall W9" and f3.inside.W == nil,
+        tostring(f3.edges.N) .. "|" .. tostring(f3.inside.N) .. "|" .. tostring(f3.inside.S) .. "|" .. tostring(f3.inside.E))
 end
 -- the piece's own data decides snap-only before the preview actor (live: the preview read came back unreadable)
 reset_game({ no_hook = true })

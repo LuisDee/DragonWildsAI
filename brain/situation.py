@@ -578,13 +578,14 @@ def vitals_policy(state: dict) -> str | None:
             f"eat to heal {'below ' + str(heal) + '% HP' if heal else 'off'} (always below {floor}%){how}")
 
 
-HOUSE_LINE_CHARS = 640
+HOUSE_LINE_CHARS = 960
 
 
 def house_line(state: dict) -> str | None:
     """His own foundations with what stands on each edge and over each (build.lua get_state.structures edges /
-    ceiling, measured from the census): what a house of his still lacks (an open edge has no wall, nothing over it
-    = no ceiling yet). Perception only: which edge gets what is the model's call."""
+    ceiling / inside, measured from the census): what a house of his still lacks (an open edge has no wall, a door
+    frame with no door in it is an open doorway, nothing over it = no ceiling yet; live 20:29Z: 4 door-frame walls
+    and 1 door). Perception only: which edge gets what is the model's call."""
     rows = [s for s in state.get("structures") or [] if isinstance(s, dict) and s.get("mine")
             and isinstance(s.get("edges"), dict)]
     if not rows:
@@ -597,8 +598,12 @@ def house_line(state: dict) -> str | None:
     parts = []
     for s in sorted(rows, key=lambda r: _num(r.get("distance")) or 1e9)[:4]:
         e = s["edges"]
+        ins = s.get("inside") if isinstance(s.get("inside"), dict) else {}
         d = _num(s.get("distance"))
-        edges = ", ".join(f"{k} {what(e.get(k, 'open'))}" for k in ("N", "E", "S", "W"))
+        def inner(k) -> str:  # a door in that frame ("Door <id>") or what the frame leaves ("an open doorway, ...")
+            v = str(ins.get(k) or "")
+            return "" if not v else f" ({v})" if v.startswith(("a ", "an ")) else f" (with {v} in it)"
+        edges = ", ".join(f"{k} {what(e.get(k, 'open'))}{inner(k)}" for k in ("N", "E", "S", "W"))
         parts.append(f"{s['id']}{f' ({d:.0f} m)' if d is not None else ''}: {edges}; over it: {s.get('ceiling') or 'nothing'}")
     return ("Your foundations, what is on each edge: " + " | ".join(parts))[:HOUSE_LINE_CHARS]
 

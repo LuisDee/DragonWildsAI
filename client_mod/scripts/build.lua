@@ -617,13 +617,15 @@ local function side_axis(anchor, side)
     end
     return best, bi
 end
--- A wall-like piece: its box is thin on one horizontal axis (live: Wall 303 x 100 cm, extent 151.5 x 50) ->
--- that axis' index (1 = local X, 2 = local Y) | nil (a tile, a prop)
+-- A wall-like piece: its box is thin on one horizontal axis (live: Wall 303 x 100 cm, extent 151.5 x 50), or a
+-- shorter wall as tall as it is long (live 20:5xZ: MEDIUM WALL 150 x 100 x 150 cm, extent 75 x 50 x 75, read as a
+-- tile, so its flush spot was 0.5 m out and both walls read NOT flush) -> that axis' index (1 = local X, 2 = local
+-- Y) | nil (a tile, a prop: a table is wide but low)
 function M.thin_axis(box)
     if not box then return nil end
-    local ex, ey = box.extent[1], box.extent[2]
-    if ey <= 0.4 * ex then return 2 end
-    if ex <= 0.4 * ey then return 1 end
+    local ex, ey, ez = box.extent[1], box.extent[2], box.extent[3] or 0
+    if ey <= 0.4 * ex or (ey <= 0.7 * ex and ex >= 0.6 and ez >= 0.9 * ex) then return 2 end
+    if ex <= 0.4 * ey or (ex <= 0.7 * ey and ey >= 0.6 and ez >= 0.9 * ey) then return 1 end
 end
 -- Where a new piece (its box) stands against anchor's side: {x, y, z} metres (the new actor's location), the side's
 -- axis, and the mount {edge = true, yaw = the yaw it must have} for a wall-like piece.
@@ -713,8 +715,19 @@ function M.aim_point(on, spot, axis)
     return spot
 end
 -- What stands on each edge of a floor piece (a foundation) and over it, from the census: the perception a house
--- needs (which edges still want a wall, which cells have a ceiling). rows: {id, name, position, yaw, box}.
--- -> { [floor id] = { edges = {N = "open" | "<name> <id>" | "beside: <name> <id>", ...}, ceiling = "<name> <id>" } }
+-- needs (which edges still want a wall, which cells have a ceiling, which frames are still openings).
+-- rows: {id, name, piece, position, yaw, box}.
+-- -> { [floor id] = { edges = {N = "open" | "<name> <id>" | "beside: <name> <id>", ...}, ceiling = "<name> <id>",
+--                     inside = {N = "<name> <id>" (a door in that frame) | "an open doorway, no door in it" |
+--                               "a window opening"} } }
+-- A door stands in its frame on the same edge line, its bottom level with the frame's: the edge's wall is the tallest
+-- piece there, a smaller one is in it. A frame is told by the game's own asset id (DA_T1_Wall_Large_Doorframe,
+-- ..._Narrow_Doorframe, ..._Windowframe; dump 26161880 / buildables).
+local function opening_words(piece)
+    piece = tostring(piece or "")
+    if piece:find("Doorframe", 1, true) then return "an open doorway, no door in it" end
+    if piece:find("Windowframe", 1, true) then return "a window opening" end
+end
 function M.edges(rows)
     local out = {}
     local function hd(a, b) return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2) end
@@ -723,25 +736,27 @@ function M.edges(rows)
         if fb and f.position and not M.thin_axis(fb) and fb.extent[3] >= 0.75 then
             local p = f.position
             local top = p[3] + fb.origin[3] + fb.extent[3]
-            local e = { edges = {} }
+            local e = { edges = {}, inside = {} }
             for _, side in ipairs({ "N", "E", "S", "W" }) do
                 local axis, i = side_axis(f, side)
                 local h = fb.extent[i]
                 local edge = { p[1] + axis[1] * h, p[2] + axis[2] * h }
                 local next_to = { p[1] + axis[1] * 2 * h, p[2] + axis[2] * 2 * h }
-                local on, beside
+                local wall, inner, beside
                 for _, g in ipairs(rows) do
                     if g ~= f and g.position and g.box then
                         local q = g.position
                         local gbot = q[3] + g.box.origin[3] - g.box.extent[3]
                         if M.thin_axis(g.box) and hd(q, edge) <= 0.5 and math.abs(gbot - top) <= 0.6 then
-                            on = tostring(g.name) .. " " .. g.id
+                            if not wall or g.box.extent[3] > wall.box.extent[3] then wall, inner = g, wall or inner
+                            else inner = g end
                         elseif not M.thin_axis(g.box) and hd(q, next_to) <= 0.5 and math.abs(q[3] - p[3]) <= 0.6 then
                             beside = "beside: " .. tostring(g.name) .. " " .. g.id
                         end
                     end
                 end
-                e.edges[side] = on or beside or "open"
+                e.edges[side] = wall and (tostring(wall.name) .. " " .. wall.id) or beside or "open"
+                e.inside[side] = wall and (inner and (tostring(inner.name) .. " " .. inner.id) or opening_words(wall.piece)) or nil
             end
             for _, g in ipairs(rows) do -- a ceiling/floor piece over the cell, about a wall's height above its top
                 if g ~= f and g.position and g.box and not M.thin_axis(g.box) and hd(g.position, p) <= 0.6 then
@@ -760,9 +775,13 @@ end
 -- (a 30 deg Hip Roof, 20:29Z: "roof only covers part"). Names the walls on that floor's edges as the on that reaches
 -- over it (a wall on the N edge: its S side). placed: it was built there. -> text | nil (not that case)
 local OPP = { N = "S", S = "N", E = "W", W = "E" }
-function M.roof_hint(anchor_box, new_box, edges, placed)
-    if not (anchor_box and new_box) or M.thin_axis(anchor_box) or M.thin_axis(new_box)
-        or math.max(new_box.extent[1], new_box.extent[2]) < 1.2 then return nil end
+-- profile: the new piece's placement profile row (game data: RoofProfile, BaseProfile = floors and walls,
+-- FloorProp* = tables, crates, fires); without it, cell-sized pieces only.
+function M.roof_hint(anchor_box, new_box, edges, placed, profile)
+    if not (anchor_box and new_box) or M.thin_axis(anchor_box) or M.thin_axis(new_box) then return nil end
+    if profile then
+        if profile ~= "RoofProfile" and profile ~= "BaseProfile" then return nil end
+    elseif math.max(new_box.extent[1], new_box.extent[2]) < 1.2 then return nil end
     local ons = {}
     for _, s in ipairs({ "N", "E", "S", "W" }) do
         local v = edges and edges[s]
@@ -772,6 +791,29 @@ function M.roof_hint(anchor_box, new_box, edges, placed)
     if #ons == 0 then return lead .. " A roof or ceiling tile covers a room from the tops of its walls, and this floor has no wall on any edge yet." end
     return lead .. " A roof or ceiling tile covers a room from the tops of its walls: on " .. table.concat(ons, " or ")
         .. " puts one over this floor from the wall on that edge."
+end
+-- Built pieces standing where a new piece would go (its box at spot, turned yaw, plus margin_m): the truthful
+-- "what is in the way" for a red preview (live 20:5xZ: a Crafting Table in the middle of a medium foundation kept its
+-- S wall red; the model guessed it). rows: census {id, name, position}; skip: ids to leave out. -> up to 2 rows
+function M.standing_in(rows, spot, box, yaw, skip, margin_m)
+    if not (spot and box) then return {} end
+    local m = margin_m or 0.6
+    local c = math.rad(yaw or 0)
+    local out = {}
+    for _, st in ipairs(rows or {}) do
+        local q = st.position
+        if q and not (skip and skip[st.id]) and not st.ghosted then
+            local dx, dy = q[1] - spot[1], q[2] - spot[2]
+            local lx, ly = dx * math.cos(c) + dy * math.sin(c), -dx * math.sin(c) + dy * math.cos(c)
+            local zlo, zhi = spot[3] + box.origin[3] - box.extent[3], spot[3] + box.origin[3] + box.extent[3]
+            if math.abs(lx - box.origin[1]) <= box.extent[1] + m and math.abs(ly - box.origin[2]) <= box.extent[2] + m
+                and q[3] >= zlo - 0.5 and q[3] <= zhi + 0.5 then
+                out[#out + 1] = st
+                if #out >= 2 then break end
+            end
+        end
+    end
+    return out
 end
 -- Place an attach from where I stand? -> true | false, why. Within stay_m of the aim point, on the anchor's floor (a wall:
 -- its top face must be in view), not in the new piece's way, and the camera's ray reaching the aim point.
@@ -1240,20 +1282,22 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             if math.abs(att.offset_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m off to the side", math.abs(att.offset_m)) end
             if math.abs(att.level_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.level_m), att.level_m > 0 and "higher" or "lower") end
             if math.abs(att.facing_off_deg) > 2 then parts[#parts + 1] = string.format("turned %.0f degrees", att.facing_off_deg) end
-            line = line .. (att.flush and (ceil and (" It sits squarely " .. where_on .. (mount.roof and ": its low edge on the wall's top, sloping up away from it."
+            -- the sentence itself is the batch's fit (never cut out of the line by pattern: "0.73 m" has a dot; live
+            -- 20:5xZ two NOT-square walls read "It stands at [...]" in the batch reply)
+            fit = att.flush and (ceil and ("It sits squarely " .. where_on .. (mount.roof and ": its low edge on the wall's top, sloping up away from it."
                         or ": its edge on the wall's line, its top level with the wall's top, lined up with it."))
-                    or inside and (" It sits squarely " .. where_on .. ": in the opening, its bottom level with the frame's, lined up with it.")
-                    or mount and (" It stands squarely " .. where_on .. ": on the edge line, on its top, lined up with it.")
-                    or (" It sits flush " .. where_on .. ": no gap, level, same facing."))
-                or (" It is NOT " .. (mount and "square " or "flush ") .. where_on .. ": " .. table.concat(parts, ", ") .. "."))
+                    or inside and ("It sits squarely " .. where_on .. ": in the opening, its bottom level with the frame's, lined up with it.")
+                    or mount and ("It stands squarely " .. where_on .. ": on the edge line, on its top, lined up with it.")
+                    or ("It sits flush " .. where_on .. ": no gap, level, same facing."))
+                or ("It is NOT " .. (mount and "square " or "flush ") .. where_on .. ": " .. table.concat(parts, ", ") .. ".")
         else
-            line = line .. " I meant it to sit flush " .. where_on .. " but can't measure it until I can see it."
+            fit = "I meant it to sit flush " .. where_on .. " but can't measure it until I can see it."
         end
-        fit = line:match("(It [^.]*%.)$") or line:match("(I meant it [^.]*%.)$")
+        line = line .. " " .. fit
         if side == "top" and s then
             local edges
             for _, st in ipairs(W.structures(api, true) or {}) do if st.id == a.id then edges = st.edges end end
-            local hint = M.roof_hint(a.box, job.on.box, edges, true)
+            local hint = M.roof_hint(a.box, job.on.box, edges, true, (W.piece_profile(api, job.data) or {}).profile)
             if hint then line, fit = line .. hint, (fit or "") .. hint end
         end
     end
@@ -1705,10 +1749,22 @@ local function step(api, job, t)
                     .. (job.on.side == "top" and " of the " or " side of the ") .. tostring(a.name) .. " (" .. a.id .. "): " .. tostring(words)
                     .. (best and string.format("; the closest its preview came was %.2f m from the flush spot", best) or "")
                     .. ". Nothing was placed."
+                if common == "preview_red" and job.on.target then
+                    local skip = { [a.id] = true }
+                    local mount = job.on.mount or {}
+                    local names = {}
+                    for _, st in ipairs(M.standing_in(W.structures(api, true), job.on.target, job.on.box, mount.yaw or a.yaw, skip)) do
+                        names[#names + 1] = "the " .. tostring(st.name) .. " (" .. tostring(st.id) .. ")"
+                    end
+                    if #names > 0 then
+                        d.in_the_way = names
+                        d.detail = d.detail .. " Within 0.6 m of where it would go stands " .. table.concat(names, " and ") .. "."
+                    end
+                end
                 if job.on.side == "top" then
                     local edges
                     for _, s in ipairs(W.structures(api, true) or {}) do if s.id == a.id then edges = s.edges end end
-                    local hint = M.roof_hint(a.box, job.on.box, edges)
+                    local hint = M.roof_hint(a.box, job.on.box, edges, false, (W.piece_profile(api, job.data) or {}).profile)
                     if hint then d.detail = d.detail .. hint end
                 end
             end
@@ -1958,13 +2014,13 @@ function W.structures(api, fresh)
         for _, e in ipairs(list) do
             local box = e.actor and box_of(U, U.try(function() return e.actor.BuildingPieceLocalBounds end))
             if not box and e.data then box = (W.piece_profile(api, e.data) or {}).box end
-            if box then rows[#rows + 1] = { id = e.id, name = e.name, position = e.position, yaw = e.yaw, box = box } end
+            if box then rows[#rows + 1] = { id = e.id, name = e.name, piece = e.piece, position = e.position, yaw = e.yaw, box = box } end
         end
         local ok, ed = pcall(M.edges, rows)
         if ok then
             for _, s in ipairs(out) do
                 local x = ed[s.id]
-                if x then s.edges, s.ceiling = x.edges, x.ceiling end
+                if x then s.edges, s.ceiling, s.inside = x.edges, x.ceiling, next(x.inside) and x.inside or nil end
             end
         end
         m.structs, m.structs_t = out, t

@@ -57,3 +57,19 @@ def test_whose_each_piece_is_from_his_own_record():
     assert "Crate x2 (9 m, id C_2, not placed by you, Open)" in text
     assert "Wall (4 m, id W_1, not placed by you)" in text
     assert "Square Foundation (5 m, id F_1)" in text  # unchecked: no claim either way
+
+
+def test_house_line_says_which_frames_are_open_doorways():
+    """build.lua edges + inside: a door-frame wall with no door in it is an open doorway (live 20:29Z: 4 door-frame
+    walls, 1 door, read as a closed house)."""
+    from brain.situation import house_line
+    state = {"structures": [{"id": "BuildingPiece_93", "name": "Square Foundation", "distance": 3.0, "mine": True,
+                             "edges": {"N": "WALL WITH DOOR FRAME BuildingPiece_95", "E": "WALL WITH WINDOW FRAME BuildingPiece_96",
+                                       "S": "WALL WITH DOOR FRAME BuildingPiece_94", "W": "Wall BuildingPiece_97"},
+                             "inside": {"N": "an open doorway, no door in it", "E": "a window opening",
+                                        "S": "Door BP_T1_Door_C_1"}}]}
+    line = house_line(state)
+    assert "N WALL WITH DOOR FRAME BuildingPiece_95 (an open doorway, no door in it)" in line
+    assert "E WALL WITH WINDOW FRAME BuildingPiece_96 (a window opening)" in line
+    assert "S WALL WITH DOOR FRAME BuildingPiece_94 (with Door BP_T1_Door_C_1 in it)" in line
+    assert "W Wall BuildingPiece_97; over it: nothing" in line
