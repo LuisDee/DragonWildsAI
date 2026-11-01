@@ -263,6 +263,24 @@ local function same_target(thing, det)
 end
 M._same_target = same_target
 
+-- The detector's target is ANOTHER small thing of the same kind (a stone beside the stone, the next berry bush,
+-- sticks lying together with overlapping hitboxes): the same item id, or, when neither reads one, the same class
+-- family (BP_Spawner_AshBranch_02_C ~ _03_C; never the generic world-item class). A player presses E on whatever
+-- is highlighted (co-play 2026-11-01: 17-19 s re-aiming, then "the game targets Ash Logs, not the Ash Logs"); the
+-- inventory gain verifies what he really got, and the result names the one he took.
+local function class_family(c)
+    c = tostring(c or ""):gsub("_C_.*$", ""):gsub("_C$", ""):gsub("_%d+$", "")
+    return c ~= "" and c or nil
+end
+local function same_kind(thing, det)
+    if type(det) ~= "table" or det.none or not det.actor or det.actor == thing.id then return false end
+    if thing.item and det.item then return thing.item == det.item end
+    if thing.item or det.item then return false end
+    local a = class_family(thing.class)
+    return a ~= nil and a == class_family(det.class) and not a:find("WorldItem", 1, true)
+end
+M._same_kind = same_kind
+
 -- Where to USE a thing from (live bug 20:46 UTC: interact walked onto the summoned shelter's ROOF, its
 -- actor origin, so the game never offered the bed). Generic for every interactable (beds, stations,
 -- chests, lodestones, NPCs):
@@ -332,6 +350,20 @@ M._spots_around = spots_around
 -- the far side, where the competitor is right behind the thing).
 M.cfg.small_spot_m = 0.9
 M.cfg.small_avoid_angles = { 90, -90, 0, 180 }
+-- Small things within reach: a player looks at it and presses (live 2026-11-01: 0.7-1.3 s when the highlight is
+-- right). So: a short look before stepping (small_face_s), one step closer before walking round it, a straight
+-- walk for a short approach (move's local planner spent ~10 s per plan on a 2.9 m stick and timed out at 100 s),
+-- and a bound on the whole try once near it (small_budget_s) so a refusal comes fast and with its reason.
+-- The game's detector ticks every 0.1 s and casts its ray from the camera (CameraRayLength 20 m), but the camera boom
+-- (7 m, location lag on) swings with each re-aim, so the aim converges over ~0.5-1.5 s (live aim probe 2026-11-01:
+-- every item of a mixed pile highlighted within ~1.8 s by aim alone). So the look is aim-only first (a nudge moves
+-- the pawn and the camera with it), then aim + nudge.
+M.cfg.small_face_s = 2.0
+M.cfg.small_aim_s = 1.5
+M.cfg.small_direct_m = 4.0
+M.cfg.small_budget_s = 15
+M.cfg.water_out_angles = { 180, 130, -130, 90, -90 } -- from where he stood: 180 = the item's far side
+M.cfg.water_out_m = 1.1
 local function spots_avoiding(ip, avoid)
     -- spots_around's first direction is ip - origin; origin = the mirror of avoid puts 0 deg on avoid's side
     return spots_around(ip, { 2 * ip[1] - avoid[1], 2 * ip[2] - avoid[2] }, nil, M.cfg.small_avoid_angles, M.cfg.small_spot_m)
@@ -467,6 +499,17 @@ local function next_spot(e, api)
         -- station it lies on): stand on the sides where what the detector picked instead is NOT behind it;
         -- when that can't be placed, the sides away from where he stood (the side he stood on is skipped)
         local det = e.detector
+        local here0 = api.my_position()
+        if not e.water and W.is_water(det) and here0 then
+            -- the WATER holds the prompt: the game offers it only while he stands at the waterline (DISCOVERIES
+            -- "Drinkable water", move.shore_point), so step out of it to the item's far side (the item between him
+            -- and where he stood), then its sides; never a refusal from the wet spot (co-play 2026-11-01, Ash Logs
+            -- at a pond's edge: "the game targets BP_WaterVolume_C..., not the Ash Logs" x2, 19-24 s each)
+            e.spots = spots_around(e.ipoint, { 2 * e.ipoint[1] - here0[1], 2 * e.ipoint[2] - here0[2] }, nil,
+                                   M.cfg.water_out_angles, M.cfg.water_out_m)
+            e.stepped_out, e.spot_i, e.phase, e.moving, e.approaches, e.tol = true, 1, "approach", false, 0, 0.4
+            return true
+        end
         local other = det and not det.none and det.actor and det.actor ~= e.thing.id and api.find_thing
             and api.find_thing(det.actor, 15) or nil
         local avoid = type(other) == "table" and other.position or nil
@@ -503,6 +546,33 @@ local function episode_cleanup(api, e, owner_token)
 end
 M._episode_cleanup = episode_cleanup
 
+local function face_s(e) return e.small and M.cfg.small_face_s or M.cfg.face_s end
+
+-- Why a small thing could not be taken, read from fresh state (never a guess): it is gone (someone took it), it is
+-- already picked (a spawner/bush reads IsResourceAvailable false), the water holds the prompt, another thing does,
+-- or nothing does.
+local function small_refusal(api, e, det, gone)
+    local th = e.thing
+    local fresh = not gone and api.find_thing and api.find_thing(th.id, 10) or nil
+    local data = { target = th.id, detector = det, spots_tried = e.spots and e.spot_i, interaction_point = e.ipoint,
+                   tried_s = e.near_t and math.floor((api.now() - e.near_t) * 10 + 0.5) / 10 or nil }
+    local other = det and not det.none and (det.name or class_family(det.class) or det.actor)
+    local a, searched
+    if not gone and fresh == nil and tostring(th.id):sub(1, 4) ~= "fol:" then a, searched = api.actor_of(th) end
+    if gone or (fresh == nil and a == nil and searched ~= nil) then
+        data.why, data.detail = "gone", "The " .. e.label .. " isn't there any more; someone may have picked it up."
+    elseif type(fresh) == "table" and fresh.available == false then
+        data.why, data.detail = "depleted", "The " .. e.label .. " there is already picked; there's nothing to collect until it grows back."
+    elseif W.is_water(det) then
+        data.why, data.detail = "water_prompt", "The " .. e.label .. " lies at the water's edge: from every spot I tried, the game offers me the water there, not the " .. e.label .. "."
+    elseif other then
+        data.why, data.detail = "other_prompt", "From every spot I tried, the game highlights the " .. tostring(other) .. " instead of the " .. e.label .. "."
+    else
+        data.why, data.detail = "no_prompt", "The game offers no use for the " .. e.label .. " from where I can stand."
+    end
+    return api.fail("not_interactable", data)
+end
+
 local function episode_poll(api, e, t, owner_token)
     local th = e.thing
     if e.child_gen then
@@ -526,11 +596,11 @@ local function episode_poll(api, e, t, owner_token)
         -- standing on a built lodestone's base read 1.18 m "above" its point and every spot ended in too_far (live 20:07)
         local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and
             (here[3] - W.half_h_m(api) - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
-        -- Exact native focus can establish reach even when a generated stand point is missed.
-        -- The face phase re-reads focus before pressing; no fuzzy or alternate-target shortcut.
+        -- Exact native focus can establish reach even when a generated stand point is missed; for a small thing, so
+        -- can the game highlighting another of the same kind within reach (the face phase re-reads it before pressing).
         local focus = not e.water and W.detector(api) or nil
         local reach = here and e.ipoint and dist2d(here, e.ipoint)
-        if not e.water and type(reach) == "number" and reach == reach and reach < math.huge and reach <= M.cfg.reach_m and not on_top and th.id and type(focus) == "table" and focus.none ~= true and focus.actor and focus.actor == th.id then
+        if not e.water and type(reach) == "number" and reach == reach and reach < math.huge and reach <= M.cfg.reach_m and not on_top and th.id and type(focus) == "table" and focus.none ~= true and focus.actor and (focus.actor == th.id or (e.small and same_kind(th, focus))) then
             local A = arbiter(api)
             if paused() or not owner_token or not (A and A.owns_move and A.owns_move(owner_token)) then return nil end
             local state = rawget(_G, "DWArbiter")
@@ -539,9 +609,15 @@ local function episode_poll(api, e, t, owner_token)
             state = rawget(_G, "DWArbiter")
             if paused() or not (state and state.owner and state.owner.token == owner_token) then return nil end
             if e.child_lost then return api.fail("interrupted", {detail="interaction movement was replaced"}) end
-            e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
+            e.phase, e.face_until, e.moving = "face", t + face_s(e), false
+            e.near_t = e.near_t or t
             W.face(api, e.ipoint, false)
             return nil
+        end
+        -- a small thing he has been near for small_budget_s without the game offering it: say why, now
+        if e.small and e.near_t and t - e.near_t > M.cfg.small_budget_s then
+            if not episode_cleanup(api, e, owner_token) then return nil end
+            return small_refusal(api, e, e.detector)
         end
         -- fail-fast progress watchdog (like combat's L34): the approach must get closer to the THING (not to the
         -- current standing spot); a poll gap (suspended by a reflex, then resumed) restarts the window
@@ -571,7 +647,8 @@ local function episode_poll(api, e, t, owner_token)
         if near and not on_top then
             if not episode_cleanup(api, e, owner_token) then return nil end
             if e.child_lost then return api.fail("interrupted",{detail="interaction movement was replaced"}) end
-            e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
+            e.phase, e.face_until, e.moving = "face", t + face_s(e), false
+            e.near_t = e.near_t or t
             W.face(api, e.ipoint, false) -- look at it first (the camera), as a player turns to what he wants
             return nil
         end
@@ -589,7 +666,11 @@ local function episode_poll(api, e, t, owner_token)
             if not owner_token or not (A and A.owns_move and A.owns_move(owner_token)) then
                 return api.fail("interrupted", {detail="interaction movement ownership unavailable"})
             end
-            local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = 60, allow_unstuck = false, wade = e.water or nil, owner_token = owner_token, -- water: walk INTO the shallows (no water detour)
+            -- a small thing a few metres off: a straight walk (no local planner; a blocked side ends fast and the next is tried)
+            local lp
+            if e.small and dth and dth <= M.cfg.small_direct_m then lp = false end
+            local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = lp == false and 8 or 60, allow_unstuck = false, wade = e.water or nil, owner_token = owner_token, -- water: walk INTO the shallows (no water detour)
+                                                        local_plan = lp,
                                                         progress = { to = e.ipoint, stall_s = M.cfg.no_progress_s, gain_m = M.cfg.progress_m } })
             if not mr.ok then return mr end
             e.moving=true -- keep ownership if a successful start lacks its generation
@@ -618,9 +699,20 @@ local function episode_poll(api, e, t, owner_token)
         if next_spot(e) then return nil end -- that side is blocked: try the next standing spot (big things only)
         return move_failure(api, res, "the " .. e.label, { target = th.id })
     elseif e.phase == "face" then
+        -- a small thing whose actor is gone (taken: by him as "the one beside it", or by someone else) is said at once;
+        -- the census can lag a few seconds (live 2026-11-01: 9.9 s on a stone he had already taken)
+        if e.small and not e.gone_checked and tostring(th.id):sub(1, 4) ~= "fol:" and th.class then
+            e.gone_checked = true
+            local a, searched = api.actor_of(th) -- (nil, U) = searched and not there; nil alone = could not search
+            if a == nil and searched ~= nil then return small_refusal(api, e, nil, true) end
+        end
         local det = W.detector(api)
         e.detector = det
-        if same_target(th, det) or (det and not det.none and e.accept and e.accept(det)) then
+        local exact = same_target(th, det)
+        if exact or (det and not det.none and e.accept and e.accept(det)) or (e.small and not e.water and same_kind(th, det)) then
+            -- the one he takes: another of the same kind when the game highlights that one (named in the result)
+            e.took = (e.small and not exact and det.actor ~= th.id) and det.actor or nil
+            e.took_name = e.took and det.name or nil
             e.sig_before = W.press_signals(api)
             e.prompt_before = det.prompt
             if e.water and e.need_gain then
@@ -644,7 +736,8 @@ local function episode_poll(api, e, t, owner_token)
             e.phase, e.verify_until = "verify", t + M.cfg.verify_s
             return nil
         end
-        W.face(api, e.ipoint, true)
+        -- a small thing: aim only while the camera settles, then aim + nudge
+        W.face(api, e.ipoint, not (e.small and t < e.face_until - face_s(e) + M.cfg.small_aim_s))
         if t >= e.face_until then
             -- water (live 2026-10-26 19:2x): from the bank 3 m above the pond the game's detector targets nothing (or
             -- a branch on the bank); one step nearer the water's edge and it reads the volume ("Collect Water").
@@ -663,13 +756,21 @@ local function episode_poll(api, e, t, owner_token)
                     end
                 end
             end
-            if next_spot(e, api) then e.wading = false; return nil end -- the detector won't take it from here: another side
             local here = api.my_position()
             local dd = here and dist2d(here, e.ipoint)
+            -- a small thing the game offers nothing for: one step closer first (the cheapest move, as a player leans in).
+            -- Something else holding the highlight (another item, the water) is not helped by closer along the same
+            -- line: next_spot goes to the sides where it is not behind the thing (or out of the water)
+            if e.small and not e.spots and not e.tight and (not det or det.none) and dd and dd > M.cfg.close_m + 0.2 then
+                e.tight, e.tol, e.phase = true, M.cfg.close_m, "approach"
+                return nil
+            end
+            if next_spot(e, api) then e.wading = false; return nil end -- the detector won't take it from here: another side
             if not e.spots and not e.tight and dd and dd > M.cfg.close_m + 0.2 then -- small things: one tighter approach
                 e.tight, e.tol, e.phase = true, M.cfg.close_m, "approach"
                 return nil
             end
+            if e.small then return small_refusal(api, e, det) end
             local other = det and not det.none and (det.name or det.actor)
             return api.fail("not_interactable", { target = th.id, detector = det, spots_tried = e.spots and e.spot_i,
                 interaction_point = e.ipoint, interaction_from = e.ipoint_from,
@@ -713,16 +814,23 @@ local function episode_poll(api, e, t, owner_token)
                 end
             end
         end
-        if item or ((gone or changed) and not e.need_gain) then
+        -- pressed on another of the same kind: only an inventory gain proves it (the aimed-at one vanishing proves nothing)
+        if item or ((gone or changed) and not e.need_gain and not e.took) then
             -- water that WORKED: remember where he stood (move.shore_point offers it first next time)
             if e.water and item then local here = api.my_position(); if here and source.position then pcall(api.call, "move", "remember_water_spot", source.position, here) end end
-            return { ok = true, data = { target = source.id, item = item or api.null, count = n, gained = api.object(all),
-                                         target_gone = gone, changed = changed or api.null,
-                                         prompt = e.detector and e.detector.prompt or api.null } }
+            local data = { target = source.id, item = item or api.null, count = n, gained = api.object(all),
+                           target_gone = gone, changed = changed or api.null,
+                           prompt = e.detector and e.detector.prompt or api.null }
+            if e.took then
+                data.took = e.took
+                data.detail = string.format("The game highlighted another %s right beside that one, so I took it: +%d %s.",
+                    tostring(e.took_name or e.label), n, tostring(e.took_name or e.label))
+            end
+            return { ok = true, data = data }
         end
         if t >= e.verify_until then
             -- never a second press while a conversation is up: E would advance or close the dialogue
-            if e.presses < M.cfg.presses and not W.conversation_npc(api) then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
+            if e.presses < M.cfg.presses and not W.conversation_npc(api) then e.phase, e.face_until = "face", t + face_s(e); return nil end
             return api.fail("verification_failed", { target = source.id, prompt = e.detector and e.detector.prompt,
                 detail = (e.water and e.need_gain) and "I pressed Collect Water but couldn't verify a gain of its expected item"
                     or ("pressed use on the " .. e.label .. "; nothing changed (inventory, the thing, sleep state, its prompt)") })
@@ -742,14 +850,32 @@ local function is_pickup(t)
     return false
 end
 
+-- A bush / spawner already picked (census `available` = IsResourceAvailable false): say so at once, with the nearest
+-- others of the same kind that still have something (co-play 2026-11-01: 18 s and 43 s on picked ones before "the game
+-- offers no use"). -> failure
+local function depleted(api, t)
+    local others = {}
+    for _, o in ipairs(api.census_things(15, 60) or {}) do
+        if o.id ~= t.id and o.available ~= false and is_pickup(o) and same_kind(t, { actor = o.id, item = o.item, class = o.class }) then
+            others[#others + 1] = { id = o.id, name = o.name, distance = o.distance }
+        end
+    end
+    table.sort(others, function(a, b) return (a.distance or 1e9) < (b.distance or 1e9) end)
+    while #others > 3 do table.remove(others) end
+    local name = tostring(t.name or t.id)
+    return api.fail("not_interactable", { target = t.id, why = "depleted", others = others,
+        detail = "The " .. name .. " there is already picked; there's nothing to collect until it grows back"
+            .. (#others > 0 and string.format(" (another %s is %.0f m away).", name, others[1].distance or 0) or ".") })
+end
+
 -- Best pickup matching `what` (an item id or the player's words) within radius, nearest among the
--- best-scoring; skip ids in `skip`.
+-- best-scoring; skip ids in `skip` and picked ones.
 local function find_pickup(api, what, radius, skip)
     local things = api.census_things(radius, 60)
     if not things then return nil end
     local best, bs, bd
     for _, t in ipairs(things) do
-        if is_pickup(t) and not (skip and skip[t.id]) then
+        if is_pickup(t) and t.available ~= false and not (skip and skip[t.id]) then
             local s = (t.item == what or lower(t.name) == lower(what)) and 2 or api.match_score(t, what)
             local d = t.distance or 1e9
             if s > 0 and (not best or s > bs or (s == bs and d < bd)) then best, bs, bd = t, s, d end
@@ -901,6 +1027,7 @@ local function start_fetch(api, args, ctx, opts)
             return api.fail("not_interactable", { target = target, kind = t.kind, actions = t.actions,
                 detail = "I can't pick up the " .. tostring(t.name or target) .. "." })
         end
+        if t.available == false then return depleted(api, t) end
         first = t
         want = want or t.item or t.name
     else
@@ -935,8 +1062,10 @@ local function start_fetch(api, args, ctx, opts)
         job.want_item = job.want_item or job.item
         job.total = job.total + (tonumber(d.count) or 0)
         for k, v in pairs(d.gained or {}) do job.gains[k] = (job.gains[k] or 0) + v end
-        job.picked[#job.picked + 1] = job.cur.id
-        job.skip[job.cur.id] = true
+        -- the one he really took (another of the same kind the game highlighted); the aimed-at one stays a candidate
+        local took = d.took ~= nil and d.took ~= api.null and d.took or nil
+        job.picked[#job.picked + 1] = took or job.cur.id
+        job.skip[took or job.cur.id] = true
         if job.total >= count then
             return { ok = true, data = { item = job.want_item or job.item or api.null, count = job.total, want = count,
                 picked = job.picked, gained = api.object(job.gains), name = first.name } }
@@ -1080,7 +1209,8 @@ end
 local function player_row(api, name)
     local things = api.census_things(150, 20)
     for _, t in ipairs(things or {}) do
-        if t.category == "players" and (t.name == name or t.id == name) then return t end
+        -- a name cut short matches too ("luisdeburnaybast" for "luisdeburnaybastos": api.same_player)
+        if t.category == "players" and (t.name == name or t.id == name or (api.same_player and api.same_player(t.name, name))) then return t end
     end
     return nil
 end
@@ -1296,6 +1426,7 @@ local function start_interact(api, args, ctx)
     for _, act in ipairs(t.actions or {}) do if act == "interact" then can = true end end
     if not can then return api.fail("not_interactable", { target = id, kind = t.kind, actions = t.actions,
         detail = "There's nothing I can do with the " .. tostring(t.name or id) .. " by pressing use." }) end
+    if t.available == false then return depleted(api, t) end
     local job = { kind = "interact" }
     local accept = (t.category == "items" and t.item) and function(det) return det.item == t.item end or nil
     -- lying in this very bed/shelter: the game ends the rest on a plain interact press (live 20:59, the

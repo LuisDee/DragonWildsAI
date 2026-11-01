@@ -908,6 +908,104 @@ test("BUGS L7: interact on an item: an equal stack in front serves; a DIFFERENT 
     assert(r and r.ok and F.presses >= 1, json.encode(r))
 end)
 
+local function stone(id, x, avail)
+    return { id = id, class = "BP_Spawner_Stone_C", name = "Stone", kind = "gatherable", verb = "gather", item = "ITEM_Resources_Stone",
+             available = avail, position = { x, 2.4, 3 } }
+end
+
+test("co-play 2026-11-01: the game highlights ANOTHER stone (overlapping) -> pressed at once and named; a picked spawner is said at once", function()
+    reset()
+    F.world.items = {} -- nothing else at his feet
+    table.insert(F.world.resources, stone("stone_a", 1.8, true))
+    table.insert(F.world.resources, stone("stone_b", 1.9, true))
+    F.detector_override = { actor = "stone_b", class = "BP_Spawner_Stone_C", name = "Stone", item = "ITEM_Resources_Stone", prompt = "Collect" }
+    local t0 = T
+    local _, id = rpc("interact", { target = "stone_a" })
+    local r = run(id, 60, 0.1)
+    assert(r and r.ok and r.data.took == "stone_b" and r.data.detail:find("took it", 1, true) and r.data.gained.ITEM_Resources_Stone == 1, json.encode(r))
+    assert(F.presses == 1 and T - t0 <= 3, "one press within 3 s: " .. (T - t0))
+    -- fetch: the one he really took is the one listed as picked
+    F.presses = 0
+    _, id = rpc("fetch", { target = "stone_a" })
+    r = run(id, 60, 0.1)
+    assert(r and r.ok and r.data.picked[1] == "stone_b" and F.presses == 1, json.encode(r))
+    -- the class family serves when neither reads an item (AshBranch_02 ~ AshBranch_03), never the generic world-item class
+    local sk = B.module("skills")
+    assert(sk._same_kind({ id = "a", class = "BP_Spawner_AshBranch_03_C" }, { actor = "b", class = "BP_Spawner_AshBranch_02_C" }))
+    assert(not sk._same_kind({ id = "a", class = "BP_RuntimeSpawnedWorldItem_C" }, { actor = "b", class = "BP_RuntimeSpawnedWorldItem_C" }))
+    assert(not sk._same_kind({ id = "a", item = "ITEM_Resources_Stone" }, { actor = "b", item = "ITEM_Resources_Wood_Ash" }))
+    -- already picked (IsResourceAvailable false): said at once, with the nearest one that still has something
+    reset()
+    F.world.items = {}
+    table.insert(F.world.resources, stone("stone_c", 1.8, false))
+    table.insert(F.world.resources, stone("stone_d", 5, true))
+    r = rpc("interact", { target = "stone_c" })
+    assert(r and r.reason == "not_interactable" and r.data.why == "depleted" and r.data.others[1].id == "stone_d"
+        and r.data.detail:find("already picked", 1, true) and F.presses == 0 and #F.move.calls == 0, json.encode(r))
+    r = rpc("fetch", { target = "stone_c" })
+    assert(r and r.data.why == "depleted", json.encode(r))
+    _, id = rpc("fetch", { item = "Stone" }) -- by name: the picked one is skipped
+    r = run(id, 60, 0.1)
+    assert(r and r.ok and r.data.picked[1] == "stone_d", json.encode(r))
+    -- the census still lists one whose actor is gone (taken a moment ago): said at once, never a 10 s look
+    reset()
+    F.world.items = {}
+    table.insert(F.world.resources, stone("stone_gone", 1.8, true))
+    local a0 = B.API.actor_of
+    B.API.actor_of = function(t) if t.id == "stone_gone" then return nil, {} end return a0(t) end
+    local t0 = T
+    _, id = rpc("interact", { target = "stone_gone" })
+    r = run(id, 60, 0.1)
+    B.API.actor_of = a0
+    assert(r and r.reason == "not_interactable" and r.data.why == "gone" and F.presses == 0 and T - t0 < 1, json.encode(r))
+end)
+
+test("co-play 2026-11-01: the WATER holds the prompt over a stick at the pond's edge -> he steps out to its far side and takes it", function()
+    reset()
+    F.world.items, F.world.resources = {}, {} -- (the fake's press takes the nearest row)
+    table.insert(F.world.resources, stone("stone_w", 1.8, true))
+    local sk = B.module("skills")
+    local d0 = sk.W.detector
+    local water = { actor = "BP_WaterVolume_C_UAID_1", class = "BP_WaterVolume_C", prompt = "Collect Water", secondary = "Fill Watering Can" }
+    -- he stands in the water at x < 2.2; from the far (dry) side the game offers the stone
+    sk.W.detector = function()
+        local p = F.move.position or F.me_pos or { 1, 2, 3 }
+        if p[1] < 2.2 then return water end
+        return { actor = "stone_w", class = "BP_Spawner_Stone_C", name = "Stone", item = "ITEM_Resources_Stone", prompt = "Collect" }
+    end
+    local _, id = rpc("interact", { target = "stone_w" })
+    local r = run(id, 80, 0.1)
+    if not (r and r.ok) then sk.W.detector = d0 end
+    assert(r and r.ok and r.data.gained.ITEM_Resources_Stone == 1, json.encode(r))
+    assert(F.move.target and F.move.target[1] > 2.2, "stepped out to the far side: " .. json.encode(F.move.target))
+    -- the water from every spot: a fast, specific refusal (the water's edge), never "targets BP_WaterVolume_C_..."
+    reset()
+    F.world.items = {}
+    table.insert(F.world.resources, stone("stone_w", 1.8, true))
+    sk.W.detector = function() return water end
+    local t0 = T
+    _, id = rpc("interact", { target = "stone_w" })
+    r = run(id, 300, 0.1)
+    sk.W.detector = d0
+    assert(r and r.reason == "not_interactable" and r.data.why == "water_prompt" and r.data.detail:find("water's edge", 1, true)
+        and not r.data.detail:find("BP_WaterVolume", 1, true), json.encode(r))
+    assert(T - t0 <= sk.cfg.small_budget_s + 3, "bounded: " .. (T - t0))
+end)
+
+test("co-play 2026-11-01: a stick 3 m off is walked to straight (no local planner: ~10 s per plan, a 100 s timeout live)", function()
+    reset()
+    F.world.items = {}
+    table.insert(F.world.resources, stone("stone_far", 4, true))
+    local mv = B.module("move")
+    local go0, opts_seen = mv.go_to, nil
+    mv.go_to = function(log, goal, opts) opts_seen = opts_seen or opts; return go0(log, goal, opts) end
+    local _, id = rpc("interact", { target = "stone_far" })
+    local r = run(id, 60, 0.1)
+    mv.go_to = go0
+    assert(r and r.ok, json.encode(r))
+    assert(opts_seen and opts_seen.local_plan == false, "straight walk: " .. json.encode(opts_seen or {}))
+end)
+
 test("BUGS L12: the debug channel never pre-empts the brain's action (force=true overrides)", function()
     reset()
     local DIN, DOUT = DIR .. "/debug_to_client.jsonl", DIR .. "/client_to_debug.jsonl"

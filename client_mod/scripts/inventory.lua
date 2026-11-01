@@ -10,7 +10,7 @@
 --              IA_Inventory_QuickAccess_SelectSlot<i+1>, i.e. the number keys); bag item ->
 --              InventoryUIAPI:HandleInternalUseItem(slot, slotType) (the inventory UI's "use")
 --   * unequip / move: InventoryUIAPI:HandleInternalDragAndDrop(from, fromType, to, toType) (UI drag)
---   * drop:    InventoryUIAPI:HandleDropItem(slot, slotType, amount) (UI drop)
+--   * drop:    InventoryUIAPI:HandleDropItem(slot, slotType, amount) (UI drop; amount <= THAT stack, see M.drop_plan)
 -- Never grants items or writes inventory state. Every call that changes state is logged first.
 -- Calls return at once; the server confirms asynchronously, so callers re-read with M.list.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
@@ -615,7 +615,36 @@ function M.from_external(log, from_slot, inv, amount, to_slot, to_page)
     return { ok = ok, reason = (not ok) and tostring(err) or nil }
 end
 
--- Drop `count` of `what` on the ground, as the inventory UI's drop. count nil = the whole stack.
+-- Which stacks to drop `want` from: HandleDropItem(slot, type, AmountOverride) drops that many of ONE stack, and an
+-- amount larger than the stack drops NOTHING (silently; live 2026-11-01, build 26161880: 20 from a 16-stack, and the
+-- co-play session's "drop 40 Stone" x3 from a 21-stack while 99 more sat in another). So: the smallest stack that
+-- holds it all (bag before hotbar), else whole stacks largest first plus a part of the next.
+-- stacks = rows {slot, slot_type, count} -> plan {{row, amount}} | nil, have
+function M.drop_plan(stacks, want)
+    local have, rows = 0, {}
+    for _, r in ipairs(stacks or {}) do
+        if (tonumber(r.count) or 0) > 0 then have = have + r.count; rows[#rows + 1] = r end
+    end
+    if want < 1 or have < want then return nil, have end
+    local function hot(r) return r.slot_type == "QuickAction" and 1 or 0 end
+    local one
+    for _, r in ipairs(rows) do
+        if r.count >= want and (not one or hot(r) < hot(one) or (hot(r) == hot(one) and r.count < one.count)) then one = r end
+    end
+    if one then return { { row = one, amount = want } }, have end
+    table.sort(rows, function(a, b) if hot(a) ~= hot(b) then return hot(a) < hot(b) end return a.count > b.count end)
+    local plan, left = {}, want
+    for _, r in ipairs(rows) do
+        if left <= 0 then break end
+        local n = math.min(left, r.count)
+        plan[#plan + 1] = { row = r, amount = n }
+        left = left - n
+    end
+    return plan, have
+end
+
+-- Drop `count` of `what` on the ground, as the inventory UI's drop, across his stacks of it (M.drop_plan).
+-- count nil = the whole stack found. -> {ok, item = row, amount = total, drops = {{slot, slot_type, amount}}}
 function M.drop(log, what, count)
     local l = M.list(log)
     if not l.ok then return l end
@@ -623,11 +652,35 @@ function M.drop(log, what, count)
     if not d then return { ok = false, reason = "not in inventory: " .. tostring(what) } end
     local api = M.ui_api()
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
-    local t = where == "loadout" and SLOT_TYPE.Loadout or SLOT_TYPE[d.slot_type]
-    local amount = count or d.count or 1
-    say(log, string.format("HandleDropItem(%d, %s, %d) %s", d.slot, tostring(M.SLOT_TYPES[t]), amount, tostring(d.item)))
-    local ok, err = pcall(function() api:HandleDropItem(d.slot, t, amount) end)
-    return { ok = ok, reason = (not ok) and tostring(err) or nil, item = d, amount = amount }
+    local plan
+    if where == "loadout" or count == nil then
+        plan = { { row = d, amount = count or d.count or 1, loadout = where == "loadout" } }
+    else
+        local stacks = {}
+        for _, w in ipairs({ "hotbar", "bag" }) do
+            for _, r in ipairs(l[w] or {}) do
+                if r.item == d.item and r.slot and SLOT_TYPE[r.slot_type] then stacks[#stacks + 1] = r end
+            end
+        end
+        local have
+        plan, have = M.drop_plan(stacks, count)
+        if not plan then
+            return { ok = false, reason = "not_enough_resources", item = d, have = have, want = count,
+                     detail = string.format("I only have %d %s.", have or 0, tostring(d.name or d.item)) }
+        end
+    end
+    local drops, total = {}, 0
+    for _, p in ipairs(plan) do
+        local r = p.row
+        local t = p.loadout and SLOT_TYPE.Loadout or SLOT_TYPE[r.slot_type]
+        say(log, string.format("HandleDropItem(%d, %s, %d) %s (stack of %s)", r.slot, tostring(M.SLOT_TYPES[t]), p.amount,
+            tostring(r.item), tostring(r.count)))
+        local ok, err = pcall(function() api:HandleDropItem(r.slot, t, p.amount) end)
+        if not ok then return { ok = false, reason = tostring(err), item = d, amount = total, drops = drops } end
+        drops[#drops + 1] = { slot = r.slot, slot_type = M.SLOT_TYPES[t], amount = p.amount }
+        total = total + p.amount
+    end
+    return { ok = true, item = d, amount = total, drops = drops }
 end
 
 -- ------------------------------------------------------------------ stay fed and watered (reflex)
