@@ -1432,9 +1432,12 @@ local function nearest_death(pos, grave_id)
     end
     return best
 end
--- a grave emptied (pos = the grave's position, id = its actor id): mark THAT death recovered
+-- a grave emptied (pos = the grave's position, id = its actor id): mark THAT death recovered. A grave that matches
+-- no remembered death marks nothing (live 2026-11-01 11:22: emptying an old grave 15 m off marked the newest death,
+-- the cliff fall, recovered, and he walked to week-old graves for 15 min)
 function M.death_recovered(how, pos, grave_id)
-    local d = (pos or grave_id) and nearest_death(pos, grave_id) or M.death_memory()
+    local d
+    if pos or grave_id then d = nearest_death(pos, grave_id) else d = M.death_memory() end
     if d then d.recovered, d.recovered_how, d.recovered_at = true, how, os.time(); save_deaths() end
 end
 -- census sight of his own grave: bind it to its death (id, live contents); at a death spot with no grave

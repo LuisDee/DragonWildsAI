@@ -1117,6 +1117,20 @@ test("BUGS L22: every unrecovered grave is kept (newest is not the only one); re
     assert(g and #g == 1 and g[1].position[1] == 80, "the other grave stays remembered: " .. json.encode(g))
 end)
 
+test("emptying a grave that matches no remembered death leaves the newest death remembered (live 2026-11-01 11:22)", function()
+    reset()
+    F.move.position = { 80, 80, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    -- grave_1 sits at (1,30): ~95 m from the only death, so it is some older grave, not this death's
+    F.move.position = { 1, 29, 3 }
+    local _, gid = rpc("interact", { target = "grave_1" })
+    assert(run(gid, 30).ok)
+    local g = rpc("get_state").data.graves_remembered
+    assert(g and #g == 1 and g[1].position[1] == 80, "the newest death is still unrecovered: " .. json.encode(g))
+end)
+
 test("BUGS L21: explore walks least-visited legs and stops when something matching 'about' appears", function()
     reset()
     F.me_pos = nil
