@@ -162,7 +162,8 @@ FINAL_PASS_NOTE = ("No more looking this turn (the read-only tools are used up).
 LOOK_RULE = (": situation is only a short summary and misses many things (sticks, stones, plants, chests, "
              "stations). ALWAYS call look with about=<their words> first, before acting or saying you can't see it "
              "(read-only, it does not interrupt your job); then act on an id from its result. inspect gives "
-             "details of one thing. A place he wants you to go to is the exception: go_to takes its name directly.")
+             "details of one thing. Somewhere or something he wants you to go to (a place, NPC, landmark or vent) is the "
+             "exception: go_to takes its name directly, no look first.")
 NO_LOOK_RULE = ", you can't look around yet: say you can't see it."
 # One line, only when the knowledge index exists (the lookup tool is offered then).
 LOOKUP_RULE = ("\n- Game facts you are not sure of (what an item does, how to make it, which regions of the world "
