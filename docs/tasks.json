@@ -566,6 +566,48 @@
    "title": "Dev-server scenario suite + timeline viewer; single integration owner",
    "status": "in_progress",
    "passes_test": false
+  },
+  {
+   "id": "C.1",
+   "phase": "cleanup",
+   "title": "Simplify client_mod/scripts/move.lua (3,850 lines, ~8 fallback layers): behaviour-preserving clean-up, cut layers with no successful live use; accept = body-only travel ladder >= 80% + chat ladder",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "C.2",
+   "phase": "cleanup",
+   "title": "Persona diet: cut the Controller's rule debt (~11k-char system prompt, ~20 *_RULE/*_NOTE patches), move guidance into tool descriptions; accept = replay_first_call + controller evals no worse, live chat ladder",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "C.3",
+   "phase": "cleanup",
+   "title": "LLM truth judge (Haiku, given positions/trips/deaths) replaces regex truth_check verdicts in chat/coplay ladders; regex kept as fallback; accept = agreement report on recorded legs",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "C.4",
+   "phase": "cleanup",
+   "title": "Audit and trim second-opinion model passes (situation/review episodes, talk-only/promise checks): measure cost vs value from logs, keep/merge/cut",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "C.5",
+   "phase": "cleanup",
+   "title": "Offline replay eval of real ladder first calls (tools/replay_first_call.py): re-render context (map_names), --repeat, latency; Haiku vs Sonnet 5.5 as Controller (is decision-making the bottleneck, is latency OK for co-play)",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "C.6",
+   "phase": "cleanup",
+   "title": "Rung 2 co-play with a real player (Luis from GFN on the dev world): coplay_ladder --target-player + free play; follow/come/give need a visible player",
+   "status": "todo",
+   "passes_test": false
   }
  ]
 }
