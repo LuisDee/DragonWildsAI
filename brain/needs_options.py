@@ -280,6 +280,13 @@ def _parse_contents(rows) -> list[tuple[str, int]]:
 
 def _carried(c: _Ctx, need: str, gap: float | None) -> list[str]:
     out, raw = [], []
+    line = reflex_under_line(c.state, need)
+    pick = None  # the reflex's own pick under the line: the first clean one of that kind on the bar, by slot (best())
+    if line is not None:
+        bar = [r for r in c.state.get("inventory_items") or [] if isinstance(r, dict) and r.get("where") == "hotbar"
+               and (r.get("consumable") if isinstance(r.get("consumable"), str) else c.val(r.get("item")).get("kind")) == need
+               and c.val(r.get("item")) and not _soul_risk(c, c.val(r.get("item")))]
+        pick = min(bar, key=lambda r: r.get("slot") if isinstance(r.get("slot"), (int, float)) else 99, default=None)
     for r in c.state.get("inventory_items") or []:
         if not isinstance(r, dict) or r.get("where") not in ("hotbar", "bag"):
             continue
@@ -292,6 +299,16 @@ def _carried(c: _Ctx, need: str, gap: float | None) -> list[str]:
         verb = "drink" if need == "drink" else "eat"
         if r.get("where") == "hotbar":
             steps, t = f"{verb} {k} (one per use)", k * EAT_S
+            if r is pick:
+                # the reflex's own (live 16:20Z: it drank Clean Water while he queued one too; his ran ~6 s later, when
+                # he was over the line already, and held up his second Fillet)
+                steps += f"; your reflex is already {verb}ing these by itself, one every ~6 s, until you're over your {line:.0f}% line"
+        elif reflex_takes(c.state, need) and not _soul_risk(c, v):
+            # under his line the stay-fed reflex uses a clean hotbar item by itself within one ~2 s tick: a plan that
+            # also uses it doubles up (live 15:49Z: the reflex drank the moved Pumpkin Spice, his own was wasted)
+            steps = (f"move_item to the hotbar: under your line your reflex {verb}s one by itself within ~2 s"
+                     + (f"; {verb} the other {k - 1} yourself" if k > 1 else ", nothing more to do"))
+            t = 2.0 + k * EAT_S
         else:
             steps, t = f"move_item to the hotbar, then {verb} {k}", 2.0 + k * EAT_S
         risk = _soul_risk(c, v)
@@ -519,12 +536,12 @@ def _cook(c: _Ctx, need: str, gap: float | None) -> list[str]:
     fire = c.fire()
     out = []
     for iid, n in sorted(c.inv.items(), key=lambda kv: kv[0]):
-        if n <= 0 or (c.val(iid).get("kind") == need and need == "food"):
-            continue  # edible as it is: in "carried"
-        ck = _cook_of(c, iid, need, held=True)
+        ck = _cook_of(c, iid, need, held=True) if n > 0 else None
         if not ck:
             continue
         rec, cv = ck
+        if c.val(iid).get("kind") == need and _pts(cv, need) <= _pts(c.val(iid), need):
+            continue  # edible as it is and cooking adds nothing: only in "carried" (picked berries keep their drying)
         k = _eat_n(gap, _pts(cv, need), int(n))
         steps, t, block = _fire_steps(c, fire, k)
         risk = "; ".join(x for x in (_burn_risk(c, rec, need), block) if x) or None
@@ -707,6 +724,27 @@ def gap(state: dict, need: str) -> tuple[float | None, float | None, float | Non
     return cur, mx, (max(0.0, mx - cur) if cur is not None and mx else None)
 
 
+def reflex_under_line(state: dict, need: str) -> float | None:
+    """His line (% of max) when the body reports its stay-fed reflex running and the need is under that line: it then
+    uses the first clean food/drink of that kind on his hotbar by itself (inventory.lua: a 2 s tick, one per kind
+    per ~6 s, first by slot in best()), until the stat is back over the line. None otherwise."""
+    pol = state.get("vitals_policy") if isinstance(state.get("vitals_policy"), dict) else {}
+    if pol.get("reflex_on") is not True:
+        return None
+    cur, mx, _ = gap(state, need)
+    line = _num(pol.get("eat_below_pct" if need == "food" else "drink_below_pct"))
+    return line if cur is not None and mx and line is not None and cur < mx * line / 100.0 else None
+
+
+def reflex_takes(state: dict, need: str) -> bool:
+    """True when a clean item of that kind moved to the hotbar now is the one the reflex uses by itself: under the
+    line, and nothing of that kind on the hotbar already (with one there, it is already using that one)."""
+    from .situation import consumable_rows
+    if reflex_under_line(state, need) is None:
+        return False
+    return not any(k == need and r.get("where") == "hotbar" for k, r in consumable_rows(state))
+
+
 def digest(state: dict, need: dict, cat: dict, fv: dict | None = None, pc: dict | None = None) -> str:
     """One bounded block for a pressing food or drink need: the head (how bad, how much to full) and its options."""
     fv = fv if fv is not None else values()
@@ -741,8 +779,9 @@ def digest(state: dict, need: dict, cat: dict, fv: dict | None = None, pc: dict 
                 lines.append(f"- ({grp.__name__.strip('_')} options unavailable: {type(exc).__name__})")
     finally:
         _LEVEL.reset(tok)
-    if any("the fire" in ln for ln in lines):  # named once, after what he carries
-        lines.insert(1 if lines and lines[0].startswith("- carried") else 0, fl)
+    uses_fire = next((i for i, ln in enumerate(lines) if "the fire" in ln), None)
+    if uses_fire is not None:  # named once, just before the first option that needs it (never ahead of what he carries:
+        lines.insert(uses_fire, fl)  # live 15:50Z it led both blocks and he promised "then i'll sort a fire")
     if not fv.get("items"):
         lines.append("- (no food value data loaded: values unknown)")
     out, used = [head], len(head)
@@ -767,3 +806,35 @@ def options_for(state: dict, kind: str, cat: dict | None = None) -> str:
     zero = round(cur / r) if cur is not None and r and r > 0 else None
     return digest(state, {"need": kind, "kinds": [kind], "pct": pct, "zero_min": zero},
                   cat if cat is not None else needs.catalog())
+
+
+def pressing_digests(state: dict) -> list[str]:
+    """The food/drink digests that situation shows right now (needs.lines), for a follow-up turn's observation: after
+    a step changed what he carries (berries picked), the options are re-read, not remembered from the first turn
+    (eval 16:27Z: he picked the berries for the Dried Redberries option, then the next turn ate them raw)."""
+    from . import needs
+    try:
+        return [ln for ln in needs.lines(state) if ln.startswith(("Need food", "Need drink"))]
+    except Exception:  # perception is best effort: a broken digest never breaks the turn
+        return []
+
+
+def startup_lows(state: dict) -> list:
+    """The low-need events the body would send now (client_bridge.lua forward_vitals: hydration or sustenance under
+    the model's vitals_policy line, nothing for it on the hotbar), for a brain that has just started or reconnected.
+    The body repeats its vitals_low only every 180 s, so the one it sent before the brain was listening was lost and
+    he sat hungry for up to 3 min (live 15:17:44-15:20:40Z). Same event, same broker triage; nothing is decided here."""
+    from .interface import VitalsLow
+    from .situation import consumable_rows
+    if not isinstance(state, dict) or state.get("unavailable"):
+        return []
+    pol = state.get("vitals_policy") if isinstance(state.get("vitals_policy"), dict) else {}
+    hot = {k for k, r in consumable_rows(state) if r.get("where") == "hotbar"}
+    out = []
+    for stat, need, key in (("hydration", "drink", "drink_below_pct"), ("sustenance", "food", "eat_below_pct")):
+        v, mx = _num(state.get(stat)), _num(state.get(f"{stat}_max")) or 100.0
+        line = _num(pol.get(key)) or 15.0  # client_bridge: the policy line, else VITALS_LOW 15
+        if v is None or v >= mx * line / 100.0 or need in hot:
+            continue
+        out.append(VitalsLow(stat=stat, value=v, max=mx, has_food="food" in hot, has_drink="drink" in hot))
+    return out

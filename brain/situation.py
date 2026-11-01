@@ -471,10 +471,11 @@ def recent_life(state: dict) -> list[str]:
     if graves is None and isinstance(state.get("death_memory"), dict):
         graves = [{**state["death_memory"], "go_to": "my_grave"}]
     seen_id = (state.get("my_grave") or {}).get("id") if isinstance(state.get("my_grave"), dict) else None
-    for gv in item_stats.rank_graves(graves or []):  # most valuable first, from item data (BUGS L22)
-        if seen_id and gv.get("grave_id") == seen_id:
-            continue  # the one in sight is described below
+    shown = [g for g in (graves or []) if not (seen_id and isinstance(g, dict) and g.get("grave_id") == seen_id)]
+    newest = item_stats.newest_grave(shown)
+    for gv in item_stats.graves_for_line(shown):  # most valuable first, the newest always among them (BUGS L22, D2)
         dist = f"{gv['distance']:.0f} m away" if isinstance(gv.get("distance"), (int, float)) else "somewhere"
+        dist = ("your newest, " + dist) if gv is newest and len(shown) > 1 else dist
         lost = ", ".join(str(x) for x in (gv.get("lost") or [])[:3])
         grave_lines.append(f"{dist}, from {gv.get('iso') or '?'} (go_to target '{gv.get('go_to') or 'my_grave'}')"
                            + (f", about {gv.get('lost_items')} items: {lost}" if lost else ""))
@@ -540,8 +541,17 @@ def vitals_policy(state: dict) -> str | None:
     if not p:
         return None
     heal = p.get("heal_below_pct")
+    # what the reflex does, so a plan doesn't double up on it (live 15:49Z: he moved a drink to the hotbar and drank
+    # it; the reflex had drunk one in between, so his was wasted). Off = nothing is used by itself.
+    floor = p.get("safety_floor_pct")
+    if p.get("reflex_on") is False:
+        how = ". The reflex is OFF: nothing is eaten or drunk by itself"
+    else:
+        every = p.get("reflex_every_s")
+        how = (". Below a line your body uses food/drink from your hotbar by itself, one per kind every "
+               f"~{every if isinstance(every, (int, float)) else 6:g} s (from the bag only under {floor}%)")
     return (f"Reflex policy: drink below {p.get('drink_below_pct')}%, eat below {p.get('eat_below_pct')}%, "
-            f"eat to heal {'below ' + str(heal) + '% HP' if heal else 'off'} (always below {p.get('safety_floor_pct')}%)")
+            f"eat to heal {'below ' + str(heal) + '% HP' if heal else 'off'} (always below {floor}%){how}")
 
 
 HOUSE_LINE_CHARS = 640
@@ -617,7 +627,17 @@ def consumables(state: dict) -> list[str]:
             for k, r in consumable_rows(state)]
 
 
-QUEST_FIELDS = ("quest", "step", "detail", "hint", "counters")  # what of a quest row the brain shows
+QUEST_FIELDS = ("quest", "step", "detail", "hint", "counters", "where")  # what of a quest row the brain shows
+
+
+def _marker(m: dict) -> str:
+    """One quest map marker (quests.lua `where`): 'Windmill Area (area 80 m across... you are inside), 75 m, at [x, y, z]'."""
+    kind = m.get("kind") or "marker"
+    what = f"{kind} {m['radius_m']:.0f} m radius" if kind == "area" and m.get("radius_m") else kind
+    at = m.get("position") or m.get("xy")
+    return (f"{m.get('name')} ({what}" + ("; you are inside it" if m.get("inside") else "") + ")"
+            + (f", {m['distance_m']} m away" if m.get("distance_m") is not None else "")
+            + (f" at {at}" if at else ""))
 
 
 def quest_rows(state: dict, limit: int = 8) -> list[dict]:
@@ -636,7 +656,9 @@ def quests_line(state: dict, limit: int = 3) -> str | None:
     for a in quest_rows(state, limit):
         step = a.get("step") or "?"
         extra = [f"hint: {a['hint']}" if a.get("hint") else "",
-                 ", ".join(f"{k} {v}" for k, v in list((a.get("counters") or {}).items())[:3])]
+                 ", ".join(f"{k} {v}" for k, v in list((a.get("counters") or {}).items())[:3]),
+                 ("on the map: " + "; ".join(_marker(m) for m in a["where"][:2] if isinstance(m, dict)))
+                 if isinstance(a.get("where"), list) and a["where"] else ""]
         extra = [e for e in extra if e]
         parts.append(f"{a.get('quest')}: {step}" + (f" ({'; '.join(extra)})" if extra else ""))
     more = len(q.get("active") or []) - len(parts)

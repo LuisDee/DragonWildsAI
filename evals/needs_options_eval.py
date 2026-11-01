@@ -203,6 +203,60 @@ def score(case: str, calls: list[dict], state: dict) -> tuple[bool, str]:
 # ------------------------------------------------------------------ commands
 
 
+def _gathered_first(calls: list[dict]) -> bool:
+    """The reply's actions are only picking (gather / interact on a plant): the choice of what to do with the pick
+    comes in the next turn."""
+    acts = [c for c in calls if c.get("name") != "say"]
+    return bool(acts) and all(c.get("name") in ("gather", "interact") for c in acts)
+
+
+def _follow_up(ctl, messages: list[dict], resp, state: dict, spend, prices, model: str) -> tuple[list[dict], float]:
+    """One Controller.next_turn after the picks succeeded, with a state that has the berries in the bag and the bush
+    picked (the shape of a real gather result: data.detail/gathered/item)."""
+    from brain.controller import Decision
+    from brain.llm import assistant_message
+    st = copy.deepcopy(state)
+    inv = st.setdefault("inventory", {})
+    got = 0
+    for r in st.get("nearby_resources") or []:
+        if isinstance(r, dict) and "Redberry" in str(r.get("class") or r.get("id")) and r.get("available") is not False:
+            r["available"] = False
+            got += 3
+    got = got or 3
+    inv["ITEM_Consumable_Fruit_Redberry"] = int(inv.get("ITEM_Consumable_Fruit_Redberry") or 0) + got
+    # where the body reports carried items (situation.consumable_rows): a picked stack lands in the bag
+    st.setdefault("inventory_items", []).append({"kind": "Item", "id": "Inventory:20", "slot": 20, "count": got,
+                                                 "item": "ITEM_Consumable_Fruit_Redberry", "name": "Redberries",
+                                                 "consumable": "food", "sustenance": "+5", "heal": 10,
+                                                 "use_verb": "Eat", "where": "bag", "slot_type": "Inventory"})
+    results = {}
+    for tc in resp.tool_calls:
+        if tc.name == "say":
+            results[tc.id] = {"ok": True}
+        else:
+            results[tc.id] = {"ok": True, "reason": None, "data": {"detail": f"Got {got} redberries.", "gathered": got,
+                              "item": "ITEM_Consumable_Fruit_Redberry", "resource": "redberries", "seconds": 4.2}}
+    d = Decision()
+    d.messages = messages + [assistant_message(resp)]
+    seen = []
+    orig = ctl._complete
+
+    def counted(*args, **kw):
+        r = orig(*args, **kw)
+        seen.append(r)
+        return r
+    ctl._complete = counted
+    try:
+        d2 = ctl.next_turn(d, results, state=st)
+    finally:
+        ctl._complete = orig
+    usd = sum(spend.price(model, getattr(r, "usage", None) or {}, prices)[0] for r in seen)
+    out = []
+    for r in seen[:1]:
+        out += [{"name": t.name, "arguments": t.arguments} for t in r.tool_calls]
+    return out, usd
+
+
 def cmd_extract(a) -> int:
     FIX.mkdir(parents=True, exist_ok=True)
     for k, c in build_cases(Path(a.log)).items():
@@ -237,9 +291,9 @@ def cmd_run(a) -> int:
     from tools.replay_first_call import body_caps, client_for, live_controller
     sys.stdout.reconfigure(encoding="utf-8")
     cases = _load(a.case)
-    n = len(cases) * a.repeat
-    print(f"[needs_options_eval] {len(cases)} cases x {a.repeat} = planned calls: {n} of {a.model} (no tools run); "
-          f"stops at ${a.max_usd:.2f}")
+    n = len(cases) * a.repeat * (2 if a.follow_up else 1)
+    print(f"[needs_options_eval] {len(cases)} cases x {a.repeat}{' x up to 2 (follow-up turn)' if a.follow_up else ''} = "
+          f"planned calls: up to {n} of {a.model} (no tools run); stops at ${a.max_usd:.2f}")
     if n > 10 and not a.allow_more:
         print("Refusing: more than 10 calls (pass --allow-more).")
         return 2
@@ -265,16 +319,24 @@ def cmd_run(a) -> int:
                 resp = ctl._complete(messages, ctl.tools, Decision(), step=0)
                 dt = time.monotonic() - t0
                 calls = [{"name": t.name, "arguments": t.arguments} for t in resp.tool_calls]
-                ok, what = score(k, calls, c["state"])
                 usd = spend.price(a.model, getattr(resp, "usage", None) or {}, prices)[0]
+                follow = None
+                if a.follow_up and _gathered_first(calls):
+                    # the plan's first step was picking the berries: the standard loop sends the result back and the
+                    # model continues (Controller.next_turn); what it does WITH them is the choice (eat raw or cook)
+                    follow, fusd = _follow_up(ctl, messages, resp, c["state"], spend, prices, a.model)
+                    usd += fusd
+                    calls = calls + follow
+                ok, what = score(k, calls, c["state"])
                 spent += usd
                 passed += ok
                 say = next((cl["arguments"].get("text") for cl in calls if cl["name"] == "say"), None)
                 row = {"case": k, "sample": i, "passed": ok, "first_action": what, "say": say, "latency_s": round(dt, 2),
-                       "usd": round(usd, 5), "calls": calls, "content": getattr(resp, "content", None)}
+                       "usd": round(usd, 5), "calls": calls, "follow_up": follow, "content": getattr(resp, "content", None)}
                 rows.append(row)
                 log.log("needs_options_result", **row)
-                print(f"  {k}[{i}] {'PASS' if ok else 'FAIL'} {dt:.1f}s  {what}  say={say!r}")
+                print(f"  {k}[{i}] {'PASS' if ok else 'FAIL'} {dt:.1f}s  {what}  say={say!r}"
+                      + (f"  then: {[(x['name'], x['arguments']) for x in follow]}" if follow is not None else ""))
                 if spent >= a.max_usd:
                     print(f"STOPPED: spend cap ${a.max_usd:.2f}")
                     break
@@ -296,6 +358,7 @@ def main(argv=None) -> int:
     r.add_argument("--max-usd", type=float, default=0.5)
     r.add_argument("--yes", action="store_true")
     r.add_argument("--allow-more", action="store_true")
+    r.add_argument("--follow-up", action="store_true", help="when the reply only picks, run the next turn too")
     a = ap.parse_args(argv)
     return {"extract": cmd_extract, "show": cmd_show, "run": cmd_run}[a.cmd](a)
 

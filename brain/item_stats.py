@@ -143,6 +143,36 @@ def rank_graves(graves: list[dict], cat: dict | None = None) -> list[dict]:
     return sorted([g for g in graves if isinstance(g, dict)], key=lambda g: -grave_value(g, cat))
 
 
+def _age(g: dict) -> float:
+    a = g.get("ago_s")
+    if isinstance(a, (int, float)):
+        return float(a)
+    iso = g.get("iso")
+    if isinstance(iso, str):
+        try:
+            from datetime import datetime, timezone
+            return -datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            pass
+    return float("inf")
+
+
+def newest_grave(graves: list[dict]) -> dict | None:
+    rows = [g for g in graves if isinstance(g, dict)]
+    return min(rows, key=_age) if rows else None
+
+
+def graves_for_line(graves: list[dict], n: int = 3, cat: dict | None = None) -> list[dict]:
+    """The n most valuable graves (BUGS L22), always with the newest among them (the one go_to my_grave takes, his
+    last death's gear and food: at 11:19:45 the value ranking cut it and he went for berries instead)."""
+    ranked = rank_graves(graves, cat)
+    newest = newest_grave(ranked)
+    top = ranked[:n]
+    if newest is not None and not any(g is newest for g in top):
+        top = top[:max(0, n - 1)] + [newest]
+    return top
+
+
 def enrich_inventory(data: dict, state: dict | None = None, cat: dict | None = None) -> dict:
     """Add ``stats`` (and ``vs_equipped`` deltas) to the rows of the body's compact inventory answer."""
     cat = cat if cat is not None else catalog()

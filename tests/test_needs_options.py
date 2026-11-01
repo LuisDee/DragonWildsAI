@@ -147,3 +147,91 @@ def test_food_options_read_tool_answers_on_demand_without_a_phrase_table(tmp_pat
     assert data["food"].startswith("Need food (") and "hunt Chicken" in data["food"]
     assert "food_options" in {t["function"]["name"] for t in rig.controller_llm.calls[0]["tools"]}
     assert not any(ln.startswith("Need food") for ln in needs.lines(st))  # not pressing: on demand only
+
+
+def test_a_need_already_low_at_brain_start_raises_the_body_event_once():
+    """Live 15:17:44-15:20:40Z: the body's vitals_low went out before the brain listened and repeats every 180 s."""
+    from types import SimpleNamespace
+    from brain.interface import VitalsLow
+    from brain.run_live import LiveSession
+    st = case("hunt_cook")  # food 25 % under the 40 % line, no food on the hotbar; Dirty Water on the hotbar
+    evs = no.startup_lows(st)
+    assert [(e.stat, e.value, e.has_food, e.has_drink) for e in evs] == [("sustenance", 25.0, False, True)]
+    st2 = dict(st, hydration=10.0)  # water low too, but a drink IS on the hotbar: the reflex has it, no event
+    assert [e.stat for e in no.startup_lows(st2)] == ["sustenance"]
+    assert no.startup_lows({"unavailable": "offline"}) == [] and no.startup_lows(None) == []
+    logged = []
+    fake = SimpleNamespace(client=SimpleNamespace(get_state=lambda: {"ok": True, "data": st}),
+                           agent=SimpleNamespace(_stash=[]), log=SimpleNamespace(log=lambda k, **kw: logged.append(k)))
+    LiveSession.raise_standing_lows(fake)
+    assert len(fake.agent._stash) == 1 and isinstance(fake.agent._stash[0], VitalsLow) and logged == ["startup_vitals_low"]
+
+
+def test_the_graves_line_always_has_the_newest_grave():
+    """11:19:45: the line ranked by value left out the newest grave (16 Forager's Sandwiches, 138 m)."""
+    from brain import situation
+    from brain.item_stats import graves_for_line
+    line = next(ln for ln in situation.recent_life(case("grave_food")) if ln.startswith("Graves of yours"))
+    assert "your newest, 138 m away, from 2026-11-01T11:18:46Z (go_to target 'my_grave:1793531926')" in line
+    assert line.count(" | ") == 2  # still 3 graves: the two most valuable and the newest
+    rows = [{"iso": f"2026-10-0{i}T00:00:00Z", "lost_items": 1} for i in range(1, 6)]
+    top = graves_for_line(rows)
+    assert len(top) == 3 and rows[4] in top and graves_for_line([]) == []
+
+
+def test_a_bag_item_moved_under_the_line_is_used_by_the_reflex_and_the_digest_says_so():
+    """Live 15:49Z: he moved Pumpkin Spice to the hotbar and drank it; the reflex had drunk one in between, so his
+    was wasted. The digest now says what the reflex will do; the fire line no longer leads the block (15:50Z he
+    promised "then i'll sort a fire" with two carried options in hand)."""
+    from brain import situation
+    st = json.loads(json.dumps(case("hunt_cook")))
+    st["hydration"], st["sustenance"] = 24.0, 24.0
+    st["inventory_items"] = [r for r in st.get("inventory_items") or [] if r.get("where") != "hotbar"] + [
+        {"kind": "Item", "id": "Inventory:20", "slot": 20, "count": 13, "item": "ITEM_Consumable_Tea_Pumpkin",
+         "name": "Pumpkin Spice Infusion", "where": "bag", "slot_type": "Inventory"},
+        {"kind": "Item", "id": "Inventory:21", "slot": 21, "count": 13, "item": "ITEM_Consumable_Meat_Fillet",
+         "name": "Fillet", "where": "bag", "slot_type": "Inventory"}]
+    st["vitals_policy"] = {"eat_below_pct": 40, "drink_below_pct": 40, "safety_floor_pct": 10, "heal_below_pct": None,
+                           "reflex_on": True, "reflex_every_s": 6}
+    drink, food = block(st, "drink"), block(st, "food")
+    assert "Pumpkin Spice Infusion x13 (bag)" in drink
+    assert "move_item to the hotbar: under your line your reflex drinks one by itself within ~2 s, nothing more to do" in drink
+    assert "move_item to the hotbar: under your line your reflex eats one by itself within ~2 s; eat the other 3 yourself" in food
+    for blk in (drink, food):
+        opts = blk.split("\n")[1:]
+        assert not opts[0].startswith("- the fire"), opts[0]
+    pol = situation.vitals_policy(st)
+    assert "Below a line your body uses food/drink from your hotbar by itself, one per kind every ~6 s (from the bag only under 10%)" in pol
+    off = dict(st, vitals_policy=dict(st["vitals_policy"], reflex_on=False))
+    assert "move_item to the hotbar, then drink 1" in block(off, "drink")
+    assert "The reflex is OFF" in situation.vitals_policy(off)
+    over = dict(st, sustenance=55.0)  # over his line: the reflex leaves it, he eats it himself (on demand)
+    assert not no.reflex_takes(over, "food") and no.reflex_takes(st, "food")
+    on_bar = dict(st, inventory_items=st["inventory_items"] + [
+        {"kind": "Item", "id": "Hotbar:3", "slot": 3, "count": 2, "item": "ITEM_Consumable_Meat_Fillet", "name": "Fillet",
+         "where": "hotbar", "slot_type": "Hotbar", "consumable": "food"}])
+    assert not no.reflex_takes(on_bar, "food")  # it eats the one already on the bar (first by slot), not the moved one
+
+
+def test_the_reflex_pick_on_the_hotbar_says_the_reflex_is_already_using_it():
+    """Live 16:20Z (rung1 gate eat_drink 3): the reflex drank Clean Water while he queued one too; his ran ~6 s later,
+    over the line already, and held up his second Fillet. The reflex's own pick (first clean one by slot) says so."""
+    st = json.loads(json.dumps(case("hunt_cook")))
+    st["hydration"], st["sustenance"] = 12.0, 12.0
+    st["inventory_items"] = [r for r in st.get("inventory_items") or [] if r.get("where") != "hotbar"] + [
+        {"kind": "Item", "id": "Hotbar:2", "slot": 2, "count": 3, "item": "ITEM_Consumable_Water_Clean", "name": "Clean Water",
+         "where": "hotbar", "slot_type": "Hotbar", "consumable": "drink"},
+        {"kind": "Item", "id": "Hotbar:4", "slot": 4, "count": 2, "item": "ITEM_Consumable_Water_Dirty", "name": "Dirty Water",
+         "where": "hotbar", "slot_type": "Hotbar", "consumable": "drink"}]
+    st["vitals_policy"] = {"eat_below_pct": 40, "drink_below_pct": 40, "safety_floor_pct": 10, "reflex_on": True}
+    drink = block(st, "drink")
+    clean = next(ln for ln in drink.split("\n") if "carried Clean Water" in ln)
+    dirty = next(ln for ln in drink.split("\n") if "carried Dirty Water" in ln)
+    assert "your reflex is already drinking these by itself, one every ~6 s, until you're over your 40% line" in clean
+    assert "reflex" not in dirty  # Soulscourge: not the reflex's pick
+    st["hydration"] = 55.0  # over his line: the reflex leaves them
+    assert "reflex" not in next(ln for ln in options_block(st, "drink").split("\n") if "carried Clean Water" in ln)
+
+
+def options_block(state: dict, need: str) -> str:
+    return no.options_for(state, need)

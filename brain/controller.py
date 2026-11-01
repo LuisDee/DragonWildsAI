@@ -273,9 +273,14 @@ def current_observation(state: dict | None) -> dict:
                          "distance_m": number(row.get("distance"))})
         stations = {"status": "observed", "rows": rows, "omitted": max(0, len(raw_stations) - len(rows))}
     inventory = sit.carrying(state, sit.item_names(state))
-    return {"status": "observed", "position": pos, "vitals": vitals,
-            "inventory": inventory if len(inventory) <= 240 else inventory[:224] + "... [truncated]",
-            "stations": stations}
+    out = {"status": "observed", "position": pos, "vitals": vitals,
+           "inventory": inventory if len(inventory) <= 240 else inventory[:224] + "... [truncated]",
+           "stations": stations}
+    from .needs_options import pressing_digests  # lazy: needs_options imports situation
+    needs_now = pressing_digests(state)  # a pressing food/drink need: its options as they are NOW (bounded)
+    if needs_now:
+        out["needs"] = needs_now
+    return out
 
 
 MAP_NAMES_NOTE = (" Also a place name from the game's map (a region, NPC or landmark), even out of sight, or a lodestone"

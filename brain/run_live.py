@@ -41,7 +41,7 @@ from typing import Callable
 # fetch can stall startup for many seconds; LiteLLM docs / CrewAI community report). Set before import.
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from . import paths, worlds
+from . import needs_options, paths, worlds
 from .agent import Agent, GoalResult
 from .bridge_client import BridgeClient
 from .budget import Budget, default_spend_fn
@@ -456,6 +456,20 @@ class LiveSession:
         # the first chat line. Within the budget guard; skipped by dry-run/fake clients (no ``warm``).
         if self.agent.budget is None or self.agent.budget.allows("warmup"):
             self.controller.warm_up()
+        self.raise_standing_lows()
+
+    def raise_standing_lows(self) -> None:
+        """A need already under its line when the brain (re)starts: the body's vitals_low from before was sent to
+        nobody and repeats only after 180 s, so raise the same event now, once (needs_options.startup_lows)."""
+        try:
+            res = self.client.get_state()
+            evs = needs_options.startup_lows(res.get("data") if res.get("ok") else None)
+        except Exception as exc:  # perception is best effort: the body's own repeat still comes
+            self.log.log("startup_vitals_low", ok=False, error=repr(exc)[:200])
+            return
+        if evs:
+            self.agent._stash.extend(evs)  # handled by the next pump, like a body event
+            self.log.log("startup_vitals_low", ok=True, events=[e.model_dump() for e in evs])
 
     def _connect(self) -> float:
         deadline = time.monotonic() + self.opts.wait if self.opts.wait > 0 else None
