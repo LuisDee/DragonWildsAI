@@ -74,8 +74,7 @@ def _audit(event: str, owner: str, pid: int, extra: str = "") -> None:
     try:
         with open(AUDIT, "a", encoding="utf-8") as f:
             f.write(f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-4]}Z {event} {owner} pid={pid}"
-                    f"{' ' + extra if extra else ''}
-")
+                    f"{' ' + extra if extra else ''}\n")
     except OSError:
         pass
 
