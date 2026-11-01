@@ -2642,6 +2642,25 @@ do
     _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 end
 
+-- LETHAL DROP (live 2026-11-01 15:56, quests run: explore slid off a cliff shoulder and fell 36 m): every walk,
+-- not only the no-route straight walk, refuses a drop deeper than his safe fall, and the reason names the drop
+do
+    M.stop(log); walls, raised, oracle, frame_hook = {}, {}, nil, nil; pump_oracle(); pawn.loc = { X = 0, Y = 0, Z = 0 }; air = 0
+    luis.loc = { X = 90000, Y = 90000, Z = 0 }
+    HOLES = { { 300, 3000, -3000, 3000 } }
+    _G.DW_LP_CACHE = nil
+    if _G.DW_NAVMEM then _G.DW_NAVMEM.routes = {} end
+    local MD = dofile(MOVE)
+    MD.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, nav = false })
+    run(200)
+    local r = MD.status().result
+    check("lethal drop: a plain go_to stops before the edge and names the drop", r and r.status == "failed" and pawn.loc.X < 300
+        and r.why == "drop_ahead" and tostring(r.detail):find("drop ahead", 1, true),
+        r and (tostring(r.status) .. " " .. tostring(r.why) .. " " .. tostring(r.detail) .. " x=" .. pawn.loc.X))
+    check("lethal drop: the words say so", tostring(MD.why_words("drop_ahead", "it")):find("drop ahead", 1, true), MD.why_words("drop_ahead", "it"))
+    HOLES = nil; MD.stop(log); _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
+end
+
 -- ENCUMBERED (live 2026-11-01 13:2x: 446.5 of 300 weight): no jump attempts (they fail in game), and the honest reason
 do
     M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false

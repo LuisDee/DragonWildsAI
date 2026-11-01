@@ -197,5 +197,29 @@ check("positive jump probes above knee and proposes hop", hr == "blocked" and #h
 local solid, wa, wb, wr, wh = hop_case(165, true)
 check("true wall remains blocked with jump reach", wr == "blocked" and #wh == 2 and solid:edge(wa, wb) == "walk" and next(solid.hop) == nil)
 
+-- Too steep to stand on (live 2026-11-01 15:56): a level-looking band whose surface normal is 0.4 (66 degrees)
+-- across the direct line is no floor when walk_z is given; the route goes round it (without walk_z it walks over)
+do
+    local function steep_band(x, y) return x > 250 and x < 450 and math.abs(y) < 250 end
+    local function trace_s(a, b, horizontal)
+        if horizontal then return nil end
+        if a.Z < 0 then return 0, true end
+        return 0, false, steep_band(a.X, a.Y) and 0.4 or 1.0
+    end
+    local function route(walk_z)
+        local Pz = LP.new({ trace = trace_s, center = { X = 0, Y = 0, Z = 90 }, radius_m = 8, walk_z = walk_z,
+            env = { step = 45, jump = 165, djump = 165, drop = 600 } })
+        local s2 = "sampling"
+        while s2 ~= "ready" do s2 = Pz:step(64) end
+        local pz = Pz:plan({ X = 700, Y = 0, Z = 0 })
+        local over = false
+        for _, q in ipairs(pz or {}) do if steep_band(q.X, q.Y) then over = true end end
+        return pz, over
+    end
+    local p1, over1 = route(0.70)
+    local p0, over0 = route(nil)
+    check("steep band (normal 0.4) is no floor: the route goes round it", p1 ~= nil and not over1 and over0, tostring(over1) .. " " .. tostring(over0))
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

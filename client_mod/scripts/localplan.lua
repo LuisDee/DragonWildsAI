@@ -56,6 +56,7 @@ function LP.new(o)
     self.env.djump = self.env.djump or 450
     self.env.drop = self.env.drop or 600
     self.env.head = self.env.head or 190       -- clearance needed above a floor
+    self.walk_z = o.walk_z or self.env.walk_z  -- floors with a normal Z below this are too steep to stand on
     self.lo_off = o.lo_off or 100              -- low trace starts this far above our feet level
     self.hi_off = o.hi_off or 700              -- high trace starts this far above
     self.depth = o.depth or 900                -- traces go this far below our level
@@ -89,11 +90,15 @@ function LP:pos(i, j) return self.c.X + i * self.cell, self.c.Y + j * self.cell 
 -- Floor heights (cm) of one world cell: up to two layers, from a trace starting just above our
 -- level and one from high above (a ledge over an alcove is a separate layer). Two surfaces closer
 -- than head clearance are ONE walkable surface: the upper one (the lower has no headroom).
-local function cell_floors(trace, x, y, feet, lo_off, hi_off, depth, head)
-    local lo, lo_pen = trace({ X = x, Y = y, Z = feet + lo_off }, { X = x, Y = y, Z = feet - depth })
-    local hi, hi_pen = trace({ X = x, Y = y, Z = feet + hi_off }, { X = x, Y = y, Z = feet - depth })
+-- walk_z (the pawn's WalkableFloorZ, ~0.70): a floor whose normal is steeper than that is no floor at all; he
+-- slides off it (live 2026-11-01 15:56: a 63-73 degree shoulder along a cliff top read as a level walk cell by
+-- cell, he slid off it and fell 36 m). The trace's third value is the hit normal's Z (nil: not checked).
+local function cell_floors(trace, x, y, feet, lo_off, hi_off, depth, head, walk_z)
+    local lo, lo_pen, lo_nz = trace({ X = x, Y = y, Z = feet + lo_off }, { X = x, Y = y, Z = feet - depth })
+    local hi, hi_pen, hi_nz = trace({ X = x, Y = y, Z = feet + hi_off }, { X = x, Y = y, Z = feet - depth })
     local zs = {}
-    local lo_ok, hi_ok = lo and not lo_pen, hi and not hi_pen
+    local function standable(nz) return not (walk_z and tonumber(nz) and nz < walk_z) end
+    local lo_ok, hi_ok = lo and not lo_pen and standable(lo_nz), hi and not hi_pen and standable(hi_nz)
     if lo_ok and hi_ok and hi > lo + 5 and hi <= lo + head then
         -- something sits less than head clearance above the low floor: the low floor has NO
         -- headroom (e.g. the ground under a ramp, live 19:22 church start area), and the upper
@@ -121,7 +126,7 @@ function LP.prefetch(cache, trace, x, y, feet, o)
     if cache_get(cache, k, feet, now) then return 0 end
     local env = o.env or {}
     local zs = cell_floors(trace, math.floor(x / cell + 0.5) * cell, math.floor(y / cell + 0.5) * cell, feet,
-        o.lo_off or 100, o.hi_off or 700, o.depth or 900, env.head or 190)
+        o.lo_off or 100, o.hi_off or 700, o.depth or 900, env.head or 190, o.walk_z or env.walk_z)
     cache.cells[k] = { t = now, feet = feet, zs = zs }
     return 2
 end
@@ -138,7 +143,7 @@ function LP:sample(i, j)
     if zs then
         self.cache_hits = self.cache_hits + 1
     else
-        zs = cell_floors(self.trace, x, y, self.feet, self.lo_off, self.hi_off, self.depth, self.env.head)
+        zs = cell_floors(self.trace, x, y, self.feet, self.lo_off, self.hi_off, self.depth, self.env.head, self.walk_z)
         self.traces = self.traces + 2
         if self.cache then self.cache.cells[k] = { t = now, feet = self.feet, zs = zs } end
     end

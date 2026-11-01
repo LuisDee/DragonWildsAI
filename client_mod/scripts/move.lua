@@ -518,7 +518,7 @@ local function make_trace(st, pawn)
         if horizontal then return hit, hit and out.ImpactPoint or nil end
         if not hit then return nil end
         local ip = out.ImpactPoint
-        return ip and ip.Z, (tonumber(out.Distance) or 1) < 0.5
+        return ip and ip.Z, (tonumber(out.Distance) or 1) < 0.5, out.ImpactNormal and tonumber(out.ImpactNormal.Z)
     end
 end
 
@@ -590,8 +590,11 @@ local function envelope(pawn, pc)
     -- the perk's own unlock level (game data: USkillPerkData.PerkUnlockInfo.RequiredSkillLevel), for the reason words
     local dj_level = num(function() return pawn.DoubleJumpSkillPerk.PerkUnlockInfo.RequiredSkillLevel end)
     local safe_drop = num(function() return mc.MinFallDamageHeight end) or 500
+    -- the steepest floor he can stand on (WalkableFloorAngle 45.5 deg -> 0.70); steeper ground slides him off
+    local walk_z = num(function() return mc.WalkableFloorZ end) or num(function() return mc:GetWalkableFloorZ() end) or 0.70
     local env = { step = step, jump = apex - 15, djump = apex - 15, -- double-jump edges only once MEASURED
                   drop = math.min(1000, math.max(150, safe_drop - 50)), apex = apex, double_jump = dj, source = "engine",
+                  safe_fall = safe_drop, walk_z = (walk_z > 0.3 and walk_z < 0.99) and walk_z or 0.70,
                   dj_level = (dj_level and dj_level > 0) and math.floor(dj_level) or nil }
     -- MEASURED values win (client_mod/commands/move_calib.lua -> data/envelopes/Claude.json)
     local okj, J = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
@@ -927,11 +930,14 @@ local function route_fallback(st, why, log)
 end
 -- Floor ahead of the feet along (dx, dy)? "drop" when nothing is within 4 m below or it is > 2.5 m down
 -- (same thresholds as escape_line_clear).
-local function drop_ahead(pawn, me, feet, dx, dy)
+-- a drop (no floor within 2.5 m below) or ground too steep to stand on (walk_z) 1.5 m ahead
+local function drop_ahead(pawn, me, feet, dx, dy, walk_z)
     local x, y = me.X + dx * 150, me.Y + dy * 150
     local ok, hit, out = pcall(raw_trace, pawn, { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - 400 })
     if not ok then return false end
-    return not (hit and out.ImpactPoint) or out.ImpactPoint.Z < feet - 250
+    if not (hit and out.ImpactPoint) or out.ImpactPoint.Z < feet - 250 then return true end
+    local nz = out.ImpactNormal and tonumber(out.ImpactNormal.Z)
+    return walk_z ~= nil and nz ~= nil and nz < walk_z
 end
 local function route_owned(st, gen, pawn, pc)
     local b = st.nav_binding
@@ -1797,6 +1803,9 @@ local function trip_tick(f)
         end
     end
     local okf, falling = pcall(function() return pawn.CharacterMovement:IsFalling() end)
+    -- the last spot he stood on (the game leaves his grave there after a deadly fall, not where the body ends:
+    -- live 2026-11-01 15:56 the death read (38.6, 1740.3, -94.0), the grave stood at (45.0, 1744.9, -30.6))
+    if okf and not falling then _G.DW_LAST_GROUND = { X = me.X, Y = me.Y, Z = me.Z, t = os.time() } end
     if okf and falling then tr.air_top = math.max(tr.air_top or me.Z, me.Z)
     elseif okf and tr.air_top then
         if tr.air_top - me.Z > tr.fall then tr.fall = tr.air_top - me.Z end
@@ -2875,7 +2884,7 @@ local function prefetch(f)
         local x = me.X + dx * c[1] * 100 - dy * c[2] * 100
         local y = me.Y + dy * c[1] * 100 + dx * c[2] * 100
         local used = LP.prefetch(cache, ctrace, x, y, feet, { cell_cm = M.cfg.lp_cell_cm, env = st.env,
-            now = function() return t end })
+            walk_z = st.env and st.env.walk_z, now = function() return t end })
         if used > 0 then st.prefetched = (st.prefetched or 0) + 1; break end
     end
 end
@@ -2990,6 +2999,60 @@ local function local_stall(f)
     return true
 end
 
+-- LETHAL DROP GUARD, on every walk (a local plan, a route, memory, the leader's trail, straight): never step off
+-- a drop deeper than his safe fall (MinFallDamageHeight, 15 m). Two probes 0.7 and 1.2 m ahead (both must be
+-- deep: a crack a stride wide is not a cliff edge); a hit: hold, forget the cached floor cells (a mis-sampled
+-- cell made the plan), plan again up to twice, then fail with the drop named ("a 36 m drop ahead"). Live
+-- 2026-11-01 15:56 (quests run, explore): a local plan led along a 63-73 degree shoulder above a 36 m cliff,
+-- he slid off it and died.
+local report_unreachable -- (defined with the give-up ladder below)
+local function cliff_guard(f)
+    local st, pawn, t, me, log, dx, dy = f.st, f.pawn, f.t, f.me, f.log, f.dx, f.dy
+    if st.wade or st.in_water or st.jump_t or (st.ticks or 0) % 2 ~= 0 then return end
+    local okg, ground = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
+    if okg and ground == false then return end -- airborne (a planned jump or drop): the landing was checked
+    if not st.safe_fall_cm then -- the engine's own number (MinFallDamageHeight: below it a fall does no damage)
+        local oks, sf = pcall(function() return pawn.CharacterMovement.MinFallDamageHeight end)
+        st.safe_fall_cm = (oks and tonumber(sf) and tonumber(sf) > 100) and tonumber(sf) or 1500
+    end
+    local safe = st.safe_fall_cm
+    local feet = me.Z - (st.half_h or 90)
+    local worst = nil
+    for _, k in ipairs({ 70, 120 }) do
+        if k > (f.dist or 1e9) + 40 then break end -- past the goal: he stops before it (a goal on an edge is fine)
+        local x, y = me.X + dx * k, me.Y + dy * k
+        local ok, hit, out = pcall(raw_trace, pawn, { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - safe - 300 })
+        if not ok then return end
+        local fall = (hit and out.ImpactPoint) and (feet - out.ImpactPoint.Z) or (safe + 300)
+        if fall > safe and rawget(_G, "DW_WATER_CH") then -- deep water off a shore is a swim, not a fall
+            local a, b = { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - safe - 300 }
+            local okw, hw, outw = pcall(trace_with, _G.DW_WATER_CH, pawn, a, b)
+            local wz = okw and hw and type(outw) == "table" and outw.ImpactPoint and outw.ImpactPoint.Z
+            if wz and (not (hit and out.ImpactPoint) or wz > out.ImpactPoint.Z + 15) then fall = math.min(fall, feet - wz) end
+        end
+        if fall <= safe then return end
+        worst = math.max(worst or 0, fall)
+    end
+    if not worst then return end
+    st.traces = (st.traces or 0) + 2
+    st.drop_m = math.floor(worst / 100 + 0.5)
+    st.drop_more = worst >= safe + 300 -- no floor within reach of the trace: "more than N m"
+    st.cliff_n = (st.cliff_n or 0) + 1
+    st.win_t, st.win_pos = t, v(me)
+    if log then log(string.format("move: %s%d m drop ahead at (%.0f,%.0f) on %s (safe fall %d m); not stepping off",
+        st.drop_more and "more than a " or "a ", st.drop_m, me.X / 100, me.Y / 100, tostring(f.src), math.floor(safe / 100))) end
+    _G.DW_LP_CACHE = nil
+    st.lpath, st.lwp = nil, nil
+    if st.cliff_n <= 2 and st.use_lp and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and
+        lp_begin(st, pawn, me, far_goal(f), "drop_ahead", log) then
+        st.status = "planning"
+        return true
+    end
+    st.lp_fail = string.format("%s%d m drop ahead", st.drop_more and "more than a " or "a ", st.drop_m)
+    report_unreachable(f, "drop_ahead", nil)
+    return true
+end
+
 -- KillZ guard: without an admitted route a straight walk at the raw goal never steps off a big drop (the one death
 -- this rule exists for: a beeline at a goal 30 m down into a KillZVolume, DISCOVERIES). The local planner (traced
 -- floor edges only) takes over; when it can't, the move fails honestly. One trace per frame: a sprint covers ~2 m
@@ -2998,7 +3061,7 @@ local function killz(f)
     local st, pawn, t, dt, me, log, src, dx, dy = f.st, f.pawn, f.t, f.dt, f.me, f.log, f.src, f.dx, f.dy
     if not ((st.nav_fallback or st.prov) and src == "straight" and not st.wade and not st.in_water) then return end
     st.traces = (st.traces or 0) + 1
-    if not drop_ahead(pawn, me, me.Z - (st.half_h or 90), dx, dy) then return end
+    if not drop_ahead(pawn, me, me.Z - (st.half_h or 90), dx, dy, st.env and st.env.walk_z) then return end
     if st.prov then -- a drop ahead while the route is still coming: stop walking provisionally, wait for it
         st.prov, st.prov_stalled = nil, "drop_ahead"
         if log then log("move: drop ahead on the provisional walk; waiting for the route") end
@@ -3207,7 +3270,7 @@ end
 -- Nothing left to try: the most specific TRUE reason (needs:<Move> from a known link, the leader's Windstep or
 -- double jump, a height that was out of jump reach from the start, else no_route). A nearby player is asked to
 -- lead (once per episode); a follow stays persistent (unreachable), a go_to waits for the lead or fails.
-local function report_unreachable(f, needs, at)
+report_unreachable = function(f, needs, at)
     local st, pawn, t, me, goal, dist, log = f.st, f.pawn, f.t, f.me, f.goal, f.dist, f.log
     local reason
     if heavy(st) then reason = "encumbered"                     -- over his carry weight: no jumps, the true cause
@@ -3411,7 +3474,7 @@ local function tick(st, gen, log)
     end
     f.dx, f.dy = dx, dy
     prefetch(f)
-    if zone_replan(f) or probe(f) or local_stall(f) or killz(f) or steer_input(f) then return end
+    if zone_replan(f) or probe(f) or local_stall(f) or cliff_guard(f) or killz(f) or steer_input(f) then return end
     sprint_tick(f)
     -- an owned airborne or landing transaction must not enter the ordinary stuck ladder
     if st.local_authority and (st.lp_jump_exec or st.ws_exec or st.jump_t) then
@@ -3932,6 +3995,11 @@ local WHY = {
     not_unlocked = function() return "I haven't unlocked Windstep" end,
     not_on_wheel = function() return "Windstep isn't available on my spell wheel" end,
     no_route = function(th) return "there's no way through to " .. th .. " from here" end,
+    drop_ahead = function()
+        local st = rawget(_G, "DW_MOVE") or {}
+        local d = st.drop_m and string.format("%s%d m ", st.drop_more and "more than a " or "a ", st.drop_m) or "a "
+        return "there's " .. d .. "drop ahead, more than I can fall safely, and no other way down"
+    end,
     target_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,
     leader_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,
     leader_windstepped = function(th) return (th == "you" and "you" or th) .. " Windstepped over somewhere I can't follow yet" end,
