@@ -219,6 +219,8 @@ def grade(item: str, legs: list[dict], t_h: float | None, misses: int, allowed: 
             "stand": 0 <= stand_s <= STAND_S,
             "truth": truthful and (told or not need_told or not audience)}
     why = [k for k, v in bars.items() if not v]
+    if stand_s < 0:  # the recorder had nothing for him: an unmeasured stand bar is infra, not his failure
+        why = [k for k in why if k != "stand"] + ["infra"]
     return {"item": item, "pass": not why, "bars": bars, "fails": why, "wall_s": wall, "t_h": t_h,
             "ratio": round(wall / t_h, 2) if t_h else None, "misses": misses, "misses_allowed": allowed,
             "longest_stand_s": stand_s, "told": told if (audience or not need_told) else f"{told} (n/a: nobody near)",
@@ -413,13 +415,17 @@ def it_fight_back(ctx: Ctx) -> dict:
             target.update(id=new[0]["id"], name=new[0].get("name"))
             break
     row = run_leg(ctx, {"id": "fight_back", "kind": "r1_fight", "check_text": "the Goblin Runt spawned beside him reads dead "
-                        "(or vanished after a kill the body reported)"}, None, target, deadline_s=90, t0=t0,
+                        "(or vanished after a kill the body reported)"}, None, target, deadline_s=150, t0=t0,
                   creature=target.get("id"),
                   # the body's combat_end (then the model's turn on it) comes a few s after the kill: what he says about
                   # the fight is part of the item (live 17:00Z: the leg ended on the kill, before his news reached the model)
                   settled=lambda rows: any(r.get("kind") == "event" and (r.get("event") or {}).get("kind") == "combat_end"
                                            for r in rows))
     seen = row["rec"].get("seen") or []
+    if seen and seen[-1][1] == "alive" and res.get("id"):  # the harness's runt is the harness's to remove (bench cleanup)
+        k = cl._server_client().request("debug_run", {"module": "bench_creatures", "args": {
+            "action": "kill", "character_guid": dev.character_guid, "ids": [res["id"]]}}, timeout=30)
+        row["cleanup"] = ((k.get("data") or {}).get("result") or {}).get("ok")
     near = [(s[0], s[3]) for s in seen if s[1] == "alive" and isinstance(s[3], (int, float))]
     hp = [(s[0], s[5]) for s in row["rec"].get("me") or [] if len(s) > 5 and isinstance(s[5], (int, float))]
 
@@ -504,9 +510,19 @@ def it_rest(ctx: Ctx) -> dict:
     from tools import travel_ladder as tl
     tl.place(cl._dev(), ctx.cli, LUIS_SLEEP, harness_brain=True)
     t_h = luis_task_s("sleep") or 28.0
-    return it_stat(ctx, "rest", {"endurance": 5}, {"endurance": 90}, t_h, 180,
-                   "his rest (endurance), set to 5 % by the harness, climbs by >= 8 points (a nap in a bed or a Summon "
-                   "Shelter: +1/s; a night's sleep refills it) or reaches 90 %")
+    before = _pct(ctx.me()).get("endurance")
+    try:
+        return it_stat(ctx, "rest", {"endurance": 5}, {"endurance": 90}, t_h, 180,
+                       "his rest (endurance), set to 5 % by the harness, climbs by >= 8 points (a nap in a bed or a Summon "
+                       "Shelter: +1/s; a night's sleep refills it) or reaches 90 %")
+    finally:
+        # undo the harness's own exhaustion when he did not rest it off: it carried into the next run's fight (live
+        # 17:35Z: max stamina 40 at endurance 0, he parried a 20-HP runt for 24 s without a swing)
+        surv = ctx.me().get("survival") or {}
+        cur, mx = (surv.get("endurance") or [None, 100])[:2]
+        if before is not None and isinstance(cur, (int, float)) and 100.0 * cur / (mx or 100) < before - 5:
+            cl._dev().setup("set_stat", purpose="rung1 gate rest: undo the harness's exhaustion", stat="endurance",
+                            value=(mx or 100) * before / 100.0)
 
 
 def it_come_follow(ctx: Ctx) -> dict:
@@ -598,11 +614,30 @@ def recorder_ok() -> bool:
     return bool(files) and time.time() - files[-1].stat().st_mtime < 30
 
 
+def ensure_recorder() -> str:
+    """The server recorder (read-only, server side) armed: an arm lasts `seconds` and then stops by itself (live 17:29Z:
+    it expired mid-run and the stand bar read nothing). Re-armed onto the newest file, for 4 h."""
+    srv = cl._server_client()
+    st = (srv.request("debug_run", {"module": "player_recorder", "args": {"action": "status"}}, timeout=30).get("data")
+          or {}).get("result") or {}
+    if st.get("armed"):
+        return "armed"
+    files = sorted((ROOT / "logs" / "recorder").glob("rec_*.jsonl"), key=lambda p: p.stat().st_mtime)
+    out = st.get("file") or (files[-1].as_posix() if files else (ROOT / "logs" / "recorder" /
+                             datetime.now(timezone.utc).strftime("rec_%Y%m%dT%H%M%SZ.jsonl")).as_posix())
+    r = srv.request("debug_run", {"module": "player_recorder", "args": {"action": "arm", "out": out, "seconds": 14400,
+                                                                         "period_ms": 200}}, timeout=30)
+    return f"re-armed {out}: {bool(((r.get('data') or {}).get('result') or {}).get('ok'))}"
+
+
 def cmd_run(a) -> int:
     if not a.confirm:
         print("refusing: a live run sends test chat and uses dev fixtures on Claude; pass --confirm")
         return 2
     items = [i for i in ITEMS if not a.only or i in a.only.split(",")]
+    if not recorder_ok():
+        print(f"recorder: {ensure_recorder()}")
+        time.sleep(2.0)
     if not recorder_ok():
         print("the server recorder is not writing (logs/recorder): re-arm it (player_recorder arm) before a gate run")
         return 3
@@ -613,9 +648,18 @@ def cmd_run(a) -> int:
     for run in range(a.runs):
         a.run_index = a.first_index + run
         run_id = datetime.now(timezone.utc).strftime("r1-%Y%m%dT%H%M%SZ")
-        groups = [items] if a.one_window else [[i] for i in items]
+        if a.one_window:
+            groups = [items]
+        elif a.groups:
+            groups = [[i for i in g.split(",") if i in items] for g in a.groups.split(";")]
+        else:
+            groups = [[i] for i in items]
+        groups = [g for g in groups if g]
         for group in groups:
             with live_lock.held("rung1", wait_s=a.wait):
+                rs = ensure_recorder()
+                if rs != "armed":
+                    print(f"  recorder: {rs}")
                 for item in group:
                     a.start_brain, a.use_running_brain = True, False
                     bad = wait_preflight(a)
@@ -738,6 +782,8 @@ def main(argv=None) -> int:
     r.add_argument("--usd", type=float, default=0.30, help="each item's brain spend cap above today's spend")
     r.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
     r.add_argument("--one-window", action="store_true", help="hold the lock once for all the items (keep it short: <= ~8 min)")
+    r.add_argument("--groups", default="", help='items per lock window, ";"-separated (e.g. "split_drop,pickup,fight_back;'
+                   'eat_drink,rest;come_follow,grave"): fewer waits in the queue, each window still short')
     r.add_argument("--judge", action=argparse.BooleanOptionalAction, default=None)
     a = ap.parse_args(argv)
     a.run_index = getattr(a, "first_index", 0)

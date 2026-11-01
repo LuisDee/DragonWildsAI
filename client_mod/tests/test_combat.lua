@@ -1601,6 +1601,20 @@ do
     world.on_step = function() stamina = 80 end
     run_until(function() return (world.injected.IA_PrimaryAction or 0) > p0 end, 3)
     check("stamina: swings again with stamina to spare", (world.injected.IA_PrimaryAction or 0) > p0)
+    -- (d2) held back by the reserve for reserve_wait_s, he swings on what he has (exhausted: max stamina 40, live
+    -- 17:35Z parried a 20-HP runt for 24 s without a swing); a finishing blow needs no reserve at all
+    world.on_step = function() stamina = reserve + 3 end
+    run_until(function() return false end, 1.5)
+    local p1 = world.injected.IA_PrimaryAction or 0
+    run_until(function() return false end, 2)
+    check("stamina: still holding inside the wait", (world.injected.IA_PrimaryAction or 0) == p1, (world.injected.IA_PrimaryAction or 0) - p1)
+    run_until(function() return (world.injected.IA_PrimaryAction or 0) > p1 end, Cm.cfg.reserve_wait_s + 1)
+    check("stamina: swings after reserve_wait_s held back", (world.injected.IA_PrimaryAction or 0) > p1)
+    local ff = Cm._state().fight
+    local prim = (ff.profile or {}).prim or {}
+    check("stamina: a finishing blow needs only the swing's cost",
+          Cm.swing_need({ profile = ff.profile, t = 0, target_hp = 1 }, prim) <
+          Cm.swing_need({ profile = ff.profile, t = 0, target_hp = 4000 }, prim))
     world.on_step = nil
     Cm.stop(nil, "test")
     Cm.set_orders(o0)

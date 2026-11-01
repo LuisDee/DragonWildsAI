@@ -45,6 +45,7 @@ M.cfg = {
     press_jitter_ms = { 40, 200 },
     tap_frames = 3,          -- a key tap = this many frames of injection (~30 ms at 100 Hz)
     stamina_reserve = 20,    -- keep this much stamina for a block or a dodge
+    reserve_wait_s = 5,      -- ... but held back by it this long (or for a finishing blow) a swing goes ahead on what he has
     flee_hp = 0.35,          -- hard veto: below this HP fraction, flee
     eat_hp = 0.55,           -- while fleeing / after a fight: eat food that heals below this
     fight_enter = 0.5,       -- utility to start fighting / to keep fighting (hysteresis)
@@ -2743,6 +2744,20 @@ function M.defence_reserve(F)
 end
 
 local function step_engage(F, pawn, me, acts, tgt)
+-- Stamina a primary swing needs now: its cost plus the defence reserve, or the cost alone for a finishing blow (the
+-- target's HP within one of his hits) or once the reserve has held him back cfg.reserve_wait_s. With his max stamina
+-- cut (rest low: 40 at endurance 0) reserve + cost was about all he had: he parried a 20-HP runt for 24 s without one
+-- swing and the fight ran out the clock (live 2026-11-01 17:35Z).
+function M.swing_need(F, prim)
+    local k = (F.profile and F.profile.name) or "hands"
+    local cost = (prim and prim.stam) or (C().press_cost or {})[k] or 10
+    local hit = (C().hit_dmg or {})[k] or (prim and prim.dmg)
+    local finishing = hit and F.target_hp and F.target_hp > 0 and F.target_hp <= hit
+    local waited = F.reserve_held_since and F.t - F.reserve_held_since >= M.cfg.reserve_wait_s
+    if finishing or waited then return cost end
+    return M.defence_reserve(F) + cost
+end
+
     local cfg = M.cfg
     local d_m = F.dist_m
     -- keep in range: a short gap on his level (a dodge took him out of reach) -> step back in with the movement input;
@@ -2830,12 +2845,13 @@ local function step_engage(F, pawn, me, acts, tgt)
         tap(F, acts.special, cfg.tap_frames, "special")
         F.last_special = F.t
         F.next_press = F.t + (spec.next_ms or 1200) / 1000 + jitter(cfg.press_jitter_ms)
-    elseif (me.stamina or 0) >= M.defence_reserve(F) + (prim.stam or ((C().press_cost or {})[(F.profile and F.profile.name) or "hands"]) or 10)
-        and acts.primary then
+    elseif (me.stamina or 0) >= M.swing_need(F, prim) and acts.primary then
         tap(F, acts.primary, cfg.tap_frames, "primary")
         F.next_press = F.t + (prim.next_ms or 900) / 1000 + jitter(cfg.press_jitter_ms)
     else
+        F.reserve_held_since = nil
         F.next_press = F.t + 0.3 -- let stamina come back (keep the reserve for defence)
+        F.reserve_held_since = F.reserve_held_since or F.t
         return M.held(F, "stamina")
     end
     F.last_press_t = F.t
