@@ -421,6 +421,17 @@ do
     local turned = { position = { 0, 0, 0 }, yaw = 90, box = { origin = { 0, 0, 0 }, extent = { 2, 1, 1 } } }
     p = Bd.flush_spot(turned, "E", turned.box)
     check("flush_spot on a turned piece: its own axis nearest east (local Y, half 1 m)", near(p[1], 2) and math.abs(p[2]) < 1e-6, table.concat(p, ","))
+    -- a wall (live profile: 303 x 100 x 303 cm, its origin at its bottom) stands ON the edge, across it
+    local WB = { origin = { 0, 0, 1.515 }, extent = { 1.515, 0.5, 1.515 } }
+    local wp, wax, wm = Bd.flush_spot(anchor, "N", WB)
+    check("wall on the N edge: centred on the edge line, on the foundation's top, along the edge (yaw 0)",
+        near(wp[1], 10) and near(wp[2], -1.5) and near(wp[3], 0) and wm and wm.edge and wm.yaw == 0, table.concat(wp, ","))
+    wp, wax, wm = Bd.flush_spot(anchor, "E", WB)
+    check("wall on the E edge: turned 90 to run along it", near(wp[1], 11.5) and near(wp[2], 0) and wm.yaw == 90, table.concat(wp, ","))
+    local wr = Bd.flush_report(anchor, "E", WB, { position = { 11.5, 0, 0 }, yaw = 270 }, 0.06)
+    check("wall report: yaw 270 runs along the E edge too (mod 180) -> square", wr.flush, wr.facing_off_deg)
+    wr = Bd.flush_report(anchor, "E", WB, { position = { 11.5, 0, 0 }, yaw = 0 }, 0.06)
+    check("wall report: across the edge instead of along it -> not square, turned 90", not wr.flush and math.abs(wr.facing_off_deg) == 90, wr.facing_off_deg)
     local rep = Bd.flush_report(anchor, "E", FB, { position = { 13, 0, 0 }, yaw = 90 }, 0.06)
     check("flush_report: exact spot, turned 90 (a square tile) -> flush", rep.flush and rep.gap_m == 0 and rep.level_m == 0 and rep.facing_off_deg == 0)
     rep = Bd.flush_report(anchor, "E", FB, { position = { 13.2, 0.1, -0.3 }, yaw = 10 }, 0.06)
@@ -432,7 +443,7 @@ do
         reset_game({ no_hook = true })
         CARRIED.ITEM_Resources_Stone = 12
         Wb.actor_info = function(_, id) if id == anchor.id then return anchor end end
-        Wb.piece_profile = function() return { snap_only = o.snap_only or false, box = FB } end
+        Wb.piece_profile = function() return { snap_only = o.snap_only or false, box = o.box or FB } end
         Wb.structures = function()
             local out = { { id = anchor.id, name = anchor.name, position = anchor.position } }
             for _, s in ipairs(o.others or {}) do out[#out + 1] = s end
@@ -514,6 +525,32 @@ do
     check("attach, biased cursor: the aim is nudged by the miss until the cursor sits on the flush spot, then pressed",
         r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[1] - 13.6) < 1e-6
         and math.abs(G.aimed[2] + 0.2) < 1e-6, r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)) .. " aimed " .. (G.aimed and table.concat(G.aimed, ",") or "-"))
+    -- a wall on the E edge: turned 90 (6 presses of 15) so it runs along the edge (live 15:26Z: unturned it stood
+    -- across it), aimed at the edge midpoint, measured square from the census
+    attach_game({ no_preview = true, box = WB, built_at = { 11.5, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("wall on an edge: 6 rotate presses, aimed just inside the edge on the top face, square from the census",
+        r and r.ok and count(G.presses, "rotate") == 6 and da.flush == true and G.aimed and math.abs(G.aimed[1] - 11.2) < 1e-6
+        and tostring(da.built):find("stands squarely on the E edge", 1, true), r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)))
+    -- live 15:42Z: the cursor on the foundation's SIDE face (below its top) snapped a frame to the bottom edge, 3 m low:
+    -- a wall is never pressed while the cursor isn't on the top face
+    attach_game({ no_preview = true, box = WB, built_at = { 11.5, 0, 0 } })
+    Wb.mpc = function()
+        if not G.aimed then return nil end
+        return { index = 2, position = { G.aimed[1], G.aimed[2], -0.6 } }
+    end
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    check("wall: cursor below the anchor's top (its side face) -> never pressed", r and not r.ok and count(G.presses, "place") == 0,
+        r and (tostring(r.reason) .. " " .. tostring(r.data and r.data.why)))
+    -- live 15:42-15:46Z: the ghost keeps the last placement's rotation -> a ghost already at 90 needs no turn for the
+    -- E edge, and the census yaw re-syncs the tracked value
+    attach_game({ no_preview = true, box = WB, built_at = { 11.5, 0, 0 } })
+    _G.DWBuild = { static = {}, ghost_yaw = 90 }
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    check("wall: the ghost already turned 90 (kept from the last piece) -> no rotate press; re-synced from the census",
+        r and r.ok and count(G.presses, "rotate") == 0 and r.data.flush == true and _G.DWBuild.ghost_yaw == 90,
+        r and (tostring(r.reason) .. " rot=" .. count(G.presses, "rotate") .. " gy=" .. tostring(_G.DWBuild and _G.DWBuild.ghost_yaw)))
     attach_game({ snap = true, snap_only = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
     check("attach: a snap-only piece IS pressed once the snap is seen (no longer preview_ambiguous)", r and r.ok and r.data.flush == true, r and (tostring(r.reason) .. " " .. tostring(r.data.why)))

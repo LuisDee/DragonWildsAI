@@ -241,7 +241,7 @@ M.cfg.build = {
     preview_waits = 6, edge_aim_m = 0.3,
     -- no preview actor (instance-only pieces): the cursor must stop gliding (settle_m between reads) within
     -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s)
-    settle_m = 0.03, cursor_tol_m = 0.2, cursor_checks = 14, corr_max_m = 2.0,
+    settle_m = 0.03, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, edge_in_m = 0.3,
     -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
     -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
     -- NeedsSnapping press itself and Client_ShowValidityNotification names why. true = also require the hook.
@@ -589,7 +589,8 @@ function W.preview_yaw(api, job)
 end
 
 -- ---------- attach geometry (pure; testable offline). Sides are compass words: north = -Y, east = +X.
-M.SIDES = { n = "N", north = "N", e = "E", east = "E", s = "S", south = "S", w = "W", west = "W", top = "top", up = "top", above = "top" }
+M.SIDES = { n = "N", north = "N", e = "E", east = "E", s = "S", south = "S", w = "W", west = "W", top = "top", up = "top", above = "top",
+            ["in"] = "in", inside = "in", frame = "in" }
 local SIDE_DIR = { N = { 0, -1 }, E = { 1, 0 }, S = { 0, 1 }, W = { -1, 0 } }
 -- The anchor's own horizontal axis nearest a compass side, and the box half-sizes along it:
 -- -> axis {x, y}, half of the anchor along it, the axis index (1 = its local X, 2 = local Y)
@@ -606,31 +607,61 @@ local function side_axis(anchor, side)
     end
     return best, bi
 end
--- Where a new piece (its box) stands flush against anchor's side: {x, y, z} metres (the new actor's location).
--- Sides: same level as the anchor (tops flush for tiles); top: the new box's bottom on the anchor box's top.
+-- A wall-like piece: its box is thin on one horizontal axis (live: Wall 303 x 100 cm, extent 151.5 x 50) ->
+-- that axis' index (1 = local X, 2 = local Y) | nil (a tile, a prop)
+function M.thin_axis(box)
+    if not box then return nil end
+    local ex, ey = box.extent[1], box.extent[2]
+    if ey <= 0.4 * ex then return 2 end
+    if ex <= 0.4 * ey then return 1 end
+end
+-- Where a new piece (its box) stands against anchor's side: {x, y, z} metres (the new actor's location), the side's
+-- axis, and the mount {edge = true, yaw = the yaw it must have} for a wall-like piece.
+-- Sides: a tile goes beside it at the same level (tops flush); a wall-like piece stands ON that edge (its centre on
+-- the edge line, its bottom on the anchor's top, its thin axis across the edge); top: the new box's bottom on the
+-- anchor box's top.
 function M.flush_spot(anchor, side, new_box)
     local ab, nb = anchor.box, new_box or anchor.box
     if not (anchor.position and ab and nb) then return nil end
     local p = anchor.position
+    local top = p[3] + ab.origin[3] + ab.extent[3]
     if side == "top" then
-        local top = p[3] + ab.origin[3] + ab.extent[3]
         return { p[1], p[2], top - (nb.origin[3] - nb.extent[3]) }, nil
     end
+    if side == "in" then -- into a frame (a door in a door-frame wall): the frame's own spot and facing, bottoms level
+        local bottom = p[3] + ab.origin[3] - ab.extent[3]
+        return { p[1], p[2], bottom - (nb.origin[3] - nb.extent[3]) }, nil, { edge = true, inside = true, yaw = (anchor.yaw or 0) % 360 }
+    end
     local axis, i = side_axis(anchor, side)
+    local t = M.thin_axis(nb)
+    if M.thin_axis(ab) and not t then
+        -- off a wall's top toward that side (a ceiling tile / roof on the wall): its edge on the wall's line, its top
+        -- flush with the wall's top, the same 90 degree grid as the wall
+        local half = nb.extent[i]
+        return { p[1] + axis[1] * half, p[2] + axis[2] * half, top - (nb.origin[3] + nb.extent[3]) }, axis,
+            { ceiling = true, yaw = (anchor.yaw or 0) % 360, per = 90 }
+    end
+    if t and not M.thin_axis(ab) then
+        local yaw = ((anchor.yaw or 0) + (t == i and 0 or 90)) % 360
+        return { p[1] + axis[1] * ab.extent[i], p[2] + axis[2] * ab.extent[i], top - (nb.origin[3] - nb.extent[3]) }, axis,
+            { edge = true, yaw = yaw }
+    end
     local half = ab.extent[i] + nb.extent[i] -- the same local axis (the new piece takes the anchor's facing)
     return { p[1] + axis[1] * half, p[2] + axis[2] * half, p[3] }, axis
 end
 -- How the new piece sits against the anchor (census positions): gap along the side's axis, level difference, and
--- facing off by (degrees, mod 90). flush = all within tol.
+-- facing off by (degrees: mod 90 for tiles; mod 180 against the yaw it must have for a wall on an edge).
+-- flush = all within tol.
 function M.flush_report(anchor, side, new_box, built, tol)
-    local want, axis = M.flush_spot(anchor, side, new_box)
+    local want, axis, mount = M.flush_spot(anchor, side, new_box)
     if not (want and built and built.position) then return nil end
     local b = built.position
     local gap = axis and ((b[1] - want[1]) * axis[1] + (b[2] - want[2]) * axis[2]) or math.sqrt((b[1] - want[1]) ^ 2 + (b[2] - want[2]) ^ 2)
     local side_off = axis and ((b[1] - want[1]) * -axis[2] + (b[2] - want[2]) * axis[1]) or 0
     local level = b[3] - want[3]
-    local yo = ((((built.yaw or 0) - (anchor.yaw or 0)) % 90) + 90) % 90
-    if yo > 45 then yo = yo - 90 end
+    local per = mount and (mount.per or 180) or 90
+    local yo = ((((built.yaw or 0) - (mount and mount.yaw or anchor.yaw or 0)) % per) + per) % per
+    if yo > per / 2 then yo = yo - per end
     local r = { gap_m = math.floor(gap * 100 + 0.5) / 100, offset_m = math.floor(side_off * 100 + 0.5) / 100,
                 level_m = math.floor(level * 100 + 0.5) / 100, facing_off_deg = math.floor(yo * 10 + 0.5) / 10 }
     r.flush = math.abs(gap) <= tol and math.abs(side_off) <= tol and math.abs(level) <= tol and math.abs(yo) <= 2
@@ -840,6 +871,12 @@ local function start_build(api, args, ctx)
             side = best
         end
         on = { anchor = anchor, side = side, box = box0, provisional = provisional }
+        -- a wall on an edge must run along it. Live 15:26Z: the ghost takes my view's yaw, squared to the anchor's
+        -- 90 degree grid (aimed east from the W side -> yaw 0, across the edge), so turn it by the difference (mod
+        -- 180), in the game's 15 degree steps. I look at the spot from outside, against the side's direction.
+        local _, _, mount = M.flush_spot(anchor, side, box0)
+        on.mount = mount
+        on.turn_auto = args.rotation == nil -- the turn itself is worked out at the stand point (rotate phase)
         center, exact = M.flush_spot(anchor, side, box0), true
     end
     local prof0 = W.piece_profile(api, data)
@@ -902,8 +939,13 @@ local function preview_reader(api, job)
             local function r2(p) return p and { math.floor(p[1] * 100 + 0.5) / 100, math.floor(p[2] * 100 + 0.5) / 100, math.floor((p[3] or 0) * 100 + 0.5) / 100 } end
             job.on.reads = job.on.reads or {}
             if #job.on.reads >= 12 then table.remove(job.on.reads, 1) end
+            local bm = W.bm(api)
+            local hw = bm and U.try(function() return bm.BuildingHelperActor end)
+            local ha = hw and U.try(function() return hw:Get() end)
+            local hyaw = U.valid(ha) and tonumber((U.try(function() return ha:K2_GetActorRotation().Yaw end))) or nil
             job.on.reads[#job.on.reads + 1] = { aim = r2(job.last_aim), cursor = r2(m.position), ghost = r2(at), colour = m.index,
-                                                off_m = math.floor(off * 100 + 0.5) / 100, ghost_yaw = job.on.last.yaw and r1(job.on.last.yaw) or nil }
+                                                off_m = math.floor(off * 100 + 0.5) / 100, ghost_yaw = job.on.last.yaw and r1(job.on.last.yaw) or nil,
+                                                helper_yaw = hyaw and r1(hyaw) or nil }
             local green = m.index == 2 and (not h or h.v == 0)
             local fresh = not h or h.seq > (job.aim_seq or 0)
             local cfg = M.cfg.build
@@ -917,13 +959,19 @@ local function preview_reader(api, job)
                 local moved = prev and math.sqrt((m.position[1] - prev[1]) ^ 2 + (m.position[2] - prev[2]) ^ 2) or math.huge
                 job.on.prev_cursor = m.position
                 if moved > cfg.settle_m then return { valid = false, why = "settling", position = at, fresh = fresh } end
-                if green and off <= cfg.cursor_tol_m and math.abs(dzs) <= 1.0 then
+                -- where the cursor must sit: the flush spot for a tile; for a wall the point just inside the edge on the
+                -- anchor's top (its z too: a cursor on the side face below would snap it to the bottom edge)
+                local ct = job.on.cursor_target or tg
+                local coff = math.sqrt((at[1] - ct[1]) ^ 2 + (at[2] - ct[2]) ^ 2)
+                local zok
+                if job.on.cursor_target then zok = math.abs(at[3] - ct[3]) <= cfg.cursor_tol_z_m else zok = math.abs(dzs) <= 1.0 end
+                if green and coff <= cfg.cursor_tol_m and zok then
                     return { valid = true, snapped = "unseen", position = at, fresh = fresh, colour = 2 }
                 end
                 -- settled off the spot (live: 0.6 m short and 0.2 m aside, the camera ray isn't the placement trace):
                 -- correct the aim by the miss, as a player nudges the mouse; the checker's next re-aim applies it
                 local c = job.on.corr or { 0, 0 }
-                c = { c[1] + (tg[1] - at[1]), c[2] + (tg[2] - at[2]) }
+                c = { c[1] + (ct[1] - at[1]), c[2] + (ct[2] - at[2]) }
                 local cl = math.sqrt(c[1] ^ 2 + c[2] ^ 2)
                 if cl > cfg.corr_max_m then c = { c[1] / cl * cfg.corr_max_m, c[2] / cl * cfg.corr_max_m } end
                 job.on.corr, job.on.prev_cursor = c, nil
@@ -989,8 +1037,11 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     local att
     if job.on then
         local a, side = job.on.anchor, job.on.side
-        local where_on = (side == "top" and "on top of the " or ("on the " .. side .. " side of the ")) .. tostring(a.name) .. " (" .. a.id .. ")"
+        local _, _, mount = M.flush_spot(a, side, job.on.box)
+        local where_on = (side == "top" and "on top of the " or ("on the " .. side .. (mount and " edge of the " or " side of the ")))
+            .. tostring(a.name) .. " (" .. a.id .. ")"
         att = s and M.flush_report(a, side, job.on.box, s, M.cfg.build.flush_tol_m)
+        if mount and not mount.inside and s and type(s.yaw) == "number" then mem().ghost_yaw = s.yaw % 360 end -- re-sync
         local pp = job.preview and job.preview.position
         if att and job.on.mode == "cursor" and type(pp) == "table" then
             -- how far the game moved it from my cursor at the press: > 0 = its snap pulled it onto the plug
@@ -999,12 +1050,16 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         end
         if att then
             local parts = {}
-            if math.abs(att.gap_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.gap_m), att.gap_m > 0 and "gap" or "overlap") end
+            if math.abs(att.gap_m) > M.cfg.build.flush_tol_m then
+                parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.gap_m),
+                    mount and (att.gap_m > 0 and "outside the edge" or "in from the edge") or (att.gap_m > 0 and "gap" or "overlap"))
+            end
             if math.abs(att.offset_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m off to the side", math.abs(att.offset_m)) end
             if math.abs(att.level_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.level_m), att.level_m > 0 and "higher" or "lower") end
             if math.abs(att.facing_off_deg) > 2 then parts[#parts + 1] = string.format("turned %.0f degrees", att.facing_off_deg) end
-            line = line .. (att.flush and (" It sits flush " .. where_on .. ": no gap, level, same facing.")
-                or (" It is NOT flush " .. where_on .. ": " .. table.concat(parts, ", ") .. "."))
+            line = line .. (att.flush and (mount and (" It stands squarely " .. where_on .. ": on the edge line, on its top, lined up with it.")
+                    or (" It sits flush " .. where_on .. ": no gap, level, same facing."))
+                or (" It is NOT " .. (mount and "square " or "flush ") .. where_on .. ": " .. table.concat(parts, ", ") .. "."))
         else
             line = line .. " I meant it to sit flush " .. where_on .. " but can't measure it until I can see it."
         end
@@ -1019,7 +1074,8 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     end
     return { ok = true, data = setmetatable({ built = line, placed = true, name = job.piece.name, piece = job.piece.id,
         structure = s and s.id or api.null, position = at, distance_m = dist, direction = dir, facing = facing,
-        spent = api.object(spent), xp = xp_gain or api.null, evidence = evidence, rotation_verified = false,
+        spent = api.object(spent), xp = xp_gain or api.null, evidence = evidence,
+        rotation_verified = (att and math.abs(att.facing_off_deg) <= 2) or false, -- attached: the census yaw checked it
         attached_to = job.on and job.on.anchor.id or nil, side = job.on and job.on.side or nil,
         flush = att and att.flush, gap_m = att and att.gap_m, offset_m = att and att.offset_m, level_m = att and att.level_m,
         facing_off_deg = att and att.facing_off_deg, snap_moved_m = att and att.snap_moved_m,
@@ -1044,6 +1100,14 @@ local function step(api, job, t)
             local half = job.footprint / 2
             local _, axis = M.flush_spot(job.on.anchor, job.on.side, job.on.box)
             local out_m = half + cfg.stand_extra_m
+            local ta = job.on.side == "in" and M.thin_axis(job.on.anchor.box)
+            if ta then -- into a frame: stand across the wall (along its thin axis), on my side of it
+                local yaw = math.rad(job.on.anchor.yaw or 0)
+                local n = ta == 2 and { -math.sin(yaw), math.cos(yaw) } or { math.cos(yaw), math.sin(yaw) }
+                local h = here or job.center
+                if (h[1] - job.center[1]) * n[1] + (h[2] - job.center[2]) * n[2] < 0 then n = { -n[1], -n[2] } end
+                axis, out_m = n, 1.0 + cfg.stand_extra_m + 1.0
+            end
             job.stand_at = axis and { job.center[1] + axis[1] * out_m, job.center[2] + axis[2] * out_m, job.center[3] }
                 or stand_point(here or job.center, job.center, out_m)
         end
@@ -1107,11 +1171,24 @@ local function step(api, job, t)
         end
         return nil
     elseif job.phase == "rotate" then
+        if job.rot_left == nil and job.on and job.on.mount and job.on.turn_auto then
+            -- a wall on an edge / a door in a frame must line up with it. Live 15:26Z: the ghost takes my view's yaw
+            -- squared to the anchor's 90 degree grid (aimed east -> yaw 0: the wall stood across the edge); 15:34Z:
+            -- 6 presses of 15 turned it along the edge, square. So turn by (wanted - view) mod 180.
+            -- Live 15:42-15:46Z (frames 65, 66 turned the wrong way): the ghost does NOT take my view's yaw; it keeps
+            -- the rotation of the last placement (63: 0, 64: 0+90, 65: 90+90 = 180, 66: 180+90 = 270, all matching the
+            -- census). So I track that yaw (mem().ghost_yaw, every rotate press, re-synced from the census after each
+            -- wall) and turn by (wanted - current) mod 180. Unknown at session start: assumed 0, then synced.
+            local cur = mem().ghost_yaw or 0
+            job.on.ghost_yaw0 = cur
+            job.rotation = ((job.on.mount.yaw - cur) % 180 + 180) % 180
+        end
         job.rot_left = job.rot_left or (job.rotation and math.floor(((job.rotation % 360) / cfg.rotate_step_deg) + 0.5) or 0)
         if job.rot_left > 0 then
             job.rot_left = job.rot_left - 1
             job.presses[#job.presses + 1] = "rotate"
             W.press(api, W.rotate_action(api))
+            mem().ghost_yaw = ((mem().ghost_yaw or 0) + cfg.rotate_step_deg) % 360 -- the ghost keeps it (see above)
             return nil
         end
         local P = pl()
@@ -1182,9 +1259,29 @@ local function step(api, job, t)
             spots, skipped = {}, {}
             local function add(p, mm) spots[#spots + 1] = { position = p, exact = true, match_m = mm } end
             job.on.mode = pa and "ghost" or "cursor"
-            if not pa then -- no ghost to watch: aim at the flush spot itself (the game snaps it), then just beside it
-                add(spot, 1.0)
-                add({ spot[1] + out[1] * 0.15, spot[2] + out[2] * 0.15, spot[3] }, 1.0)
+            local _, _, mount = M.flush_spot(job.on.anchor, job.on.side, box)
+            local a0 = job.on.anchor
+            local a_top = a0.position[3] + a0.box.origin[3] + a0.box.extent[3]
+            local a_bottom = a0.position[3] + a0.box.origin[3] - a0.box.extent[3]
+            if job.on.side == "in" then
+                -- into a frame: the cursor must hover over the frame itself (wiki: snapping works "when hovering over
+                -- the previewed object with another built object"); live 15:43Z: aimed into the doorway, the ray went
+                -- through it and the cursor landed 6-9 m away. So aim at the frame above the opening (its lintel).
+                local h = a_top - a_bottom
+                for _, f in ipairs({ 0.88, 0.8 }) do add({ a0.position[1], a0.position[2], a_bottom + h * f }, 3.0 + h) end
+                job.on.cursor_target = { a0.position[1], a0.position[2], a_bottom + h * 0.88 }
+            elseif not pa then
+                if mount and axis then
+                    -- a wall on an edge: aim just INSIDE the edge on the anchor's top face. Live 15:42Z: aimed at the edge
+                    -- line from outside, the ray hit the foundation's side face and the frame snapped to its BOTTOM edge,
+                    -- 3 m low. On the top face the game snaps it to the top edge (live 15:34Z: square, 6 cm pull).
+                    local p = { spot[1] - axis[1] * cfg.edge_in_m, spot[2] - axis[2] * cfg.edge_in_m, a_top }
+                    add(p, 1.0)
+                    job.on.cursor_target = p
+                else -- no ghost to watch: aim at the flush spot itself (the game snaps it), then just beside it
+                    add(spot, 1.0)
+                    add({ spot[1] + out[1] * 0.15, spot[2] + out[2] * 0.15, spot[3] }, 1.0)
+                end
             elseif axis then
                 -- live 2026-11-01: aimed 0.25 / 0.5 m outside the flush spot, the free ghost landed 0.8-1.1 m further
                 -- out and never snapped. A player looks at the anchor's EDGE (its plugs) to snap: aim on its top just
@@ -1199,7 +1296,7 @@ local function step(api, job, t)
                     add({ edge[1] + axis[1] * o, edge[2] + axis[2] * o, top }, 2 * box.extent[i] + 1.5)
                 end
             end
-            if pa then
+            if pa and job.on.side ~= "in" then
                 for _, k in ipairs({ 1, 2 }) do
                     local o = cfg.snap_aim_m * k
                     add({ spot[1] + out[1] * o, spot[2] + out[2] * o, spot[3] }, 2 * cfg.snap_aim_m + 0.5)
@@ -1359,7 +1456,7 @@ M.HANDLERS.build = function(log, args, ctx)
     args = args or {}
     local job = start_build(api, args, ctx)
     if job.ok == false then return job end
-    job.rotation = tonumber(args.rotation)
+    job.rotation = tonumber(args.rotation) or job.rotation
     local A = arbiter(api)
     local function release(why)
         if job.token and job.own ~= "released" then job.own = "released"; if A then pcall(A.release, api.log, job.token, why) end end
