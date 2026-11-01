@@ -316,7 +316,8 @@ class Executor:
                                        "resolved": f"{target!r} is the game map's {best['kind']} {best['name']}: "
                                                    "you are in it now"}}
         where = ", ".join(x for x in (best.get("region"), best.get("province")) if x and x != best["name"])
-        took = (f"{target!r} is not in sight; walking to the game map's {best['kind']} {best['name']}"
+        what = best["name"] if str(best["name"]).lower().startswith(best["kind"]) else f"{best['kind']} {best['name']}"
+        took = (f"{target!r} is not in sight; walking to the game map's {what}"
                 + (f" in {where}" if where else "")
                 + (f", {best['distance_m']:.0f} m away" if isinstance(best.get("distance_m"), (int, float)) else "")
                 + (f": {how}" if (how := _place_basis(best)) else "")
@@ -328,7 +329,7 @@ class Executor:
         if result.get("ok") and best["kind"] == "landmark" and (seen := self._seen_at_spot(best["name"])):
             data = {**data, "target": best["name"], "on_arrival": seen}  # chat run 4: he looked to check (1 call)
             if not seen.startswith("no "):  # seen there: the "may be another" caveat is answered (chat run 5: he
-                took = (f"{target!r} was not in sight; walked to the game map's {best['kind']} {best['name']}"  # still
+                took = (f"{target!r} was not in sight; walked to the game map's {what}"  # still
                         + (f" in {where}" if where else ""))                                       # looked to check)
         return {**result, "data": {**data, "resolved": took}}
 
