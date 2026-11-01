@@ -710,8 +710,11 @@ function M.state_extras(api, data)
         local near = b and here and b.W.built_pieces(api, here, 15)
         if near and M.resolve_pending(L, near, os.time()) then M.save_ledger(L) end
     end
+    -- false = read against the ledger and not in it (the game keeps no owner per piece, dump 26161880), so the brain
+    -- can tell his pieces from other players' and pre-existing ones (brain run 19:42Z: "we already got most of it up
+    -- here" about other crates and tables); nil = not checked
     for _, s in ipairs(data.structures) do
-        if type(s) == "table" and s.position and s.piece and ledger_find(L, s) then s.mine = true end
+        if type(s) == "table" and s.position and s.piece then s.mine = ledger_find(L, s) ~= nil end
     end
     return nil
 end

@@ -222,10 +222,12 @@ function INPUT.release(k) INPUT.claims[k] = nil end
 function INPUT.raw_inject(a) return Wb.press(nil, a) end
 function INPUT.leave_build_step(press) if G.mode ~= "None" then press("cancel") end return G.mode end
 local ARB
+local DEC -- a fake deconstruct (his ledger of pieces he placed)
 local mod0 = api.module
 api.module = function(n)
     if n == "input" then return INPUT end
     if n == "arbiter" then return ARB end
+    if n == "deconstruct" then return DEC end
     return mod0(n)
 end
 api.log = function() end
@@ -477,6 +479,20 @@ do
         and da.built:find("sits flush on the E side of the Square Foundation (BP_Foundation_C_A)", 1, true), da.built)
     check("attach: aimed at the anchor's edge, on its top (a player's snap aim), never at the flush spot; one place press",
         G.aimed and math.abs(G.aimed[1] - 11.2) < 1e-6 and count(G.presses, "place") == 1, G.aimed and table.concat(G.aimed, ","))
+    -- a verified build goes into his ledger of pieces he placed (get_state.structures mine; the game keeps no owner)
+    do
+        local noted, saved = {}, 0
+        DEC = { world_id = function() return "dev" end, ledger = function(w) return { world = w, pieces = {} } end,
+                note_mine = function(L, p, src) noted[#noted + 1] = { p = p, src = src, w = L.world }; return true end,
+                save_ledger = function() saved = saved + 1; return true end }
+        attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 } })
+        local r2 = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+        local n1 = noted[1]
+        check("build: the verified piece is noted as his (piece, census position, build reply), ledger saved",
+            r2 and r2.ok and #noted == 1 and n1.p.piece == "BUILDPIECE_Campfire" and n1.src == "build reply" and n1.w == "dev"
+            and n1.p.position[1] == 13 and saved == 1, r2 and (tostring(r2.data.structure) .. " noted " .. #noted))
+        DEC = nil
+    end
 
     attach_game({ snap = false, built_at = { 13, 0, 0 } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
@@ -490,18 +506,29 @@ do
     local RB = { origin = { 0, 0, 0.75 }, extent = { 1.5, 1.5, 0.75 } }
     local hint = Bd.roof_hint(FB, RB, { N = "Wall BP_Wall_C_9", E = "Doorframe BuildingPiece_81", S = "beside: Square Foundation BuildingPiece_79", W = "open" })
     check("roof_hint: the walls on the floor's edges, each from its side facing the floor", hint
-        and hint:find("snap onto the tops of walls", 1, true) and hint:find("on 'BP_Wall_C_9:S' or 'BuildingPiece_81:W'", 1, true)
+        and hint:find("covers a room from the tops of its walls", 1, true) and hint:find("on 'BP_Wall_C_9:S' or 'BuildingPiece_81:W'", 1, true)
         and not hint:find("BuildingPiece_79", 1, true), hint)
     hint = Bd.roof_hint(FB, RB, { N = "open", E = "open", S = "open", W = "open" })
     check("roof_hint: a floor with no walls says so", hint and hint:find("no wall on any edge yet", 1, true), hint)
+    hint = Bd.roof_hint(FB, RB, { N = "Wall BP_Wall_C_9" }, true)
+    check("roof_hint, placed: says it is on the floor inside the walls, not covering the room", hint
+        and hint:find("^ That puts it on the floor inside the walls, so it doesn't cover the room%.") and hint:find("'BP_Wall_C_9:S'", 1, true), hint)
     check("roof_hint: not for a small piece (a crate) or on a wall's own top",
         Bd.roof_hint(FB, { origin = { 0, 0, 0.4 }, extent = { 0.5, 0.4, 0.4 } }, {}) == nil and Bd.roof_hint(WB, RB, {}) == nil)
     attach_game({ snap = false, box = RB, built_at = { 10, 0, 0 }, edges = { N = "Wall BP_Wall_C_9", E = "open", S = "open", W = "open" } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:top" })
     da = r and r.data or {}
     check("attach: a roof that never lands on a foundation's top -> nothing placed, and the reply names the wall top to use",
-        r and not r.ok and count(G.presses, "place") == 0 and tostring(da.detail):find("Nothing was placed. Roofs and ceiling tiles snap onto the tops of walls", 1, true)
+        r and not r.ok and count(G.presses, "place") == 0 and tostring(da.detail):find("Nothing was placed. A roof or ceiling tile covers a room from the tops of its walls", 1, true)
         and tostring(da.detail):find("on 'BP_Wall_C_9:S'", 1, true), r and (tostring(r.reason) .. " " .. tostring(da.detail)))
+
+    attach_game({ no_preview = true, box = RB, built_at = { 10, 0, 0 }, edges = { N = "Wall BP_Wall_C_9", E = "open", S = "open", W = "open" } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:top" })
+    da = r and r.data or {}
+    check("attach: a roof built on a foundation's top -> ok, and the reply says it's on the floor inside the walls, naming the wall top",
+        r and r.ok and tostring(da.built):find("That puts it on the floor inside the walls, so it doesn't cover the room.", 1, true)
+        and tostring(da.built):find("on 'BP_Wall_C_9:S'", 1, true) and tostring(da.fit):find("doesn't cover the room", 1, true),
+        r and (tostring(r.reason) .. " " .. tostring(da.built or da.detail)))
 
     attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13.3, 0, 0 } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })

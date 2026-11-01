@@ -181,6 +181,17 @@ check("ledger: saved", D.save_ledger(L2) == true)
 _G.DWDecon.ledger = nil
 local L3 = D.ledger("rt", true)
 check("ledger: read back", #L3.pieces == 1 and L3.pieces[1].piece == "DA_T1_Foundation_Large", #L3.pieces)
+-- get_state.structures: mine true for his, false for a piece read against the ledger and not in it (the game keeps
+-- no owner per piece), nil for a row it can't check
+local wid0 = D.world_id
+D.world_id = function() return "rt" end
+_G.DWDecon.pending = {}
+local rows = { { piece = "DA_T1_Foundation_Large", position = { 2, 2, 2 } }, { piece = "BUILDPIECE_Interior_Crate", position = { 2, 2, 2 } },
+               { position = { 9, 9, 9 } } }
+D.state_extras({ my_position = function() return { 0, 0, 0 } end }, { structures = rows })
+check("structures: mine true / false / unchecked", rows[1].mine == true and rows[2].mine == false and rows[3].mine == nil,
+    tostring(rows[1].mine) .. " " .. tostring(rows[2].mine) .. " " .. tostring(rows[3].mine))
+D.world_id = wid0
 os.remove(tmp .. "/my_pieces_rt.json")
 
 -- ------------------------------------------------------------------ line of sight (live boxes, 14:3xZ)

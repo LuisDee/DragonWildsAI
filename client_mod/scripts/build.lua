@@ -754,12 +754,13 @@ function M.edges(rows)
     end
     return out
 end
--- A cell-sized flat or sloped piece (a ceiling tile, a roof) that failed on a floor's ':top': roof pieces snap onto
--- wall tops (Luis's house: every roof on a wall top; live 2026-11-01 a roof aimed at a foundation's top never landed
--- there, twice; community guides: the wall-top rim is what roof pieces snap against). Names the walls on that floor's
--- edges as the on that reaches over it (a wall on the N edge: its S side). -> text | nil (not that case)
+-- A cell-sized flat or sloped piece (a ceiling tile, a roof) on a floor's ':top': a roof covers a room from its walls'
+-- tops (Luis's house: every roof on a wall top; community guides: the wall-top rim is what roof pieces snap against).
+-- Live 2026-11-01: aimed at a foundation's top a roof never landed (twice), or landed ON the floor inside the walls
+-- (a 30 deg Hip Roof, 20:29Z: "roof only covers part"). Names the walls on that floor's edges as the on that reaches
+-- over it (a wall on the N edge: its S side). placed: it was built there. -> text | nil (not that case)
 local OPP = { N = "S", S = "N", E = "W", W = "E" }
-function M.roof_hint(anchor_box, new_box, edges)
+function M.roof_hint(anchor_box, new_box, edges, placed)
     if not (anchor_box and new_box) or M.thin_axis(anchor_box) or M.thin_axis(new_box)
         or math.max(new_box.extent[1], new_box.extent[2]) < 1.2 then return nil end
     local ons = {}
@@ -767,9 +768,10 @@ function M.roof_hint(anchor_box, new_box, edges)
         local v = edges and edges[s]
         if type(v) == "string" and v ~= "open" and not v:find("^beside:") then ons[#ons + 1] = "'" .. v:match("(%S+)$") .. ":" .. OPP[s] .. "'" end
     end
-    if #ons == 0 then return " Roofs and ceiling tiles snap onto the tops of walls, and this floor has no wall on any edge yet." end
-    return " Roofs and ceiling tiles snap onto the tops of walls, not onto a floor: on " .. table.concat(ons, " or ")
-        .. " puts it over this floor from the wall on that edge."
+    local lead = placed and (#ons > 0 and " That puts it on the floor inside the walls, so it doesn't cover the room." or " That puts it on the floor.") or ""
+    if #ons == 0 then return lead .. " A roof or ceiling tile covers a room from the tops of its walls, and this floor has no wall on any edge yet." end
+    return lead .. " A roof or ceiling tile covers a room from the tops of its walls: on " .. table.concat(ons, " or ")
+        .. " puts one over this floor from the wall on that edge."
 end
 -- Place an attach from where I stand? -> true | false, why. Within stay_m of the aim point, on the anchor's floor (a wall:
 -- its top face must be in view), not in the new piece's way, and the camera's ray reaching the aim point.
@@ -1195,6 +1197,19 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             .. rel .. " at " .. where .. ", where its preview was."
     end
     if not spent_all then line = line .. " My materials didn't visibly go down, so I can't say what it used." end
+    -- mine: the game keeps no owner per piece (dump 26161880: FBuildingReplicatedEntry, FClientVisible/ServerOnly
+    -- BuildingPieceState and ABaseBuildingActor carry none), so his own ledger (deconstruct.lua my_pieces.json) is what
+    -- marks get_state.structures mine. The build-complete telemetry fills it too, but missed pieces placed in quick
+    -- succession (live 2026-11-01: 18 noted of his ~30); a verified build reply is the surest record.
+    if s and s.position then
+        local dm = api.module("deconstruct")
+        if dm and type(dm.note_mine) == "function" and type(dm.ledger) == "function" then
+            pcall(function()
+                local L = dm.ledger(dm.world_id())
+                if dm.note_mine(L, { piece = job.piece.id, name = job.piece.name, position = s.position }, "build reply") then dm.save_ledger(L) end
+            end)
+        end
+    end
     -- attached: how it really sits against the anchor, measured from the census (not from the preview)
     local att
     if job.on then
@@ -1235,6 +1250,12 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             line = line .. " I meant it to sit flush " .. where_on .. " but can't measure it until I can see it."
         end
         fit = line:match("(It [^.]*%.)$") or line:match("(I meant it [^.]*%.)$")
+        if side == "top" and s then
+            local edges
+            for _, st in ipairs(W.structures(api, true) or {}) do if st.id == a.id then edges = st.edges end end
+            local hint = M.roof_hint(a.box, job.on.box, edges, true)
+            if hint then line, fit = line .. hint, (fit or "") .. hint end
+        end
     end
     local rej = {}
     for _, r in ipairs(job.rejects or {}) do

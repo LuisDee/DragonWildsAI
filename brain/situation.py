@@ -223,6 +223,13 @@ def _creature_note(e: dict, odds: dict) -> str | None:
     return ", ".join(bits) or None
 
 
+def _owner_words(s: dict) -> str:
+    """Whose a built piece is: the game keeps no owner per piece (dump 26161880), so his own record of what he
+    placed (deconstruct.lua my_pieces.json) says it: mine True/False; nothing when it wasn't checked (brain run
+    2026-11-01 19:42Z took other crates and tables for his: "we already got most of it up here")."""
+    return {True: "yours", False: "not placed by you"}.get(s.get("mine"), "")
+
+
 def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
     """Everything the companion can currently perceive: get_state lists, the body's surroundings
     digest, and the things returned by look calls this turn."""
@@ -268,15 +275,15 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
             row = {**r, "name": s["name"]} if s and s.get("name") else r
             t = _look_thing({"verb": "interact", **row}, state)
             t.note, t.group = (str(r["prompt"]) if r.get("prompt") else None), "usable"
-            if s and s.get("ghosted"):
-                t.note = ", ".join(b for b in ("ghost piece", t.note) if b)
+            if s:
+                t.note = ", ".join(b for b in ("ghost piece" if s.get("ghosted") else "", _owner_words(s), t.note) if b) or None
             usable_ids.add(str(r.get("id")))
             out.append(t)
     for sid, s in pieces.items():  # pieces with no use (foundation, wall, stairs): their own line
         if sid not in usable_ids and s.get("name"):
+            note = ", ".join(b for b in ("ghost piece" if s.get("ghosted") else "", _owner_words(s)) if b) or None
             out.append(Thing(str(s["name"]), "structure", sid, _num(s.get("distance")), actions=[],
-                             extra={str(s.get("piece") or "")}, note="ghost piece" if s.get("ghosted") else None,
-                             group="built", up_m=up_of(s, state)))
+                             extra={str(s.get("piece") or "")}, note=note, group="built", up_m=up_of(s, state)))
     for s in state.get("surroundings") or []:  # body digest groups (no ids)
         if isinstance(s, dict) and s.get("name"):
             out.append(Thing(str(s["name"]), str(s.get("kind") or "thing"), s.get("id"),
@@ -351,9 +358,11 @@ def describe_seen(things: Iterable[Thing], limit: int = 5, kinds: set[str] | Non
 def _group(things: list[Thing]) -> list[Thing]:
     groups: dict[str, Thing] = {}
     for t in sorted(things, key=lambda t: t.distance if t.distance is not None else 1e9):
-        g = groups.get(t.name)
+        # built pieces: his and others' (the note says whose) are never counted as one group
+        key = t.name + ("\0" + (t.note or "") if t.group in ("usable", "built") else "")
+        g = groups.get(key)
         if g is None:
-            groups[t.name] = Thing(t.name, t.kind, t.id, t.distance, t.count, list(t.gives), list(t.actions), t.hostile,
+            groups[key] = Thing(t.name, t.kind, t.id, t.distance, t.count, list(t.gives), list(t.actions), t.hostile,
                                    note=t.note, group=t.group, up_m=t.up_m)
         else:
             g.count += t.count

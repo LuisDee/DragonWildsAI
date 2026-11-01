@@ -38,3 +38,22 @@ def test_no_invented_heights_without_the_bodys_up_m():
                                                             "position": [0, 0, 0]}]}
     things = perceived(state)
     assert things[0].up_m is None and "up" not in things[0].label()
+
+
+def test_whose_each_piece_is_from_his_own_record():
+    """The game keeps no owner per piece; deconstruct.lua's ledger sets mine True/False (nil = unchecked). His
+    crate and someone else's are never counted as one group (brain run 19:42Z took others' crates for his)."""
+    crate = {"name": "Crate", "piece": "BUILDPIECE_Interior_Crate", "up_m": 0.0}
+    state = {"position": [0, 0, -30],
+             "interactables": [{"id": f"C_{i}", "name": "Base Building Crate", "prompt": "Open", "distance": d}
+                               for i, d in ((1, 3.0), (2, 9.0), (3, 12.0))],
+             "structures": [{**crate, "id": "C_1", "distance": 3.0, "mine": True},
+                            {**crate, "id": "C_2", "distance": 9.0, "mine": False},
+                            {**crate, "id": "C_3", "distance": 12.0, "mine": False},
+                            {"id": "W_1", "name": "Wall", "piece": "DA_T1_Wall_Large", "distance": 4.0, "mine": False},
+                            {"id": "F_1", "name": "Square Foundation", "piece": "DA_T1_Foundation_Large", "distance": 5.0}]}
+    text = "\n".join(summary(state))
+    assert "Crate (3 m, id C_1, yours, Open)" in text
+    assert "Crate x2 (9 m, id C_2, not placed by you, Open)" in text
+    assert "Wall (4 m, id W_1, not placed by you)" in text
+    assert "Square Foundation (5 m, id F_1)" in text  # unchecked: no claim either way

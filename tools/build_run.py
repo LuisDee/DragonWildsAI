@@ -45,6 +45,59 @@ def structures(cli) -> dict[str, dict]:
     return {s["id"]: s for s in rows if isinstance(s, dict) and s.get("id")}
 
 
+CLEAR_M = 40.0  # a fresh spot: this far from every built piece (his, Luis's, other runs')
+
+
+def all_pieces() -> dict:
+    """Every built piece the client knows (client_mod/commands/build_pieces_all.lua: the GlobalBuildingManager
+    census) -> {"me": [x, y, z], "pts": [[x, y, z], ...]} | {} when the probe fails."""
+    p = subprocess.run(["sh", "tools/client_cmd.sh", "client_mod/commands/build_pieces_all.lua", "30"], cwd=str(ROOT),
+                       capture_output=True, text=True, timeout=60)
+    try:
+        r = json.loads(p.stdout.strip().splitlines()[-1]).get("result") or {}
+    except (ValueError, IndexError):
+        return {}
+    return r if r.get("ok") else {}
+
+
+def nearest_piece(spot: list[float], pts: list[list[float]]) -> dict | None:
+    """The built piece nearest the spot (2D), for the run row."""
+    best = min(pts, key=lambda q: math.dist(spot[:2], q[:2]), default=None)
+    return {"position": best, "distance_m": round(math.dist(spot[:2], best[:2]), 1)} if best else None
+
+
+def home(ledger: list[dict]) -> list[float] | None:
+    """His base: the piece of his own ledger (data/skills/<world>/my_pieces.json) with the most of his pieces
+    within 10 m."""
+    at = [e["at"] for e in ledger if isinstance(e.get("at"), list) and len(e["at"]) >= 3]
+    return max(at, key=lambda p: sum(1 for q in at if math.dist(p[:2], q[:2]) <= 10.0), default=None)
+
+
+def fresh_spot(pts: list[list[float]], base: list[float], nav: dict, clear_m: float = CLEAR_M,
+               ring: tuple[float, float] = (40.0, 110.0), step: float = 4.0) -> list[float] | None:
+    """A spot near the base (ring metres from it) at least clear_m from every built piece, on ground he has walked
+    (nav memory routes: >= 6 points within 8 m, level within 1.5 m), 20+ m from learned water. Nearest the base."""
+    walk = [q for r in nav.get("routes") or [] for q in r.get("pts") or [] if len(q) >= 3]
+    wc = 2.0
+    water = [((int(a) + 0.5) * wc, (int(b) + 0.5) * wc) for a, b in (str(k).split(":") for k in nav.get("water_cells") or [])]
+    best = None
+    n = int(ring[1] // step)
+    for i in range(-n, n + 1):
+        for j in range(-n, n + 1):
+            c = (base[0] + i * step, base[1] + j * step)
+            d = math.dist(c, base[:2])
+            if not ring[0] <= d <= ring[1] or (best and d >= best[0]):
+                continue
+            if any(math.dist(c, q[:2]) < clear_m for q in pts) or any(math.dist(c, w) < 20.0 for w in water):
+                continue
+            near = [q for q in walk if math.dist(c, q[:2]) <= 8.0]
+            zs = [q[2] for q in near]
+            if len(near) < 6 or max(zs) - min(zs) > 1.5:
+                continue
+            best = (d, [round(c[0], 1), round(c[1], 1), round(sum(zs) / len(zs) + 0.9, 1)])
+    return best[1] if best else None
+
+
 def build_results(rows: list[dict]) -> list[dict]:
     out = []
     for r in rows:
@@ -132,11 +185,26 @@ def cmd_run(a) -> int:
             print("sender:", how)
             return 4
         cli = cl._debug_client()
-        if a.at:  # harness setup, before the line and the clock: stand him on the fresh spot "here" means
-            spot = [float(v) for v in a.at.split(",")]
+        site = None
+        if a.at or a.fresh:  # harness setup, before the line and the clock: stand him on the fresh spot "here" means
+            census = all_pieces()
+            pts = census.get("pts") or []
+            if a.at:
+                spot, how = [float(v) for v in a.at.split(",")], "given"
+            else:
+                skills = ROOT / "data" / "skills" / a.nav_world
+                nav = json.loads((skills / "nav_memory.json").read_text(encoding="utf-8"))
+                mine = skills / "my_pieces.json"
+                base = (home(json.loads(mine.read_text(encoding="utf-8")).get("pieces") or []) if mine.exists() else None)                     or census.get("me") or [0, 0, 0]
+                spot, how = fresh_spot(pts, base, nav), f"census ({len(pts)} pieces), {CLEAR_M:.0f}+ m clear, near his base {base}"
+                if spot is None:
+                    print("no fresh spot found near him")
+                    return 6
             g = cli.request("go_to", {"target": spot}, timeout=150)
             here = ((cli.request("me", {}, timeout=10) or {}).get("data") or {}).get("position")
-            print(f"at: go_to {spot} ok={g.get('ok')} {g.get('reason') or ''}; he stands at {here}")
+            site = {"spot": spot, "chosen": how, "nearest_piece": nearest_piece(spot, pts) if pts else None,
+                    "census_pieces": len(pts), "go_to_ok": g.get("ok"), "go_to_reason": g.get("reason"), "stands_at": here}
+            print(f"at: {json.dumps(site)}")
         before = structures(cli)
         spent0 = spend.spend_today()["spent_usd"]
         p, brain_file = cl.start_brain(a, spent0)
@@ -183,7 +251,7 @@ def cmd_run(a) -> int:
            for k, v in after.items() if k not in before]
     gone = [k for k in before if k not in after]
     rec = {"run": time.strftime("%Y%m%d-%H%M%S", time.gmtime(t0)), "line": a.line, "sent": okl, "ended": why,
-           "wall_s": round(ended - t0, 1), "t0": t0, "t1": ended, "pieces_new": new, "pieces_gone": gone,
+           "wall_s": round(ended - t0, 1), "t0": t0, "t1": ended, "site": site, "pieces_new": new, "pieces_gone": gone,
            "builds": [{k: b[k] for k in ("ok", "reason", "structure", "name", "attached_to", "side", "flush")}
                       | {"t": round(b["ts"] - t0, 1)} for b in results],
            "truth": truth(results, after), "score": score(t0, ended),
@@ -243,6 +311,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--world", default="dev_build")
     r.add_argument("--wait", type=float, default=1800.0, help="seconds to wait for the live lock")
     r.add_argument("--at", default="", help="x,y,z metres: walk him there first (the fresh spot the line's 'here' means)")
+    r.add_argument("--fresh", action="store_true", help=f"pick the spot from the census: {CLEAR_M:.0f}+ m from any built piece, near him")
+    r.add_argument("--nav-world", default="dev", help="the body's world id for its nav memory (data/skills/<id>)")
     sc = sub.add_parser("score")
     sc.add_argument("--since", required=True)
     sc.add_argument("--until", required=True)
