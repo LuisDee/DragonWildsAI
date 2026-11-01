@@ -95,6 +95,18 @@ check("where: keyed by quest asset", #fs.Q_FS2 == 1 and fs.Q_FS2[1].distance_m =
 local sm = Qm.summary({ { quest = "First Steps", asset = "Q_FS1", state = "complete" }, { quest = "First Steps", asset = "Q_FS2", state = "given", objective = "Speak to the Wise Old Man" } }, { where = fs })
 check("summary: the active quest gets only its own markers", sm.active[1].where and #sm.active[1].where == 1 and sm.active[1].where[1].distance_m == 397)
 
+-- live: First Steps' only marker "WOM_Objective_FTUE_GS" read "Objective"; the step spells the code out
+check("expand: a code from the initials of the step's capitalised words",
+    Qm.expand("WOM", "Speak to the Wise Old Man by the temple.") == "Wise Old Man" and Qm.expand("GS", "Speak to Doric") == nil
+    and Qm.expand("WOM", "Speak to the wise old man") == nil)
+local wom = Qm.where_by_quest({ { quest = "First Steps", asset = "Q_GS", key = "WOM_Objective_FTUE_GS", kind = "target", position = { 61.1, 1874.2, -4.4 }, distance_m = 5 } })
+local smw = Qm.summary({ { quest = "First Steps", asset = "Q_GS", state = "given", objective = "Speak to the Wise Old Man." } }, { where = wom })
+check("summary: a marker's abbreviated NPC is named from the step, no raw codes shown",
+    smw.active[1].where[1].name == "Wise Old Man Objective" and smw.active[1].where[1].codes == nil, smw.active[1].where[1].name)
+local smd = Qm.summary({ { quest = "Ratcatcher", state = "given", objective = "Kill rats near the windmill." } },
+    { where = Qm.where_by_quest({ { quest = "Ratcatcher", key = "Windmill_Area_FTUE_RC", kind = "area", radius_m = 80, position = { 156.1, 1713.4, -3.5 }, distance_m = 76 } }) })
+check("summary: a marker with no abbreviation keeps its name", smd.active[1].where[1].name == "Windmill Area")
+
 check("manifest read tool", Qm.MANIFEST.quests.kind == "read" and Qm.MANIFEST.quests.llm)
 local src = assert(io.open(root .. "/client_mod/scripts/quests.lua", "rb")):read("*a"):gsub("%-%-[^\n]*", "")
 check("no quest/NPC names in logic", not src:find("Zanik", 1, true) and not src:find("Rune Mysteries", 1, true))

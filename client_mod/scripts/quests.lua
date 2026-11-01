@@ -147,6 +147,47 @@ function M.marker_name(key)
     end
     return #w > 0 and table.concat(w, " ") or tostring(key)
 end
+-- The all-capitals tokens of a marker's key ("WOM_Objective_FTUE_GS" -> WOM, FTUE, GS)
+function M.codes(key)
+    local c = {}
+    for tok in tostring(key or ""):gmatch("[^_%.]+") do
+        if not tok:find("%l") and tok:find("%u%u") then c[#c + 1] = tok end
+    end
+    return c
+end
+-- A code spelled out by the initials of a run of capitalised words in the quest's own text ("WOM" in "Speak to the
+-- Wise Old Man" -> "Wise Old Man"), else nil: the game's marker keys abbreviate the NPC the step names
+function M.expand(code, text)
+    local run = {}
+    local function hit()
+        if #run ~= #code then return nil end
+        local ini = {}
+        for i, w in ipairs(run) do ini[i] = w:sub(1, 1) end
+        return table.concat(ini) == code and table.concat(run, " ") or nil
+    end
+    for w in tostring(text or ""):gmatch("%S+") do
+        local bare = w:gsub("[^%w']", "")
+        if bare:find("^%u") then
+            run[#run + 1] = bare
+            if #run > #code then table.remove(run, 1) end
+            local h = hit()
+            if h then return h end
+        else
+            run = {}
+        end
+    end
+    return nil
+end
+-- a marker's name with its abbreviated NPC spelled out from the quest's text ("Objective" -> "Wise Old Man Objective":
+-- live, First Steps' only marker read "Objective", so go_to "Wise Old Man" could not resolve it)
+function M.label(row, text)
+    local name = row.name
+    for _, c in ipairs(row.codes or {}) do
+        local e = M.expand(c, text)
+        if e and not tostring(name):find(e, 1, true) then name = e .. " " .. name end
+    end
+    return name
+end
 -- marker rows -> {quest asset (or name) = {{name, kind, radius_m, position | xy, distance_m, inside}}}, nearest first
 function M.where_by_quest(rows, per)
     local by = {}
@@ -154,7 +195,8 @@ function M.where_by_quest(rows, per)
         local k = m.asset or m.quest -- two quests can share a name (live 17:2xZ: a finished First Steps' "Doric Objective"
         local t = by[k] or {}         -- marker showed under the new First Steps)
         by[k] = t
-        t[#t + 1] = { name = M.marker_name(m.key), kind = m.kind, radius_m = (m.radius_m or 0) > 0 and m.radius_m or nil,
+        t[#t + 1] = { name = M.marker_name(m.key), codes = M.codes(m.key), kind = m.kind,
+                      radius_m = (m.radius_m or 0) > 0 and m.radius_m or nil,
                       position = m.position, xy = (not m.position) and m.xy or nil, distance_m = m.distance_m,
                       inside = (m.kind == "area" and m.distance_m and m.radius_m and m.distance_m <= m.radius_m) or nil }
     end
@@ -173,6 +215,10 @@ function M.summary(rows, opts)
         if r.state == "given" then
             local a = { quest = r.quest, step = r.objective or r.objective_key, detail = r.sub, hint = r.hint, main = r.main,
                         where = opts.where and opts.where[r.asset or r.quest] or nil }
+            for _, m in ipairs(a.where or {}) do -- labels in the step's own words; the raw codes stay internal
+                m.name = M.label(m, table.concat({ tostring(r.objective or ""), tostring(r.sub or ""), tostring(r.hint or "") }, " "))
+                m.codes = nil
+            end
             if next(r.ints or {}) then a.counters = r.ints end
             if next(r.bools or {}) then a.flags = r.bools end
             active[#active + 1] = a

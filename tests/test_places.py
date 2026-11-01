@@ -465,3 +465,19 @@ def test_talk_to_an_npc_out_of_sight_walks_to_its_map_spot_then_talks(tmp_path):
     assert out.ok, out.reason
     assert body.calls == [("talk", {"target": "Zanik"}), {"target": [-50.0, 50.0, 1.0]}, ("talk", {"target": "Zanik"})]
     assert out.data["npc"] == "Zanik" and "walking to the game map's landmark Zanik" in out.data["resolved"]
+
+
+def test_go_to_a_quest_area_he_is_already_inside_walks_to_its_centre(tmp_path):
+    """Live ClaudeQ7 22:28Z: go_to "the windmill" at Vannaka, inside Ratcatcher's 80 m Windmill Area, came back
+    unknown_target "you are in it now" (a miss, 10.5 s); he then walked to the marker's centre by coordinates."""
+    from brain.state_store import Task
+    at_vannaka = [150.94, 1789.63, -26.32]
+    rc = {"quest": "Ratcatcher", "step": "Kill rats and successfully cook one rat roast from their meat.",
+          "where": [{"name": "Windmill Area", "kind": "area", "radius_m": 80, "position": [156.1, 1713.4, -3.5],
+                     "distance_m": 76, "inside": True}]}
+    for name in ("the windmill", "windmill", "Windmill Area"):
+        body = _Body(at_vannaka, [rc])
+        out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": name}))
+        assert out.ok and body.calls[-1] == {"target": [156.1, 1713.4, -3.5]}, (name, out, body.calls)
+        assert f"{name!r} is the game map's Ratcatcher quest marker Windmill Area: you were already inside it (an area " \
+               "of 80 m radius on the quest map); walking to its centre, 76 m away" == out.data["resolved"]

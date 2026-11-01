@@ -38,6 +38,8 @@ from .paths import REPO_ROOT, _env_path
 SCHEMA = 11  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
 POOL = 200  # BM25 candidates per tier for the title re-rank
+WALK_CHARS = 1600  # a quest walkthrough's length in a lookup result
+WALK_END = ("Rewards", "Reward", "Required to Complete", "Transcript", "Trivia", "Unlock", "Gallery")  # wiki page tail
 SNIPPET = {0: 900, 1: 520}  # characters per snippet, by tier (game cards are cut by whole fields: _clip_card)
 NOTE = ("Game data (authoritative=true) is read from this game build and wins over the wiki. Wiki text is "
         "community-written and may be outdated; say so if it matters. Answer only from these results.")
@@ -351,7 +353,91 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
             body += f"; it unlocks the spell {spell_names.get(sp) or _humanize(str(sp).split('.')[-1])}"
         docs.append({"tier": 0, "kind": "perk", "title": pk["name"], "tags": "perk skill unlock", "body": body,
                      "ref": pid})
+    docs += farming_docs(data)
     return docs, build
+
+
+def _fmt(x: Any) -> str:
+    return f"{x:g}" if isinstance(x, (int, float)) and not isinstance(x, bool) else str(x)
+
+
+def farming_docs(data: Path) -> list[dict]:
+    """Cards from data/farming_<build>.json (tools/build_farming.py: the live client's own farming data assets): one
+    per crop, the farming mechanics (FarmingSettings) and compost (FarmCompostData, composters, CompostAmount)."""
+    f = _newest(data, "farming")
+    if not f:
+        return []
+    try:
+        fd = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    st = fd.get("settings") or {}
+    period = st.get("CyclePeriod")
+    cyc = (f"one growth cycle = {_fmt(period)} s real time ({_fmt(round(period / 60, 1))} min)"
+           if isinstance(period, (int, float)) and period > 0 else None)
+    docs: list[dict] = []
+    for c in fd.get("crops") or []:
+        name = c.get("name") or c.get("id")
+        if not name:
+            continue
+        seed = (c.get("seed") or {}).get("name")
+        parts = [f"Crop (farming plot plant), game data asset {c.get('id')}"]
+        if seed:
+            parts.append(f"Grows from {seed}")
+        if c.get("plots"):
+            parts.append("Plantable in plots tagged: " + ", ".join(c["plots"]))
+        if c.get("tier") is not None:
+            parts.append(f"Crop tier {_fmt(c['tier'])}")
+        st_c = [s.get("cycles") for s in c.get("stages") or []]
+        if st_c:
+            parts.append(f"Growth stages: {len(st_c)}, cycles per stage: " + ", ".join(_fmt(x) for x in st_c)
+                         + (f"; {_fmt(c['cycles_to_harvest'])} cycles to harvest" if c.get("cycles_to_harvest") is not None else "")
+                         + (f" (about {_fmt(c['minutes_to_harvest'])} min real time)" if c.get("minutes_to_harvest") is not None else ""))
+            np_ = [s.get("cycles_not_preferred") for s in c.get("stages") or []]
+            if any(isinstance(x, (int, float)) for x in np_) and np_ != st_c:
+                parts.append("In a plot it doesn't prefer, cycles per stage: " + ", ".join(_fmt(x) for x in np_))
+        if c.get("harvest_name") or c.get("base_yield") is not None:
+            parts.append(f"Harvest: base yield {_fmt(c.get('base_yield'))} {c.get('harvest_name') or c.get('harvest_item')}"
+                         + (" (berry bush: harvest again without replanting)" if c.get("berry_bush") else ""))
+        if c.get("disease") is not None:
+            parts.append(f"Disease chance {_fmt(c['disease'])}"
+                         + (f", {_fmt(c['disease_not_preferred'])} in a plot it doesn't prefer" if c.get("disease_not_preferred") is not None else ""))
+        if c.get("harvest_xp_factor") is not None:
+            parts.append(f"Harvest XP factor {_fmt(c['harvest_xp_factor'])}")
+        if cyc:
+            parts.append(cyc.capitalize())
+        docs.append({"tier": 0, "kind": "crop", "title": f"{name} (crop)", "aliases": " | ".join(x for x in (seed,) if x),
+                     "tags": "farming crop plant grow growth seed harvest plot", "body": NL.join(parts), "ref": c.get("id") or ""})
+    if st:
+        labels = (("CyclePeriod", "Real seconds per growth cycle"), ("WaterNeededForWatering", "Water units to fully water a plot"),
+                  ("CompostNeededForFertilizing", "Compost units to fully fertilize a plot"),
+                  ("DiggingChargesNeededForTilling", "Spade digs to till a weed layer"),
+                  ("WeedsCycles", "Cycles for an empty plot to grow another weed layer"),
+                  ("DiseaseCycles", "Cycles a diseased plant lives before it dies"),
+                  ("PlantingGracePeriodHours", "Planting grace period (in-game hours)"),
+                  ("YieldXpFactor", "Harvest XP per unit of yield factor"))
+        parts = ["Farming rules from the game's FarmingSettings"]
+        parts += [f"{lab}: {_fmt(st[k])}" for k, lab in labels if st.get(k) is not None]
+        if st.get("GrowthTimes"):
+            parts.append("Growth times: " + ", ".join(_fmt(x) for x in st["GrowthTimes"]))
+        docs.append({"tier": 0, "kind": "mechanic", "title": "Farming mechanics", "aliases": "Farming rules | Growing crops",
+                     "tags": "farming plot weeds dig water watering growth time cycle compost fertilize disease harvest",
+                     "body": NL.join(parts), "ref": "FarmingSettings"})
+    tiers = fd.get("compost") or []
+    bins = fd.get("composters") or []
+    items = [x for x in fd.get("compostable") or [] if x.get("name")]
+    if tiers or bins or items:
+        parts = ["Compost from the game's data"]
+        for t in tiers:
+            parts.append(f"{t.get('status') or t.get('id')}: disease chance x{_fmt(t.get('disease'))}, yield x{_fmt(t.get('yield'))}")
+        for b in bins:
+            parts.append(f"Composter {b.get('owner') or b.get('name')}: makes {b.get('output')}, accepts items tagged "
+                         + (", ".join(b.get("accepted") or []) or "?"))
+        if items:
+            parts.append("Compostable items (compost units each): " + ", ".join(f"{x['name']} {_fmt(x.get('compost'))}" for x in items[:80]))
+        docs.append({"tier": 0, "kind": "mechanic", "title": "Compost", "aliases": "Composting | Compost Bin | Fertilizer",
+                     "tags": "farming compost super ultra bin bucket fertilize compostable", "body": NL.join(parts), "ref": "FarmCompostData"})
+    return docs
 
 
 # ------------------------------------------------------------------------------ wiki docs
@@ -505,7 +591,7 @@ class Knowledge:
     # ---------------------------------------------------------------- build
 
     def _signature(self) -> str:
-        files = [p for p in (_newest(self.data, n) for n in ("items", "recipes", "spells")) if p]
+        files = [p for p in (_newest(self.data, n) for n in ("items", "recipes", "spells", "farming")) if p]
         man = self.wiki / "manifest.json"
         if man.exists():
             files.append(man)
@@ -603,6 +689,29 @@ class Knowledge:
         return sorted(rows, key=lambda r: (-round(r["score"], 3), 0 if not r["heading"] else 1, -heading_hit(r),
                                            -min(fact_count(r["body"]), FACTS_CAP), r["bm25"]))
 
+    def walkthrough(self, quest: str, limit: int = WALK_CHARS) -> dict | None:
+        """A quest's steps from the wiki: its "<quest>/Quick guide" page when there is one, else the page's step
+        sections (those after Overview, up to Rewards). Live 2026-11-01: lookup("Rune Mysteries") gave only the lead
+        and the Overview, never the rune altar or geyser steps."""
+        with self._lock:
+            guide = self.db.execute("SELECT body, url FROM docs WHERE title = ? AND tier = 1 AND heading = '' LIMIT 1",
+                                    [f"{quest}/Quick guide"]).fetchone()
+            rows = [] if guide else self.db.execute(
+                "SELECT heading, body, url FROM docs WHERE title = ? AND tier = 1 ORDER BY rowid", [quest]).fetchall()
+        if guide:
+            return {"title": f"{quest}/Quick guide", "source": "wiki", "text": _clip(guide[0], limit), "url": guide[1]}
+        steps, on = [], False
+        for heading, body, _ in rows:
+            if heading in WALK_END:
+                break
+            if on and body and not body.startswith("Map:"):  # a map template's parameters are no step
+                steps.append(f"{heading}: {body}")
+            on = on or heading == "Overview"
+        if not steps:
+            return None
+        return {"title": quest, "source": "wiki", "section": "Walkthrough", "text": _clip("\n".join(steps), limit),
+                "url": rows[0][2].split("#")[0]}
+
     def lookup(self, query: str, kind: str | None = None, k_game: int = GAME_K, k_wiki: int = WIKI_K) -> dict:
         terms = [w for w in dict.fromkeys(words(query)) if w not in STOP]
         if not terms:
@@ -637,6 +746,10 @@ class Knowledge:
                     item["url"] = r["url"]
                 out.append(item)
         data: dict[str, Any] = {"query": query, "results": out, "note": NOTE}
+        quest = next((r["title"] for r in out if r.get("source") == "wiki" and r.get("kind") == "quest"
+                      and _terms(r["title"]) <= qterms), None)
+        if quest and (walk := self.walkthrough(quest)):
+            data["walkthrough"] = walk  # a quest named: its steps as players do them, not only its lead and overview
         if kind_ignored:
             data["kind_ignored"] = True
         if not out:

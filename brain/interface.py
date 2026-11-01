@@ -351,9 +351,11 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
     "inspect": (InspectArgs, "Details of one thing from a look result: what it is, what it gives, what it needs, "
                              "which actions work. Read-only."),
     "lookup": (LookupArgs, "Look up game knowledge: what an item is and does, how to make it, which regions of the world "
-                           "something is found in, creatures and weaknesses, spells, perks, mechanics. Game data first "
-                           "(authoritative), then the wiki with page links. Use it for a game fact you're not sure "
-                           "of instead of guessing. Read-only: does not interrupt."),
+                           "something is found in, creatures and weaknesses, spells, perks, mechanics, and a quest's "
+                           "walkthrough (look up the quest's name: its steps as players do them, what to bring, where "
+                           "to go). Game data first (authoritative), then the wiki with page links. Use it for a game "
+                           "fact you're not sure of instead of guessing, and when a quest step is new to you or "
+                           "doesn't say how to do it. Read-only: does not interrupt."),
     "interact": (InteractArgs,"Use a thing you looked at, like a player pressing E (gather sticks, open, pick)."),
     "run_skill": (RunSkillArgs, "Run a skill you learned earlier with its params: learned_skills lists the ones "
                                  "that fit this request, with how often each worked. Prefer it to start_goal when "

@@ -119,9 +119,12 @@ def _v_gain(skill):
 
     def check(args, base, post, data):
         # gather: the body reports the item id it resolved ("oak" -> ITEM_Resources_Wood_Oak); count that key.
-        item = (data or {}).get("item") or args[key]
+        item = (data or {}).get("item") or args.get(key)
+        if not item:  # craft {input} / {recipe} with no output named: the body verified it from his bag
+            return None
+        want = args.get("count") or 1
         gained = _inv(post, item) - _inv(base, item)
-        return None if gained >= args["count"] else f"inventory {item} +{gained}, wanted +{args['count']}"
+        return None if gained >= want else f"inventory {item} +{gained}, wanted +{want}"
     return check
 
 
@@ -352,6 +355,17 @@ class Executor:
             if like:
                 return {**failed, "data": {**(failed.get("data") or {}), "map_names_like_it": like}}
             return failed
+        if best.get("you_are_inside") and best.get("source") == "quest_marker" and task.skill == "go_to":
+            # inside a quest step's area (live ClaudeQ7 22:28Z: go_to "the windmill" at Vannaka, inside the 80 m
+            # Windmill Area, came back unknown_target "you are in it now" and he then walked to its centre himself):
+            # the marker's spot is the area's centre, where the game puts the step's work
+            took = (f"{target!r} is the game map's {best['kind']} {best['name']}: you were already inside it "
+                    f"({_place_basis(best)}); walking to its centre"
+                    + (f", {best['distance_m']:.0f} m away" if isinstance(best.get("distance_m"), (int, float)) else ""))
+            self.log.log("place_resolved", place=target, position=best["position"], source="quest_marker", inside=True)
+            result = self.game.call("go_to", {**args, "target": best["position"]})
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            return {**result, "data": {**data, "resolved": took}}
         if best.get("you_are_inside"):
             return {**failed, "data": {**(failed.get("data") or {}),
                                        "resolved": f"{target!r} is the game map's {best['kind']} {best['name']}: "
