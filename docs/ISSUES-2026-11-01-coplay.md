@@ -1,6 +1,6 @@
 # Issue register: co-play session 1 (2026-11-01, 10:51-11:50 UTC, Luis on GFN)
 
-Every problem found in the session log (`logs/brain-live-20261101-115554-7128.jsonl`; 79 request episodes, 32
+Every problem found in the session log (`logs/brain-live-20261101-115554-7128.jsonl`; 79 request episodes; 119 lines from Luis, 15
 `note:` lines), with its evidence (UTC time) and its status. Luis: "I wasn't able to truly test him, it was
 painful." The ranked root causes and the plan are in `docs/RETRO-2026-11-01-coplay.md`. This file is the full
 list, and every item needs a test to a human standard before it counts as fixed.

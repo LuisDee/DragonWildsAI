@@ -626,7 +626,7 @@
   {
    "id": "D.3",
    "phase": "measure",
-   "title": "Luis emulator: LLM tester seeded with his 76 real lines (talks mid-task, corrects, scores from game state) + a server-side tester pawn for follow/come/near me/give (docs/research/2026-11-01-evals-human-standard.md)",
+   "title": "Luis emulator: LLM tester seeded with his 119 real lines (talks mid-task, corrects, scores from game state) + a server-side tester pawn for follow/come/near me/give (docs/research/2026-11-01-evals-human-standard.md)",
    "status": "todo",
    "passes_test": false
   },

@@ -86,7 +86,7 @@ the plan, and the questions back to him. Research reports land in `docs/research
 - **GITM / DEPS: knowledge-driven decomposition.** Recipes and knowledge let the planner choose a route. For food and
   farming, the idiom is **GOAP-style options with costs, generated from game data** (recipes, food values, sources),
   compared by the model or planner. These are not hand-written rules, which answers point 7 without edge cases.
-- **τ-bench and similar: an LLM user simulator** for interactive evals. That is our **Luis emulator**, seeded from his 76
+- **τ-bench and similar: an LLM user simulator** for interactive evals. That is our **Luis emulator**, seeded from his 119
   real lines, together with a **server-side tester pawn** so that "come to me", "near me" and "give" can be emulated
   without him.
 - **Embodied-AI metrics:** success weighted by efficiency (SPL-style), time vs a human baseline, attempts per success,

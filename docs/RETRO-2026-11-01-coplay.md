@@ -1,7 +1,7 @@
 # Retro: first Rung 2 co-play session with Luis (2026-11-01, 10:51-11:50 UTC)
 
 Luis played from GFN on the dev world for about 55 minutes of free play (character `luisdeburnaybast`). The
-brain ran Haiku 5.5 with him as the player. He sent 76 lines, 32 of them `note:` lines. Log:
+brain ran Haiku 5.5 with him as the player. He sent 119 lines, 15 of them `note:` lines. Log:
 `logs/brain-live-20261101-115554-7128.jsonl`. About 270 model calls, about $0.20. Luis's verdict: "very
 disappointed". He spent the session babying him, and every task took far too long.
 
