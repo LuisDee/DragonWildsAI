@@ -704,6 +704,23 @@ for name in pairs(C.HANDLERS) do
 end
 check("manifest: craft is an action, plan is read", C.MANIFEST.craft.kind == "action" and C.MANIFEST.craft_plan.kind == "read")
 
+do -- an ambiguous name lists what he can make now first and names it (rung 4, 21:57Z: "bow" hid the Ash Shortbow)
+    reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Weapon_Shortbow_Wood" }),
+            have = { ITEM_Resources_Wood_Ash = 20, ITEM_Resources_Thread_Coarse = 6 } })
+    for _, tool in ipairs({ "recipes", "craft_plan", "craft" }) do
+        local r = C.HANDLERS[tool](nil, { item = "bow" }, { api = api })
+        local c1 = r.data and r.data.candidates and r.data.candidates[1] or {}
+        check(tool .. ": ambiguous bow -> the makeable Ash Shortbow first", not r.ok and r.reason == "ambiguous_target"
+              and c1.item == "ITEM_Shortbow_Wood" and c1.status == "ready", tostring(c1.item) .. " " .. tostring(c1.status))
+        check(tool .. ": the detail names it", tostring(r.data and r.data.detail):find("I can make now: Ash Shortbow", 1, true) ~= nil,
+              tostring(r.data and r.data.detail))
+    end
+    reset({ stations = { TABLE() }, unlocked = {} })
+    local r = C.HANDLERS.recipes(nil, { item = "bow" }, { api = api })
+    check("recipes: ambiguous bow, nothing makeable -> says so", not r.ok and tostring(r.data.detail):find("can't make any", 1, true) ~= nil,
+          tostring(r.data and r.data.detail))
+    check("ambiguous: no craft action or movement", not F.goal and not F.moves and not F.ui)
+end
 do -- category discovery offers identities only; exact and substring names retain precedence
     reset({ stations = { TABLE() }, unlocked = {} })
     local id, hits, kind = C.resolve_item("  hAtChEt  ")

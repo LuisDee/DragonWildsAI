@@ -65,7 +65,9 @@ ITEMS3 = {
     # census confirms it. Ungraded on time (Luis built his inside "make spade")
     # 18:03Z "build yourself a spinning wheel" put it under open sky (buildables said "Requires Shelter"); its menu
     # then never opened (18:4xZ). Setup line says where, as Luis would tell a new player
-    "wheel": ("claude move one of your spinning wheels into your house, under the roof", "Flax", r"^flax$", 4, None,
+    # 21:0xZ "move one of your spinning wheels into your house" was answered truthfully: none of the three is this
+    # character's (deconstruct:not_mine), so he offered to build one under the roof. The line asks for that
+    "wheel": ("claude build yourself a spinning wheel inside your house, under the roof", "Flax", r"^flax$", 4, None,
               {ASH: 14, STONE: 2}, {}, 180),
     "spade": ("claude make yourself a wooden spade", "Wooden Spade", r"wooden spade", 1, "make spade",
               {ASH: 6, "ITEM_Resources_Flax": 1}, {}, 240),

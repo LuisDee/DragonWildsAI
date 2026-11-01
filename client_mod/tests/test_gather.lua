@@ -118,6 +118,7 @@ local function swing()
         if d <= 160 and math.abs(rel - (Wd.aim_rel or 35)) <= 25 and (not bd or d < bd) then best, bd = c, d end
     end
     if not best or Wd.no_effect then return end
+    if best.a and Wd.immune_fam and best.a.fams[1] == Wd.immune_fam then return end -- a piece no swing hurts (live 21:03Z)
     local a = best.a or convert(best.f)
     Wd.pending[#Wd.pending + 1] = { t = T + 0.55, fn = function() damage(a, 68) end }
 end
@@ -208,7 +209,7 @@ local function near_interactable()
         -- Wd.aim_needed: a small item at his feet is offered only once the camera aims at it (live 15:34Z: with the
         -- camera level he stood on a dropped stone 12 s and the detector never offered it)
         local aimed = not Wd.aim_needed or (Wd.aim_pos and d2(Wd.aim_pos, w.pos) <= 50)
-        if w._alive and aimed and d2(me, w.pos) <= 150 then
+        if w._alive and not w.taken and aimed and d2(me, w.pos) <= 150 then
             return { actor = w.id, item = w.item, class = "BP_RuntimeSpawnedWorldItem_C", w = w,
                      secondary = Wd.collect_all and "Collect All" or nil }
         end
@@ -237,7 +238,14 @@ function fake_inv.press_interact(log, opts)
         end
         return { ok = true }
     end
-    if t.w then t.w._alive = false; Wd.inv[t.w.item] = (Wd.inv[t.w.item] or 0) + 1 end
+    if t.w then
+        local w = t.w
+        if Wd.drop_linger then -- the client's copy of a taken item stays this long (live 21:05:02Z: 5 s)
+            w.taken = true
+            Wd.pending[#Wd.pending + 1] = { t = T + Wd.drop_linger, fn = function() w._alive = false end }
+        else w._alive = false end
+        Wd.inv[w.item] = (Wd.inv[w.item] or 0) + 1
+    end
     if t.a then
         t.a.available = false
         local item, n = t.a.item, t.a.yield or 1
@@ -481,6 +489,35 @@ do -- rung 3 gate 2026-11-01 19:59Z: "stamina 100->100 unverified" x6 on a split
     check("late stamina, no effect -> swing_no_effect, not inputs_not_reaching_game",
         res.ok == false and res.reason == "path_blocked" and res.data.why == "swing_no_effect",
         tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
+end
+
+-- ================================================================ 5c. a split log no swing hurts is left after give_up_swings
+do -- live 2026-11-01 21:03Z (rung 3 window 12): 27 swings (~45 s) at a split log that stayed at 80 hp from every aim and
+   -- both sides; the job then went on to the next piece. Now it is left once every aim has had its swings
+    reset()
+    Wd.immune_fam, Wd.late_stamina, Wd.regen_rate = "SplittableTreeLog", true, 2
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Oak", { X = 900, Y = 0, Z = 0 })
+    add_foliage_tree("Oak", { X = 900, Y = 1500, Z = 0 })
+    local lines = {}
+    print_log = function(m) lines[#lines + 1] = m end
+    local res = run_job({ resource = "oak", count = 1 }, 600)
+    print_log = nil
+    local log = table.concat(res.data and res.data.phase_log or {}, " | ")
+    check("immune split log: left after every aim once, not walked round for every aim again",
+        log:find("swing_no_effect", 1, true) ~= nil and not log:find("other side", 1, true), log)
+    -- TEMPORARY guard, said in the result: the model and the truth judge see the piece he left and why
+    local detail = tostring(res.data and res.data.detail)
+    check("left piece named in the result words",
+        detail:find("I left 2 split Oak logs that took no damage from any of my 4 aims (12 swings each).", 1, true) ~= nil, detail)
+    check("left piece in the result data", type(res.data.left) == "table" and #res.data.left >= 1 and res.data.left[1].swings == 12,
+        res.data.left and #res.data.left)
+    -- the mechanism snapshots: one at diag_swings no-effect swings and one when the guard leaves it
+    local all = table.concat(lines, "\n")
+    local n = select(2, all:gsub("gather: diag nohit ", ""))
+    check("diag snapshots of the unhittable piece logged", n >= 2 and all:find('"dz_cm"', 1, true) ~= nil and all:find('"aimed_cm"', 1, true) ~= nil,
+        n .. " " .. (all:match("gather: diag nohit [^\n]*") or "none"))
+    Wd.immune_fam = nil
 end
 
 -- ================================================================ 6. aim search: the wedge is NOT where the prior says
@@ -764,6 +801,19 @@ do
     Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_L1", pos = { X = 250, Y = 0, Z = 0 }, item = "ITEM_Resources_Stone", born = T })
     res = run_job({ resource = "loose_stones", count = 1 }, 60)
     check("lone drop: the plain press", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 1 and (Wd.secondary or 0) == 0, tostring(res.reason))
+    -- a taken drop's client copy lingers (live 21:05:02Z: the stone counted at the press, its actor went at :07 and he
+    -- stood 5 s): the bag's count ends the collect, and the lingering copy is not walked back to
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed, Wd.drop_linger = true, 200, true, 5
+    Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_G1", pos = { X = 250, Y = 0, Z = 0 }, item = "ITEM_Resources_Stone", born = T })
+    Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_G2", pos = { X = 250, Y = 600, Z = 0 }, item = "ITEM_Resources_Stone", born = T })
+    res = run_job({ resource = "loose_stones", count = 2 }, 60)
+    local plog = table.concat(res.data and res.data.phase_log or {}, " | ")
+    check("lingering taken drop: counted at the press, no 5 s stand", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 2
+          and (res.data.seconds or 99) < 4 and Wd.presses == 2, tostring(res.reason) .. " s=" .. tostring(res.data and res.data.seconds)
+          .. " presses=" .. tostring(Wd.presses) .. " " .. plog)
+    Wd.drop_linger = nil
     Wd.no_magnet, Wd.collect_all, Wd.aim_needed = nil, nil, nil
 end
 

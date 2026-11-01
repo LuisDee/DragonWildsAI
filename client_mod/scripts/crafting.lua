@@ -220,17 +220,30 @@ function M.resolve_item(q)
     return nil, hits, #hits > 0 and "category" or nil
 end
 
--- Candidates for an unresolved name (a category match lists its items, never picks one).
-local function item_resolution_failure(api, query, hits, kind, limit)
-    local c = {}
-    for i = 1, math.min(#(hits or {}), limit) do
+-- Candidates for an unresolved name (a category match lists its items, never picks one). With his context (ctx), each
+-- carries its best recipe's status and the list is ordered best first, so what he can make now leads and is named in
+-- the detail (live rung 4, 21:57Z: "bow" listed 41 names, crossbows and vestiges first, the Ash Shortbow he could make
+-- never shown; he tried the locked longbow and gave up).
+local function item_resolution_failure(api, query, hits, kind, limit, ctx)
+    hits = hits or {}
+    local best = {}
+    if ctx then
+        for _, id in ipairs(hits) do best[id] = M.candidates(id, 1, ctx)[1] or false end
+        local function rk(id) return best[id] and best[id].rank or -1 end
+        table.sort(hits, function(x, y) if rk(x) ~= rk(y) then return rk(x) > rk(y) end return name_of_id(x) < name_of_id(y) end)
+    end
+    local c, now = {}, {}
+    for i = 1, math.min(#hits, limit) do
         local id = hits[i]
         local item = (M.data().items or {})[idx().path_of[id]] or {}
-        c[i] = { item = id, name = name_of_id(id), category = kind == "category" and item.category or nil }
+        local b = best[id]
+        c[i] = { item = id, name = name_of_id(id), category = kind == "category" and item.category or nil, status = b and b.status or nil }
+        if b and b.status == "ready" then now[#now + 1] = name_of_id(id) end
     end
     if #c == 0 then return api.fail("unknown_recipe", { item = query, detail = "I don't know how to make " .. tostring(query) .. "." }) end
     return api.fail("ambiguous_target", { item = query, candidates = c, total = #hits,
-        detail = "\"" .. query .. "\" could be several things; which one do you mean?" })
+        detail = "\"" .. query .. "\" could be several things (" .. #hits .. ")" .. (#now > 0 and ("; I can make now: " .. table.concat(now, ", "))
+            or (ctx and "; I can't make any of them right now" or "")) .. ". Which one do you mean?" })
 end
 
 -- Unlock rule text with actor class words turned into station names (data, not code).
@@ -1238,7 +1251,7 @@ local function resolve_candidates(api, args, ctx)
     if not need_str(args.item) then return nil, api.fail("invalid_args", { detail = "item, input or recipe is required" }) end
     local id, hits, kind = M.resolve_item(args.item)
     if not id then
-        return nil, item_resolution_failure(api, args.item, hits, kind, 10)
+        return nil, item_resolution_failure(api, args.item, hits, kind, 10, ctx)
     end
     local list = M.candidates(id, count, ctx)
     if #list == 0 then
@@ -1848,7 +1861,7 @@ local function recipes_tool(api, args)
     if need_str(args.item) then
         local id, hits, kind = M.resolve_item(args.item)
         if not id then
-            return item_resolution_failure(api, args.item, hits, kind, limit)
+            return item_resolution_failure(api, args.item, hits, kind, limit, ctx)
         end
         list = M.candidates(id, tonumber(args.count) or 1, ctx)
     elseif need_str(args.station) then
@@ -1884,7 +1897,7 @@ local function plan_tool(api, args)
     elseif need_str(args.item) then
         local id, hits, kind = M.resolve_item(args.item)
         if not id then
-            return item_resolution_failure(api, args.item, hits, kind, M.cfg.list_limit)
+            return item_resolution_failure(api, args.item, hits, kind, M.cfg.list_limit, ctx)
         end
         goal = { item = id }
     else return api.fail("invalid_args", { detail = "item or recipe is required" }) end

@@ -49,16 +49,23 @@ M.cfg = {
     tap_frames = 3,
     press_jitter_ms = { 60, 220 },
     settle_s = 0.35,            -- stand still this long before a swing (swings while moving point along the path)
+    still_cm_per_s = 40,        -- moving faster than this in the aim phase = still sliding: the settle waits
     face_err_deg = 15, face_max_s = 1.2, nudge_scale = 0.25,
     -- aim offsets to try (deg, + = target to the RIGHT of the body's forward); the first is the prior
     aim_offsets = { axe = { 35, 0, 20, -20 }, pickaxe = { 0, 25, -25, 35 }, default = { 0, 30, -30 } },
     no_effect_swings = 3,       -- verified swings with no damage before the next aim
+    -- TEMPORARY GUARD (coordinator 2026-11-01), not the fix: swings in a row that ran and did nothing before he leaves
+    -- this log piece (every aim once, ~17 s) and says so in the result. The mechanism behind the unhittable split log
+    -- (1 chop in 6) is under study: diag_piece logs its geometry, collision, physics and traces ("gather: diag ...").
+    give_up_swings = 12,
+    diag_swings = 4,            -- no-effect swings in a row on a log piece before its one diag snapshot
     sides = 2,                  -- stand points tried around a target (each with every aim)
     unverified_presses = 6,     -- presses with no stamina spent and no damage in a row: input broken
     approach_timeout_s = 40,
     near_enough_cm = 90,        -- a failed approach that ended this close beyond reach still swings
     bad_ttl_s = 600, bad_streak = 3,
     equip_wait_s = 4, equip_repress_s = 1.5,
+    collected_ttl_s = 10,       -- a drop the bag already counted is skipped this long (its client copy lingers ~5 s)
     collect_wait_s = 2.0, collect_presses = 3, collect_press_gap_s = 0.7, collect_tol_m = 0.8, collect_max_s = 12,
     collect_all_cm = 200, -- if the game's CollectAllRadius is unreadable (it read 200, live 15:33Z)
     collect_aim_cm = 200, -- aim the camera at a drop from this close (the detector ray starts at the camera)
@@ -316,6 +323,23 @@ local function result_of(J, ok, reason, data)
         if type(data.detail) == "string" then
             data.detail = data.detail:gsub("%.%s*$", "") .. " (and " .. w .. (J.collect_all and " that were lying there)." or " with them).")
         end
+    end
+    -- log pieces left by the give_up_swings guard: said in the result, so the model and the truth judge see them
+    if J.left and #J.left > 0 then
+        data.left = J.left
+        local groups, order = {}, {}
+        for _, l in ipairs(J.left) do
+            local g = groups[l.name]
+            if not g then g = { name = l.name, n = 0, aims = l.aims, swings = l.swings }; groups[l.name] = g; order[#order + 1] = g end
+            g.n = g.n + 1
+        end
+        local words = {}
+        for _, g in ipairs(order) do
+            words[#words + 1] = g.n == 1 and string.format("a %s that took no damage from any of my %d aims (%d swings)", g.name, g.aims, g.swings)
+                or string.format("%d %ss that took no damage from any of my %d aims (%d swings each)", g.n, g.name, g.aims, g.swings)
+        end
+        local w = "I left " .. table.concat(words, ", and ") .. "."
+        data.detail = type(data.detail) == "string" and (data.detail:gsub("%s*$", "") .. " " .. w) or w
     end
     data.phase_log = J.phase_log
     return { ok = ok, reason = reason, data = data }
@@ -980,6 +1004,76 @@ local function offsets(J)
     return M.cfg.aim_offsets[J.profile.tool or ""] or M.cfg.aim_offsets.default
 end
 
+-- One snapshot of a log piece and his swing, for the mechanism behind a split log that takes no damage from any aim
+-- (rung 3, 1 chop in 6; coordinator 2026-11-01): where the piece is now vs his capsule and vs the point he aims at
+-- (T.pos, read when it was chosen), his pitch at the press, its root component's collision and physics state, and
+-- what a Visibility line from his camera / held tool / chest through its centre hits first. `tag` = "nohit" (taken
+-- at diag_swings no-effect swings in a row, and again when the guard leaves it) or "hit" (the first damage a piece
+-- takes: the baseline). Logged as one "gather: diag" line; every read is guarded, a failed one is left out.
+local DIAG_C0 = { R = 0, G = 0, B = 0, A = 0 }
+local function r0(v) return type(v) == "number" and math.floor(v + 0.5) or nil end
+local function diag_piece(J, T, pawn, me, pp, tag)
+    local a = T.actor
+    if not (a and me and pawn) or (U.is_ue_object(a) and not U.valid(a)) then return end -- (offline fakes are tables)
+    local c = W.aim(a)
+    if not c then return end
+    local d = { tag = tag, piece = T.key, stage = T.stage, hp = W.hp(a), run = T.noeff_run, aim_i = T.aim_i, side = T.side,
+                me = { r0(me.X), r0(me.Y), r0(me.Z) }, mid = { r0(c.X), r0(c.Y), r0(c.Z) },
+                dz_cm = r0(c.Z - me.Z), d2_cm = r0(U.dist2d(me, c)),
+                aimed_cm = T.pos and r0(U.dist(T.pos, c)) or nil, -- the point he aims at vs where it is now (it rolled?)
+                yaw_err = r0(wrap(W.yaw(pawn) - bearing(me, c))), pitch_press = pp and pp.pitch and r0(pp.pitch) }
+    local o = U.loc(a)
+    if o then d.origin = { r0(o.X), r0(o.Y), r0(o.Z) } end
+    local rot = U.try(function() return J.pc:GetControlRotation() end)
+    d.pitch_now = rot and r0(rot.Pitch)
+    local rc = U.prop(a, "RootComponent")
+    if U.valid(rc) then
+        d.root = U.class_word(rc)
+        d.profile = U.str(U.try(function() return rc:GetCollisionProfileName() end))
+        d.obj_type = tonumber(U.try(function() return rc:GetCollisionObjectType() end))
+        d.collision = tonumber(U.try(function() return rc:GetCollisionEnabled() end))
+        local none = U.try(function() return FName("None") end)
+        if none then
+            d.simulating = U.try(function() return rc:IsSimulatingPhysics(none) end)
+            d.awake = U.try(function() return rc:RigidBodyIsAwake(none) end)
+            local v = U.try(function() return rc:GetPhysicsLinearVelocity(none) end)
+            local okv, vx, vy, vz = pcall(function() return v.X, v.Y, v.Z end)
+            if okv and type(vx) == "number" then d.speed_cms = r0(math.sqrt(vx * vx + vy * vy + vz * vz)) end
+        end
+    end
+    local ksl = M._ksl
+    if not U.valid(ksl) then ksl = U.find_object("/Script/Engine.Default__KismetSystemLibrary"); M._ksl = ksl end
+    local function line(from)
+        if not (U.valid(ksl) and from and type(from.X) == "number") then return nil end
+        local len = math.max(U.dist(from, c), 1)
+        local k = 1 + 60 / len -- 60 cm past the centre: a piece whose collision blocks the line is crossed for sure
+        local to = { X = from.X + (c.X - from.X) * k, Y = from.Y + (c.Y - from.Y) * k, Z = from.Z + (c.Z - from.Z) * k }
+        local out = {}
+        local ok, hit = pcall(function() return ksl:LineTraceSingle(pawn, from, to, 0, false, {}, 0, out, true, DIAG_C0, DIAG_C0, 0.0) end)
+        if not ok then return { err = true } end
+        if hit ~= true then return { hit = false, len_cm = r0(len) } end
+        local comp = U.try(function() return out.Component:Get() end)
+        if not U.valid(comp) then comp = U.try(function() return out.Component end) end
+        local owner = U.valid(comp) and U.try(function() return comp:GetOwner() end) or nil
+        local who = U.valid(owner) and W.id(owner) or nil
+        return { what = who and (who == T.key and "piece" or U.class_word(owner)) or "?", comp = U.valid(comp) and U.class_word(comp) or nil,
+                 at_cm = r0(tonumber(U.try(function() return out.Distance end))), len_cm = r0(len) }
+    end
+    local cam = U.try(function() return J.pc.PlayerCameraManager:GetCameraLocation() end)
+    local okc, cx, cy, cz = pcall(function() return cam.X, cam.Y, cam.Z end)
+    if okc and type(cx) == "number" then d.cam = line({ X = cx, Y = cy, Z = cz }); d.cam_z = r0(cz - me.Z) end
+    local eq = U.prop(pawn, "PlayerEquipmentComponent")
+    local tool = U.valid(eq) and U.prop(eq, "HeldEquipmentActorRight") or nil
+    local tp = U.valid(tool) and U.loc(tool) or nil
+    if tp then d.tool = line(tp); d.tool_z = r0(tp.Z - me.Z) end
+    d.chest = line({ X = me.X, Y = me.Y, Z = me.Z + 40 })
+    json_mod = json_mod or U.try(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
+    local s = json_mod and U.try(function() return json_mod.encode(d) end)
+    say(J.log, "diag " .. tostring(tag) .. " " .. (s or tostring(T.key)))
+    return d
+end
+M._diag_piece = diag_piece
+
 local function step_aim(J, pawn, me)
     local T = J.T
     if adopt(J, T) then end
@@ -999,6 +1093,20 @@ local function step_aim(J, pawn, me)
         return
     end
     J.nudge = nil
+    -- a walk that ends at a sprint or in a hop carries him on (live 20:33:51Z: "stopped" 1.59 m from a rock, then
+    -- slid 5 m in 2 s, and the swing press found him out of reach): the settle counts from when he stands still, and
+    -- a slide out of reach goes back to the approach at once, before a wasted press
+    local prev, prev_t = J.aim_me, J.aim_me_t
+    J.aim_me, J.aim_me_t = { X = me.X, Y = me.Y }, J.t
+    if prev and J.t - prev_t < 0.3 and U.dist2d(prev, me) > M.cfg.still_cm_per_s * (J.t - prev_t) and J.t - J.phase_t < 3 then
+        J.faced_t = nil
+        local d = U.dist2d(me, T.pos)
+        if d > (T.reach_cm or 130) + 70 then
+            J.moving = false
+            return set_phase(J, "approach", string.format("slid out of reach %.2f m", d / 100))
+        end
+        return
+    end
     J.faced_t = J.faced_t or J.t
     if J.t - J.faced_t < M.cfg.settle_s then return end
     J.faced_t = nil
@@ -1014,7 +1122,7 @@ local function step_swing(J, pawn, me, acts)
     local d = U.dist2d(me, T.pos)
     if d > (T.reach_cm or 130) + 70 then
         J.moving = false
-        return set_phase(J, "approach", "drifted out of reach")
+        return set_phase(J, "approach", string.format("drifted out of reach %.2f m", d / 100))
     end
     -- verify the previous press: stamina spent (the swing ran) and damage on the target
     local pp = J.pending
@@ -1034,11 +1142,12 @@ local function step_swing(J, pawn, me, acts)
             or (hp and T.max_hp and pp.kind == "foliage" and hp < T.max_hp - 0.01)
         if hit then
             J.hits = J.hits + 1; C().counts.hits = C().counts.hits + 1
-            T.noeff, J.unverified = 0, 0
+            T.noeff, J.unverified, T.noeff_run = 0, 0, 0
             T.hits = (T.hits or 0) + 1
         elseif spent then
             J.unverified = 0
             T.noeff = T.noeff + 1
+            T.noeff_run = (T.noeff_run or 0) + 1
         else
             J.unverified = (J.unverified or 0) + 1
             if J.unverified >= cfg.unverified_presses then
@@ -1047,6 +1156,21 @@ local function step_swing(J, pawn, me, acts)
         end
         say(J.log, string.format("swing %d on %s: hp %s->%s stamina %s->%s %s", J.swings, tostring(T.key), tostring(pp.hp), tostring(hp),
             tostring(pp.stamina), tostring(st), hit and "HIT" or (spent and "no effect" or "unverified")))
+        if T.stage ~= "root" and T.kind == "actor" then -- a log piece: the unhittable-piece snapshots (diag_piece)
+            -- (a new piece's first read is the previous thing's HP, e.g. the felled tree's 85 on an 80 hp log: not a hit)
+            if hit and not T.diag_hit and pp.hp <= (T.max_hp or pp.hp) then T.diag_hit = true; pcall(diag_piece, J, T, pawn, me, pp, "hit")
+            elseif spent and T.noeff_run == cfg.diag_swings then pcall(diag_piece, J, T, pawn, me, pp, "nohit") end
+        end
+        -- TEMPORARY GUARD (cfg.give_up_swings): a piece that takes no damage swing after swing is left after
+        -- give_up_swings, not after every aim on both sides (live 21:03Z: 27 swings, ~45 s, at a split log that stayed
+        -- at 80 hp from every aim and side), and the result says so (J.left)
+        if T.stage ~= "root" and (T.noeff_run or 0) >= cfg.give_up_swings then -- a log piece, not the tree or rock
+            pcall(diag_piece, J, T, pawn, me, pp, "nohit")
+            J.left = J.left or {}
+            local wood = (T.name or ""):match("Log_(%a+)_C")
+            J.left[#J.left + 1] = { key = T.key, name = wood and ("split " .. wood .. " log") or "log piece", aims = #offsets(J), swings = T.noeff_run }
+            T.noeff, T.aim_i, T.side = cfg.no_effect_swings, #offsets(J), cfg.sides - 1
+        end
         if T.noeff >= cfg.no_effect_swings then
             T.noeff = 0
             T.aim_i = T.aim_i + 1
@@ -1100,8 +1224,9 @@ local function step_swing(J, pawn, me, acts)
     end
     J.swings = J.swings + 1
     C().counts.swings = C().counts.swings + 1
+    local rot = T.stage ~= "root" and U.try(function() return J.pc:GetControlRotation() end) or nil -- for diag_piece
     J.pending = { t = J.t, stamina = st, prev_stamina = J.press_stamina, hp = T.kind == "actor" and W.hp(T.actor) or nil,
-                  kind = T.kind, verify_at = J.t + (prim.dmg_ms or 600) / 1000 + 0.45 }
+                  kind = T.kind, verify_at = J.t + (prim.dmg_ms or 600) / 1000 + 0.45, pitch = rot and rot.Pitch or nil }
     J.press_stamina = st
     J.next_press = J.t + (prim.next_ms or 1300) / 1000 + jitter(cfg.press_jitter_ms)
 end
@@ -1142,6 +1267,16 @@ local function step_collect(J, pawn, me)
     local T = J.T
     local done, how = target_done(J, T)
     if done then return on_done(J, T, how) end
+    -- the bag has it: the press took it. The client's copy of a taken world item lingers after the server took it
+    -- (live 21:05:02Z: the stone counted at the press, its actor went at :07, 5 s stood waiting); the key stays
+    -- skipped for collected_ttl_s so the next scan does not walk back to the lingering copy
+    if (T.presses or 0) > 0 then
+        refresh_count(J)
+        if (J.gained or 0) > (T.g0 or 0) then
+            C().bad[T.key] = J.t + cfg.collected_ttl_s
+            return on_done(J, T, "collected")
+        end
+    end
     T.pos = W.loc(T.actor) or T.pos
     local d = U.dist2d(me, T.pos)
     if J.t - J.phase_t > cfg.collect_max_s then
