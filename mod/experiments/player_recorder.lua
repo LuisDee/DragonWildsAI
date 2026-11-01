@@ -67,13 +67,15 @@ local function who_of(obj)
     local a = obj
     for _ = 1, 4 do
         if not U.valid(a) then return nil end
-        local full = U.fullname(a) or ""
-        if full:find("PlayerState", 1, true) then return U.str(U.try(function() return a:GetPlayerName() end)) end
-        if full:find("PlayerController", 1, true) then
+        -- the CLASS, not the full path: a component's path names its outer controller (live 12:40: every rpc row
+        -- was "who": "BP_Components_InteractionManager")
+        local cls = U.class_word(a) or ""
+        if cls:find("PlayerState", 1, true) then return U.str(U.try(function() return a:GetPlayerName() end)) end
+        if cls:find("PlayerController", 1, true) then
             local p = U.try(function() return a.Pawn end)
             return U.valid(p) and U.player_name(p) or U.short(a)
         end
-        if full:find("BP_PlayerCharacter_C", 1, true) then return U.player_name(a) end
+        if cls:find("BP_PlayerCharacter_C", 1, true) then return U.player_name(a) end
         a = U.try(function() return a:GetOwner() end)
     end
     return nil
@@ -143,9 +145,33 @@ end
 local function arm_hooks(log)
     if type(RegisterHook) ~= "function" then return { err = "RegisterHook unavailable" } end
     local out = {}
+    -- hooks registered once per server run call G.on_rpc, which every arm replaces, so a redeployed file's handler
+    -- takes over without a server restart
+    G.on_rpc = function(tag, ctx, a1, a2, a3, a4)
+        if not G.armed then return end
+        local ok, err = pcall(function()
+            local self = U.try(function() return ctx:get() end)
+            local rec = { kind = "rpc", rpc = tag, who = who_of(self), params = {} }
+            for i, p in ipairs({ a1, a2, a3, a4 }) do
+                local v = U.try(function() return p:get() end)
+                rec.params[i] = describe(v)
+            end
+            if tag == "interact" then
+                local comp = U.try(function() return a1:get() end)
+                local owner = U.valid(comp) and U.try(function() return comp:GetOwner() end) or nil
+                rec.target = owner and U.short(owner) or nil
+                rec.target_class = owner and U.class_word(owner) or nil
+                local tat = owner and U.loc(owner) or nil
+                rec.target_p = tat and { r2(tat.X / 100), r2(tat.Y / 100), r2(tat.Z / 100) } or nil
+            end
+            emit(rec)
+        end)
+        if not ok then U.event(log, "player_recorder_hook_error", { hook = tag, err = tostring(err) }) end
+    end
     for tag, path in pairs(M.HOOKS) do
         if not G.hooks[tag] then
             local function pre(ctx, a1, a2, a3, a4)
+                if G.on_rpc then return G.on_rpc(tag, ctx, a1, a2, a3, a4) end
                 if not G.armed then return end
                 local ok, err = pcall(function()
                     local self = U.try(function() return ctx:get() end)
