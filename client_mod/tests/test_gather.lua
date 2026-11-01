@@ -202,7 +202,15 @@ function fake_inv.equip(log, what)
 end
 local function near_interactable()
     local me = Wd.pawn.pos
-    for _, w in ipairs(Wd.drops) do if w._alive and d2(me, w.pos) <= 150 then return { actor = w.id, item = w.item, class = "BP_RuntimeSpawnedWorldItem_C", w = w } end end
+    for _, w in ipairs(Wd.drops) do
+        -- Wd.aim_needed: a small item at his feet is offered only once the camera aims at it (live 15:34Z: with the
+        -- camera level he stood on a dropped stone 12 s and the detector never offered it)
+        local aimed = not Wd.aim_needed or (Wd.aim_pos and d2(Wd.aim_pos, w.pos) <= 50)
+        if w._alive and aimed and d2(me, w.pos) <= 150 then
+            return { actor = w.id, item = w.item, class = "BP_RuntimeSpawnedWorldItem_C", w = w,
+                     secondary = Wd.collect_all and "Collect All" or nil }
+        end
+    end
     for _, a in ipairs(Wd.actors) do
         if a._alive and a.fams[1] == "BaseInteractableResource" and a.available and d2(me, a.pos) <= (Wd.offer_m or 1.5) * 100 then
             return { actor = a.id, item = a.item, class = a.cls, a = a }
@@ -210,10 +218,22 @@ local function near_interactable()
     end
 end
 function fake_inv.interact_target() local t = near_interactable(); return t or { none = true } end
-function fake_inv.press_interact()
+function fake_inv.press_interact(log, opts)
     Wd.presses = Wd.presses + 1
     local t = near_interactable()
     if not t or Wd.full then return { ok = true } end
+    if type(opts) == "table" and opts.secondary then
+        -- the game's collect-all (Wd.collect_all = its radius, cm): every world item of that kind around the one targeted
+        Wd.secondary = (Wd.secondary or 0) + 1
+        if t.w and Wd.collect_all then
+            for _, w in ipairs(Wd.drops) do
+                if w._alive and w.item == t.w.item and d2(t.w.pos, w.pos) <= Wd.collect_all then
+                    w._alive = false; Wd.inv[w.item] = (Wd.inv[w.item] or 0) + 1
+                end
+            end
+        end
+        return { ok = true }
+    end
     if t.w then t.w._alive = false; Wd.inv[t.w.item] = (Wd.inv[t.w.item] or 0) + 1 end
     if t.a then
         t.a.available = false
@@ -290,7 +310,7 @@ W.nudge = function(pawn, dir, s)
         Wd.pawn.pos.X, Wd.pawn.pos.Y = Wd.pawn.pos.X + dir.X * 4.5 * s, Wd.pawn.pos.Y + dir.Y * 4.5 * s
     end
 end
-W.aim_cam = function(pc, pos) Wd.aims = (Wd.aims or 0) + 1; return true end
+W.aim_cam = function(pc, pos) Wd.aims = (Wd.aims or 0) + 1; Wd.aim_pos = pos; return true end
 local last_inj = {}
 W.inject = function(action)
     Wd.injected = Wd.injected + 1
@@ -648,6 +668,32 @@ do
     Wd.inv_lag = nil
     check("sweep, count lagging 1.2 s: exactly the 6 asked", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 6,
           tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " presses=" .. tostring(Wd.presses))
+end
+
+-- ================================================================ 12b. a dropped pile: one collect-all press (Luis 12:42:16Z, 8 stones)
+do
+    -- 8 player drops of 1 Stone, each its own world item 15 cm apart (the game never merges drops), 2.5 m ahead,
+    -- not magnetised: one secondary press takes them all, on the way in
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed = true, 200, true
+    for i = 1, 8 do
+        Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_P" .. i, pos = { X = 250 + (i % 3) * 15, Y = math.floor(i / 3) * 15, Z = 0 },
+                                        item = "ITEM_Resources_Stone", born = T })
+    end
+    local t0 = T
+    local res = run_job({ resource = "loose_stones", count = 8 }, 60)
+    check("pile: 8 stones from one collect-all press", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 8 and Wd.secondary == 1 and Wd.presses == 1,
+          tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " presses=" .. Wd.presses .. " secondary=" .. tostring(Wd.secondary))
+    check("pile: no magnet wait (under 2 s)", T - t0 < 2.0, T - t0)
+    -- a lone drop takes the plain press (collect-all is for a pile)
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed = true, 200, true
+    Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_L1", pos = { X = 250, Y = 0, Z = 0 }, item = "ITEM_Resources_Stone", born = T })
+    res = run_job({ resource = "loose_stones", count = 1 }, 60)
+    check("lone drop: the plain press", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 1 and (Wd.secondary or 0) == 0, tostring(res.reason))
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed = nil, nil, nil
 end
 
 -- ================================================================ 12c. sticks on a ledge (live 2026-10-26 16:05)

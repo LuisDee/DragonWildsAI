@@ -19,6 +19,13 @@ Luis (docs/BASELINES-2026-11-01-luis.md, data/baselines/luis-2026-11-01.json fam
   .venv\\Scripts\\python.exe -m tools.pickup_ladder [--only sticks,stones] [--label after] [--no-sweep]
   .venv\\Scripts\\python.exe -m tools.pickup_ladder --score FROM TO      # re-score a window (epoch s) from the recorder
 
+  ... --piles [--only pile]      # the dropped-pile legs (collect-all) instead of the patches
+
+Piles: Luis's "pile" (12:42:07Z) was 8 drops of 1 Stone, each its own world item, taken by ONE secondary (collect-all)
+press (bIsSecondaryInteraction = true, +8 Stone). A pile leg drops n x 1 of the item on open ground 14 m east of the
+dump spot, stands 3 m off the pile, then sends the pickup (gather, or interact {secondary} on one drop, as the model
+may) and scores it the same way, plus how many presses were the secondary.
+
 Refuses unless the client is on the local dev server and the live brain is not running (DevTarget.guard).
 Rows: logs/evals/pickup_ladder.jsonl.
 """
@@ -69,6 +76,18 @@ LEGS = [
 ]
 
 
+# Dropped piles (see the docstring). via: the bridge request that picks it up.
+PILES = [
+    {"id": "pile", "item": "ITEM_Resources_Stone", "n": 8, "via": "gather", "resource": "loose_stones",
+     "luis": "pile 12:42:16Z: 8 dropped Stone, 1 secondary press, +8"},
+    {"id": "pile_interact", "item": "ITEM_Resources_Stone", "n": 8, "via": "interact",
+     "luis": "pile 12:42:16Z: 8 dropped Stone, 1 secondary press, +8"},
+]
+# metres from DUMP: away from the unload litter (its Stone stacks would join the pile) and outside the 8 m learned
+# trap t161 centred on DUMP (nav memory: a go_to starting inside it first walks its 19 m exit)
+PILE_OFF = [14.0, 0.0]
+
+
 def available_here(c, match: str, radius_m: float = 12.0) -> list[dict]:
     """Census rows of the kind within radius that read available (a picked spawner reads available = false)."""
     r = c.request("census", {"radius_m": radius_m, "max": 80}, timeout=20) or {}
@@ -103,17 +122,21 @@ def score(lo: float, hi: float, item_hint: str | None = None, rec: rm.Recording 
         if pose and pose.v >= rm.V_MIN:
             on_move += 1
     hits = sum(p.outcome == "hit" for p in presses)
+    # Server_RequestInteraction(InteractionComponent, Collider, bIsSecondaryInteraction, bRelease): the collect-all
+    sec = {round(r["ts"], 3) for r in rec.rpcs if r.get("rpc") == "interact" and r.get("player") == WHO
+           and a <= r["ts"] <= b and len(r.get("params") or []) > 2 and r["params"][2] is True}
     mo = rec.motion(WHO, a, b)
     stands = rec.idle_segments(WHO, a, b, min_s=1.0)
     wall = hi - lo
     out = {"wall_s": round(wall, 1), "item": key, "items": items, "gained": gained,
            "s_item": round(wall / items, 2) if items else None,
-           "presses": len(presses), "hits": hits, "misses": len(presses) - hits,
+           "presses": len(presses), "hits": hits, "misses": len(presses) - hits, "secondary": len(sec),
            "presses_per_item": round(len(presses) / items, 2) if items else None,
            "on_move": on_move, "on_move_share": round(on_move / len(presses), 2) if presses else None,
            "moving_s": mo["moving_s"], "standing_s": mo["standing_s"],
            "longest_stand_s": max((s.s for s in stands), default=0.0),
            "press_log": [{"t": round(p.ts - lo, 2), "cls": (p.target_class or "?").replace("BP_", "")[:28], "out": p.outcome,
+                          "sec": round(p.ts, 3) in sec, "got": p.delta,
                           "d": p.dist_m, "v": (rec.pose_at(WHO, p.ts).v if rec.pose_at(WHO, p.ts) else None)} for p in presses]}
     out["human_ok"] = bool(items and out["s_item"] <= BAR_S_ITEM and out["presses_per_item"] <= BAR_PRESSES
                            and (out["on_move_share"] or 0) >= BAR_ON_MOVE)
@@ -176,6 +199,61 @@ def run_leg(dev, leg: dict, sweep: bool = True) -> dict:
     return row
 
 
+def items_near(c, item: str, at, radius_m: float = 4.0) -> list[dict]:
+    """Census world items of `item` within radius_m of `at` (rows: category items, item, id, position, count)."""
+    r = c.request("census", {"radius_m": 12, "max": 120}, timeout=20) or {}
+    out = []
+    for v in (r.get("data") or {}).values():
+        for x in v if isinstance(v, list) else []:
+            if isinstance(x, dict) and x.get("item") == item and x.get("position") and tl.d2(x["position"], at) <= radius_m:
+                out.append(x)
+    return out
+
+
+def run_pile(dev, leg: dict) -> dict:
+    c = tl.client()
+    c.request("stop", {}, timeout=10)
+    tl.place(dev, c, DUMP)
+    spot = [DUMP[0] + PILE_OFF[0], DUMP[1] + PILE_OFF[1], DUMP[2]]
+    c.request("go_to", {"target": spot, "tolerance": 1.0}, timeout=60)
+    me = tl.position(c)
+    row = {"leg": leg["id"], "resource": leg["item"], "via": leg["via"], "luis": leg["luis"], "start": me}
+    for _ in range(leg["n"]):
+        rr = c.request("drop", {"item": leg["item"], "count": 1}, timeout=20) or {}
+        if not rr.get("ok"):
+            row.update(ok=None, error=f"drop failed: {rr.get('reason')}")
+            return row
+    time.sleep(1.5)  # a drop flies for a moment
+    pile = items_near(c, leg["item"], me)
+    if len(pile) < 2:
+        row.update(ok=None, error=f"pile not seen: {len(pile)} world items of {leg['item']} within 4 m")
+        return row
+    cx = sum(x["position"][0] for x in pile) / len(pile)
+    cy = sum(x["position"][1] for x in pile) / len(pile)
+    dx, dy = me[0] - cx, me[1] - cy
+    ln = max((dx * dx + dy * dy) ** 0.5, 0.01)
+    back = [cx + dx / ln * 3.0, cy + dy / ln * 3.0, me[2]]
+    c.request("go_to", {"target": back, "tolerance": 0.5}, timeout=30)
+    time.sleep(0.5)
+    n = sum(int(x.get("count") or 1) for x in pile)
+    row.update(stacks=len(pile), available=n, pile_at=[round(cx, 2), round(cy, 2)])
+    if leg["via"] == "gather":
+        req = ("gather", {"resource": leg["resource"], "count": n, "radius": 15})
+    else:
+        near = min(pile, key=lambda x: tl.d2(x["position"], back))
+        req = ("interact", {"target": near["id"], "secondary": True})
+    t0 = time.time()
+    r = c.request(req[0], req[1], timeout=GATHER_WAIT_S) or {}
+    t1 = time.time()
+    data = r.get("data") or {}
+    time.sleep(2.5)
+    sc = score(t0, t1, item_hint=leg["item"])
+    row.update(ok=bool(r.get("ok")), want=n, reason=r.get("reason"), detail=data.get("detail"), request=req[0],
+               body_collect_all=data.get("collect_all_presses"),
+               phase_log=data.get("phase_log"), ts=round(t0, 2), **sc)
+    return row
+
+
 def fmt(row: dict) -> str:
     if row.get("error"):
         return f"ERR  {row['leg']:8s} {row['error']}"
@@ -184,7 +262,7 @@ def fmt(row: dict) -> str:
             f"(Luis {LUIS_S_ITEM}, bar {BAR_S_ITEM}); presses {row.get('presses')} ({row.get('presses_per_item')}/item, "
             f"{row.get('misses')} miss); on the move {row.get('on_move')}/{row.get('presses')} = {row.get('on_move_share')} "
             f"(bar {BAR_ON_MOVE}); move {row.get('moving_s')} / stand {row.get('standing_s')} s, longest stand "
-            f"{row.get('longest_stand_s')} s  {row.get('reason') or ''} {row.get('detail') or ''}")[:400]
+            f"{row.get('longest_stand_s')} s; secondary {row.get('secondary')}  {row.get('reason') or ''} {row.get('detail') or ''}")[:420]
 
 
 def main() -> None:
@@ -194,16 +272,17 @@ def main() -> None:
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--no-sweep", action="store_true", help="the stop-and-press pickup (gather sweep=false), for an A/B")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--piles", action="store_true", help="the dropped-pile legs (collect-all) instead of the patches")
     ap.add_argument("--score", nargs=2, type=float, metavar=("FROM", "TO"))
     a = ap.parse_args()
     if a.score:
         print(json.dumps(score(*a.score), indent=1))
         return
     only = set(filter(None, a.only.split(",")))
-    legs = [g for g in LEGS if not only or g["id"] in only]
+    legs = [g for g in (PILES if a.piles else LEGS) if not only or g["id"] in only]
     if a.list:
         for g in legs:
-            print(f"{g['id']:8s} {g['resource']:13s} x{g['count']} at {g['start']}  Luis: {g['luis']}")
+            print(f"{g['id']:8s} {g.get('resource') or g.get('item')}  Luis: {g['luis']}")
         return
     from evals.bench.devrun import default_dev
     dev = default_dev()
@@ -217,7 +296,7 @@ def main() -> None:
                 dropped = unload(dev, tl.client())
                 if dropped:
                     print(f"     unloaded at {DUMP} (encumbered): {dropped}", flush=True)
-                row = run_leg(dev, g, sweep=not a.no_sweep)
+                row = run_pile(dev, g) if a.piles else run_leg(dev, g, sweep=not a.no_sweep)
             except Exception as x:  # infra failure: recorded, not counted as a body failure
                 row = {"leg": g["id"], "ok": None, "error": repr(x)}
             row.update(run=run_id, label=a.label, head=tl.head(), rep=rep)

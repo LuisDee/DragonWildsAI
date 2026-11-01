@@ -60,6 +60,8 @@ M.cfg = {
     bad_ttl_s = 600, bad_streak = 3,
     equip_wait_s = 4, equip_repress_s = 1.5,
     collect_wait_s = 2.0, collect_presses = 3, collect_press_gap_s = 0.7, collect_tol_m = 0.8, collect_max_s = 12,
+    collect_all_cm = 200, -- if the game's CollectAllRadius is unreadable (it read 200, live 15:33Z)
+    collect_aim_cm = 200, -- aim the camera at a drop from this close (the detector ray starts at the camera)
     drop_wait_s = 1.2,          -- after a piece breaks, let its drops land before scanning
     settle_max_s = 10, step_back_m = 2.5,
     adopt_cm = 200,             -- a converted actor this close to a foliage instance is that instance
@@ -176,6 +178,15 @@ function W.drops(origin, r_cm, item)
     end
     return out
 end
+-- The game's collect-all radius (cm; UItemDeveloperSettings.CollectAllRadius on its CDO), read once; nil if unreadable.
+function W.collect_all_cm()
+    if W._collect_all == nil then
+        local cdo = U.try(function() return StaticFindObject("/Script/Dominion.Default__ItemDeveloperSettings") end)
+        local r = U.valid(cdo) and U.try(function() return cdo.CollectAllRadius end)
+        W._collect_all = (type(r) == "number" and r > 0) and r or false
+    end
+    return W._collect_all or nil
+end
 function W.stamina(pawn) local v = U.try(function() return pawn.StaminaComponent:GetStamina() end); return type(v) == "number" and v or nil end
 function W.yaw(pawn) local r = U.try(function() return pawn:K2_GetActorRotation() end); return r and r.Yaw or 0 end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
@@ -275,6 +286,7 @@ local function result_of(J, ok, reason, data)
     data.near = J.anchor and J.anchor.name or nil -- the radius was around this player, not around me
     data.tool = J.tool and J.tool.name or nil
     if J.sweep and J.sweep.presses > 0 then data.presses, data.presses_on_move = J.sweep.presses, J.sweep.on_move end
+    if J.collect_all then data.collect_all_presses = J.collect_all end
     data.phase_log = J.phase_log
     return { ok = ok, reason = reason, data = data }
 end
@@ -1089,6 +1101,29 @@ local function step_collect(J, pawn, me)
         end
         return set_phase(J, "scan", "drop skipped")
     end
+    T.presses = T.presses or 0
+    -- a small thing on the ground: the detector's ray starts at the camera, so aim it at the item from 2 m in (live
+    -- 16:34Z: with the camera level he stood on a dropped stone for 12 s and the game never offered it)
+    if d <= cfg.collect_aim_cm then W.aim_cam(J.pc, T.pos) end
+    -- the game offers it (or another of our item): press now, on the way in, as a player does (no magnet wait). A pile
+    -- of that item (every drop is its own world item) takes ONE collect-all press, the thing's secondary (F), as Luis
+    -- took 8 dropped stones with one press (recorder 12:42:16Z, bIsSecondaryInteraction = true)
+    if T.presses < cfg.collect_presses and J.t - (T.press_t or -9) >= cfg.collect_press_gap_s then
+        local tg = mcall("inventory", "interact_target", pawn)
+        if type(tg) == "table" and (tg.actor == T.key or (J.item and tg.item == J.item)) then
+            local item = tg.item or T.item
+            local r = W.collect_all_cm() or cfg.collect_all_cm
+            local pile = (tg.secondary and item) and #W.drops(T.pos, r, item) or 0
+            T.press_t, T.presses = J.t, T.presses + 1
+            local all = pile >= 2
+            mcall("inventory", "press_interact", J.log, all and { secondary = true } or nil)
+            J.count_t = nil
+            if all then J.collect_all = (J.collect_all or 0) + 1 end
+            say(J.log, all and string.format("collect all (%s): %d stacks of %s within %.1f m", tostring(tg.secondary), pile, tostring(item), r / 100)
+                or ("interact to collect " .. tostring(T.key)))
+            return
+        end
+    end
     if d > cfg.collect_tol_m * 100 + 40 then
         if (not J.moving or move_state() ~= "moving") and J.t - (J.move_started or -9) > 1.5 then
             J.moving = start_move(J, T.pos, cfg.collect_tol_m, 12)
@@ -1097,20 +1132,14 @@ local function step_collect(J, pawn, me)
     end
     J.moving = false
     T.near_t = T.near_t or J.t
+    if d > 45 and J.t - T.near_t > 0.5 then -- still not offered: lean in, as step_pick does
+        local r = math.rad(bearing(me, T.pos))
+        J.nudge, J.nudge_until, J.nudge_scale = { X = math.cos(r), Y = math.sin(r), Z = 0 }, J.t + 0.1, nil
+    end
     if J.t - T.near_t < cfg.collect_wait_s then return end -- the item magnet usually pulls it in
-    T.presses = T.presses or 0
     if T.presses >= cfg.collect_presses then
         T.near_t = J.t + cfg.collect_max_s -- give up below
         J.phase_t = J.t - cfg.collect_max_s - 1
-        return
-    end
-    if J.t - (T.press_t or -9) < cfg.collect_press_gap_s then return end
-    local tg = mcall("inventory", "interact_target", pawn)
-    if type(tg) == "table" and (tg.actor == T.key or (J.item and tg.item == J.item)) then
-        T.press_t, T.presses = J.t, T.presses + 1
-        mcall("move", "stop", J.log)
-        mcall("inventory", "press_interact", J.log)
-        say(J.log, "interact to collect " .. tostring(T.key))
     end
 end
 
