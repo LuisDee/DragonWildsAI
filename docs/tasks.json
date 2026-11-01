@@ -692,6 +692,48 @@
    "title": "Ranged + magic feasibility: lock-on, projectile data, hit feedback, a dummy-target ladder",
    "status": "todo",
    "passes_test": false
+  },
+  {
+   "id": "G.1",
+   "phase": "goal",
+   "title": "Rung 1 basics to Luis's standard (pickup on the move, come/follow anywhere, fight back, newest grave, needs by options, rest, split/drop/give), 3 live runs",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "G.2",
+   "phase": "goal",
+   "title": "Rung 2 base: deconstruct Luis's house, build his own (foundation, walls, roof, door) + table, firepit, crate; store items",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "G.3",
+   "phase": "goal",
+   "title": "Rung 3 self-sufficient: axe, pickaxe, spade; cook meat; boil water; plots, seeds, watering, compost; spinning wheel -> thread",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "G.4",
+   "phase": "goal",
+   "title": "Rung 4 gear and combat: tannery -> leather; armour for his level; bow + arrows kills; attack spells in fights",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "G.5",
+   "phase": "goal",
+   "title": "Rung 5 quests: talk works; First Steps, Getting Started, Ratcatcher, Rune Mysteries; then the main storyline",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "G.6",
+   "phase": "goal",
+   "title": "Rung 6 vault: clear a vault and kill its boss",
+   "status": "todo",
+   "passes_test": false
   }
  ]
 }

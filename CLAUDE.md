@@ -6,6 +6,7 @@ Read this whole file before doing anything. It is the single source of truth for
 
 ## 00. READ FIRST: docs/HANDOVER-2026-10-31.md (Codex audit, Luis's new live-first direction, TASK-0). It overrides anything below.
 Then docs/HANDOVER-2026-11-01.md: where Rung 1 ended (chat ladder 8/8, mean 2.1 calls), tonight's clean-up wave, and the Rung 2 session plan with Luis + proposed /goal.
+**THE ACTIVE GOAL: docs/GOAL-2026-11-01.md** (Luis, 2026-11-01: a six-rung ladder to a human standard, judged against docs/BASELINES-2026-11-01-luis.md; status table inside).
 Then **docs/DIRECTION-2026-11-01.md** (binding, after the first co-play session: a pass = done to a real player's standard, measured live; telemetry + skill ladders + Luis emulator first; open source only), docs/RETRO-2026-11-01-coplay.md and docs/ISSUES-2026-11-01-coplay.md.
 
 ## 000. Working mode (Luis, 2026-10-31, binding; overrides every review/gate/design-note rule below and in GOAL.md)
