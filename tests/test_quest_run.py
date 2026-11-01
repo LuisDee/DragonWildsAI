@@ -68,3 +68,14 @@ def test_reflex_fights_are_work_not_a_stand_and_keep_the_run_from_ending_quiet()
     tl = q.timeline(rows, t0, t_end=t0 + 160)
     assert tl["body_busy"] == [] and tl["last_busy"] == t0 + 150.0
     assert tl["idle"][1:] == [{"from": 150.0, "s": 10.0, "to_end": True}]  # after his call, only the stand after the fight
+
+
+def test_an_anima_vent_interact_is_let_go_once_and_recorded():
+    sent, done = [], []
+    send = lambda f, name, args, t: sent.append(name) or {"ok": True, "result": {"ok": True}}  # noqa: E731
+    calls = [{"tool": "interact", "args": {"target": "BP_AnimaVent_C_UAID_1"}, "t": 391.3, "dur_s": 6.7, "ok": True},
+             {"tool": "interact", "args": {"target": "BP_Chest_C_1"}, "t": 400.0, "dur_s": 1.0, "ok": True},
+             {"tool": "interact", "args": {"target": "BP_AnimaVent_C_UAID_2"}, "t": 410.0, "dur_s": None, "ok": None}]
+    q.hold_release(calls, done, time.time(), send)
+    q.hold_release(calls, done, time.time(), send)  # the next poll: not again
+    assert sent == ["quest_hold_release"] and done[0]["after"] == 391.3 and done[0]["ok"] is True

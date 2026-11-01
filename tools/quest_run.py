@@ -251,6 +251,32 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
     return {"calls": calls, "says": says, "idle": idle, "last_busy": cur, "body_busy": sorted(acts)}
 
 
+HOLD_RELEASE = ROOT / "client_mod" / "commands" / "quest_hold_release.lua"
+
+
+def hold_release(calls: list[dict], done: list[dict], t0: float, send=None) -> None:
+    """TEMPORARY guard (movement's finding, 2026-11-01): an Anima Vent is a Hold interaction and the body's interact
+    press never lets go, so a siphon roots him (ClaudeQ2 19:20Z: xy frozen until a client restart). After each finished
+    Anima Vent interact, let go once (one frame of InteractActionStop, client_mod/commands/quest_hold_release.lua); each
+    release is in the run record (`hold_releases`), so a run that needed it reads as a known infra cause. Remove with
+    the file once press_interact releases holds."""
+    seen = {(d["tool"], d["after"]) for d in done}
+    for c in calls:
+        key = (c.get("tool"), c.get("t"))
+        if c.get("tool") != "interact" or c.get("dur_s") is None or key in seen:
+            continue
+        if "animavent" not in json.dumps(c.get("args") or {}).lower():
+            continue
+        if send is None:
+            from tools.scenario_run import run_client_cmd as send
+        r = send(HOLD_RELEASE, "quest_hold_release", None, 10.0) or {}
+        res = r.get("result") if isinstance(r.get("result"), dict) else r
+        done.append({"tool": key[0], "after": key[1], "t": round(time.time() - t0, 1), "ok": bool(res.get("ok")),
+                     "why": res.get("why") or res.get("err")})
+        print(f"[{time.time() - t0:6.1f}s] vent hold released after the interact at {key[1]} s: {done[-1]}")
+        seen.add(key)
+
+
 def cmd_run(a) -> int:
     if not a.confirm:
         print("refusing: a live run moves Claude and sends test chat on the dev server; pass --confirm")
@@ -296,6 +322,7 @@ def cmd_run(a) -> int:
         t0 = time.time()
         lines = list(a.line)
         sent = []
+        released: list[dict] = []  # the vent-hold guard's releases (hold_release below)
         why, ended = None, None
         next_line_at = t0
         try:
@@ -313,6 +340,7 @@ def cmd_run(a) -> int:
                     print(f"[{now - t0:6.1f}s] {a.quest}: {row}")
                 rows = cl.brain_rows([brain_file], t0 - 1, now + 1)
                 tl = timeline(rows, t0)
+                hold_release(tl["calls"], released, t0)
                 calls = cl.model_calls(rows)
                 busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
                 open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
@@ -355,7 +383,8 @@ def cmd_run(a) -> int:
            "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
-           "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name}
+           "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name,
+           "hold_releases": released}
     try:
         bar = human_bar(rows, len(sent))
         rec["human"] = bar
