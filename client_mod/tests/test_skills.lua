@@ -525,6 +525,29 @@ test("come_to: follow until near, then stop; verified distance", function()
     assert(has(F.move.calls, "follow:Luis") and F.move.calls[#F.move.calls] == "stop")
 end)
 
+test("give / come_to an NPC by name: says it is an NPC, not a player, and how NPC hand-ins go (live 19:3xZ)", function()
+    reset()
+    table.insert(F.world.interactables, { id = "BP_NPC_Doric_FTUE_C_1", class = "BP_NPC_Doric_FTUE_C", name = "Doric", kind = "npc",
+                                          prompt = "Talk", position = { 12, 0, 3 } })
+    F.cons[#F.cons + 1] = { name = "Stone Club", item = "ITEM_Club_Stone", count = 1, where = "bag" }
+    -- as live: no player of that name, so move's follow finds no target
+    local mv = B.module("move")
+    local fol0 = mv.follow
+    mv.follow = function(...) local r = fol0(...); if type(r) == "table" then r.target_visible = false end; return r end
+    local r = rpc("give", { player = "Doric", item = "Stone Club", count = 1 })
+    assert(r.ok == false and r.reason == "unknown_target" and r.data.why == "not_a_player" and r.data.npc == "BP_NPC_Doric_FTUE_C_1",
+        json.encode(r))
+    assert(r.data.detail:find("Doric is an NPC, not a player, so I can't give things", 1, true)
+        and r.data.detail:find("hand-in to an NPC happens in the conversation", 1, true), r.data.detail)
+    r = rpc("come_to", { player = "Doric" })
+    assert(r.ok == false and r.data.why == "not_a_player" and r.data.detail:find("so I can't follow them", 1, true), json.encode(r))
+    -- nobody of that name at all: the old words
+    r = rpc("come_to", { player = "Zezima" })
+    assert(r.ok == false and r.reason == "unknown_target" and r.data.why == nil
+        and r.data.detail:find("I can't see where you are from here, Zezima", 1, true), json.encode(r))
+    mv.follow = fol0
+end)
+
 test("come_to: unreachable for 30 s -> path_blocked with the specific why in words", function()
     reset()
     F.follow = "unreachable"

@@ -1293,6 +1293,17 @@ local function player_row(api, name)
     return nil
 end
 
+-- a name that is an NPC (the game's own "Talk" prompt) and no player in sight -> its census row, or nil (live
+-- 19:3xZ: give {Doric, Stone Club} answered "I can't see where you are from here, Doric"; the hand-in went by talk)
+local function npc_named(api, name)
+    if player_row(api, name) or not api.resolve_name then return nil end
+    local talkers = {}
+    for _, t in ipairs(api.census_things(120) or {}) do
+        if t.prompt == "Talk" and t.position then talkers[#talkers + 1] = t end
+    end
+    return (api.resolve_name(talkers, name))
+end
+
 local function start_come_to(api, args, ctx, opts)
     opts = opts or {}
     local who = args.player
@@ -1308,6 +1319,13 @@ local function start_come_to(api, args, ctx, opts)
         if not r.ok then return r end
         if r.data.target_visible == false then
             api.call("move", "stop")
+            local npc = npc_named(api, who)
+            if npc then
+                local n = tostring(npc.name or who)
+                return api.fail("unknown_target", { player = who, npc = npc.id, why = "not_a_player", detail = string.format(
+                    "%s is an NPC, not a player, so I can't %s them. I can go_to or talk to %s; a quest hand-in to an NPC happens in the conversation.",
+                    n, job.kind == "give" and "give things by dropping them at the feet of" or "follow", n) })
+            end
             return api.fail("unknown_target", { player = who,
                 detail = "I can't see where you are from here, " .. who .. " (you're too far away for me to see)." })
         end
