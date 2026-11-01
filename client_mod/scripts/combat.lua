@@ -3121,6 +3121,14 @@ local function frame(F)
             local a = (mode == "DIM_SpellcastingMode" or mode == "DIM_SpellPlacementMode") and cancel or back
             -- raw: the gate blocks gameplay presses in a non-gameplay mode, but this IS the mode's own back key
             local inp = mod("input")
+            if mode == "DIM_Resting" then
+                -- lying in a bed or shelter: the game ends a rest on a plain interact press, not on Back (skills.lua
+                -- get-up path; live 2026-11-01 19:56Z: attack with a bow and a staff, 3 presses each swallowed, "stuck
+                -- in DIM_Resting" after the previous window's nap)
+                a = nil
+                local r = mcall("inventory", "press_interact", F.log)
+                say(F.log, "input mode DIM_Resting: pressing use to get up -> " .. tostring(r and (r.ok or r.reason)))
+            end
             if a then
                 if inp and inp.raw_inject then inp.raw_inject(a)
                 else local s = eis(); if s then pcall(function() s:InjectInputVectorForAction(a, { X = 1, Y = 0, Z = 0 }, {}, {}) end) end end

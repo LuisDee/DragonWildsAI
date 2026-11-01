@@ -291,6 +291,16 @@ do -- alternatives listed; locked recipes carry their unlock text with station n
     for _, c in ipairs(cands) do if c.recipe == "RECIPE_Process_IronBar" then a = c end end
     check("locked: status + unlock text names the Furnace", a.status == "not_unlocked" and tostring(a.unlock):find("Furnace", 1, true) ~= nil, tostring(a.unlock))
 end
+do -- "used a Tannery: not yet" beside a Tannery: using it (the craft opens it) is the unlock, so it is makeable (rung 4)
+    local disc = function(items) return function() return { items = items, actors = {} } end end
+    local base = { have = { ITEM_Resources_Animal_Hide = 3 }, unlocked = {}, near = near("Tannery") }
+    local a = C.assess("RECIPE_Process_Leather_From_Hide", 1, setmetatable({ discovered = disc({ ITEM_Resources_Animal_Hide = true }) }, { __index = base }))
+    check("unlock on use: hide picked up + Tannery near -> ready", a.status == "ready" and a.unlock_on_use == true, a.status)
+    a = C.assess("RECIPE_Process_Leather_From_Hide", 1, setmetatable({ discovered = disc({}) }, { __index = base }))
+    check("unlock on use: hide never picked up -> not_unlocked", a.status == "not_unlocked", a.status)
+    a = C.assess("RECIPE_Process_Leather_From_Hide", 1, { have = base.have, unlocked = {}, near = {}, discovered = disc({ ITEM_Resources_Animal_Hide = true }) })
+    check("unlock on use: no Tannery near -> not_unlocked", a.status == "not_unlocked", a.status)
+end
 do -- held-out: an item absent from every fixture above resolves from the catalog by display name
     -- every word he said is a word of the name (live 2026-11-01 17:10Z: "Stone Axe" read unknown, then 24 axes)
     check("resolve: words -> Stone Logging Axe", C.resolve_item("Stone Axe") == "ITEM_Logging_Axe_Stone")

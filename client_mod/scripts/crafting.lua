@@ -275,6 +275,34 @@ function M.unlock_status(r, disc)
     return (#alts > 0) and table.concat(alts, " | or: ") or nil
 end
 
+-- True when the recipe's unlock is met except for "used a <station>" terms naming a station type that makes it and
+-- stands near (ctx.near): the craft opens that station, and using one is what the game counts (ActorsInteractedWith;
+-- live 18:22-18:25Z a press on his wheel made thread ready). A player just walks up and makes it (rung 4, 19:56Z:
+-- Leather "not unlocked: used a Tannery: not yet" beside the Tannery he was about to use).
+function M.unlocks_on_use(r, disc, near)
+    if type(r) ~= "table" or type(r.uq) ~= "table" or not disc then return false end
+    local by_name = {}
+    for id in pairs(disc.items or {}) do by_name[lower(name_of_id(id))] = true end
+    local here = {}
+    for _, sid in ipairs(r.stations or {}) do if (near or {})[sid] then here[sid] = true end end
+    for _, q in ipairs(r.uq) do
+        local ok, by_use = true, false
+        for quant, kind, list in q:gmatch("(%u+)%s+(%u+)%[([^%]]*)%]") do
+            local met, total = 0, 0
+            for name in list:gmatch("[^,]+") do
+                name = name:match("^%s*(.-)%s*$")
+                total = total + 1
+                if kind == "ITEMS" and by_name[lower(name)] then met = met + 1
+                elseif kind == "ACTORS" and (disc.actors or {})[name] then met = met + 1
+                elseif kind == "ACTORS" and here[idx().class_sid[name] or ""] then met, by_use = met + 1, true end
+            end
+            if not ((quant == "ANY" and met > 0) or met == total) then ok = false end
+        end
+        if ok and by_use then return true end
+    end
+    return false
+end
+
 -- ------------------------------------------------------------------ the pure plan (one recipe)
 local function per_craft(r, item)
     for _, o in ipairs(r.outputs or {}) do if item_id(o[1]) == item then return o[2] end end
@@ -355,6 +383,8 @@ function M.assess(rid, crafts, ctx)
     local unl
     if ctx.unlocked == nil then unl = nil else unl = ctx.unlocked[rid] == true end
     if not unl then a.unlock = unlock_text(r) end
+    local on_use = unl == false and ctx.discovered ~= nil and M.unlocks_on_use(r, ctx.discovered(), ctx.near)
+    if on_use then unl, a.unlock_on_use = true, true end -- using the station near him unlocks it: makeable
     if #(r.stations or {}) == 0 then
         a.status, a.detail = "no_station_type", "nothing in the game crafts " .. tostring(a.name or rid) .. " at a station"
     elseif vendor then
