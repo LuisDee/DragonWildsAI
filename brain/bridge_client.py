@@ -10,6 +10,7 @@ in-flight id are parked until their own request picks them up. See BRIDGE_PROTOC
 """
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from typing import Callable
@@ -60,6 +61,13 @@ DETACH_AFTER_S = 2.0
 NO_DETACH = {"ping", "get_state", "say", "move_status", protocol.CAPABILITIES}  # quick reads the brain needs itself
 MOVE_STATUS_TOOLS = {"go_to", "follow", "come_to"}  # a detached move reports the body's move status (metres to go)
 KEEP_IDS = 200
+
+
+# The sender tag on every command: the live-lock owner (tools/live_lock sets DW_LIVE_OWNER for its command and
+# holder) and this pid. A stray debug command (live 2026-11-01 16:33:31Z: a plain stop inside the build window)
+# carried only the default run name, which every debug client writes.
+def _src() -> str:
+    return f"{os.environ.get('DW_LIVE_OWNER') or '-'}:{os.getpid()}"
 
 
 class BridgeClient(GameInterface):
@@ -160,7 +168,8 @@ class BridgeClient(GameInterface):
     def request(self, tool: str, args: dict | None = None, timeout: float | None = None,
                 probe: bool = False) -> ActionResult:
         req_id = uuid.uuid4().hex[:12]
-        msg = protocol.cmd(req_id, tool, args, probe=probe, **self.log.ids())  # run, ep, call (telemetry item 1)
+        msg = protocol.cmd(req_id, tool, args, probe=probe, **self.log.ids(),  # run, ep, call (telemetry item 1)
+                           src=_src())  # who sent it: the live-lock owner and pid (joins tools/live_lock's audit log)
         timeout = timeout if timeout is not None else self.timeouts.get(tool, self.default_timeout)
         self.log.log("bridge_send", msg=msg)
         self._inflight.add(req_id)

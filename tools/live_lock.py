@@ -160,6 +160,7 @@ def queue(qdir: Path | None = None) -> list[dict]:
 @contextmanager
 def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, clean: bool = True):
     t0 = time.time()
+    os.environ.setdefault("DW_LIVE_OWNER", owner)  # bridge commands sent from here (and children) carry it as src
     ticket = _ticket(owner)
     try:
         while True:
