@@ -582,6 +582,10 @@ class Controller:
                     ctx["map_names"] = named
             except Exception as exc:  # context is best effort
                 self.log.log("map_names_error", error=repr(exc))
+        if text and state and not state.get("unavailable"):
+            # what lies around the player who spoke (his "near me" / "in front of me"; retro 2026-11-01 root cause 4)
+            if near := sit.near_speaker(state, player):
+                ctx["near_speaker"] = near
         if self.chat_provider:
             try:
                 ctx["chat"] = self.chat_provider()

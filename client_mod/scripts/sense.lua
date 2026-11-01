@@ -453,7 +453,11 @@ local function describe_interactable(a, ic, kind, origin)
     d.prompt = ic and text(U.try(function() return ic.InteractionPrompt end)) or nil
     -- owners of an InteractionComponent are any class: a WorldChest has no DisplayName, and the
     -- speculative read of it crashed the client through UE4SS's stale property cache (R17)
-    d.name = text(P(a, "DisplayName")) or text(P(a, "DisplayNameText")) or clean_class(d.class)
+    -- a building piece (crate, campfire, bench) by the name buildables and get_state.structures use ("Crate",
+    -- not the class word "Base Building Crate": co-play 2026-11-01, he didn't know the crates were his)
+    local bpd = P(a, "BuildingPieceData")
+    local piece = U.valid(bpd) and text(U.try(function() return bpd.DisplayName end)) or nil
+    d.name = piece or text(P(a, "DisplayName")) or text(P(a, "DisplayNameText")) or clean_class(d.class)
     -- ownership (BUGS L10): a summoned shelter's caster (AUtilitySpell:GetCaster(), DISCOVERIES "Lodestones /
     -- night skip"), a bed's claimant (UBedComponent:GetClaimingCharacterName); UNVERIFIED on the client
     local caster = U.try(function() return a:GetCaster() end)
@@ -637,20 +641,60 @@ end
 -- ------------------------------------------------------------------ census
 local function owner_of(c) local o = U.try(function() return c:GetOwner() end); return U.alive(o) and o or nil end
 
--- census(log, {radius_m=30, max=25, kinds={players=true,...}}) -> {origin, players, creatures,
--- items, resources, interactables, totals, ms}. Each list nearest first, capped at `max`.
+-- The players on the game map and compass at any distance (mapplayers.lua: GameplayObjectRegistry.PlayerCharacters),
+-- loaded once per load of this file; nil when missing.
+local MAPP
+local function mapplayers()
+    if MAPP == nil then
+        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/mapplayers.lua"))() end)
+        MAPP = ok and type(m) == "table" and m or false
+    end
+    return MAPP or nil
+end
+M.mapplayers = mapplayers
+
+-- census(log, {radius_m=30, max=25, kinds={players=true,...}, near="<player>", lean=true}) -> {origin, players,
+-- creatures, items, resources, interactables, totals, ms, map_players}. Each list nearest first, capped at `max`.
+--   near  count from that PLAYER, not from me ("the stones near me", said by him; retro 2026-11-01 root cause 4):
+--         origin = his pawn (it must be replicated: in sight); every row's distance is from him, `from_me` from me and
+--         `side` where it lies from him ("in front" | "behind" | "to the left" | "to the right" of his facing); his
+--         own row is left out. Not in sight -> {ok=false, reason="target_not_visible", detail, map = his map row}.
+--   lean  skip the passes of categories not asked for (and the interactables listing unless asked): a cheap
+--         kinds-only census (items + resources around a player: ~100 ms instead of ~200 ms live).
+--   map_players (players wanted): every OTHER player on the game map at any distance, from ME:
+--         {name, position, distance, direction ("NE"), bearing_deg (0 = north), in_sight (pawn replicated)}.
 function M.census(log, opts)
     opts = opts or {}
     if rawget(_G, "DW_PAUSE") then return { ok = false, reason = "paused" } end
     local t0 = os.clock()
     local pc = M.local_pc()
     local me = M.local_pawn(pc)
-    local origin = me and U.loc(me)
-    if not origin then return { ok = false, reason = "no local pawn" } end
+    local my_at = me and U.loc(me)
+    if not my_at then return { ok = false, reason = "no local pawn" } end
+    local origin, anchor = my_at, nil
+    local MAP = mapplayers()
+    if opts.near ~= nil and opts.near ~= "" then
+        local who = tostring(opts.near)
+        local pw, pname
+        if MAP then pw, pname = MAP.pawn_of(who, me) end
+        local at = pw and U.loc(pw)
+        if not at then
+            local row = MAP and (MAP.find(who, { me = me })) or nil
+            return { ok = false, reason = "target_not_visible", near = who,
+                     map = row and { name = row.name, position = row.position, distance = row.distance, direction = row.direction } or nil,
+                     detail = row and string.format("I can't see %s from here (the map has him %s m %s of me), so I can't tell what is near him.",
+                                                    tostring(row.name), tostring(row.distance), tostring(row.direction or "away"))
+                         or string.format("No player called %s is in sight or on the map.", who) }
+        end
+        local rot = U.try(function() return pw:K2_GetActorRotation() end)
+        origin, anchor = at, { name = pname or who, id = U.short(pw), yaw = rot and num(U.try(function() return rot.Yaw end)) or nil }
+    end
     local r_cm = (opts.radius_m or M.DEFAULT_RADIUS_M) * 100
     local max = opts.max or M.DEFAULT_MAX
     local want = opts.kinds
+    local lean = opts.lean == true and want ~= nil
     local seen = { [U.short(me) or "?"] = true }
+    if anchor and anchor.id then seen[anchor.id] = true end
     local out, totals = {}, {}
 
     local function within(a)
@@ -662,12 +706,21 @@ function M.census(log, opts)
         out[cat] = l
         l[#l + 1] = d
         totals[cat] = (totals[cat] or 0) + 1
+        if anchor and type(d.position) == "table" then
+            local p = U.from_wire(d.position)
+            if p then
+                d.from_me = U.cm_to_m((d.kind == "foliage" and U.dist2d or U.dist)(my_at, p)) -- same metric as distance
+                d.side = MAP and MAP.side(origin, anchor.yaw, p) or nil
+            end
+        end
     end
     local by_id = {}
     -- Every pass runs (so a filtered-out category still claims its actors and they are not listed
-    -- again as plain interactables); only wanted categories are described.
+    -- again as plain interactables); only wanted categories are described. A lean census lists no
+    -- interactables, so it skips the unwanted passes.
     local function pass(cat, classes, describe)
         local on = not want or want[cat]
+        if lean and not on then return end
         if on then out[cat] = out[cat] or {} end
         for _, cls in ipairs(classes) do
             for _, a in ipairs(U.find_all(cls, { skip_defaults = true })) do
@@ -703,23 +756,23 @@ function M.census(log, opts)
         end
     end
 
+    local on = not want or want.interactables
     local kind_of = {}
-    for _, f in ipairs(M.ACTOR_FAMILIES) do
+    for _, f in ipairs((lean and not on) and {} or M.ACTOR_FAMILIES) do
         for _, o in ipairs(U.find_all(f.class, { skip_defaults = true })) do
             local id = U.short(o)
             if id and not kind_of[id] then kind_of[id] = f.kind end
         end
     end
-    for _, f in ipairs(M.FAMILIES) do
+    for _, f in ipairs((lean and not on) and {} or M.FAMILIES) do
         for _, c in ipairs(U.find_all(f.class, { skip_defaults = true })) do
             local o = owner_of(c)
             local id = o and U.short(o)
             if id and not kind_of[id] then kind_of[id] = f.kind end
         end
     end
-    local on = not want or want.interactables
     if on then out.interactables = out.interactables or {} end
-    for _, ic in ipairs(U.find_all("InteractionComponent", { skip_defaults = true })) do
+    for _, ic in ipairs((lean and not on) and {} or U.find_all("InteractionComponent", { skip_defaults = true })) do
         local a = owner_of(ic)
         local id = a and U.short(a)
         if id and seen[id] and by_id[id] and not by_id[id].prompt then
@@ -738,12 +791,41 @@ function M.census(log, opts)
     local online
     if not want or want.players then
         online = {}
+        local in_sight = {}
         for _, ps in ipairs(U.find_all("PlayerState", { skip_defaults = true })) do
             local n = text(U.try(function() return ps:GetPlayerName() end))
-            if n then online[#online + 1] = n end
+            if n then
+                online[#online + 1] = n
+                if U.valid(P(ps, "PawnPrivate")) then in_sight[#in_sight + 1] = n end
+            end
         end
         table.sort(online)
         totals.players_online = #online
+        -- ... and where each of them is, at any distance: the game map's markers (compass)
+        local okm, rows = pcall(function() return MAP and MAP.players({ me = me }) end)
+        if okm and type(rows) == "table" then
+            local mp = {}
+            for _, r in ipairs(rows) do
+                if not r.me then
+                    local seen_now = false
+                    for _, n in ipairs(in_sight) do if MAP.same_name(n, r.name) then seen_now = true end end
+                    mp[#mp + 1] = { name = r.name, position = r.position, distance = r.distance, direction = r.direction,
+                                    bearing_deg = r.bearing_deg, in_sight = seen_now }
+                end
+            end
+            out.map_players = mp
+            totals.map_players = #mp
+        elseif not okm and log then log("sense: map players " .. tostring(rows)) end
+    end
+
+    -- up_m: each thing's height above MY feet (capsule half-height 88 cm), whatever the census origin, so
+    -- "the chest is 15 m up" is perceived, not computed by the model (research 2026-11-01-autonomous-building §4.1)
+    local feet_m = (my_at.Z - 88) / 100
+    for _, l in pairs(out) do
+        for _, d in ipairs(l) do
+            local z = type(d) == "table" and type(d.position) == "table" and d.position[3] or nil
+            if type(z) == "number" and d.up_m == nil then d.up_m = math.floor((z - feet_m) * 10 + 0.5) / 10 end
+        end
     end
 
     for cat, l in pairs(out) do
@@ -753,6 +835,7 @@ function M.census(log, opts)
     out.players_online = online
     out.ok = true
     out.origin = U.to_wire(origin)
+    if anchor then out.near, out.from = anchor.name, U.to_wire(my_at) end -- origin = his position; from = mine
     out.radius_m = r_cm / 100
     out.totals = totals
     out.prop_guard = U.prop_stats() -- R17 counters since load (undeclared reads skipped, stale entries refused)

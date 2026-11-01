@@ -106,7 +106,8 @@ class Thing:
     hostile: bool | None = None
     extra: set[str] = field(default_factory=set)  # more words that identify it (item id, class word)
     note: str | None = None  # short facts for the digest: "HP 40/60", "chop, needs Hatchet T1", "Craft"
-    group: str = "thing"  # digest line: creature | item | player | around | usable
+    group: str = "thing"  # digest line: creature | item | player | around | usable | built
+    up_m: float | None = None  # height above his feet (body census up_m; negative = below)
 
     def words(self) -> set[str]:
         return tokens(self.name) | tokens(self.kind) | {w for g in self.gives for w in tokens(g)} | \
@@ -115,8 +116,26 @@ class Thing:
     def label(self) -> str:
         d = f"{self.distance:.0f} m" if isinstance(self.distance, (int, float)) else ""
         n = f"{self.name} x{self.count}" if self.count > 1 else self.name
-        bits = [b for b in (d, f"id {self.id}" if self.id else "", self.note or "") if b]
+        bits = [b for b in (d, height_words(self.up_m), f"id {self.id}" if self.id else "", self.note or "") if b]
         return f"{n} ({', '.join(bits)})" if bits else n
+
+
+# Heights in the digest (building / climbing perception, docs/research/2026-11-01-autonomous-building.md §4.1):
+# only when it matters, i.e. beyond a step he walks up (his single jump is 1.64 m, DISCOVERIES move_calib).
+UP_SHOW_M = 1.5
+
+
+def height_words(up_m: float | None) -> str:
+    """'15 m up' / '4 m down' when the height is beyond a step, else ''."""
+    if not isinstance(up_m, (int, float)) or abs(up_m) < UP_SHOW_M:
+        return ""
+    return f"{abs(up_m):.0f} m {'up' if up_m > 0 else 'down'}"
+
+
+def up_of(row: dict, state: dict | None = None) -> float | None:
+    """A row's height above his feet, as the body measured it (sense.census / build.lua structures up_m). Never
+    computed here: placeholder positions in old rows and mocks would invent heights."""
+    return num(row.get("up_m"))
 
 
 def _item_note(g: dict) -> str | None:
@@ -214,23 +233,24 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
         if isinstance(e, dict) and e.get("alive", True):
             out.append(Thing(e.get("name") or pretty_id(e.get("kind") or e.get("id")), "creature", e.get("id"),
                              _num(e.get("distance")), actions=["attack"], hostile=e.get("hostile"),
-                             extra={str(e.get("kind") or "")}, note=_creature_note(e, odds), group="creature"))
+                             extra={str(e.get("kind") or "")}, note=_creature_note(e, odds), group="creature",
+                             up_m=up_of(e, state)))
     for g in state.get("nearby_items") or []:
         if isinstance(g, dict):
             item = str(g.get("item") or g.get("id") or "")
             out.append(Thing(g.get("name") or name_of_item(item, names), "item", g.get("id"), _num(g.get("distance")),
                              count=int(g.get("count") or 1), gives=[g.get("name") or name_of_item(item, names)],
                              actions=["pickup", "interact"], extra={item}, group="item",
-                             note=_item_note(g)))
+                             note=_item_note(g), up_m=up_of(g, state)))
     for p in state.get("players") or []:
         if isinstance(p, dict) and p.get("name"):
             out.append(Thing(str(p["name"]), "player", str(p["name"]), _num(p.get("distance")), actions=["follow", "give"],
-                             group="player"))
+                             group="player", up_m=up_of(p, state)))
     for r in state.get("nearby_resources") or []:
         if not isinstance(r, dict):
             continue
         if r.get("name"):  # the real body (body/gather.lua extender, from sense.look; client sense.census)
-            t = _look_thing(r)
+            t = _look_thing(r, state)
             t.note, t.group = _resource_note(r), "around"
             out.append(t)
         else:  # the mock's trees and rocks
@@ -238,11 +258,25 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
             kind = {"log": "tree", "stone": "rock"}.get(res, "resource")
             out.append(Thing(f"{kind} ({res})", kind, r.get("id"), _num(r.get("distance")), gives=[res],
                              actions=["gather"], extra={res}))
+    # building pieces (build.lua get_state.structures): by the name buildables uses, so a crate he built reads
+    # "Crate" everywhere (co-play 2026-11-01: "Base Building Crate x2" beside a build reply about a "Crate")
+    pieces = {str(s["id"]): s for s in state.get("structures") or [] if isinstance(s, dict) and s.get("id")}
+    usable_ids = set()
     for r in state.get("interactables") or []:  # stations, chests, beds, graves (client body)
         if isinstance(r, dict) and r.get("name"):
-            t = _look_thing({"verb": "interact", **r})
+            s = pieces.get(str(r.get("id")))
+            row = {**r, "name": s["name"]} if s and s.get("name") else r
+            t = _look_thing({"verb": "interact", **row}, state)
             t.note, t.group = (str(r["prompt"]) if r.get("prompt") else None), "usable"
+            if s and s.get("ghosted"):
+                t.note = ", ".join(b for b in ("ghost piece", t.note) if b)
+            usable_ids.add(str(r.get("id")))
             out.append(t)
+    for sid, s in pieces.items():  # pieces with no use (foundation, wall, stairs): their own line
+        if sid not in usable_ids and s.get("name"):
+            out.append(Thing(str(s["name"]), "structure", sid, _num(s.get("distance")), actions=[],
+                             extra={str(s.get("piece") or "")}, note="ghost piece" if s.get("ghosted") else None,
+                             group="built", up_m=up_of(s, state)))
     for s in state.get("surroundings") or []:  # body digest groups (no ids)
         if isinstance(s, dict) and s.get("name"):
             out.append(Thing(str(s["name"]), str(s.get("kind") or "thing"), s.get("id"),
@@ -253,11 +287,11 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
     for look in looks:
         for t in (look or {}).get("things") or []:
             if isinstance(t, dict) and t.get("name"):
-                out.append(_look_thing(t))
+                out.append(_look_thing(t, state))
     return out
 
 
-def _look_thing(t: dict) -> Thing:
+def _look_thing(t: dict, state: dict | None = None) -> Thing:
     """One entry of a body look (body/sense.lua M.describe): {id, name, kind, verb, distance, count,
     item | drops, prompt, class, ...}. The design-doc shape (gives, actions, distance_m) works too."""
     acts = [a.get("a") if isinstance(a, dict) else str(a) for a in t.get("actions") or []]
@@ -272,7 +306,8 @@ def _look_thing(t: dict) -> Thing:
     return Thing(str(t["name"]), kind, t.get("id"), _num(t.get("distance", t.get("distance_m"))),
                  count=int(t.get("count") or 1), gives=gives, actions=[a for a in acts if a],
                  hostile=True if kind == "creature" and t.get("hostile") else None,
-                 extra={str(t.get("class") or ""), str(t.get("item") or ""), str(t.get("prompt") or "")})
+                 extra={str(t.get("class") or ""), str(t.get("item") or ""), str(t.get("prompt") or "")},
+                 up_m=up_of(t, state))
 
 
 def look_matched(look: dict) -> bool | None:
@@ -319,7 +354,7 @@ def _group(things: list[Thing]) -> list[Thing]:
         g = groups.get(t.name)
         if g is None:
             groups[t.name] = Thing(t.name, t.kind, t.id, t.distance, t.count, list(t.gives), list(t.actions), t.hostile,
-                                   note=t.note, group=t.group)
+                                   note=t.note, group=t.group, up_m=t.up_m)
         else:
             g.count += t.count
     return list(groups.values())
@@ -622,8 +657,80 @@ COVERED_KEYS = frozenset({
     "skills", "sleeping", "stamina", "stations_nearby", "structures", "surroundings", "survival", "sustenance",
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
-    "power_level", "fight_odds", "quests",
+    "power_level", "fight_odds", "quests", "map_players", "near_players",
 })
+
+
+def same_player(a: str, b: str) -> bool:
+    """One player name for another: equal ignoring case, or a long name cut short (the in-game character
+    'luisdeburnaybast' of the account 'luisdeburnaybastos'): one a prefix of the other, the shorter >= 8 chars
+    (client_mod/scripts/mapplayers.lua same_name)."""
+    a, b = str(a or "").lower(), str(b or "").lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if "*" in a or "*" in b:  # the game's name filter masked one ('luisdeburnayb***t' on the map, live 2026-11-01)
+        m, p = (a, b) if "*" in a else (b, a)
+        if "*" in p:
+            return False
+        pat = re.sub(r"(?:\\\*)+", ".+", re.escape(m))
+        if re.fullmatch(pat, p) or (len(m.replace("*", "")) >= 8 and re.match(pat, p)):
+            return True
+        head = m.split("*", 1)[0]
+        return 8 <= len(p) <= len(head) and head.startswith(p)
+    short, long_ = sorted((a, b), key=len)
+    return len(short) >= 8 and long_.startswith(short)
+
+
+def map_players(state: dict, shown: Iterable[str] = ()) -> list[str]:
+    """Players the census doesn't list, from the game map's markers (the compass shows them at any distance):
+    'luisdeburnaybast 320 m NE (out of sight; go_to/follow go by his map marker)'. Retro 2026-11-01 root cause 3."""
+    out = []
+    for r in state.get("map_players") or []:
+        if not isinstance(r, dict) or not r.get("name") or any(same_player(r["name"], s) for s in shown):
+            continue
+        d = num(r.get("distance"))
+        where = " ".join(b for b in (f"{d:.0f} m" if d is not None else "", str(r.get("direction") or "")) if b)
+        out.append(f"{r['name']} {where}".strip() + ("" if r.get("in_sight") else " (out of sight; go_to/follow go by his map marker)"))
+    return out
+
+
+SIDE_WORDS = {"in front": "in front of him", "behind": "behind him", "to the left": "to his left", "to the right": "to his right"}
+NEAR_GROUPS = 5
+
+
+def near_speaker(state: dict, player: str | None) -> str | None:
+    """One line: what lies within ~15 m of the player who spoke, when his pawn is in sight (body get_state
+    near_players: a census around HIM), so "the 2 stone in front of me" can be his stones and not the nearest to
+    you. Information only (PRINCIPLES #2; retro 2026-11-01 root cause 4): the model decides what he meant."""
+    if not player:
+        return None
+    for row in state.get("near_players") or []:
+        if not (isinstance(row, dict) and same_player(row.get("player"), player)):
+            continue
+        r = num(row.get("radius_m")) or 15
+        groups: dict[str, list[dict]] = {}
+        for t in row.get("things") or []:
+            if isinstance(t, dict) and t.get("name"):
+                groups.setdefault(str(t["name"]), []).append(t)
+        head = f"Within {r:g} m of {row['player']} (who spoke)"
+        if not groups:
+            return f"{head}: nothing lying there to pick up or gather."
+        parts = []
+        for name, ts in sorted(groups.items(), key=lambda kv: min(num(t.get("distance")) or 0 for t in kv[1]))[:NEAR_GROUPS]:
+            ts.sort(key=lambda t: num(t.get("distance")) or 0)
+            first, n = ts[0], sum(int(num(t.get("count")) or 1) for t in ts)
+            d, mine = num(first.get("distance")), num(first.get("from_me"))
+            where = ", ".join(b for b in (
+                f"nearest {d:.1f} m{(' ' + SIDE_WORDS[first['side']]) if first.get('side') in SIDE_WORDS else ''}" if d is not None else "",
+                f"{mine:.0f} m from you" if mine is not None else "", f"id {first['id']}" if first.get("id") else "") if b)
+            parts.append(f"{n} {name} ({first.get('kind') or 'thing'}; {where})")
+        more = len(groups) - NEAR_GROUPS
+        return f"{head}: " + "; ".join(parts) + (f"; +{more} more kinds" if more > 0 else "")
+    return None
+
+
 EXTRAS_LINES, EXTRAS_ITEMS = 3, 4
 
 
@@ -713,7 +820,9 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(vitals_policy(state))
 
     pl = [t for t in things if t.kind == "player"]
-    lines.append(_line("Players", [f"{t.name} {t.distance:.0f} m" if t.distance is not None else t.name for t in pl]))
+    lines.append(_line("Players", [(f"{t.name} {t.distance:.0f} m" if t.distance is not None else t.name)
+                                   + (f" {height_words(t.up_m)}" if height_words(t.up_m) else "") for t in pl]
+                       + map_players(state, [t.name for t in pl])))
 
     # hostiles first, then by distance (the nearest threat leads the line)
     # (a creature the body rates hard counts as a threat for the order: it must not be cut off the line)
@@ -732,10 +841,12 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     ground = _group([t for t in things if t.kind == "item"])
     lines.append(_line("On the ground", [g.label() for g in ground]))
 
-    around = _group([t for t in things if t.kind not in ("player", "creature", "item") and t.group != "usable"])
+    around = _group([t for t in things if t.kind not in ("player", "creature", "item") and t.group not in ("usable", "built")])
     lines.append(_line("Around", [g.label() for g in around]))
     usable = _group([t for t in things if t.group == "usable"])
     lines.append(_line("Usable", [g.label() for g in usable]))
+    built = _group([t for t in things if t.group == "built"])  # building pieces with no use: foundations, walls
+    lines.append(_line("Built pieces", [g.label() for g in built]))
     lines.append(_line("Stations", stations(state)))
     if not looks_supported and not state.get("surroundings") and \
             "nearby_resources" in (state.get("not_implemented") or []):
@@ -758,7 +869,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     # never by blindly replacing the last line (which may be the active job).
     optional = ("Places:", "Reflex policy:", "Skills ", "Quests:", "Stations:",
                 "Spare gear:", "Food/drink:", "Players:", "Wearing:", "World:",
-                "On the ground:", "Around:", "Usable:")
+                "On the ground:", "Around:", "Usable:", "Built pieces:")
     for prefix in ("Creatures", "Job:"):
         required = next((line for line in available if line.startswith(prefix)), None)
         if required and required not in chosen:

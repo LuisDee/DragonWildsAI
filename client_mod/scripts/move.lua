@@ -83,6 +83,7 @@ local NM_PATH = ROOT .. "/client_mod/scripts/navmem.lua"
 local AZ_PATH = ROOT .. "/client_mod/scripts/avoidzones.lua"
 local TM_PATH = ROOT .. "/client_mod/scripts/traversal_moves.lua" -- DATA: double jump / Windstep gates
 local SP_PATH = ROOT .. "/client_mod/scripts/spells.lua"          -- Windstep: its public ability_status / cast_now
+local MP_PATH = ROOT .. "/client_mod/scripts/mapplayers.lua"      -- players on the game map / compass, any distance
 
 local M = {}
 local move_arbiter, life_check, finish, paused, world_identity
@@ -205,18 +206,38 @@ local function finite3(p) -- p has finite numeric X, Y, Z
     return true
 end
 
--- Pawn of the player whose PlayerState name is `name` (case-insensitive), or nil.
+-- The players on the game's map and compass (mapplayers.lua), loaded once per load of this file; nil when missing.
+local MPm
+local function mp()
+    if MPm == nil then
+        local okc, chunk = pcall(loadfile, MP_PATH)
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        MPm = (okm and type(mod) == "table" and type(mod.find) == "function") and mod or false
+    end
+    return MPm or nil
+end
+
+-- Pawn of the player whose PlayerState name is `name` (case-insensitive; a name cut short matches too when it is the
+-- only one, mapplayers.same_name: the character "luisdeburnaybast" of the account "luisdeburnaybastos"), or nil.
 local function player_pawn(name, me)
     local want = name:lower()
+    local P = mp()
+    local hit, n = nil, 0
     for _, ps in ipairs(FindAllOf("PlayerState") or {}) do
         if ps:IsValid() and not ps:GetFullName():find("Default__") then
-            local ok, n = pcall(function() return ps:GetPlayerName():ToString() end)
-            if ok and n and n:lower() == want then
+            local ok, pn = pcall(function() return ps:GetPlayerName():ToString() end)
+            local exact = ok and pn and pn:lower() == want
+            if exact or (ok and pn and P and P.same_name(pn, name)) then
                 local okp, p = pcall(function() return ps.PawnPrivate end)
-                if okp and p and p:IsValid() and p ~= me then return p end
+                if okp and p and p:IsValid() and p ~= me then
+                    if exact then return p end
+                    hit, n = p, n + 1
+                end
             end
         end
     end
+    if n == 1 then return hit end
 end
 
 -- Nearest other player's (name, pawn, distance cm) within max_cm of p, or nil.
@@ -250,7 +271,41 @@ local function actor_by_id(id)
     end
 end
 
--- Resolve a goal spec to (pawn_or_actor, kind) with kind "player" | "actor".
+-- A player out of net relevancy (his pawn replicates only within ~150 m) is still on the game map and compass: a
+-- stand-in target, a plain Lua table with the methods the move reads (IsValid, K2_GetActorLocation, GetFullName; never
+-- a UObject), whose position is his map marker (mapplayers.lua: the replicated GameplayObjectRegistry.PlayerCharacters),
+-- re-read as he moves. It gives way once his pawn replicates (IsValid turns false after 1 s, so track_goal's
+-- once-a-second re-resolve picks the pawn) or when he leaves the map. Retro 2026-11-01 root cause 3.
+M.MAP_REFRESH_S = 0.5
+M.MAP_REPATH_FRAC = 0.15 -- a map-marker goal re-asks the route once he drifted this share of the distance (>= 3 m)
+local function map_target(spec, me)
+    local P = mp()
+    if not P or type(spec) ~= "string" or spec == "" then return nil end
+    local function clock() local ok, t = pcall(now, me); return (ok and type(t) == "number") and t or os.clock() end
+    local okf, row = pcall(P.find, spec, { me = me })
+    if not (okf and row) then return nil end
+    local t0 = clock()
+    local proxy = { dw_map = true, name = row.name, spec = spec, row = row, t0 = t0, read_t = t0 }
+    function proxy:IsValid()
+        local t = clock()
+        if t - self.read_t >= M.MAP_REFRESH_S or t < self.read_t then
+            self.read_t = t
+            local okr, r = pcall(P.find, self.spec, { me = me })
+            if okr and r then self.row = r elseif okr then self.gone = true end
+            local pw = not self.gone and t - self.t0 > 1.05 and player_pawn(self.spec, me)
+            local okl, l = false, nil
+            if pw then okl, l = pcall(function() return pw:K2_GetActorLocation() end) end
+            -- (a culled pawn can linger at the world origin: that one is no handover)
+            if okl and l and (math.abs(l.X) >= 100 or math.abs(l.Y) >= 100) then self.pawn_seen = true end
+        end
+        return not (self.gone or self.pawn_seen)
+    end
+    function proxy:K2_GetActorLocation() local p = self.row.pos; return { X = p.X, Y = p.Y, Z = p.Z } end
+    function proxy:GetFullName() return "MapPlayer " .. tostring(self.name) end
+    return proxy
+end
+
+-- Resolve a goal spec to (pawn_or_actor, kind) with kind "player" | "actor"; a player out of sight -> his map marker.
 local function resolve_target(spec, me)
     if type(spec) == "userdata" then return spec, "actor" end
     if type(spec) == "table" and spec.actor then return spec.actor, "actor" end
@@ -258,6 +313,18 @@ local function resolve_target(spec, me)
     if p then return p, "player" end
     local a = actor_by_id(tostring(spec))
     if a then return a, "actor" end
+    local m = map_target(spec, me)
+    if m then return m, "player" end
+end
+-- the players on the map other than me (names), for a truthful "not on the map" reason; nil when unreadable
+local function map_names(me)
+    local P = mp()
+    if not P then return nil end
+    local ok, rows = pcall(P.players, { me = me })
+    if not ok or type(rows) ~= "table" then return nil end
+    local out = {}
+    for _, r in ipairs(rows) do if not r.me and r.name then out[#out + 1] = r.name end end
+    return out
 end
 
 -- Traversal events for the traversal agent / brain (docs/research/2026-10-25-traversal.md):
@@ -1512,7 +1579,15 @@ end
 local function lost_target(f)
     local st = f.st
     st.status = "target_not_visible"
-    if st.mode == "go_to" and f.t - st.t0 > 10 then return stop(st, { status = "failed", reason = "target_not_visible" }, f.log) end
+    st.lost_t = st.lost_t or f.t
+    -- a go_to gives up 10 s into the move once the target has been gone 2 s in a row (a pawn handing over to its map
+    -- marker, or back, may miss a frame); the reason says who IS on the map
+    if st.mode == "go_to" and f.t - st.t0 > 10 and f.t - st.lost_t >= 2 then
+        local names = st.target_kind ~= "actor" and map_names(f.pawn) or nil
+        local detail = names and string.format("%s is not in sight, and no player of that name is on the game map (on the map: %s)",
+            tostring(st.target_spec or st.target_name), #names > 0 and table.concat(names, ", ") or "nobody else") or nil
+        return stop(st, { status = "failed", reason = "target_not_visible", detail = detail }, f.log)
+    end
     st.prog_t = nil
     return true
 end
@@ -1547,21 +1622,37 @@ local function track_goal(f)
     local st, t, log = f.st, f.t, f.log
     if not st.target_name then f.goal = st.goal; return end
     if not (st.target and st.target:IsValid()) and t - (st.target_t or 0) > 1.0 then
-        st.target, st.target_t = resolve_target(st.target_spec or st.target_name, f.pawn), t
+        local tgt, kind = resolve_target(st.target_spec or st.target_name, f.pawn)
+        st.target, st.target_t = tgt, t
+        if kind and not st.target_kind then st.target_kind = kind end
         st.target_mc = nil
     end
     if not (st.target and st.target:IsValid()) then return lost_target(f) end
     local goal = st.target:K2_GetActorLocation()
     -- a relevancy-culled / teleporting proxy reads as the world origin (live 20:25: Claude sprinted
-    -- toward (0,0,0), 1.8 km away): treat as not visible
-    if math.abs(goal.X) < 100 and math.abs(goal.Y) < 100 then return lost_target(f) end
+    -- toward (0,0,0), 1.8 km away): treat as not visible; a player: his marker on the game map instead
+    if math.abs(goal.X) < 100 and math.abs(goal.Y) < 100 then
+        local m = st.target_kind == "player" and not (type(st.target) == "table" and st.target.dw_map)
+            and map_target(st.target_spec or st.target_name, f.pawn)
+        if not m then return lost_target(f) end
+        st.target, st.target_t, st.target_mc = m, t, nil
+        goal = m:K2_GetActorLocation()
+    end
+    local via = (type(st.target) == "table" and st.target.dw_map) and "map" or "sight"
+    if via ~= st.target_via then
+        if log and st.target_via then log("move: " .. tostring(st.target_spec or st.target_name) .. " now tracked by "
+            .. (via == "map" and "his marker on the game map (out of sight)" or "sight (his pawn replicated)")) end
+        st.target_via = via
+    end
+    st.lost_t = nil
     if st.last_goal and d2(goal, st.last_goal) > M.cfg.target_jump_cm then -- teleport: drop the old route and trail
         if log then log(string.format("move: target jumped %.0f m (teleport?); resetting route and trail", d2(goal, st.last_goal) / 100)) end
         st.path, st.lpath, st.mpath, st.trail_i, st.bug = nil, nil, nil, nil, nil
         st.crumbs, st.crumb_mark = {}, 0
     end
     st.last_goal = v(goal)
-    if st.target_kind ~= "actor" then watch_leader(st, goal, t, log) end
+    -- a map marker is no trail (coarse samples, no ground/jump state): crumbs only from a pawn in sight
+    if st.target_kind ~= "actor" and via ~= "map" then watch_leader(st, goal, t, log) end
     st.target_pos = goal
     f.goal = goal
 end
@@ -1749,8 +1840,12 @@ local function route_tick(f)
     local arb = move_arbiter()
     local owns = arb and arb.owns_move and st.owner_token and arb.owns_move(st.owner_token)
     if not owns or rawget(_G, "DW_MOVE") ~= st or st.gen ~= gen or pawn ~= st.pawn or paused() then return true end
-    if not st.local_authority and not st.lp_observe and st.nav_goal and (d2(goal, st.nav_goal) > M.cfg.repath_goal_move_cm or
-        math.abs(goal.Z - st.nav_goal.Z) > M.cfg.repath_goal_move_cm) then
+    -- (a player tracked by his map marker, hundreds of metres off, moves a few metres between oracle answers: a fixed
+    -- 3 m drop-and-re-ask kept the route pending forever and Claude stood "planning", live 2026-11-01 12:45 at 435 m)
+    local repath_cm = M.cfg.repath_goal_move_cm
+    if st.target_via == "map" then repath_cm = math.max(repath_cm, dist * M.MAP_REPATH_FRAC) end
+    if not st.local_authority and not st.lp_observe and st.nav_goal and (d2(goal, st.nav_goal) > repath_cm or
+        math.abs(goal.Z - st.nav_goal.Z) > repath_cm) then
         st.path, st.nav_pending, st.nav_goal, st.nav_fail, st.nav_wait_t = nil, nil, nil, nil, nil -- the goal moved: re-path
     end
     local world = world_identity()
@@ -1831,7 +1926,8 @@ end
 -- follow: a leader this far off teleported (a lodestone): hold and say so until he is near again
 local function leader_far(f)
     local st, t, me, goal, dist, log = f.st, f.t, f.me, f.goal, f.dist, f.log
-    if st.mode == "follow" and dist > M.cfg.leader_far_cm then
+    -- (a leader tracked by his map marker is far by definition and his position is known: walk to him)
+    if st.mode == "follow" and dist > M.cfg.leader_far_cm and st.target_via ~= "map" then
         if not st.far then
             st.far = true
             pcall(emit_move_event, "unreachable", { reason = "leader_far", leader_pos = goal, my_pos = me,
@@ -3257,7 +3353,13 @@ local function start(log, mode, opts)
         return abort_start()
     end
     st.handle=handle;st.start_guard=nil
-    return { ok = true, mode = mode, gen = gen, target_visible = st.target ~= nil or st.goal ~= nil }
+    local on_map = type(st.target) == "table" and st.target.dw_map
+    local mp_at = on_map and st.target:K2_GetActorLocation() or nil
+    if mp_at and log then log(string.format("move: %s %s is out of sight; going by his marker on the game map at (%.0f,%.0f,%.0f)",
+        mode, tostring(st.target.name), mp_at.X, mp_at.Y, mp_at.Z)) end
+    return { ok = true, mode = mode, gen = gen, target_visible = st.target ~= nil or st.goal ~= nil,
+             target_via = on_map and "map" or (st.target and "sight") or nil,
+             target_position = mp_at and { math.floor(mp_at.X) / 100, math.floor(mp_at.Y) / 100, math.floor(mp_at.Z) / 100 } or nil }
 end
 
 function M.go_to(log, goal, opts)
@@ -3487,6 +3589,7 @@ function M.status()
             leader_pos = m3(st.unreach.leader_pos), my_pos = m3(st.unreach.my_pos) } or nil,
         unreach_episodes = st.unreach_episodes,
         aim = m3(st.aim), target_pos = m3(st.target_pos), target_kind = st.target_kind,
+        target_via = st.target_via, -- "sight" (his pawn) | "map" (his game-map marker: out of net relevancy)
         avoid = M.avoid_status(st),
         progress = progress_view(st),
         escape = st.escape and { zone = st.escape.zone, eta_s = st.escape.eta_s, at = st.escape.at } or nil,

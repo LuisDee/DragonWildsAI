@@ -36,7 +36,8 @@ local M = { VERSION = 1, obj = obj, NOARGS = NOARGS }
 M.TOOLS = {
     -- ------------------------------------------------------------------ actions
     follow = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 0, timeout_s = 10,
-        description = "Follow a player until stopped or given another job (waits and resumes if he is out of reach).",
+        description = "Follow a player until stopped or given another job (waits and resumes if he is out of reach; out of "
+            .. "sight, goes by his marker on the game map).",
         args = { type = "object", required = { "player" }, properties = obj({
             player = str("The player's exact name."),
             distance = { type = "number", minimum = 1, default = 3, description = "Distance to keep, metres." } }) },
@@ -48,7 +49,8 @@ M.TOOLS = {
         args = NOARGS, reasons = {} },
     go_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 295, -- move.lua: max(120, 3 d / 4.5 m/s) capped at 285 s
         description = "Walk to a player, a perceived thing, a remembered place or a point; answers on arrival or says why not. "
-            .. "Use it whenever he wants you somewhere, also when you think you're already there: it answers arrived at once if you are.",
+            .. "Use it whenever he wants you somewhere, also when you think you're already there: it answers arrived at once if you are. "
+            .. "A player out of sight is found by his marker on the game map, at any distance.",
         args = { type = "object", required = { "target" }, properties = obj({
             target = { description = "A player name, a perceived id, a place, 'my_grave' / 'my_grave:<ts>' (a remembered grave), or [x,y,z].",
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
@@ -107,6 +109,8 @@ M.TOOLS = {
             .. "with about=<his words> before acting on it or telling him it isn't there. Read-only.",
         args = { type = "object", properties = obj({
             about = str("The player's words for what to find; ranks matches first."),
+            near = str("A player's name: look around HIM instead of you (distances from him, plus from_me and which "
+                .. "side of him it lies). He must be in sight."),
             radius = { type = "number", minimum = 1, maximum = 80, default = 20, description = "Metres." },
             max = { type = "integer", minimum = 1, maximum = 40, default = 15, description = "At most this many things." } }) } },
     inspect = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 15,

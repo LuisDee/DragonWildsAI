@@ -44,6 +44,7 @@ local M = { U = U }
 
 M.cfg = {
     radius_m = 30, max_radius_m = 90, widen = 1.5,
+    near_radius_m = 15, near_max_radius_m = 30, -- args.near = a player: search around HIM (retro 2026-11-01 cause 4)
     decide_s = 0.1,
     tap_frames = 3,
     press_jitter_ms = { 60, 220 },
@@ -261,6 +262,7 @@ local function result_of(J, ok, reason, data)
     data.swings, data.hits, data.broken, data.targets = J.swings, J.hits, J.broken, J.targets
     data.seconds = J.t and J.t0 and math.floor((J.t - J.t0) * 10) / 10 or nil
     data.radius_m = J.radius_cm and J.radius_cm / 100 or nil
+    data.near = J.anchor and J.anchor.name or nil -- the radius was around this player, not around me
     data.tool = J.tool and J.tool.name or nil
     data.phase_log = J.phase_log
     return { ok = ok, reason = reason, data = data }
@@ -462,8 +464,8 @@ local function choose(J, me)
             if ch then ch.at_site = s; return ch end
         end
     end
-    -- 3. a new root
-    local roots = roots_near(J, me, J.radius_cm)
+    -- 3. a new root (around the player named in args.near when given: "the stones near me", said by him)
+    local roots = roots_near(J, J.anchor and J.anchor.pos or me, J.radius_cm)
     local too_hard
     for _, T in ipairs(roots) do
         if J.tool and T.tier and T.tier > J.tool.tier then too_hard = too_hard or T
@@ -631,18 +633,20 @@ local function step_scan(J, me)
             "The only %s near me is floating out of reach (%d of them, the nearest %.0f m up): it has to be knocked down first, then I can mine it.",
             J.key, #hard, f.above_m), { floating = hard })
     end
-    -- nothing: widen, then give up
-    if J.radius_cm < M.cfg.max_radius_m * 100 then
-        J.radius_cm = math.min(J.radius_cm * M.cfg.widen, M.cfg.max_radius_m * 100)
+    -- nothing: widen, then give up (around a named player only up to near_max_radius_m: "near me" stays near him)
+    local cap = J.max_radius_cm or M.cfg.max_radius_m * 100
+    if J.radius_cm < cap then
+        J.radius_cm = math.min(J.radius_cm * M.cfg.widen, cap)
         say(J.log, "nothing in range; widening to " .. math.floor(J.radius_cm / 100) .. " m")
         return
     end
+    local of = J.anchor and J.anchor.name or "me"
     if (J.gained or 0) > 0 then
-        return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I got %d but there's no more %s within %d m.",
-            J.gained, J.key, math.floor(J.radius_cm / 100)))
+        return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I got %d but there's no more %s within %d m of %s.",
+            J.gained, J.key, math.floor(J.radius_cm / 100), of))
     end
-    return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I can't find any %s within %d m of me.", J.key,
-        math.floor(J.radius_cm / 100)))
+    return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I can't find any %s within %d m of %s.", J.key,
+        math.floor(J.radius_cm / 100), of))
 end
 
 local function step_approach(J, pawn, me)
@@ -1031,6 +1035,28 @@ function M.start(log, args, ctx)
         end
         if not valid then return { ok = false, reason = "invalid_args", data = { detail = "Unknown or empty acquisition mode: " .. tostring(mode) } } end
     end
+    -- args.near = a player's name: every search below is centred on HIM (his pawn must be in sight), with a smaller
+    -- default radius; "the 2 stone in front of me" (retro 2026-11-01 root cause 4). The model decides when to pass it.
+    local anchor
+    if type(args.near) == "string" and args.near ~= "" then
+        local MAP = mod("mapplayers")
+        local me_a = W.pawn(W.pc())
+        local pw, pname
+        if MAP then pw, pname = MAP.pawn_of(args.near, me_a) end
+        local at = pw and W.loc(pw)
+        if not at then
+            local row = MAP and me_a and (MAP.find(args.near, { me = me_a })) or nil
+            return { ok = false, reason = "unknown_target", data = { why = "player_not_in_sight", near = args.near,
+                     map = row and { name = row.name, position = row.position, distance = row.distance, direction = row.direction } or nil,
+                     detail = row and string.format("I can't see %s from here (the map has him %s m %s of me), so I can't tell what's near him.",
+                                                    tostring(row.name), tostring(row.distance), tostring(row.direction or "away"))
+                         or string.format("I can't see a player called %s.", args.near) } }
+        end
+        anchor = { name = pname or args.near, pos = at }
+    end
+    local function radius_cm()
+        return math.min((tonumber(args.radius) or (anchor and M.cfg.near_radius_m) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100)
+    end
     local key, profile
     if P then key, profile = P.resolve(args.resource) end
     local category, candidates
@@ -1060,8 +1086,8 @@ function M.start(log, args, ctx)
         if #candidates > 0 then
             category = args.resource
             local pawn0 = W.pawn(W.pc())
-            local me0 = pawn0 and W.loc(pawn0)
-            local r_cm = math.min((tonumber(args.radius) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100)
+            local me0 = anchor and anchor.pos or (pawn0 and W.loc(pawn0))
+            local r_cm = radius_cm()
             local best_d
             for _, k in ipairs(candidates) do
                 local cand = P.RESOURCES[k]
@@ -1070,8 +1096,9 @@ function M.start(log, args, ctx)
             end
             if not profile then
                 return { ok = false, reason = "nothing_in_range", data = { why = "no_node_of_kind", resource = args.resource,
-                         candidates = candidates, radius_m = r_cm / 100,
-                         detail = string.format("No %s within %d m (kinds: %s).", tostring(args.resource), r_cm / 100, table.concat(candidates, ", ")) } }
+                         candidates = candidates, radius_m = r_cm / 100, near = anchor and anchor.name or nil,
+                         detail = string.format("No %s within %d m%s (kinds: %s).", tostring(args.resource), r_cm / 100,
+                             anchor and (" of " .. anchor.name) or "", table.concat(candidates, ", ")) } }
             end
         end
     end
@@ -1094,8 +1121,8 @@ function M.start(log, args, ctx)
     local via
     local function tool_free_alternative()
         if not (P and P.RESOURCES and profile.item) then return nil end
-        local me1 = W.loc(pawn)
-        local r_cm = math.min((tonumber(args.radius) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100)
+        local me1 = anchor and anchor.pos or W.loc(pawn)
+        local r_cm = radius_cm()
         local best_k, best_p, best_d
         for k, cand in pairs(P.RESOURCES) do
             if k ~= key and not cand.tool and cand.item == profile.item then
@@ -1158,7 +1185,8 @@ function M.start(log, args, ctx)
     local tprof = tool and tools[tool.entry.item] or nil
     J = { gen = c.gen, log = log, pc = pc, key = key, profile = profile, want = want, via = via, item = profile.item, token = token,
           task_id = ctx and ctx.id, tool = tool, tool_profile = tprof, stumps = args.stumps == true or (args.stumps == nil and M.cfg.stumps),
-          radius_cm = math.min((tonumber(args.radius) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100),
+          radius_cm = radius_cm(), anchor = anchor,
+          max_radius_cm = anchor and math.max(radius_cm(), M.cfg.near_max_radius_m * 100) or nil,
           inv0 = counts_of(list), gained = 0, have = M.count_in(list, profile.item), t0 = t, t = t, phase_t = t,
           inputs = {}, sites = {}, swings = 0, hits = 0, broken = 0, targets = 0, phase_log = {}, bad_streak = 0,
           style = (args.style ~= nil and args.style ~= "" and args.style ~= "auto") and tostring(args.style) or nil,
@@ -1176,7 +1204,7 @@ function M.start(log, args, ctx)
     end)
     return { ok = true, data = { resource = key, item = profile.item, want = want, have = J.have, tool = tool and tool.name,
              category = category, candidates = candidates, mode = profile.mode,
-             tool_tier = tool and tool.tier, radius_m = J.radius_cm / 100, timeout_s = J.timeout_s } }
+             tool_tier = tool and tool.tier, radius_m = J.radius_cm / 100, timeout_s = J.timeout_s, near = anchor and anchor.name or nil } }
 end
 
 function M.stop(log, why)
@@ -1243,7 +1271,8 @@ do
                 resource = { type = "string", description = "A resource (oak, copper, stone_boulder = mine a stone boulder with a pickaxe, Mining XP; loose_stones = pick stones up off the ground, no XP) or a kind (ore, rock, logs, stone: the nearest of that kind)." },
                 count = { type = "integer", minimum = 1, description = "How many more." },
                 mode = { type = "string", description = "Only sources of this kind (" .. table.concat(modes, ", ") .. "); no tool-free substitute." },
-                radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30)." },
+                radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30; 15 with near)." },
+                near = { type = "string", description = "A player's name: search around HIM instead of you (he must be in sight)." },
                 stumps = { type = "boolean", description = "Also chop stumps." },
                 style = { type = "string", description = "One of the tool's actions (see held_actions), e.g. Overhead Chop." } }) },
             preconditions = { "a tool of the right kind in your inventory (axe for trees, pickaxe for rocks)" },
@@ -1261,7 +1290,7 @@ M.HANDLERS = {
             return { ok = false, reason = "invalid_args", data = { detail = "count must be 1 or more" } }
         end
         local r = M.start(log, { resource = args.resource, count = args.count or 1, radius = args.radius, stumps = args.stumps,
-                                 style = args.style, mode = args.mode }, ctx)
+                                 style = args.style, mode = args.mode, near = args.near }, ctx)
         if not r.ok then return r end
         local J = C().job
         local a = { kind = "gather", id = ctx and ctx.id, timeout_s = (J and J.timeout_s or 600) + 15 }

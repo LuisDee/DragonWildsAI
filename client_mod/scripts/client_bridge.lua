@@ -337,6 +337,45 @@ local function bucket_census(c)
     return out
 end
 
+-- What lies around each player in sight (retro 2026-11-01 root cause 4: "the 2 stone in front of me", "grab these
+-- sticks near me" sent him searching around himself): a lean census (items + resources) within M.NEAR_PLAYER_M of the
+-- player, the M.NEAR_PLAYER_MAX nearest, each {id, name, kind, count, distance (from HIM), side (of his facing),
+-- from_me}. Cached per player while he stays within 2 m of where it was read and for M.NEAR_PLAYER_TTL_S (a lean
+-- census costs ~100 ms live). Information only: the model works out what "near me" means.
+M.NEAR_PLAYER_M, M.NEAR_PLAYER_MAX, M.NEAR_PLAYER_TTL_S, M.NEAR_PLAYERS_N, M.NEAR_PLAYER_SIGHT_M = 15, 8, 5, 2, 150
+local function near_players(map_rows)
+    S.near_cache = S.near_cache or {}
+    local out, n = {}, 0
+    for _, p in ipairs(type(map_rows) == "table" and map_rows or {}) do
+        if p.in_sight and p.name and n < M.NEAR_PLAYERS_N and (tonumber(p.distance) or math.huge) <= M.NEAR_PLAYER_SIGHT_M then
+            n = n + 1
+            local t, c = now_s(), S.near_cache[p.name]
+            if not c or t - c.t > M.NEAR_PLAYER_TTL_S or (p.position and c.at and dist2d(c.at, p.position) > 2) then
+                local r = call("sense", "census", { near = p.name, radius_m = M.NEAR_PLAYER_M, max = M.NEAR_PLAYER_MAX, lean = true,
+                                                    kinds = { items = true, resources = true } })
+                c = { t = t, at = p.position }
+                if r.ok then
+                    local rows = {}
+                    for _, cat in ipairs({ "items", "resources" }) do
+                        for _, x in ipairs(r.data[cat] or {}) do
+                            rows[#rows + 1] = { id = x.id, name = x.name, kind = cat == "items" and "item" or (x.foliage or x.kind),
+                                                count = x.count, distance = x.distance, side = x.side, from_me = x.from_me,
+                                                verb = x.verb, available = x.available }
+                        end
+                    end
+                    table.sort(rows, function(a, b) return (a.distance or 0) < (b.distance or 0) end)
+                    for i = #rows, M.NEAR_PLAYER_MAX + 1, -1 do rows[i] = nil end
+                    c.rows = rows
+                end
+                S.near_cache[p.name] = c
+            end
+            if c.rows then out[#out + 1] = { player = p.name, radius_m = M.NEAR_PLAYER_M, things = c.rows } end
+        end
+    end
+    return out
+end
+M._near_players = near_players
+
 local function item_key(row) return row.item or row.name end
 
 -- inventory.list -> inventory {item: count} (hotbar + bag: what he carries and can use), inventory_items
@@ -391,6 +430,13 @@ function M.get_state()
             local bk = bucket_census(cr.data)
             data.players, data.nearby_entities, data.nearby_resources = bk.players, bk.nearby_entities, bk.nearby_resources
             data.nearby_items, data.interactables, data.players_online = bk.nearby_items, bk.interactables, cr.data.players_online
+            -- every other player on the game map at any distance (compass), and what lies around those in sight
+            if type(cr.data.map_players) == "table" then
+                data.map_players = cr.data.map_players
+                local okn, np = pcall(near_players, cr.data.map_players)
+                if okn and #np > 0 then data.near_players = np
+                elseif not okn then ev("client_module_error", { module = "bridge", fn = "near_players", err = tostring(np) }) end
+            end
         else
             missing.players, missing.nearby_entities, missing.nearby_resources = true, true, true
         end
@@ -520,6 +566,19 @@ local function resting_failure()
 end
 M._resting_failure = resting_failure
 
+-- A player out of sight (beyond net relevancy) is walked to by his marker on the game map (move.lua map_target):
+-- one sentence for the result, e.g. "luisdeburnaybast is out of sight; going by his marker on the game map, 320 m NE".
+local function map_note(name, pos)
+    local here = my_position()
+    if not (here and type(pos) == "table" and type(pos[1]) == "number") then return nil end
+    local s = M.module("sense")
+    local MAP = s and type(s.mapplayers) == "function" and s.mapplayers() or nil
+    local dir = MAP and MAP.compass({ X = here[1], Y = here[2] }, { X = pos[1], Y = pos[2] }) or nil
+    return string.format("%s is out of sight (beyond ~150 m); going by his marker on the game map, %d m %s of me", tostring(name),
+        math.floor(dist2d(here, pos) + 0.5), dir or "away")
+end
+M._map_note = map_note
+
 R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function(args, ctx)
     local target = args.target
     if target == nil or (type(target) == "table" and (type(target[1]) ~= "number" or type(target[2]) ~= "number" or type(target[3]) ~= "number")) or (type(target) == "string" and target == "") then
@@ -604,6 +663,15 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
         end
         return nil
     end
+    local note = type(r.data) == "table" and r.data.target_via == "map" and map_note(target, r.data.target_position) or nil
+    if note then -- every answer of this go_to says he was found on the map (and how far he was)
+        local poll0 = a.poll
+        a.poll = function(self)
+            local res = poll0(self)
+            if type(res) == "table" and type(res.data) == "table" then res.data.via, res.data.resolved = "map", res.data.resolved or note end
+            return res
+        end
+    end
     return { pending = a }
 end }
 
@@ -633,6 +701,7 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
     end
     local data = copy(r.data)
     data.following, data.distance = a.player, dist_m
+    if data.target_via == "map" then data.resolved = map_note(a.player, data.target_position) end
     return { result = { ok = true, data = data }, hold = a }
 end }
 
@@ -726,6 +795,7 @@ R.move_status = { needs = { { "move", "status" } }, fn = function() return call(
 -- a census row plus category, kind, verb and the actions the CLIENT can do on it now.
 M.LOOK_RADIUS_M, M.LOOK_MAX_RADIUS_M, M.LOOK_MAX = 20, 80, 15
 M.GOTO_FIND_M = 500 -- go_to resolves a perceived id this far (census rows, live actors by id)
+M.NEAR_FIND_M = 30  -- ... and an id handed out by look {near = <player>} this far from a player in sight
 M.INTERACT_REACH_M = 2.0     -- walk closer than this before pressing interact (the detector traces 6 m)
 M.INTERACT_APPROACH_M = 1.0  -- move.go_to tolerance for the approach (graves: 0.6-1.2 m works)
 M.INTERACT_AIM_S = 2         -- re-aim until the game's detector targets the thing
@@ -829,9 +899,10 @@ function M.resolve_name(rows, what, opts)
     return best, { tier = best and bt or nil, near = near }
 end
 
--- Every thing within radius_m (census, nearest first per category), flattened.
-local function census_things(radius_m, max_per_cat)
-    local r = call("sense", "census", { radius_m = radius_m, max = max_per_cat or 40 })
+-- Every thing within radius_m (census, nearest first per category), flattened. near = a player's name: around HIM
+-- (distances from him, from_me and side on each row; he must be in sight).
+local function census_things(radius_m, max_per_cat, near)
+    local r = call("sense", "census", { radius_m = radius_m, max = max_per_cat or 40, near = near })
     if not r.ok then return nil, r end
     local out = {}
     for _, cat in ipairs(CATS) do
@@ -909,6 +980,19 @@ local function find_thing(id, radius_m)
     for _, t in ipairs(things) do if t.id == id then return t end end
     local a, ar = find_actor_by_id(id, radius_m)
     if a or ar then return a, ar end
+    if radius_m == nil then -- an id that look {near = <player>} handed out: beyond my radius, but near a player in sight
+        local s = M.module("sense")
+        local MAP = s and type(s.mapplayers) == "function" and s.mapplayers() or nil
+        local okp, rows = pcall(function() return MAP and MAP.players({ me = s.local_pawn() }) end)
+        for _, p in ipairs(okp and type(rows) == "table" and rows or {}) do
+            if not p.me and p.name and (tonumber(p.distance) or math.huge) <= M.NEAR_PLAYER_SIGHT_M then
+                local near = census_things(M.NEAR_FIND_M, 100, p.name)
+                for _, t in ipairs(near or {}) do
+                    if t.id == id then t.distance = t.from_me or t.distance; t.near_player = p.name; return t end
+                end
+            end
+        end
+    end
     return nil, fail("unknown_target", { target = id, detail = "not perceived within " .. (radius_m or M.LOOK_MAX_RADIUS_M) .. " m" })
 end
 
@@ -916,7 +1000,8 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local radius = math.min(tonumber(args.radius) or M.LOOK_RADIUS_M, M.LOOK_MAX_RADIUS_M)
     local max = math.max(1, math.min(tonumber(args.max) or M.LOOK_MAX, 40))
     local about = need_str(args.about) and args.about or nil
-    local things, r = census_things(radius)
+    local near = need_str(args.near) and args.near or nil
+    local things, r = census_things(radius, nil, near)
     if not things then return r end
     for _, t in ipairs(things) do t._score = about and M.match_score(t, about) or 0 end
     table.sort(things, function(x, y)
@@ -934,7 +1019,7 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local m = S.bridge.null -- a boolean only when about was given (an and/or chain would turn false into null)
     if about then m = matched end
     return { ok = true, data = { origin = r.data.origin, radius_m = radius, about = about or S.bridge.null, total = #things,
-                                 things = out, matched = m } }
+                                 things = out, matched = m, near = r.data.near or S.bridge.null } }
 end }
 
 -- The live actor behind a thing (class word from the census row; alive only).
@@ -1226,7 +1311,14 @@ M.API = {
     now = function() return now_s() end,
     me = function() return me() end,
     my_position = function() return my_position() end,
-    census_things = function(r, m) return census_things(r, m) end,
+    census_things = function(r, m, near) return census_things(r, m, near) end,
+    -- one player name for another: equal ignoring case, or a long name cut short (mapplayers.same_name)
+    same_player = function(a, b)
+        if a == b then return a ~= nil end
+        local s = M.module("sense")
+        local MAP = s and type(s.mapplayers) == "function" and s.mapplayers() or nil
+        return MAP ~= nil and MAP.same_name(a, b) or false
+    end,
     find_thing = function(id, r) return find_thing(id, r) end,
     match_score = function(t, about) return M.match_score(t, about) end,
     resolve_name = function(rows, what, opts) return M.resolve_name(rows, what, opts) end,

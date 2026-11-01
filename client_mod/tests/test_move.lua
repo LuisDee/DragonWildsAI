@@ -7,7 +7,7 @@ os.execute('mkdir "' .. (dir .. "/client_io/nav"):gsub("/", "\\") .. '" 2>nul')
 os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>nul')
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
-    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua" }) do
+    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua", "mapplayers.lua" }) do
         local src = assert(io.open(here .. "/../scripts/" .. n, "rb")):read("a")
         local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
     end
@@ -2421,6 +2421,92 @@ do
             tostring(_G.DW_MOVE.nav_fallback))
     end
     M.stop(log); oracle = nil; pump_oracle()
+end
+-- FAR PLAYER (retro 2026-11-01 root cause 3): out of net relevancy his pawn is not replicated (PawnPrivate nil), but the
+-- game map's registry (GameplayObjectRegistry.PlayerCharacters) lists him: go_to walks toward the marker, re-reads it as
+-- he moves, hands over to his pawn once it replicates and arrives at HIM; my own map row is never a target; a follow of
+-- a marker 400 m off walks (no "leader_far" hold); a name on no map fails with who IS on the map.
+do
+    M.stop(log); walls, raised, oracle, frame_hook, air, HOLES = {}, {}, nil, nil, 0, nil; pump_oracle()
+    local function fstr(s) return { ToString = function() return s end } end
+    local rows = {}
+    local REG = obj({ PlayerCharacters = { ForEach = function(_, fn) for i, e in ipairs(rows) do fn(i, e) end end } })
+    local base_find = FindAllOf
+    FindAllOf = function(c) if c == "GameplayObjectRegistry" then return { REG } end return base_find(c) end
+    pawn.PlayerState = obj({ GetPlayerName = function() return fstr("ClaudeDev") end })
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 30000, Y = 0, Z = 0 }
+    rows[1] = { OwningPlayerName = fstr("ClaudeDev"), Location = pawn.loc, Identifier = { A = 1, B = 1, C = 1, D = 1 } }
+    rows[2] = { OwningPlayerName = fstr("Zezima"), Location = luis.loc, Identifier = { A = 2, B = 2, C = 2, D = 2 } }
+    local relevancy_cm = 15000
+    local handed = nil
+    frame_hook = function()
+        _G.DWMapPlayers = nil -- a fresh registry read every frame (the module caches 0.5 s of os.clock)
+        local near = math.sqrt((luis.loc.X - pawn.loc.X) ^ 2 + (luis.loc.Y - pawn.loc.Y) ^ 2) < relevancy_cm
+        ps_luis.PawnPrivate = near and luis or nil
+        if near and not handed then handed = T end
+    end
+    ps_luis.PawnPrivate = nil
+    local r0 = M.go_to(log, "Zezima", { tolerance_m = 2, nav = false, local_plan = false })
+    check("far player: go_to starts on his map marker", r0.ok and r0.target_via == "map" and r0.target_position and r0.target_position[1] == 300,
+        tostring(r0.target_via) .. " " .. tostring(r0.target_position and r0.target_position[1]))
+    run(60)
+    local s1 = M.status()
+    check("far player: walks toward the marker (tracked via the map)", s1.mode == "go_to" and s1.target_via == "map" and pawn.loc.X > 1500,
+        tostring(s1.mode) .. " " .. tostring(s1.target_via) .. " x=" .. math.floor(pawn.loc.X))
+    luis.loc.Y = 4000 -- he walks 40 m south; his map row follows (same table)
+    run(10)
+    check("far player: the marker is re-read as he moves", M.status().target_pos and math.abs(M.status().target_pos[2] - 40) < 1,
+        M.status().target_pos and M.status().target_pos[2])
+    run(700)
+    local s2 = M.status()
+    check("far player: handed over to his pawn once it replicated", handed ~= nil and (s2.target_via == "sight" or (s2.result and s2.result.status == "arrived")),
+        tostring(s2.target_via) .. " handed=" .. tostring(handed))
+    check("far player: arrives at him", s2.result and s2.result.status == "arrived" and
+        math.sqrt((luis.loc.X - pawn.loc.X) ^ 2 + (luis.loc.Y - pawn.loc.Y) ^ 2) < 300,
+        s2.result and (tostring(s2.result.status) .. " " .. tostring(s2.result.reason)) or s2.mode)
+    -- my own map row is not a player to walk to; a name on no map fails with who IS on it
+    M.stop(log); frame_hook = nil; ps_luis.PawnPrivate = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; rows[1].Location = pawn.loc
+    _G.DWMapPlayers = nil
+    local r1 = M.go_to(log, "ClaudeDev", { nav = false, local_plan = false })
+    check("far player: my own map row is no target", r1.ok and r1.target_via == nil, tostring(r1.target_via))
+    run(130)
+    local s3 = M.status()
+    local on_map = s3.result and tostring(s3.result.detail):match("on the map: ([^)]*)") or ""
+    check("far player: unknown name fails truthfully, naming who is on the map", s3.result and s3.result.reason == "target_not_visible" and
+        on_map == "Zezima", s3.result and tostring(s3.result.detail))
+    -- follow a marker 400 m away: walks to him, no "leader_far" hold (his position is known)
+    M.stop(log); _G.DWMapPlayers = nil; luis.loc = { X = 40000, Y = 0, Z = 0 }; rows[2].Location = luis.loc
+    frame_hook = function() _G.DWMapPlayers = nil end
+    M.follow(log, "Zezima", 3, { nav = false, local_plan = false })
+    run(30)
+    local s4 = M.status()
+    check("far player: follow of a 400 m marker walks (no leader_far hold)", s4.mode == "follow" and s4.status ~= "leader_far" and
+        s4.target_via == "map" and pawn.loc.X > 500, tostring(s4.status) .. " " .. tostring(s4.target_via) .. " x=" .. math.floor(pawn.loc.X))
+    -- with the nav oracle (a far goal needs its route): he keeps moving while the oracle takes its time. A fixed 3 m
+    -- drift dropped every pending request, so Claude stood "planning" (live 2026-11-01 12:45, 435 m, 0 m in 12 s).
+    M.stop(log); pawn.loc = { X = 0, Y = 0, Z = 0 }; rows[1].Location = pawn.loc
+    luis.loc = { X = 30000, Y = 0, Z = 0 }; rows[2].Location = luis.loc; ps_luis.PawnPrivate = nil
+    local asked, waited = nil, 0
+    oracle = function(id)
+        if id ~= asked then asked, waited = id, 0 end
+        waited = waited + 1
+        if waited < 20 then return nil end -- ~2 s per answer (a pump per 3 frames)
+        return ("return {id=%d,ok=true,partial=false,points={{%.2f,%.2f,0},{%.2f,%.2f,0}}}"):format(id,
+            pawn.loc.X / 100, pawn.loc.Y / 100, luis.loc.X / 100, luis.loc.Y / 100)
+    end
+    pump_oracle()
+    frame_hook = function()
+        _G.DWMapPlayers = nil
+        luis.loc.Y = luis.loc.Y + 12 -- he walks on, 3.6 m/s
+        ps_luis.PawnPrivate = math.sqrt((luis.loc.X - pawn.loc.X) ^ 2 + (luis.loc.Y - pawn.loc.Y) ^ 2) < relevancy_cm and luis or nil
+    end
+    M.go_to(log, "Zezima", { tolerance_m = 2, local_plan = false })
+    run(200)
+    local s5 = M.status()
+    check("far player: a moving marker still gets its route and walks", pawn.loc.X > 3000 and (s5.nav_requests or 0) >= 1,
+        tostring(s5.status) .. " x=" .. math.floor(pawn.loc.X) .. " requests=" .. tostring(s5.nav_requests))
+    M.stop(log); frame_hook = nil; oracle = nil; pump_oracle()
+    FindAllOf = base_find; pawn.PlayerState = nil; ps_luis.PawnPrivate = luis; _G.DWMapPlayers = nil
 end
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
