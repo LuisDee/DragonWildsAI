@@ -19,7 +19,7 @@
 #   powershell -File tools\client_boot.ps1 -Release        # clear a hold (logs\client.hold / client.stopped), then boot
 #   powershell -File tools\client_boot.ps1 -Target dev     # join client_io/secrets/server_dev.txt instead (see below)
 # Targets (client_lib.ps1 "join targets"): -Target <name>, else an unexpired lease in logs\state\client_target.json
-# (tools/scenario_run.py), else shockbyte (server.txt). When the client is in the world on a DIFFERENT server than
+# (tools/scenario_run.py), else the default target (dev; client_lib.ps1). When the client is in the world on a DIFFERENT server than
 # the target (game log LoadMap address), boot disconnects it (disconnect.lua) and joins the target. When the
 # joined server is unknown it is left alone.
 # Front-end returns (BUGS L24, client_lib.ps1): the game crashes on the 3rd return to the menu in one process, so
@@ -37,7 +37,7 @@ param(
     [int]$PawnTimeoutS = 90,      # in L_World -> pawn
     [int]$ServiceWaitS = 30,      # bridge supervisor checks every 10 s
     [switch]$Release,             # clear the hold files first (a held client is otherwise left alone)
-    [string]$Target = '',         # join target name (shockbyte = server.txt; dev = server_dev.txt); '' = lease or shockbyte
+    [string]$Target = '',         # join target name (shockbyte = server.txt; dev = server_dev.txt); '' = lease or the default (dev)
     [switch]$Quiet
 )
 . "$PSScriptRoot\client_lib.ps1"

@@ -107,6 +107,8 @@ def rig(tmp_path):
     (io / "secrets" / "server.txt").write_text(f"1.2.3.4:7777\n{PW}\n", encoding="utf-8")
     for d in ("state", "dumps", "logs"):
         (tmp_path / d).mkdir()
+    # the suite models the server.txt target as the default; the code default (dev) has its own test
+    (tmp_path / "state" / "client_default_target.txt").write_text("shockbyte" + chr(10), encoding="utf-8")
     game_log, mod_log = tmp_path / "logs" / "game.log", tmp_path / "logs" / "client.log"
     game_log.write_text("[2026.10.25-10.00.00:000][  0]LogInit: start\n", encoding="utf-8")
     mod_log.write_text("x\n", encoding="utf-8")
@@ -285,6 +287,15 @@ def test_boot_lease_picks_target_until_it_expires(rig):
     lease.write_text(json.dumps({"target": "dev", "until": past, "by": "test"}), encoding="utf-8")
     p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
     assert "target=shockbyte [default]" in p.stdout and "disconnect" not in p.stdout, p.stdout
+
+
+def test_code_default_target_is_dev(rig):
+    # no state file and no env: the default is dev, never the server.txt target
+    (rig.tmp / "state" / "client_default_target.txt").unlink()
+    dev_target(rig)
+    rig.start(at_menu())
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
+    assert "target=dev [default]" in p.stdout, p.stdout
 
 
 def _switch_rig(rig, joined_after_join):

@@ -12,7 +12,7 @@
 #   disconnect  runner answers but not in L_World, no pawn, or still DW_PAUSEd for > DisconnectS -> boot_and_join
 #               (no kill); two failed rejoins in a row -> kill, boot
 #   wrong server in the world on a server other than the join target (client_lib.ps1 "join targets": a
-#               scenario-run lease, else shockbyte) for > WrongServerS -> boot_and_join, which leaves and
+#               scenario-run lease, else the default, dev) for > WrongServerS -> boot_and_join, which leaves and
 #               joins the target. An unknown joined server (no LoadMap line) is never acted on.
 #   L24         a client process that has already returned to the menu twice is never sent back a 3rd time
 #               (the game crashes): client_boot relaunches it instead of a disconnect/rejoin (boot_start relaunch=true).
@@ -30,6 +30,7 @@ param(
     [int]$ProbeFails = 3,
     [int]$DisconnectS = 30,
     [int]$WrongServerS = 60,
+    [int]$StuckDeadS = 90,        # IsDead with health back > 0 this long = the death flow broke (BUGS L43): rejoin
     [int]$GraceS = 240,           # a client younger than this is still booting (someone else may be driving it)
     [int]$MaxRestarts = 3,
     [int]$RestartWindowMin = 30,
@@ -289,6 +290,23 @@ while ($true) {
                                     Recover-Client 'wrong_server' $proc
                                 }
                             } else { $script:wrongSince = $null }
+                            # BUGS L43 (chat run 9): the server respawned him (health back) but his gravestone failed
+                            # to spawn and the client pawn stayed IsDead; every action answered "character is dead".
+                            # A player would relog: leave and rejoin the same target (or relaunch when out of returns).
+                            if ($script:p.dead -eq $true -and [double]("0" + $script:p.health) -gt 0) {
+                                if (-not $script:deadSince) { $script:deadSince = Get-Date }
+                                elseif (((Get-Date) - $script:deadSince).TotalSeconds -ge $StuckDeadS -and -not $held -and -not $bootBusy) {
+                                    Ev 'client_stuck_dead' @{ pawn = $script:p.pawn; health = $script:p.health; pos_m = $script:p.pos_m }
+                                    $script:deadSince = $null
+                                    if (Test-ClientNeedsRelaunch $proc) { Recover-Client 'stuck_dead' -Kill $proc }
+                                    elseif (-not $DryRun) {
+                                        [void](Invoke-ClientCmd -Path (Join-Path $ClientCmds 'disconnect.lua') -Name 'disconnect' -TimeoutS 20)
+                                        [void](Register-FrontEndReturn 'disconnect: stuck dead')
+                                        Start-Sleep 5
+                                        Recover-Client 'stuck_dead' $proc
+                                    }
+                                }
+                            } else { $script:deadSince = $null }
                         }
                         elseif (-not $script:notWorldSince) { $script:notWorldSince = Get-Date }
                         elseif (((Get-Date) - $script:notWorldSince).TotalSeconds -gt $DisconnectS -and $ageProc -gt $GraceS -and -not $held) {

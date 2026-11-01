@@ -21,6 +21,7 @@ return function(log)
             local l = try(function() return pawn:K2_GetActorLocation() end)
             if l then out.pos_m = { math.floor(l.X) / 100, math.floor(l.Y) / 100, math.floor(l.Z) / 100 } end
             out.health = try(function() return pawn.HealthComponent:GetAuthoritativeHealth() end)
+            out.dead = try(function() return pawn.HealthComponent:IsDead() end) -- stuck-dead check (BUGS L43)
         end
     end
     local api = FindFirstOf("MainMenuUIAPI")

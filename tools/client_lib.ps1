@@ -77,17 +77,17 @@ function Protect-Secret([string]$s) {
 #   <name>                            -> client_io/secrets/server_<name>.txt   (e.g. dev -> 127.0.0.1:7777)
 # Which target applies: an explicit -Target, else an unexpired lease in logs/state/client_target.json
 # (written by tools/scenario_run.py for the length of a scenario run, so the watchdog's rejoins go to the
-# same server), else shockbyte. An expired or missing lease always means shockbyte.
+# same server), else the default target (dev). An expired or missing lease always means the default.
 # The default target and the forbidden targets are per-machine settings (GOAL.md: during /goal the
 # default is dev and shockbyte is forbidden):
-#   DW_CLIENT_DEFAULT_TARGET env, else logs/state/client_default_target.txt, else 'shockbyte'
+#   DW_CLIENT_DEFAULT_TARGET env, else logs/state/client_default_target.txt, else 'dev'
 #   DW_CLIENT_FORBID_TARGETS env (comma list), else logs/state/client_forbid_targets.txt (one per line)
 # A forbidden target is never joined: Resolve-ClientTarget marks it, and client_boot refuses.
 $ClientDefaultTargetFile = Join-Path $ClientStateDir 'client_default_target.txt'
 $ClientForbidTargetsFile = Join-Path $ClientStateDir 'client_forbid_targets.txt'
 $ClientDefaultTarget = if ($env:DW_CLIENT_DEFAULT_TARGET) { $env:DW_CLIENT_DEFAULT_TARGET.Trim() }
     elseif (Test-Path $ClientDefaultTargetFile) { (Get-Content $ClientDefaultTargetFile -TotalCount 1).Trim() }
-    else { 'shockbyte' }
+    else { 'dev' }
 $ClientTargetLease = Join-Path $ClientStateDir 'client_target.json'
 function Get-ForbiddenTargets {
     $raw = if ($env:DW_CLIENT_FORBID_TARGETS) { $env:DW_CLIENT_FORBID_TARGETS -split ',' }
