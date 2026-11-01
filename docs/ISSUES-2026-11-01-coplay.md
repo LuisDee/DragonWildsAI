@@ -53,7 +53,7 @@ Status key: **FIXED** (commit, live-checked unless noted) · **AGENT** (being fi
 | B10 | Combat: lost the third kebbit; "can't see it anymore" | 11:41:55 | OPEN |
 | B11 | Didn't pick up loot after kills until asked; bag full | 11:41:56 "you aren't picking their stuff" | OPEN |
 | B12 | Started the session at 0.5/100 HP with no food or water; the stay-fed reflex had nothing to use and nobody noticed for hours | boot probe 10:50; vitals; again 13:01 (hydration 5/75, nothing carried; died 12:46 of thirst + poison with dirty water about) | AGENT (survival) |
-| B13 | Can't deconstruct buildings | 11:00:57; note 11:01:21 | OPEN (capability) |
+| B13 | Can't deconstruct buildings | 11:00:57; note 11:01:21 | FIXED d36a500 (deconstruct the player's way; live: Luis's house, 29 pieces, full refund) |
 | B14 | Built two crates when one was asked for, believing the first failed | 11:48:57-11:49:15 | FIXED a6b7242 (truthful build result) |
 | B15 | Follow kept within 6 m only 64% of the time (scripted leg), with no word about falling behind | coplay ladder 10:55 | OPEN |
 
