@@ -18,8 +18,15 @@ TOOLS = [{"type": "function", "function": {"name": "look", "description": "Read-
 
 
 def user(text: str, n: int = 0) -> dict:
-    return {"role": "user", "content": json.dumps({"command": {"player": "Tester", "text": text, "addressed": True},
-                                                   "situation": [f"You: healthy {n}"]})}
+    ctx = {"command": {"player": "Tester", "text": text, "addressed": True}, "situation": [f"You: healthy {n}"]}
+    if "Vent" in text:  # a context from before 094a27d (no map_names), with chat last
+        ctx["chat"] = [{"from": "Tester", "text": text}]
+    return {"role": "user", "content": json.dumps(ctx, ensure_ascii=False)}
+
+
+def bridge(tool: str, i: str, data: dict) -> list[dict]:
+    return [{"kind": "bridge_send", "msg": {"type": "cmd", "id": i, "tool": tool, "args": {}}},
+            {"kind": "bridge_recv", "msg": {"type": "result", "id": i, "ok": True, "data": data}}]
 
 
 def prompt(ep: str, text: str, step=0, **extra) -> dict:
@@ -49,7 +56,10 @@ def rig(tmp_path: Path) -> tuple[Path, Path]:
         answer("chat-0001-aaaa", ("say", {"text": "here"}), step="turn0"),
         prompt("review-0002-bbbb", ""),  # a situation review: not a chat request
         answer("review-0002-bbbb", ("say", {"text": "thirsty"})),
+        *bridge("get_state", "s1", {"position": [1.0, 2.0, 3.0]}),
+        *bridge("go_to", "g1", {"position": [9.0, 9.0, 9.0]}),  # not the state the Controller was given
         prompt("chat-0003-cccc", "claude head over to the Water Anima Vent"),
+        *bridge("get_state", "s2", {"position": [7.0, 7.0, 7.0]}),  # after the prompt
         answer("chat-0003-cccc", ("look", {"about": "Water Anima Vent"})),
     ])
     ladder = tmp_path / "chat_ladder.jsonl"
@@ -79,6 +89,8 @@ def test_extract_first_chat_prompt_per_leg(tmp_path):
     assert doric["logged"]["tools"] == ["look", "go_to"] and doric["logged"]["tools_sha"] == rfc.sha(TOOLS)
     assert doric["live"]["passed"] and doric["live"]["calls"] == 2
     assert not vent["live"]["passed"] and vent["live"]["first"] == "look"
+    # the body state the Controller was given: the last get_state answer before the prompt
+    assert doric["state"] == {"position": None} and vent["state"] == {"position": [1.0, 2.0, 3.0]}
     out = tmp_path / "cases.jsonl"
     rfc.write_cases(cases, out)
     assert [json.loads(x)["id"] for x in out.read_text(encoding="utf-8").splitlines()] == [c["id"] for c in cases]
@@ -132,3 +144,66 @@ def test_replay_sends_todays_persona_with_the_logged_user_message(tmp_path):
     assert results[1]["first"] == "look" and results[0]["same_prompt_as_live"] is False
     assert rfc.select(cases, None, True, 5) == [cases[1]]  # --live-misses
     assert rfc.select(cases, "water", False, 0) == [cases[1]]
+
+
+class _Places:
+    """Stands in for brain.places.Places: only mentioned(text, here) is read."""
+
+    def __init__(self):
+        self.asked = []
+
+    def mentioned(self, text, here=None):
+        self.asked.append((text, here))
+        return ["Water Anima Vent: a landmark on the game map"] if "Vent" in text else []
+
+
+def _controller(tmp_path, llm=None, places=None) -> Controller:
+    ctl = Controller(llm or FakeLLM(), MockGame.default_world(), StateStore(tmp_path / "state"),
+                     JsonlLogger(tmp_path / "replay.jsonl"), name="Claude", player="Tester")
+    ctl.places = places
+    return ctl
+
+
+def test_derived_context_is_today_map_names_in_the_controllers_order(tmp_path):
+    ladder, logs = rig(tmp_path)
+    doric, vent = rfc.extract(ladder, logs)[0]
+    places = _Places()
+    ctl = _controller(tmp_path, places=places)
+    assert rfc.derived_messages(ctl, doric) == doric["messages"]  # nothing named: byte-equal to the logged context
+    ctx = json.loads(rfc.derived_messages(ctl, vent)[0]["content"])
+    assert ctx["map_names"] == ["Water Anima Vent: a landmark on the game map"]
+    assert list(ctx) == ["command", "situation", "map_names", "chat"]  # Controller.context adds chat after it
+    assert places.asked[-1] == ("claude head over to the Water Anima Vent", [1.0, 2.0, 3.0])  # the logged position
+    stale = {**vent, "messages": rfc.derived_messages(ctl, vent)}  # a context logged with map_names ...
+    ctl.places = None  # ... replayed by code without map data: it goes, as Controller.context would leave it out
+    assert "map_names" not in json.loads(rfc.derived_messages(ctl, stale)[0]["content"])
+    ctl.places = places
+    sent = []
+    llm = FakeLLM([lambda m, t: (sent.append(m), FakeLLM.say("", FakeLLM.call("go_to", target="Water Anima Vent")))[1]])
+    ctl.llm = llm
+    [r] = rfc.replay([vent], lambda p, n: ctl)
+    assert r["passed"] and r["context_changed"] and "map_names" in sent[0][1]["content"]
+
+
+def test_repeat_latency_stop_and_summary(tmp_path):
+    ladder, logs = rig(tmp_path)
+    cases = rfc.extract(ladder, logs)[0]
+    ticks = iter(range(100))
+    llm = FakeLLM([FakeLLM.say("", FakeLLM.call("go_to", target="Doric"))] * 2
+                  + [FakeLLM.say("", FakeLLM.call("look"))] * 2, model="fake/haiku")
+    rows = rfc.replay(cases, lambda p, n: _controller(tmp_path, llm), repeat=2, clock=lambda: next(ticks) * 0.5)
+    assert [(r["id"][-4:], r["sample"], r["passed"]) for r in rows] == [
+        ("aaaa", 0, True), ("aaaa", 1, True), ("cccc", 0, False), ("cccc", 1, False)]
+    assert all(r["latency_s"] == 0.5 and r["model"] == "fake/haiku" for r in rows)
+    stopped = rfc.replay(cases, lambda p, n: _controller(tmp_path, FakeLLM([FakeLLM.say("x")] * 4)), repeat=2,
+                         stop=lambda row: True)
+    assert len(stopped) == 1  # the spend cap ends the run after that sample
+    sonnet = [{**r, "model": "fake/sonnet", "latency_s": 2.0 + i, "passed": True, "first": "go_to"}
+              for i, r in enumerate(rows)]
+    s = rfc.summarize(rows + sonnet)
+    assert s["models"]["fake/haiku"] == {"samples": 4, "passed": 2, "one_call": 2, "p50_s": 0.5, "p90_s": 0.5}
+    assert (s["models"]["fake/sonnet"]["p50_s"], s["models"]["fake/sonnet"]["p90_s"]) == (3.0, 5.0)
+    vent = next(c for c in s["cases"] if c["id"].endswith("cccc"))
+    assert vent["models"]["fake/haiku"] == {"n": 2, "passed": 0, "chose": ["look", "look"]}
+    assert s["split"] == {"decision": ["cl-1/chat-0003-cccc"], "prompt": []}  # haiku misses, sonnet passes
+    assert rfc.summarize(rows + [{**r, "model": "fake/sonnet"} for r in rows])["split"]["prompt"] == ["cl-1/chat-0003-cccc"]
