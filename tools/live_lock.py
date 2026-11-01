@@ -31,6 +31,7 @@ from pathlib import Path
 
 LOCK = Path(__file__).resolve().parents[1] / "logs" / "state" / "live_owner.txt"
 QUEUE = LOCK.parent / "live_queue"
+AUDIT = LOCK.parent / "live_lock.log"  # one line per claim / release / stale takeover: who drove him when
 STALE_S = 300
 REFRESH_S = 60
 
@@ -69,6 +70,16 @@ def _line(owner: str, pid: int) -> str:
     return f"{owner} {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} pid={pid}"
 
 
+def _audit(event: str, owner: str, pid: int, extra: str = "") -> None:
+    try:
+        with open(AUDIT, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-4]}Z {event} {owner} pid={pid}"
+                    f"{' ' + extra if extra else ''}
+")
+    except OSError:
+        pass
+
+
 def try_claim(owner: str, pid: int | None = None, path: Path = LOCK) -> bool:
     """Create-if-absent; a stale lock (unrefreshed and its pid gone) is replaced."""
     pid = pid or os.getpid()
@@ -79,12 +90,14 @@ def try_claim(owner: str, pid: int | None = None, path: Path = LOCK) -> bool:
             path.unlink()
         except OSError:
             return False
+        _audit("stale-takeover", owner, pid, f"from={cur['text']!r}")
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         return False
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(_line(owner, pid))
+    _audit("claim", owner, pid)
     return True
 
 
@@ -95,6 +108,7 @@ def release(owner: str, path: Path = LOCK) -> None:
             path.unlink()
         except OSError:
             pass
+        _audit("release", owner, cur["pid"])
 
 
 def stop_body(timeout_s: float = 15.0) -> str:
