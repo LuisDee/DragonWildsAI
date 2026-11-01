@@ -319,7 +319,8 @@ class Executor:
     def _go_to_game_place(self, task: Task, args: dict, now: dict, failed: dict) -> dict:
         """go_to(<a name the body can't see>) -> the place of that name in the game's map data (a landmark spot, or
         a region / province's best known point), walked to at once; the result says what the name was taken to be.
-        The body's own answer stands when the name isn't in the data or matches only part of a name."""
+        The body's own answer stands when the name isn't in the data or matches only part of a name (the leading words
+        of exactly one map name count as naming it)."""
         target = args.get("target")
         if task.skill not in ("go_to", "talk") or self.places is None or not isinstance(target, str):
             return failed
@@ -332,8 +333,12 @@ class Executor:
         except Exception as exc:  # map data is best effort: the body's answer stands
             self.log.log("place_lookup_error", place=target, error=repr(exc)[:200])
             return failed
-        best = next(iter((res.get("data") or {}).get("results") or []), None)
-        if not best or best.get("match") not in ("exact", "named") or not best.get("position"):
+        results = (res.get("data") or {}).get("results") or []
+        best = next(iter(results), None)
+        # a name's leading words name it when only one map name starts that way ("Bramblemead": the region Bramblemead
+        # Valley, live 17:2xZ); several ("Bramble": Valley and Village) stay the model's call (map_names_like_it)
+        leading = best is not None and best.get("match") == "leading" and             len({o.get("name") for o in results if o.get("match") == "leading"}) == 1
+        if not best or (best.get("match") not in ("exact", "named") and not leading) or not best.get("position"):
             try:  # no exact map name: say which map names share a word with it (the model decides)
                 like = self.places.similar(target, now.get("position"))
             except Exception:

@@ -19,6 +19,7 @@ return function(log)
         r.radius_m = (tonumber(U.try(function() return a.Radius end)) or 0) / 100
         local q = U.try(function() return a.Quest end)
         r.quest = U.valid(q) and (txt(U.try(function() return q.QuestName end)) or U.short(q)) or nil
+        r.asset = U.valid(q) and U.short(q) or nil
         r.shown_by_default = U.try(function() return a.bShownByDefault end) == true
         r.name = txt(U.try(function() return a.QuestLocationName end))
         r.pos = U.to_wire(U.loc(a))

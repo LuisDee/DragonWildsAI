@@ -424,22 +424,36 @@ def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
     return out
 
 
-def death_cause(d: dict) -> str | None:
-    """What the body's vitals rows say killed him (fatal/death: killed_by, fell_m, at), in a few words:
-    "killed by Giant Rat; fell 12 m; at Temple Woods". None when the body sent none of them."""
+KILL_ZONE_WORDS = "falling into a kill zone (a drop the game kills anything in)"
+
+
+def death_cause(d: dict) -> str:
+    """What the body's vitals rows say killed him (fatal/death: killed_by, fell_m, bars, at), in a few words:
+    "killed by Giant Rat; fell 12 m; bars then food 12%, water 61%, rest 87% (...); at Temple Woods". Nothing the
+    game said reads "cause unknown", never a blank he fills in (live 16:37Z: a fall into the kill zone at 12 % food,
+    and he said "starving got me")."""
     bits = []
     kb = d.get("killed_by")
     if isinstance(kb, dict):  # the raw fatal row: {self, name, player, class}
         kb = "my own condition" if kb.get("self") else kb.get("name") or kb.get("player") or kb.get("class")
-    if isinstance(kb, str) and kb.strip():
-        bits.append(f"killed by {kb.strip()}")
+    if kb == "KillZVolume" or d.get("killed_by_class") == "KillZVolume" and not kb:  # an older body's raw class
+        kb = KILL_ZONE_WORDS
+    bits.append(f"killed by {kb.strip()}" if isinstance(kb, str) and kb.strip() else "cause unknown (the game didn't say)")
     if isinstance(d.get("fell_m"), (int, float)) and d["fell_m"] > 0:
         bits.append(f"fell {d['fell_m']:.0f} m")
+    bars = d.get("bars") if isinstance(d.get("bars"), dict) else {}
+    shown = [(w, bars.get(k)) for k, w in (("food", "food"), ("water", "water"), ("rest", "rest"))
+             if isinstance(bars.get(k), (int, float))]
+    if shown:
+        empty = [w for w, v in shown if w in ("food", "water") and v <= 0]
+        why = (f": {' and '.join(empty)} empty" if empty else
+               ": food and water above 0, so not hunger or thirst" if len([1 for w, _ in shown if w != "rest"]) == 2 else "")
+        bits.append("bars then " + ", ".join(f"{w} {v:.0f}%" for w, v in shown) + why)
     at = d.get("at")
     if isinstance(at, (list, tuple)) and len(at) >= 2 and all(isinstance(c, (int, float)) for c in at[:3]):
         region = _region_name(tuple(at[:3]))
         bits.append(f"at {region}" if region else "at [" + ", ".join(f"{c:.0f}" for c in at[:3]) + "]")
-    return "; ".join(bits) or None
+    return "; ".join(bits)
 
 
 @lru_cache(maxsize=64)
@@ -487,7 +501,8 @@ def recent_life(state: dict) -> list[str]:
                     + (f": {what}" if what else ""))
     if isinstance(state.get("other_graves"), int) and state["other_graves"] > 0:
         bits.append(f"{state['other_graves']} other gravestone(s) here are not yours")
-    out = [("Recent: " + "; ".join(bits))[:LINE_CHARS]] if bits else []
+    # a death's cause and bars take ~150 chars: room for them AND the gravestone after (was cut at LINE_CHARS)
+    out = [("Recent: " + "; ".join(bits))[:2 * LINE_CHARS if d else LINE_CHARS]] if bits else []
     if grave_lines:  # one line for every grave not in sight (prompt diet 2026-10-31: was a line each)
         out.append(("Graves of yours not in sight, most valuable first: " + " | ".join(grave_lines[:3]))[:2 * LINE_CHARS])
     return out
@@ -615,10 +630,22 @@ def consumable_facts(r: dict, order=(("hydration", "water"), ("sustenance", "foo
     return [f"{label} {r[k]}" for k, label in order if r.get(k) not in (None, "", "None")]
 
 
+CARRY_GROUPS = 12  # crafting reads its inputs here (rung 3, live 16:56Z: 6 rune stacks hid his logs and stone)
+
+
 def carrying(state: dict, names: dict[str, str]) -> str:
+    """Carried items, most first; runes (thousands of spell ammo) go last in one compact group so they never hide the
+    materials (live 2026-11-01 16:56Z: "Carrying: Nature Rune x2040; ... +16 more", so the model read craft_plan to
+    learn whether he had 6 Ash Logs and 8 Stone before a craft)."""
     inv = state.get("inventory") or {}
-    carry = [f"{name_of_item(k, names)} x{v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1]) if v]
-    return _line("Carrying", carry) or "Carrying: nothing"
+    rows = sorted(((k, v) for k, v in inv.items() if v), key=lambda kv: -kv[1])
+    carry = [f"{name_of_item(k, names)} x{v}" for k, v in rows if not str(k).startswith("ITEM_Rune_")]
+    runes = [f"{name_of_item(k, names).removesuffix(' Rune')} {v}" for k, v in rows if str(k).startswith("ITEM_Rune_")]
+    more = len(carry) - CARRY_GROUPS
+    text = "Carrying: " + "; ".join(carry[:CARRY_GROUPS]) + (f"; +{more} more" if more > 0 else "") if carry else ""
+    if runes:
+        text += ("; " if text else "Carrying: ") + "runes " + ", ".join(runes)
+    return text[:LINE_CHARS + 120] or "Carrying: nothing"
 
 
 def consumables(state: dict) -> list[str]:

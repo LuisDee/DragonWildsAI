@@ -2627,6 +2627,43 @@ do
     M.stop(log); oracle = nil; pump_oracle()
 end
 
+-- A PARTIAL route left behind (live 2026-11-01 17:20: asked from inside the temple, a navmesh island, it ended at the
+-- island's edge; he had walked out of the doorway meanwhile, joined it at its end and walked back in): asked again
+-- from where he is, and the new route is the one he walks
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local asked, waited, answers, max_back = nil, 0, 0, 0
+    oracle = function(id)
+        if id ~= asked then asked, waited = id, 0 end
+        waited = waited + 1
+        if waited < 30 then return nil end -- ~3 s: he walks on meanwhile
+        answers = answers + 1
+        if answers == 1 then -- from the start: partial, ending 5 m BEHIND the start (the island's edge)
+            return ("return {id=%d,ok=true,partial=true,points={{0,0,-0.9},{-3,2,-0.9},{-5,0,-0.9}}}"):format(id)
+        end
+        return ("return {id=%d,ok=true,partial=false,points={{%.2f,0,-0.9},{60,0,-0.9},{80,0,-0.9}}}"):format(id, pawn.loc.X / 100)
+    end
+    offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
+    pump_oracle()
+    local n0 = #logs
+    M.go_to(log, { 80, 0, 0 }, { tolerance_m = 2 })
+    local x_at_answer
+    for _ = 1, 300 do
+        run(1)
+        if answers == 1 and not x_at_answer then x_at_answer = pawn.loc.X end
+        if x_at_answer then max_back = math.max(max_back, x_at_answer - pawn.loc.X) end
+        if M.status().result then break end
+    end
+    local s = M.status()
+    local reasked = false
+    for k = n0 + 1, #logs do if logs[k]:find("ends %d+ m behind me") then reasked = true end end
+    check("a partial route left behind is asked again from where he is, never walked back", reasked and answers >= 2 and max_back < 100
+        and s.result and s.result.status == "arrived", string.format("reasked=%s answers=%d back=%.0f result=%s", tostring(reasked), answers,
+        max_back, tostring(s.result and (s.result.status .. " " .. tostring(s.result.detail)))))
+    M.stop(log); oracle = nil; pump_oracle()
+end
+
 -- TRAPS (live 2026-11-01, t161 on the ladders' southeast start): a fixture teleport between the stuck and the
 -- next sample is no escape route, and walking straight out the way that "failed" is no trap
 walls = {}; raised = {}; oracle = nil; _G.DW_NAVMEM = nil; _G.DW_LP_CACHE = nil

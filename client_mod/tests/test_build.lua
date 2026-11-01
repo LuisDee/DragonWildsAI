@@ -591,7 +591,112 @@ do
     check("ceiling: the cursor jumped from the wall face onto the flush spot -> pressed as a seen snap, says so",
         r and r.ok and da.flush == true and count(G.presses, "place") == 1 and tostring(da.built):find("jumped onto the flush spot", 1, true),
         r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)))
+    -- live 17:03Z: the cursor settles on the wall's face 0.8 m under the aim -> the aim is lifted by the miss (like the
+    -- xy nudge) and the next read lands on the target
+    attach_game({ no_preview = true, box = TB, built_at = { 11.5, 0, 3.03 } })
+    Wb.mpc = function()
+        if not G.aimed then return nil end
+        return { index = 2, position = { G.aimed[1], G.aimed[2], G.aimed[3] - 0.8 } }
+    end
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("ceiling: cursor 0.8 m under the aim on the face -> aim lifted 0.8 m, then pressed, square",
+        r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[3] - 3.63) < 1e-6,
+        r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)) .. " aimed z " .. (G.aimed and G.aimed[3] or "-"))
+    -- live 17:44Z: the walk to a ceiling's stand point went to the wall top's height, never arrived and kept steering
+    -- the camera through the aim. The stand point is on the floor, and a walk still running is stopped first.
+    attach_game({ no_preview = true, box = TB, built_at = { 11.5, 0, 3.03 } })
+    G.pos = { 20, 5, 0.88 }
+    local ms0, call0, stops = api.move_status, api.call, 0
+    api.move_status = function() return { mode = "go_to" } end
+    api.call = function(mod, fn, a, ...)
+        if mod == "move" and fn == "stop" then stops = stops + 1; api.move_status = ms0 end
+        return call0(mod, fn, a, ...)
+    end
+    local mv0 = #MOVES
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    api.move_status, api.call = ms0, call0
+    local goal = MOVES[#MOVES]
+    check("ceiling: walks to a spot on the floor (wall bottom + 0.88), stops that walk before the build screen, square",
+        r and r.ok and #MOVES == mv0 + 1 and goal and math.abs(goal[3] - 0.88) < 1e-6 and stops >= 1,
+        r and (tostring(r.reason) .. " goal " .. (goal and table.concat(goal, ",") or "-") .. " stops " .. stops))
     anchor.name, anchor.position, anchor.yaw, anchor.box = saved.name, saved.position, saved.yaw, saved.box
+    -- speed: a wall in reach, the view clear, not in its way -> placed from where I stand (no walk); Luis placed 11
+    -- walls from one spot
+    attach_game({ no_preview = true, box = WB, built_at = { 11.5, 0, 0 } })
+    Wb.camera = function() return { G.pos[1], G.pos[2], G.pos[3] + 0.8 } end
+    G.pos = { 10.5, 1.5, 0.88 }
+    local moves0 = #MOVES
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("stay: a wall 1.7 m away on my floor, view clear -> no walk, placed square, says it stayed",
+        r and r.ok and #MOVES == moves0 and da.flush == true and da.stayed == true, r and (tostring(r.reason) .. " moves " .. (#MOVES - moves0)))
+    attach_game({ no_preview = true, box = WB, built_at = { 11.5, 0, 0 } })
+    Wb.camera = function() return { G.pos[1], G.pos[2], G.pos[3] + 0.8 } end
+    G.pos = { 11.5, 0.5, 0.88 } -- standing on the edge line, where the wall goes
+    moves0 = #MOVES
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    check("stay: standing where the wall goes -> walks off first", r and r.ok and #MOVES > moves0 and not r.data.stayed,
+        r and (tostring(r.reason) .. " moves " .. (#MOVES - moves0)))
+    -- a batch: two pieces in one go, the second on the first ("#1:E"); the build screen stays open between them
+    local function batch_game(o)
+        attach_game({ no_preview = true, others = o and o.others })
+        local NEW = {}
+        Wb.structures_near = function()
+            local out = {}
+            for _, x in ipairs(NEW) do out[#out + 1] = x end
+            return out
+        end
+        local press1 = Wb.press
+        Wb.press = function(x, act)
+            local mode = G.mode
+            local res = press1(x, act)
+            if act == "place" and mode == "Placement" then
+                local n = #NEW + 1
+                NEW[n] = { id = "BP_NEW_" .. n, position = { 10 + 3 * n, 0, 0 }, yaw = 90 }
+            end
+            return res
+        end
+        Wb.actor_info = function(_, id)
+            if id == anchor.id then return anchor end
+            for _, x in ipairs(NEW) do
+                if x.id == id then return { id = x.id, name = "Campfire", piece = "BUILDPIECE_Campfire", position = x.position, yaw = 0, box = FB } end
+            end
+        end
+        CARRIED.ITEM_Resources_Stone = 12
+    end
+    batch_game()
+    r = build({ pieces = { { piece = "campfire", on = "BP_Foundation_C_A:E" }, { piece = "campfire", on = "#1:E" } } }, 800)
+    da = r and r.data or {}
+    check("batch: 2 of 2 built, the second on the first; one menu press, one cancel at the end",
+        r and r.ok and tostring(da.built):find("Built 2 of 2 pieces", 1, true) and count(G.presses, "place") == 2
+        and count(G.presses, "menu") == 1 and count(G.presses, "cancel") == 1 and da.built_pieces and da.built_pieces[2]
+        and da.built_pieces[2].structure == "BP_NEW_2" and da.built_pieces[2].attached_to == "BP_NEW_1",
+        r and (tostring(r.reason) .. " " .. tostring(da.built or da.detail) .. " presses " .. table.concat(G.presses, ",")))
+    batch_game({ others = { { id = "BP_X", name = "Wall", position = { 16, 0, 0.2 } } } })
+    r = build({ pieces = { { piece = "campfire", on = "BP_Foundation_C_A:E" }, { piece = "campfire", on = "#1:E" } } }, 800)
+    da = r and r.data or {}
+    check("batch: the second's side is taken -> not ok, says what was built and where it stopped, build screen closed",
+        r and not r.ok and r.reason == "blocked" and tostring(da.detail):find("Built 1 of 2 pieces", 1, true)
+        and tostring(da.detail):find("Stopped at #2", 1, true) and tostring(da.detail):find("BP_X", 1, true)
+        and da.failed_item == 2 and G.mode == "None", r and (tostring(r.reason) .. " " .. tostring(da.detail)))
+    r = build({ pieces = { { piece = "campfire", on = "#2:E" }, { piece = "campfire", on = "#1:E" } } })
+    check("batch: each names the other -> invalid_args, nothing pressed", r and r.reason == "invalid_args", r and r.reason)
+    r = build({ pieces = { { on = "BP_Foundation_C_A:E" } } })
+    check("batch: an item without a piece -> invalid_args", r and r.reason == "invalid_args", r and r.reason)
+    -- a 45° Roof off a wall top (Luis's census: BuildingPiece_42 at the cell centre (93.21, 1853.14), z -27.31, yaw 90,
+    -- over the S wall at y 1854.64 whose top is -28.78): the cell centre, 1.5 m up, the eave toward the wall
+    local RB = { origin = { 0, 0, 0 }, extent = { 1.687, 1.5, 1.687 } }
+    local swall = { position = { 93.2113, 1854.6378, -31.8092 }, yaw = 0, box = WB }
+    local rp, _, rm = Bd.flush_spot(swall, "N", RB)
+    check("roof on a wall's top, reaching N: Luis's roof spot (cell centre, ~1.5 m over the wall top), facing yaw 90",
+        math.abs(rp[1] - 93.2113) < 1e-6 and math.abs(rp[2] - 1853.1378) < 1e-6 and math.abs(rp[3] - (-27.3092)) < 0.06
+        and rm.roof and rm.yaw == 90 and rm.per == 360, table.concat(rp, ",") .. " yaw " .. tostring(rm.yaw))
+    local rr = Bd.flush_report(swall, "N", RB, { position = { 93.2113, 1853.1378, -27.3092 }, yaw = 90 }, 0.06)
+    check("roof report: Luis's roof measures square", rr.flush, string.format("%s %s %s %s", rr.gap_m, rr.offset_m, rr.level_m, rr.facing_off_deg))
+    rr = Bd.flush_report(swall, "N", RB, { position = { 93.2113, 1853.1378, -27.3092 }, yaw = 270 }, 0.06)
+    check("roof report: the same spot sloping the wrong way (yaw 270) -> not square, turned 180", not rr.flush
+        and math.abs(rr.facing_off_deg) == 180, rr.facing_off_deg)
     -- the house perception: each foundation's edges (open / a wall on it / the next foundation) and its ceiling
     local ed = Bd.edges({
         { id = "F1", name = "Square Foundation", position = { 0, 0, 0 }, yaw = 0, box = FB },

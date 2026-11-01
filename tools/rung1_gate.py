@@ -94,7 +94,13 @@ def check_stat(rec: dict, rows: list[dict]):
         set_pct = (rec["target"].get("set") or {}).get(stat)
         if set_pct is not None:
             i = next((i for i, (_, v) in enumerate(xs) if v <= set_pct + 3), None)
-            xs = xs[i:] if i is not None else []
+            set_at = (rec["target"].get("set_at") or {}).get(stat)
+            if i is None and set_at:
+                # the set_stat fixture's own server read-back is the start sample: the body ate/drank within one
+                # sampler period of the set (live 17:46Z: water set to 12 and drunk to 37 between two 1.1 s samples)
+                xs = [(float(set_at[0]), float(set_at[1]))] + [(t, v) for t, v in xs if t > float(set_at[0])]
+            else:
+                xs = xs[i:] if i is not None else []
         if not xs:
             return False, f"no {stat} samples at the harness's value", None, {}
         lo = min(v for _, v in xs)
@@ -206,7 +212,7 @@ def stand_bar(t0: float, t1: float, says: list[float], work=None) -> tuple[float
 
 
 def grade(item: str, legs: list[dict], t_h: float | None, misses: int, allowed: int, stand_s: float,
-          need_told: bool = True, audience: bool = True) -> dict:
+          need_told: bool = True, audience: bool = True, extra: dict | None = None) -> dict:
     """The item against the 4 bars: done, time, misses, stand, truth (+ told, when a player was near to be told:
     with nobody near, the persona's "with nobody around ... stay quiet" is the right call, so told is n/a)."""
     done = bool(legs) and all(x.get("done") for x in legs)
@@ -218,6 +224,7 @@ def grade(item: str, legs: list[dict], t_h: float | None, misses: int, allowed: 
             "misses": misses <= allowed,
             "stand": 0 <= stand_s <= STAND_S,
             "truth": truthful and (told or not need_told or not audience)}
+    bars.update(extra or {})
     why = [k for k, v in bars.items() if not v]
     if stand_s < 0:  # the recorder had nothing for him: an unmeasured stand bar is infra, not his failure
         why = [k for k in why if k != "stand"] + ["infra"]
@@ -452,55 +459,179 @@ def it_fight_back(ctx: Ctx) -> dict:
 
 
 def it_stat(ctx: Ctx, item: str, stats: dict, want: dict, t_h: float, deadline_s: float, check_text: str,
-            need_told: bool = True, note: str | None = None) -> dict:
+            need_told: bool = True, note: str | None = None, after=None) -> dict:
     dev = cl._dev()
     time.sleep(4.0)  # the brain has read the state once at the old level (situation reviews need a band crossing)
     t0 = time.time()
+    set_at = {}
     for stat, pct in stats.items():
         mx = (ctx.me().get("survival") or {}).get(stat, [0, 100])[1] or 100
-        dev.setup("set_stat", purpose=f"rung1 gate {item}: {stat} {pct} %", stat=stat, value=mx * pct / 100.0)
+        r = dev.setup("set_stat", purpose=f"rung1 gate {item}: {stat} {pct} %", stat=stat, value=mx * pct / 100.0)
+        if isinstance(r, dict) and r.get("ok") and isinstance(r.get("after"), (int, float)):
+            set_at[stat] = [time.time(), r["after"]]  # verified on the server (|after - want| < 1.5)
     row = run_leg(ctx, {"id": item, "kind": "r1_rest" if item == "rest" else "r1_stat", "check_text": check_text}, None,
-                  {"want": want, "set": stats}, deadline_s=deadline_s, t0=t0)
+                  {"want": want, "set": stats, "set_at": set_at}, deadline_s=deadline_s, t0=t0)
     st = row["rec"]["stats"]
 
     def work(a_, b_):  # the stat climbing during the stand (resting, eating)
         xs = [(t, s) for t, s in st if a_ - 1 <= t <= b_ + 1]
         return any(any((y.get(k) or 0) > (x.get(k) or 0) + 0.5 for k in want) for (_, x), (_, y) in zip(xs, xs[1:]))
-    return finish(ctx, item, [row], t_h, allowed=1, work=work, need_told=need_told, note=note)
+    extra = after(row) if after else None  # item-specific bars from the leg (eat/drink: the choice judge)
+    return finish(ctx, item, [row], t_h, allowed=1, work=work, need_told=need_told, note=note, extra=extra)
 
 
-def uses_needed(stacks: list[dict], deficit: dict[str, float], values: dict | None = None) -> dict[str, int | None]:
+def uses_needed(stacks: list[dict], deficit: dict[str, float], values: dict | None = None,
+                picks: dict | None = None) -> dict[str, int | None]:
     """Fewest uses of what he carries (hotbar + bag) that cover each stat's deficit (stat points), biggest gain first;
-    None = what he carries can't cover it (he would have to find, cook or make more)."""
+    None = what he carries can't cover it (he would have to find, cook or make more). `picks` (optional) gets the item
+    ids those uses take, per stat."""
     if values is None:
         values = json.loads(FOOD_VALUES.read_text(encoding="utf-8"))["items"]
     out: dict[str, int | None] = {}
     for stat, need in deficit.items():
-        gains = sorted((float(values[r["item"]].get(stat) or 0) for r in stacks if r.get("item") in values
+        gains = sorted(((float(values[r["item"]].get(stat) or 0), r["item"]) for r in stacks if r.get("item") in values
                         for _ in range(int(r.get("count") or 1)) if (values[r["item"]].get(stat) or 0) > 0), reverse=True)
-        n, got = 0, 0.0
-        for g in gains:
+        n, got, used = 0, 0.0, []
+        for g, iid in gains:
             if got >= need:
                 break
             n, got = n + 1, got + g
+            used.append(iid)
         out[stat] = n if got >= need else None
+        if picks is not None:
+            picks[stat] = sorted(set(used))
     return out
 
 
+# ---- eat/drink BY COMPARING OPTIONS (coordinator 2026-11-01): his food and drink moved off the hotbar into the bag (so
+# the stay-fed reflex, hotbar only above 10 %, can't do it for him), options that differ in value and risk granted into
+# the bag, a campfire 22 m off, food and water at 25 % (under his 40 % line). The model must choose; an LLM judge
+# reads the options digest he was shown and says whether he took a clearly worse one without a reason.
+# raw meat = Raw Rat Meat (ITEM_Resources_Meat_Bird is not grantable: fixture not_added, 18:20Z); it needs the fire
+EAT_OPTIONS = {"ITEM_Consumable_Water_Dirty": 3, "ITEM_Resources_Raw_Stringy_Meat": 2, "ITEM_Consumable_Fruit_Redberry": 4}
+EAT_BEST = {"ITEM_Consumable_Meat_Fillet": 2, "ITEM_Consumable_Water_Clean": 2}  # at least these (cooked, clean)
+EAT_PCT = 25
+MOVE_S = 0.37  # Luis's inventory drags back to back: median gap of his `move` rpcs (recorder 2026-11-01, 33 gaps)
+CHOICE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["sensible", "clearly_worse", "why"],
+                 "properties": {"sensible": {"type": "boolean"},
+                                "clearly_worse": {"type": "array", "items": {"type": "string"}},
+                                "why": {"type": "string"}}}
+CHOICE_RUBRIC = (
+    "You judge one choice a game character made about eating and drinking. FACTS has: the options digest he was shown "
+    "(written for him: each option with its time, what it adds, his level after, how long it lasts, steps and risk), "
+    "what he then did (tool calls in order with results) and what he said. Was his choice sensible? It is NOT sensible "
+    "only if he took an option that is clearly worse than another one listed (for the same need: much slower for the "
+    "same or less gain, riskier for no gain, e.g. dirty water or burnt food when a clean option as quick was on the "
+    "list, or an option that leaves him under his line when one that clears it was as quick) AND he gave no reason for "
+    "it. Small differences, ties and reasonable trade-offs are sensible. Judge only from the digest: never assume "
+    "options it doesn't list. Answer with JSON: sensible, clearly_worse (the worse options he took, empty if none), "
+    "why (one sentence).")
+
+
+def _digest_seen(rows: list[dict]) -> list[str]:
+    """The 'Need food' / 'Need drink' option lines he was shown when he chose: from the last prompt before his first
+    eat/drink/move/craft call (all prompts when he made none), a need missing there taken from an earlier prompt."""
+    seen: dict[str, str] = {}  # need kind -> its newest line
+    for r in rows:
+        if r.get("kind") == "tool_call" and r.get("tool") in ("consume", "move_item", "craft"):
+            break
+        if r.get("kind") != "prompt":
+            continue
+        c = (r.get("messages") or [{}])[-1].get("content")
+        if isinstance(c, list):
+            c = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
+        try:
+            d = json.loads(c or "")
+        except ValueError:
+            continue
+        for line in d.get("situation") or []:
+            m = isinstance(line, str) and re.match(r"Need (food|drink|water) ", line)
+            if m:
+                seen[m.group(1)] = line
+    return list(seen.values())
+
+
+def choice_judge(rows: list[dict], says: list[str]) -> dict:
+    """One Haiku call: did he take a clearly worse option (from the digest he saw) without a reason? {sensible, ...}."""
+    from brain.llm import LiteLLMClient
+    digest = _digest_seen(rows)
+    if not digest:
+        return {"sensible": None, "why": "no options digest in his prompts (nothing to judge against)"}
+    acts = [{"tool": r.get("tool"), "args": r.get("args")} if r.get("kind") == "tool_call" else
+            {"result_of": r.get("tool"), "ok": (r.get("result") or {}).get("ok"),
+             "reason": (r.get("result") or {}).get("reason")} for r in rows if r.get("kind") in ("tool_call", "tool_result")]
+    facts = {"options_digest": digest, "what_he_did": acts[:30], "he_said": says[:6]}
+    llm = LiteLLMClient(tj.os.environ.get(tj.MODEL_ENV) or tj.DEFAULT_MODEL, max_tokens=2048,
+                        output_config={"effort": "low", "format": {"type": "json_schema", "schema": CHOICE_SCHEMA}})
+    resp = llm.complete([{"role": "system", "content": CHOICE_RUBRIC},
+                         {"role": "user", "content": "FACTS\n" + json.dumps(facts, ensure_ascii=False, default=str)}])
+    usd = 0.0
+    if resp.usage:
+        usd = spend.price(llm.model, resp.usage, spend.load_prices())[0]
+        tj.STATS["calls"] += 1
+        tj.STATS["usd"] += usd
+        tj._ledger(llm.model, resp.usage)
+    try:
+        d = json.loads(resp.content or "")
+    except ValueError:
+        return {"sensible": None, "why": f"judge answer not JSON: {str(resp.content)[:120]!r}", "usd": round(usd, 6)}
+    return {"sensible": bool(d.get("sensible")), "clearly_worse": d.get("clearly_worse") or [], "why": d.get("why"),
+            "digest": digest, "usd": round(usd, 6)}
+
+
 def it_eat_drink(ctx: Ctx) -> dict:
+    from tools import travel_ladder as tl
+    dev = cl._dev()
+    tl.place(dev, ctx.cli, LUIS_SLEEP, harness_brain=True)  # by the base: a campfire 22 m off (Luis's, 89.6/1847.8)
+    have = {}
+    for r in ctx.stacks():
+        have[r.get("item")] = have.get(r.get("item"), 0) + int(r.get("count") or 1)
+    no_grant = []
+    for it, n in {**EAT_OPTIONS, **EAT_BEST}.items():
+        if have.get(it, 0) < n:
+            try:
+                dev.setup("grant", purpose="rung1 gate eat/drink: an option", item=it, count=n - have.get(it, 0))
+            except Exception as e:  # noqa: BLE001 - one missing option still leaves a choice; the note says which
+                no_grant.append(f"{it}: {e}")
+    time.sleep(1.0)
+    moved, left = [], []
+    for r in (cp.inventory(ctx.cli) or {}).get("hotbar") or []:  # off the hotbar: the reflex can't use the bag above 10 %
+        if isinstance(r, dict) and r.get("use") in ("food", "drink"):  # the inventory row's use: food | drink | nil
+            res = dev.body_call("move_item", {"item": r.get("item"), "to": "bag"})
+            (moved if res.get("ok") else left).append(r.get("item"))
     surv = ctx.me().get("survival") or {}
     mx = {k: float((surv.get(k) or [0, 100])[1] or 100) for k in ("sustenance", "hydration")}
-    deficit = {k: mx[k] * (40 - 12) / 100 for k in mx}
-    n = uses_needed(ctx.stacks(), deficit)
+    deficit = {k: mx[k] * (40 - EAT_PCT) / 100 for k in mx}
+    picks: dict = {}
+    n = uses_needed(ctx.stacks(), deficit, picks=picks)
     uses = max([v for v in n.values() if v] or [0])
-    t_h = 1.5 + uses * USE_S + (BOTH_KINDS_S if all(n.values()) else 0.0)
-    basis = (f"T_h = 1.5 s reaction + max(food {n['sustenance']}, water {n['hydration']}) uses x {USE_S} s (the game's "
-             f"use lock, per kind) + {BOTH_KINDS_S} s for the other kind's press: a player eats and drinks at once "
-             f"(Luis: steak + water 0.06-0.83 s apart, 5 times); uses = fewest of what he carries for 12 -> 40 %"
-             + ("; NOT enough carried for " + ", ".join(k for k, v in n.items() if v is None) if None in n.values() else ""))
-    return it_stat(ctx, "eat_drink", {"sustenance": 12, "hydration": 12}, {"sustenance": 40, "hydration": 40}, t_h, 150,
-                   "his food (sustenance) and water (hydration), set to 12 % by the harness, both come back to >= 40 % "
-                   "of their max (the stay-fed reflex's line)", need_told=False, note=basis)
+    moves = len({i for v in picks.values() for i in v})  # each item used comes out of the bag first
+    t_h = 1.5 + moves * MOVE_S + uses * USE_S + (BOTH_KINDS_S if all(n.values()) else 0.0)
+    basis = (f"T_h = 1.5 s reaction + {moves} bag->hotbar moves x {MOVE_S} s (Luis's drag gap) + max(food "
+             f"{n['sustenance']}, water {n['hydration']}) uses x {USE_S} s (the game's use lock, per kind) + "
+             f"{BOTH_KINDS_S} s for the other kind's press (a player eats and drinks at once: Luis 0.06-0.83 s apart); "
+             f"fewest uses of what he carries for {EAT_PCT} -> 40 %: {picks}"
+             + ("; NOT enough carried for " + ", ".join(k for k, v in n.items() if v is None) if None in n.values() else "")
+             + (f"; still on the hotbar (move failed): {left}" if left else "")
+             + (f"; not granted: {no_grant}" if no_grant else ""))
+
+    def judged(row):
+        brain = cl.brain_rows([ctx.brain_file], row["rec"]["t0"] - 1, row["rec"]["t1"] + 1)
+        ch = choice_judge(brain, row.get("says") or [])
+        ch["his_tools"] = [r.get("tool") for r in brain if r.get("kind") == "tool_call"][:12]
+        row["choice"] = ch
+        # "chose": the model itself ate, drank or moved food (a reflex pass compared nothing: a "stays fed" check only)
+        return {"choice": ch.get("sensible") is True,
+                "chose": any(t in ("consume", "move_item", "craft") for t in ch["his_tools"])}
+
+    try:
+        return it_stat(ctx, "eat_drink", {"sustenance": EAT_PCT, "hydration": EAT_PCT}, {"sustenance": 40, "hydration": 40},
+                       t_h, 150, f"his food (sustenance) and water (hydration), set to {EAT_PCT} % by the harness with his "
+                       "food and drink in the bag (options of different value and risk), both come back to >= 40 % of "
+                       "their max (his eat line)", need_told=False, note=basis, after=judged)
+    finally:  # his usual hotbar back, so the stay-fed reflex works for everyone else's runs
+        for it in dict.fromkeys(moved):
+            dev.body_call("move_item", {"item": it, "to": "hotbar"})
 
 
 def it_rest(ctx: Ctx) -> dict:
@@ -579,7 +710,8 @@ def it_grave(ctx: Ctx) -> dict:
 
 
 def finish(ctx: Ctx, item: str, legs: list[dict], t_h: float | None, allowed: int, misses: int | None = None, work=None,
-           note: str | None = None, need_told: bool = True, audience: bool | None = None) -> dict:
+           note: str | None = None, need_told: bool = True, audience: bool | None = None,
+           extra: dict | None = None) -> dict:
     legs = [x for x in legs if not x.get("skipped")] or legs
     if misses is None:
         misses = sum(x.get("fumbles") or 0 for x in legs)
@@ -592,11 +724,11 @@ def finish(ctx: Ctx, item: str, legs: list[dict], t_h: float | None, allowed: in
         audience = any(x["rec"].get("audience") for x in legs if x.get("rec")) or bool(ctx.a.target_player)
     says = [t for x in legs for t in x.get("say_ts") or []]
     stand_s, stands = stand_bar(t0, t1, says, work)
-    g = grade(item, legs, round(t_h, 1) if t_h else None, misses, allowed, stand_s, need_told, audience)
+    g = grade(item, legs, round(t_h, 1) if t_h else None, misses, allowed, stand_s, need_told, audience, extra)
     g.update(note=note, stands=stands, legs=[{k: x.get(k) for k in ("request", "line", "done", "how", "done_s", "wall_s",
                                                                     "ended", "truthful", "truth_source", "says", "tools",
                                                                     "fumbles", "deaths", "calls", "usd", "flags",
-                                                                    "first_hit_s", "engaged_s", "response_s", "kit", "recorder",
+                                                                    "first_hit_s", "engaged_s", "response_s", "kit", "choice", "recorder",
                                                                     "metrics", "heard_s")}
                                              for x in legs],
              calls=sum(x.get("calls") or 0 for x in legs), usd=round(sum(x.get("usd") or 0 for x in legs), 4),
@@ -733,6 +865,8 @@ def line(r: dict) -> str:
             f"truthful {r.get('truthful')} told {r.get('told')}; fails {r.get('fails') or '-'}; calls {r.get('calls')} "
             f"${r.get('usd')}; {r.get('note') or ''}\n" +
             "".join(f"      {x.get('request')}: {x.get('how')} | said {x.get('says')} | tools {x.get('tools')}\n"
+                    + (f"      choice sensible={x['choice'].get('sensible')} worse={x['choice'].get('clearly_worse')}: "
+                       f"{x['choice'].get('why')} | his tools {x['choice'].get('his_tools')}\n" if x.get("choice") else "")
                     for x in r.get("legs") or []))
 
 
@@ -741,6 +875,9 @@ def cmd_report(a) -> int:
     if not rows:
         print("no gate rows yet")
         return 1
+    for r in rows:  # an eat_drink row without the choice bar is the old reflex variant: a "stays fed" check, not the item
+        if r.get("item") == "eat_drink" and "choice" not in (r.get("bars") or {}):
+            r["item"] = "stays_fed"
     runs: dict[str, dict[str, dict]] = {}
     for r in rows:
         runs.setdefault(r.get("run_id") or "?", {})[r["item"]] = r
@@ -749,7 +886,7 @@ def cmd_report(a) -> int:
         print(f"{rid:<20} " + " ".join(f"{('PASS' if its[i].get('pass') else 'BLOCK' if its[i].get('blocked') else 'fail') if i in its else '-':<11}"
                                          for i in ITEMS))
     print("streaks (consecutive passes, newest back; need 3):")
-    for i in ITEMS:
+    for i in (*ITEMS, "stays_fed"):
         seq = [r for r in rows if r["item"] == i and "infra" not in (r.get("fails") or [])]
         streak = next((k for k, r in enumerate(reversed(seq)) if not r.get("pass")), len(seq))
         last = seq[-1] if seq else {}
@@ -760,7 +897,8 @@ def cmd_report(a) -> int:
 def cmd_plan(a) -> int:
     print(__doc__.split("Items (in run order")[1].split("Every request")[0])
     print(f"T_h: split {luis_task_s('split')} s (Luis), sleep {luis_task_s('sleep')} s (Luis), kill unit {unit('kill')} s, "
-          f"pickup unit {unit('pickup')} s, drop unit {unit('drop')} s, eat_drink 1.5 + max(food, water uses) x {USE_S} + {BOTH_KINDS_S} s (game use lock per kind)")
+          f"pickup unit {unit('pickup')} s, drop unit {unit('drop')} s, eat_drink 1.5 + bag moves x {MOVE_S} + max(food, water uses) "
+          f"x {USE_S} + {BOTH_KINDS_S} s (game use lock per kind) + a choice judge on the options digest he saw")
     print(f"recorder writing: {recorder_ok()}; live lock: {live_lock.read() or 'free'}")
     print("cost: ~2-5 Haiku calls per item + 1 judge call per leg; a full run ~25-40 Haiku calls (< $0.10)")
     return 0

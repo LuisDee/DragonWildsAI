@@ -7,8 +7,13 @@ _G.FAKE = _G.FAKE or {}
 local F = _G.FAKE
 F.inv = F.inv or { oak_bag = 5, oak_bar = 3 }
 F.extra = F.extra or {} -- item id -> count, things picked up by interact
--- FAKE.consume_busy = {item, left_s} while another use's animation runs (the real one: inventory.consume_busy)
-function M.consume_busy() return F.consume_busy end
+-- FAKE.consume_busy = {item, left_s, kind?} while another use's animation runs (the real one: inventory.consume_busy,
+-- per kind: a busy food does not hold a drink). No kind on the fake = busy for every kind.
+function M.consume_busy(kind)
+    local b = F.consume_busy
+    if b and (kind == nil or b.kind == nil or b.kind == kind) then return b end
+    return nil
+end
 function M.list(log)
     if F.pending_drop then
         F.inv.oak_bag = math.max(0, F.inv.oak_bag - F.pending_drop)
@@ -83,7 +88,8 @@ local function chest_rows(inv)
     local out = { slots = inv.slots or 0, rows = {}, by_item = {} }
     for _, r in ipairs(inv.rows or {}) do
         if (r.count or 0) > 0 then
-            out.rows[#out.rows + 1] = { slot = r.slot, item = r.item, name = r.name, count = r.count }
+            out.rows[#out.rows + 1] = { slot = r.slot, item = r.item, name = r.name, count = r.count, category = r.category,
+                                        max_stack = r.max_stack, weight = r.weight, power = r.power }
             out.by_item[r.item] = (out.by_item[r.item] or 0) + r.count
         end
     end
@@ -96,7 +102,11 @@ end
 function M.inventory_of(actor) return actor and F.chests and F.chests[actor.id] or nil end
 function M.close_world_inventory() F.closed = (F.closed or 0) + 1; F.open_chest = nil; return true end
 function M.external_rows(inv) return chest_rows(inv) end
-function M.free_slot(type_name) return 9 end
+-- FAKE.free_slots = n: the bag has n free slots (nil = always one); an item new to the bag takes one
+function M.free_slot(type_name)
+    if F.free_slots and F.free_slots <= 0 then return nil end
+    return 9
+end
 local function take_carried(row, n)
     if row.item == "ITEM_Resources_Wood_Oak" then
         local k = row.slot_type == "QuickAction" and "oak_bar" or "oak_bag"
@@ -121,6 +131,7 @@ function M.from_external(log, from_slot, inv, amount, to_slot, to_page)
     if F.transfer_noop then return { ok = true } end
     for _, r in ipairs(inv.rows) do
         if r.slot == from_slot then
+            if F.free_slots and r.item ~= "ITEM_Resources_Wood_Oak" and not F.extra[r.item] then F.free_slots = F.free_slots - 1 end
             r.count = r.count - amount
             if r.item == "ITEM_Resources_Wood_Oak" then F.inv.oak_bag = F.inv.oak_bag + amount
             else F.extra[r.item] = (F.extra[r.item] or 0) + amount end

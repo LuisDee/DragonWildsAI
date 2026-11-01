@@ -234,6 +234,7 @@ class Decision:
     looks: list[dict] = field(default_factory=list)  # look results this turn (data)
     inventory: dict | None = None  # an inventory read this turn (data)
     effort: str | None = None  # the effort this request runs at, when not the client's default (addressed chat)
+    situation: list[str] | None = None  # the situation lines the model last saw in this request (next_turn)
 
 
 def current_observation(state: dict | None) -> dict:
@@ -280,6 +281,12 @@ def current_observation(state: dict | None) -> dict:
     needs_now = pressing_digests(state)  # a pressing food/drink need: its options as they are NOW (bounded)
     if needs_now:
         out["needs"] = needs_now
+    # a death in the last 5 min, with what the game says killed him (or "cause unknown"): a follow-up turn sees a
+    # companion_down result, and without this he guessed from the bars (live 16:37Z: "starving got me", a fall)
+    death = state.get("last_death") if isinstance(state.get("last_death"), dict) else None
+    if death and isinstance(death.get("ago_s"), (int, float)) and 0 <= death["ago_s"] <= 300:
+        out["last_death"] = (f"{int(death['ago_s'])} s ago: {sit.death_cause(death)}"
+                             + ("; respawned" if death.get("respawned") else "; not respawned yet"))
     return out
 
 
@@ -639,13 +646,27 @@ class Controller:
 
     # ---------------------------------------------------------------- the bounded loop
 
+    def _situation_lines(self, state: dict | None) -> list[str] | None:
+        """The situation summary for a follow-up turn (the first turn's lines, re-read); None when it can't be built."""
+        if not isinstance(state, dict) or not state:
+            return None
+        goal = getattr(self, "_turn_goal", None)
+        tree = self.store.tree
+        tasks = [t.model_dump(include={"skill", "args", "status"}) for t in tree.tasks] if tree and goal else []
+        try:
+            return sit.summary(state, active_goal=goal, tasks=tasks, places=self.store.places(), looks_supported=self.can_look)
+        except Exception as exc:  # perception is best effort: the turn still runs
+            self.log.log("situation_error", where="next_turn", error=repr(exc))
+            return None
+
     def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
                body_event: dict | None = None) -> Decision:
         self._state_for_reads = state
         context = self.context(player, text, state, active_goal, addressed, body_event)
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
-        d = Decision()
+        d = Decision(situation=context.get("situation"))
+        self._turn_goal = active_goal  # next_turn's situation lines use the same goal and tasks
         if addressed and (text or "").strip() and body_event is None:
             d.effort = self.addressed_effort  # a player's line to him: think a little more (latency budget M1)
         resp, messages = self._loop(messages, d)
@@ -816,6 +837,11 @@ class Controller:
         observation = current_observation(state)
         if news:  # body activity since the last turn (the stay-fed reflex, kills, pickups), as it happened
             observation["since_last_turn"] = news[-8:]
+        # fresh perception, as the first turn has it (live 17:4xZ: after a failed go_to to a remembered grave the
+        # follow-up turns carried only tool results, and he stood 17 s "blocked" with his gravestone 1.4 m away)
+        lines = self._situation_lines(state)
+        if lines is not None:
+            observation["situation"] = lines if lines != d.situation else "unchanged since you last saw it"
         msgs.append({"role": "user", "content": "Current observation: " + json.dumps(observation, ensure_ascii=False)})
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
@@ -825,7 +851,7 @@ class Controller:
             "reply with no text at all. A line saying you'll do something comes with its tool call in this same "
             "reply.")})
         self._state_for_reads = state or {}
-        d2 = Decision(effort=d.effort)  # the same request keeps its effort (and its cache entry)
+        d2 = Decision(effort=d.effort, situation=lines or d.situation)  # the same request keeps its effort (and cache)
         resp, msgs = self._loop(msgs, d2, label="turn")
         msgs = msgs + [assistant_message(resp)]
         speech = self.speech_of(resp)

@@ -908,5 +908,17 @@ do
     FindAllOf = old
 end
 
+-- a facing nudge is a step: never toward a lethal edge (move.unsafe_ahead; live 2026-11-01 16:37 cliff death)
+do
+    local G2 = assert(loadfile(root .. "/client_mod/scripts/gather.lua"))()
+    local danger, pushes = nil, 0
+    G2.set_modules({ move = { unsafe_ahead = function() return danger end } })
+    local p = { AddMovementInput = function() pushes = pushes + 1 end }
+    G2.W.nudge(p, { X = 1, Y = 0, Z = 0 }, 0.3)
+    danger = "a 40 m drop ahead"
+    G2.W.nudge(p, { X = 1, Y = 0, Z = 0 }, 0.3)
+    check("nudge: pushes when safe, never toward a lethal edge", pushes == 1, pushes)
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

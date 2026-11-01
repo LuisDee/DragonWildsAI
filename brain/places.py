@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .geom import dist
-from .knowledge import _terms, data_dir
+from .knowledge import STOP, _stem, _terms, data_dir, words
 
 SPOTS = 6  # spots listed per landmark name
 NOTE = ("Positions are game data or what you saw yourself; a point marked approximate is not checked for ground or "
@@ -104,8 +104,9 @@ def centroid(poly) -> list[float]:
 
 
 def _match(name: str, q: set[str]) -> str | None:
-    """'exact' (same words), 'named' (every word of the name is in the query), 'part' (the query is part of the
-    name, e.g. "Bramblemead" for "Bramblemead Valley"), else None."""
+    """'exact' (same words), 'named' (every word of the name is in the query), 'leading' (the query is the name's
+    first words: "Bramblemead" for "Bramblemead Valley"), 'part' (the query is elsewhere in the name: "Valley"),
+    else None."""
     t = _terms(name)
     if not t or not q:
         return None
@@ -114,11 +115,12 @@ def _match(name: str, q: set[str]) -> str | None:
     if t <= q:
         return "named"
     if q <= t:
-        return "part"
+        lead = [w for w in (_stem(x) for x in words(name) if x not in STOP)][:len(q)]
+        return "leading" if set(lead) == q else "part"
     return None
 
 
-_RANK = {"exact": 0, "named": 1, "part": 2}
+_RANK = {"exact": 0, "named": 1, "leading": 2, "part": 3}
 _NEAR_WORDS = {"lodestone", "near", "by", "next", "beside", "at", "closest", "nearest"}  # "<place> lodestone" -> the place
 
 

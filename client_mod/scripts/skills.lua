@@ -491,6 +491,22 @@ function W.resting_in(api)
     return U.valid(a) and U.short(a) or nil
 end
 
+-- His carry weight now and the most he carries before he is slowed (pawn.PlayerEncumbranceComponent; DISCOVERIES
+-- "Encumbrance": over it he walks at 0.6x and can't sprint or jump): {cur, max, over} | nil. Read-only.
+function W.carry(api)
+    if paused() then return nil end
+    local s = api.module("sense")
+    local U = s and s.U
+    local p = s and s.local_pawn and s.local_pawn()
+    if not (U and U.valid(p)) then return nil end
+    local ec = U.try(function() return p.PlayerEncumbranceComponent end)
+    if not U.valid(ec) then return nil end
+    local cur = tonumber(U.try(function() return ec:GetCurrentCarryWeight() end))
+    local mx = tonumber(U.try(function() return ec:GetMaxCarryWeight() end))
+    if not (cur and mx and mx > 0) then return nil end
+    return { cur = cur, max = mx, over = U.try(function() return ec:IsEncumbered() end) == true }
+end
+
 -- Signals that a press did something besides the inventory: he is now sleeping/resting (beds), or the
 -- thing's prompt changed (open -> close, ...). Read-only.
 function W.press_signals(api)
@@ -1187,15 +1203,19 @@ local function start_consume(api, args, ctx)
         end
         job.stat = STAT_OF[r.consumable]
         job.row, job.phase = r, "use"
-        -- another use is mid-animation (the reflex, combat): its press would swallow ours, so wait it out
-        local busy = inv and type(inv.consume_busy) == "function" and inv.consume_busy() or nil
+        -- his own use comes first: the stay-fed reflex holds off every kind while this waits and presses
+        -- (inventory.hold_reflex; after the press inventory.use holds it through the animation and a settle)
+        if inv and type(inv.hold_reflex) == "function" then inv.hold_reflex(nil, M.cfg.consume_wait_s, "his own consume of " .. tostring(r.name)) end
+        -- another use OF THIS KIND is mid-animation (the reflex, combat, his own last one): its press would swallow ours,
+        -- so wait it out. A food and a drink overlap (inventory.consume_busy is per kind): his drink never waits for his food.
+        local busy = inv and type(inv.consume_busy) == "function" and inv.consume_busy(r.consumable) or nil
         if busy then
             job.busy_until = job.busy_until or (api.now() + M.cfg.consume_wait_s)
             if api.now() < job.busy_until then return nil end
             return api.fail("busy", { item = r.item, detail = "I'm still busy using the " .. tostring(busy.item) .. "." })
         end
         job.before, job.before_n, job.max = stat_now(api, job.stat), count_of(api, r.item), stat_max(api, job.stat)
-        local ur = api.call("inventory", "use", r.item, { require = r.consumable, hotbar_only = true })
+        local ur = api.call("inventory", "use", r.item, { require = r.consumable, hotbar_only = true, by = "command" })
         if not ur.ok then
             local d = copy(ur.data); d.detail = d.detail or ("I tried to use the " .. tostring(r.name) .. " but the game didn't take it.")
             return api.fail(ur.reason == "body_error" and "body_error" or ur.reason, d)
@@ -1337,6 +1357,7 @@ local function start_come_to(api, args, ctx, opts)
 end
 
 -- ------------------------------------------------------------------ recover_grave
+local grave_take_begin, grave_take_step, grave_mark -- the take from an "Open" grave (defined after start_transfer)
 local function grave_of(api, rows)
     local graves, mine, unknown = {}, nil, 0
     for _, r in ipairs(rows or {}) do
@@ -1403,9 +1424,24 @@ local function start_recover_grave(api, args, ctx)
             end
             return nil
         end
-        local r = episode_poll(api, job.ep, t, job.token)
-        if not r then return nil end
-        if not r.ok then return r end
+        local r
+        if job.phase == "take" then -- the grave's storage screen is open: the chest take, best things first
+            r = grave_take_step(api, job, t)
+            if not r then return nil end
+            if not r.ok then return r end
+        else
+            r = episode_poll(api, job.ep, t, job.token)
+            if not r then return nil end
+            if not r.ok then return r end
+            -- "Open" (live 2026-11-01 17:14, 33 stacks / 145 items, 15 free slots): the press opened its storage screen
+            -- instead of a Take All; take from it as a player does (before input.lua closes the screen as an orphan)
+            if type(r.data) == "table" and r.data.changed == "opened" then
+                local f = grave_take_begin(api, job, mine, ctx)
+                if f then return f end
+                job.phase = "take"
+                return nil
+            end
+        end
         local d = r.data
         d.grave, d.items = mine.id, d.gained
         d.newest = is_newest == true
@@ -1419,11 +1455,11 @@ local function start_recover_grave(api, args, ctx)
             return api.fail("verification_failed", { grave = mine.id,
                 detail = "I used my grave but nothing came back into my inventory." })
         end
+        grave_mark("recover_grave", mine, d)
         job.result = { ok = true, data = d }
         local lh = mem.last_held
         if lh and lh.item then
             local lr = api.call("inventory", "list")
-        M.death_recovered("recover_grave", mine.position, mine.id)
             local held = lr.ok and type(lr.data.held) == "table" and lr.data.held or {}
             local holding = held.right_item or held.left_item
             if not holding and lr.ok and find_carried(api, lr.data, lh.item) then
@@ -1701,18 +1737,27 @@ local function start_interact(api, args, ctx)
     end
     job.ep = new_episode(api, t, { accept = accept })
     job.ep.secondary = args.secondary == true
-    if tostring(t.class or ""):find("Gravestone", 1, true) then
+    local grave = tostring(t.class or ""):find("Gravestone", 1, true) ~= nil
+    if grave then
         job.verify_final = function(res)
             local n = 0
             for _, v in pairs(res.data and res.data.gained or {}) do n = n + (tonumber(v) or 0) end
-            if n > 0 then M.death_recovered("interact", t.position, t.id) end
+            if n > 0 then grave_mark("interact", t, res.data) end
             return res
         end
     end
     job.on_resume = resume_episode(api,job)
     job.step = function(tt)
         if job.leaving then return job.leave_step(tt) end
+        if job.sub then return grave_take_step(api, job, tt) end
         local res = episode_poll(api, job.ep, tt, job.token)
+        -- his own grave opened as storage ("Open": it won't all fit): the same take as recover_grave (best things first,
+        -- what stayed and why); someone else's grave is never taken from
+        if grave and res and res.ok and res.data and res.data.changed == "opened" and W.grave_owner(api, t) == true then
+            local f = grave_take_begin(api, job, t, ctx)
+            if f then return f end
+            return nil
+        end
         -- talk review V2: the press started a conversation, but talk.lua isn't enabled. Never leave him trapped
         -- in an open dialogue (every gated action would be refused): leave with the panel's own Cancel
         -- (bounded, read back), then say truthfully what it was.
@@ -1800,10 +1845,6 @@ function M.record_death(api, ts)
     local lost = {}
     for _, r in ipairs(mem.last_items or {}) do lost[#lost + 1] = r end
     local here = api.my_position() or (mem.last_pos)
-    local list = deaths()
-    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, body_position = body, lost = lost, recovered = false }
-    while #list > M.MAX_DEATHS do table.remove(list, 1) end
-    save_deaths()
     -- the game leaves the grave where he last stood, not where a fall ends (live 2026-11-01 15:56: grave on the cliff
     -- top, body 63 m below): move.lua's last grounded spot when it is fresh and he is below it
     local body, g = nil, rawget(_G, "DW_LAST_GROUND")
@@ -1811,6 +1852,10 @@ function M.record_death(api, ts)
     if age and age >= -2 and age <= 15 and (not here or here[3] < g.Z / 100 - 2) then
         body, here = here, { math.floor(g.X + 0.5) / 100, math.floor(g.Y + 0.5) / 100, math.floor(g.Z + 0.5) / 100 }
     end
+    local list = deaths()
+    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, body_position = body, lost = lost, recovered = false }
+    while #list > M.MAX_DEATHS do table.remove(list, 1) end
+    save_deaths()
 end
 local function nearest_death(pos, grave_id)
     local best, bd
@@ -1828,6 +1873,14 @@ function M.death_recovered(how, pos, grave_id)
     local d
     if pos or grave_id then d = nearest_death(pos, grave_id) else d = M.death_memory() end
     if d then d.recovered, d.recovered_how, d.recovered_at = true, how, os.time(); save_deaths() end
+end
+function M.death_partial(how, pos, grave_id, left)
+    local d = (pos or grave_id) and nearest_death(pos, grave_id) or nil
+    if not d then return end
+    local lost = {}
+    for _, l in ipairs(left or {}) do lost[#lost + 1] = { item = l.item, name = l.name, count = l.count } end
+    d.lost, d.partial_how, d.partial_at = lost, how, os.time()
+    save_deaths()
 end
 -- census sight of his own grave: bind it to its death (id, live contents); at a death spot with no grave
 -- of his in sight for long, the grave is gone (despawned or taken)
@@ -1999,11 +2052,11 @@ function M.state_extras(api, data)
         end
         out.my_grave = { id = g.id, name = g.name, distance = g.distance, position = g.position, items = n,
                          contents = names, owner = g.owner_check }
+        M.grave_seen(out.my_grave) -- bind it to its death (it ran before my_grave was set, so it never bound)
     end
     if others > 0 then out.other_graves = others end
     -- the in-game clock and the sleep window (sense.time_of_day), and how full the bag is
     local sense = api.module("sense")
-        M.grave_seen(out.my_grave) -- bind it to its death (it ran before my_grave was set, so it never bound)
     if sense and type(sense.time_of_day) == "function" then
         local okt, tod = pcall(sense.time_of_day)
         if okt and type(tod) == "table" then out.time_of_day = tod end
@@ -2038,8 +2091,11 @@ function M.state_extras(api, data)
     end
     local life = rawget(_G, "DW_LIFE")
     if type(life) == "table" and life.died_at then
+        -- killed_by nil = nothing the body or game said (the brain says "cause unknown"); bars = {food, water, rest}
+        -- percent at death, so a need is named only when it was really empty
         out.last_death = { ago_s = math.max(0, math.floor(api.now() - life.died_at)), respawned = life.respawned_at ~= nil,
-                           killed_by = life.killed_by, fell_m = life.fell_m, at = life.at }
+                           killed_by = life.killed_by, killed_by_class = life.killed_by_class, fell_m = life.fell_m,
+                           at = life.at, bars = life.bars }
     end
     return out
 end
@@ -2223,6 +2279,63 @@ local function contents_words(rows)
     return names
 end
 
+-- Where a stack from a container goes in his inventory: a stack of the same item with room (the item's own MaxStackSize,
+-- which the container row carries), else the first free slot of the page (inventory.free_slot: the game's own pages;
+-- nil = the bag is full). page nil = any (a grave take): a stack with room on either page, else a free bag slot, else
+-- (hotbar_too) a free hotbar slot. -> slot, page, room (nil = unknown) | nil
+local PAGE_TYPE = { hotbar = "QuickAction", bag = "InventoryItems" }
+local function take_slot(invm, rows, src, page, hotbar_too)
+    local max = tonumber(src.max_stack)
+    for _, x in ipairs(rows) do
+        local n = tonumber(x.count) or 1
+        if x.item == src.item and PAGE_TYPE[x.where] and (not page or x.where == page)
+                and (x.slot_type == nil or x.slot_type == PAGE_TYPE[x.where]) and (not max or n < max) then
+            return x.slot, x.where, max and (max - n) or nil
+        end
+    end
+    if type(invm.free_slot) ~= "function" then return nil end
+    for _, p in ipairs(page and { page } or (hotbar_too and { "bag", "hotbar" } or { "bag" })) do
+        local s = invm.free_slot(PAGE_TYPE[p])
+        if s then return s, p, nil end
+    end
+    return nil
+end
+-- "Bronze Sword, 2 Bronze Shield and 3 other kinds"
+local function stack_words(list, max_n)
+    max_n = max_n or 6
+    local out = {}
+    for i, x in ipairs(list or {}) do
+        if i > max_n and #list > max_n + 1 then out[#out + 1] = (#list - max_n) .. " other kinds"; break end -- never "1 other"
+        local n = tonumber(x.count) or 1
+        out[#out + 1] = (n > 1 and (n .. " ") or "") .. tostring(x.name or x.item)
+    end
+    if #out <= 1 then return out[1] or "nothing" end
+    return table.concat(out, ", ", 1, #out - 1) .. " and " .. out[#out]
+end
+-- What a queued take moved and what stayed, and why, one truthful sentence each: "I took 3 things from the grave:
+-- Bronze Sword and 2 Bronze Shield. My bag's full: 15 Goblin Pack and 19 Coarse Fur still in the grave."
+local function took_left_words(label, taken, left, carry)
+    local n = 0
+    for _, x in ipairs(taken) do n = n + (tonumber(x.count) or 1) end
+    local s = #taken > 0 and string.format("I took %d %s from the %s: %s.", n, n == 1 and "thing" or "things", label, stack_words(taken))
+        or ("I took nothing from the " .. label .. ".")
+    local groups, order = {}, {}
+    for _, l in ipairs(left or {}) do
+        if not groups[l.why] then groups[l.why] = {}; order[#order + 1] = l.why end
+        table.insert(groups[l.why], l)
+    end
+    for _, why in ipairs(order) do
+        local list = stack_words(groups[why])
+        if why == "bag_full" then s = s .. " My bag's full: " .. list .. " still in the " .. label .. "."
+        elseif why == "too_heavy" then
+            s = s .. " Too heavy to carry" .. (carry and string.format(" (I'm at %d of %d)", math.floor(carry.cur + 0.5), math.floor(carry.max + 0.5)) or "")
+                .. ": " .. list .. " still in the " .. label .. "."
+        else s = s .. " The game didn't move " .. list .. " out of the " .. label .. "." end
+    end
+    return s
+end
+M._took_left_words = took_left_words
+
 local function start_transfer(api, args, ctx, deposit)
     local kind = deposit and "store" or "take"
     local invm = api.module("inventory")
@@ -2230,10 +2343,13 @@ local function start_transfer(api, args, ctx, deposit)
             and type(invm.to_external) == "function" and type(invm.from_external) == "function") then
         return api.fail("not_implemented", { detail = "I can't use chests yet." })
     end
-    if not need_str(args.item) then return api.fail("invalid_args", { detail = "item is required" }) end
+    -- args.items (take; recover_grave): an ordered queue {{item, name, tier?}}: all of each in turn; one with no room
+    -- (bag full, too heavy, the game won't move it) stays and the next is tried; the result lists taken and left
+    local queue = (not deposit) and type(args.items) == "table" and args.items or nil
+    if not queue and not need_str(args.item) then return api.fail("invalid_args", { detail = "item is required" }) end
     if not need_str(args.container) then return api.fail("invalid_args", { detail = "container is required (an id from look)" }) end
     local sense = api.module("sense")
-    if sense and type(sense.has_privilege) == "function" and sense.has_privilege("open_chests") == false then
+    if not queue and sense and type(sense.has_privilege) == "function" and sense.has_privilege("open_chests") == false then
         return api.fail("no_permission", { why = "open_chests",
             detail = "The server hasn't given me rights to open chests here, so I can't use it." })
     end
@@ -2246,7 +2362,7 @@ local function start_transfer(api, args, ctx, deposit)
     if not inv then
         return api.fail("not_a_container", { container = t.id, detail = "The " .. tostring(t.name or "thing") .. " isn't something I can store things in." })
     end
-    local label = t.name or "chest"
+    local label = args.label or t.name or "chest"
     local want = math.floor(tonumber(args.count) or 0)
     local item, iname
     if deposit then
@@ -2274,7 +2390,46 @@ local function start_transfer(api, args, ctx, deposit)
     end
     job.cleanup = function() close(); if IN then IN.release("container") end end
     local function contents() return invm.external_rows(inv) end
-    local function press()
+    local press
+    job.taken, job.left = {}, {}
+    local qi, tier_of = 0, {}
+    local function finish_queue()
+        local c = contents()
+        local n, inside = 0, 0
+        for _, x in ipairs(job.taken) do n = n + x.count end
+        for _, r in ipairs(c.rows) do inside = inside + (tonumber(r.count) or 1) end
+        local cw = W.carry(api)
+        local data = { container = t.id, container_name = label, taken = job.taken, left = job.left, count = n, inside_now = inside,
+                       contents = contents_words(c.rows), carry = cw and { cur = math.floor(cw.cur * 10 + 0.5) / 10, max = cw.max } or nil,
+                       detail = took_left_words(label, job.taken, job.left, cw) }
+        if n == 0 then
+            local why = job.left[1] and job.left[1].why
+            data.why = why
+            return finish(api.fail((why == "bag_full" or why == "too_heavy") and "inventory_full" or "verification_failed", data))
+        end
+        return finish({ ok = true, data = data })
+    end
+    local function next_item() -- the queue's next item still inside
+        while true do
+            qi = qi + 1
+            local q = queue[qi]
+            if not q then return finish_queue() end
+            local have = contents().by_item[q.item] or 0
+            if have > 0 then
+                item, iname, want, job.moved = q.item, q.name or q.item, have, 0
+                return press()
+            end
+        end
+    end
+    -- this item is done: what came, and (why) what stayed
+    local function item_done(why)
+        job.pending = nil
+        if job.moved > 0 then job.taken[#job.taken + 1] = { item = item, name = iname, count = job.moved } end
+        local inside = contents().by_item[item] or 0
+        if why and inside > 0 then job.left[#job.left + 1] = { item = item, name = iname, count = inside, why = why } end
+        return next_item()
+    end
+    function press()
         local left = want - job.moved
         local c = contents()
         if deposit then
@@ -2293,14 +2448,27 @@ local function start_transfer(api, args, ctx, deposit)
         else
             local src
             for _, x in ipairs(c.rows) do if x.item == item then src = x; break end end
-            if not src then return finish(api.fail("verification_failed", { item = item, moved = job.moved, detail = "There's no more " .. tostring(iname) .. " in the " .. label .. "." })) end
-            local page = lower(args.to) == "hotbar" and "hotbar" or "bag"
+            if not src then
+                if queue then return item_done(nil) end
+                return finish(api.fail("verification_failed", { item = item, moved = job.moved, detail = "There's no more " .. tostring(iname) .. " in the " .. label .. "." }))
+            end
             local lr = api.call("inventory", "list")
-            local to
-            for _, x in ipairs(inv_rows(lr.ok and lr.data or {})) do if x.item == item and x.where == page then to = x.slot; break end end
-            if not to and type(invm.free_slot) == "function" then to = invm.free_slot(page == "hotbar" and "QuickAction" or "InventoryItems") end
-            if not to then return finish(api.fail("inventory_full", { item = item, moved = job.moved, detail = "My " .. page .. " is full." })) end
-            local n = math.min(left, tonumber(src.count) or 1)
+            local to, page, room = take_slot(invm, inv_rows(lr.ok and lr.data or {}), src,
+                not queue and (lower(args.to) == "hotbar" and "hotbar" or "bag") or nil, queue and (tier_of[item] or 9) <= 2)
+            if not to then
+                if queue then return item_done("bag_full") end
+                local pg = lower(args.to) == "hotbar" and "hotbar" or "bag"
+                return finish(api.fail("inventory_full", { item = item, moved = job.moved, detail = "My " .. pg .. " is full." }))
+            end
+            local n = math.min(left, tonumber(src.count) or 1, room or math.huge)
+            if queue then -- never so much that he'd be slowed (over the game's carry weight)
+                local w, cw = tonumber(src.weight), W.carry(api)
+                if w and w > 0 and cw then
+                    local fit = math.floor((cw.max - cw.cur) / w + 1e-6)
+                    if fit < 1 then return item_done("too_heavy") end
+                    n = math.min(n, fit)
+                end
+            end
             local before = carried_count(api, item)
             local res = invm.from_external(api.log, src.slot, inv, n, to, page)
             if not res.ok then return finish(api.fail("body_error", { detail = tostring(res.reason) })) end
@@ -2309,6 +2477,11 @@ local function start_transfer(api, args, ctx, deposit)
         return nil
     end
     local function begin_transfer()
+        if queue then
+            job.phase = "transfer"
+            for _, q in ipairs(queue) do tier_of[q.item] = q.tier end
+            return next_item()
+        end
         if not deposit then -- what is inside is only certain once the screen is open (contents may replicate on open)
             local c = contents()
             local best = in_container(c.rows, args.item, api)
@@ -2353,12 +2526,17 @@ local function start_transfer(api, args, ctx, deposit)
         if p and carried == p.carried and inside == p.inside then
             job.moved, job.pending = job.moved + p.n, nil
             if job.moved >= want then
+                if queue then return item_done(nil) end
                 return finish({ ok = true, data = { item = item, name = iname, count = job.moved, container = t.id, container_name = label,
                     carried_now = carried, inside_now = inside, contents = contents_words(contents().rows) } })
             end
             return press()
         end
         if p and tt >= p.until_t then
+            if queue then -- what did come counts (read back); the rest of it stays, and the queue goes on
+                job.moved = job.moved + math.max(0, math.min(p.n, carried - (p.carried - p.n)))
+                return item_done("not_moved")
+            end
             return finish(api.fail("verification_failed", { item = item, moved = job.moved, container = t.id,
                 detail = "I tried to move the " .. tostring(iname) .. (deposit and " into " or " out of ") .. "the " .. label .. " but "
                     .. (job.moved > 0 and ("only " .. job.moved .. " went") or "nothing moved") .. "." }))
@@ -2370,6 +2548,88 @@ end
 local function start_store(api, args, ctx) return start_transfer(api, args, ctx, true) end
 local function start_take(api, args, ctx) return start_transfer(api, args, ctx, false) end
 M._start_transfer = start_transfer
+
+-- What to take back first from a grave that won't all fit his bag (main 2026-11-01: "his gear (weapons, shield, armour,
+-- tools), then valuables, then stackables that merge into stacks he already has"), from each item's own data
+-- (inventory.external_rows: Category tag, MaxStackSize, PowerLevel; DISCOVERIES "Open graves"):
+--   1 gear: an Equipment category that isn't ammo (a kind he doesn't carry yet first, then the highest power level)
+--   2 valuables: ammo, skill tomes, quest items
+--   3 a stack that merges into one he carries (no new slot), the biggest first
+--   4 the rest, food and drink first, the biggest first
+-- rows = the grave's rows, carried = inv_rows. -> {{item, name, count, tier}} (one per item, all its stacks)
+function M.grave_take_order(rows, carried)
+    local have = {}
+    for _, r in ipairs(carried or {}) do have[r.item] = true end
+    local by, order = {}, {}
+    for _, r in ipairs(rows or {}) do
+        local e = by[r.item]
+        if not e then
+            local cat, max = tostring(r.category or ""), tonumber(r.max_stack)
+            local tier
+            if (cat:find("Equipment", 1, true) and not cat:find("Ammo", 1, true)) or (cat == "" and max == 1) then tier = 1
+            elseif cat:find("Ammo", 1, true) or cat:find("Tome", 1, true) or cat:find("Quest", 1, true) then tier = 2
+            elseif have[r.item] and (max or 2) > 1 then tier = 3
+            else tier = 4 end
+            e = { item = r.item, name = r.name, count = 0, tier = tier, power = tonumber(r.power) or 0, first = #order, carried = have[r.item] == true,
+                  food = cat:find("Food", 1, true) ~= nil or cat:find("Drink", 1, true) ~= nil }
+            by[r.item] = e
+            order[#order + 1] = e
+        end
+        e.count = e.count + (tonumber(r.count) or 1)
+    end
+    table.sort(order, function(a, b)
+        if a.tier ~= b.tier then return a.tier < b.tier end
+        if a.tier == 1 then
+            if a.carried ~= b.carried then return not a.carried end
+            if a.power ~= b.power then return a.power > b.power end
+        elseif a.tier == 4 and a.food ~= b.food then return a.food end
+        if a.tier >= 3 and a.count ~= b.count then return a.count > b.count end
+        return a.first < b.first
+    end)
+    return order
+end
+
+-- The grave's storage screen is open (job.ep's press): take from it through the chest take (start_transfer, one stack
+-- per press, verified on both sides, the screen closed after) in grave_take_order. -> nil (job.sub runs) | failure
+grave_take_begin = function(api, job, grave, ctx)
+    local invm = api.module("inventory")
+    local inv = invm and type(invm.inventory_of) == "function" and invm.inventory_of(api.actor_of(grave)) or nil
+    local rows = inv and invm.external_rows(inv).rows or {}
+    local lr = api.call("inventory", "list")
+    local order = M.grave_take_order(rows, inv_rows(lr.ok and lr.data or {}))
+    local sub = start_transfer(api, { container = grave.id, items = order, label = "grave" }, ctx, false)
+    if type(sub) ~= "table" or type(sub.step) ~= "function" then
+        local IN = input_mod(api)
+        if not paused() then if IN then IN.close_container() elseif invm and type(invm.close_world_inventory) == "function" then pcall(invm.close_world_inventory, api.log) end end
+        return sub
+    end
+    sub.token, sub.own = job.token, job.own
+    job.sub = sub
+    -- a reflex pre-empting: the screen closes at once; on resume the take walks back, reopens it and goes on
+    job.on_suspend = function() if sub.on_suspend then sub.on_suspend() end end
+    job.on_resume = function() sub.token = job.token; if sub.on_resume then sub.on_resume() end; return true end
+    job.cleanup = function() if sub.cleanup then sub.cleanup() end end
+    return nil
+end
+-- -> nil (still taking) | the take's result, with gained = {item = n} as the press path reports it
+grave_take_step = function(api, job, t)
+    local res = job.sub.step(t)
+    if not res then return nil end
+    job.sub = nil
+    local d = res.data or {}
+    local gained = {}
+    for _, x in ipairs(d.taken or {}) do gained[x.item] = (gained[x.item] or 0) + x.count end
+    d.gained, d.opened = api.object(gained), true
+    return res
+end
+-- A grave he took from: emptied -> THAT death is recovered; things still in it (his bag filled up) -> it stays
+-- unrecovered and what it lost is now what is left (the situation's grave line says what is still there)
+grave_mark = function(how, grave, d)
+    local still = 0
+    for _, l in ipairs(type(d) == "table" and d.left or {}) do still = still + (tonumber(l.count) or 0) end
+    if still == 0 then return M.death_recovered(how, grave.position, grave.id) end
+    M.death_partial(how, grave.position, grave.id, d.left)
+end
 
 -- ------------------------------------------------------------------ collect_water (DISCOVERIES "Drinkable water")
 -- collect_water {target?, count = 1}: the nearest water source (census: W.is_water) or the given one; the shared

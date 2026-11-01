@@ -241,7 +241,10 @@ M.cfg.build = {
     preview_waits = 6, edge_aim_m = 0.3,
     -- no preview actor (instance-only pieces): the cursor must stop gliding (settle_m between reads) within
     -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s)
-    settle_m = 0.03, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, edge_in_m = 0.3,
+    settle_m = 0.03, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, corr_max_z_m = 1.2, edge_in_m = 0.3,
+    -- speed (Luis's recording: he placed 11 walls from one spot, 0-0.3 m apart, 1-3 s each; MaxPlacementDistance 7 m):
+    -- stay where I am when the aim point is within stay_m, my view of it is clear and I'm not in the piece's way
+    stay_m = 4.5, stay_clear_m = 0.5, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
     snap_jump_m = 0.3, snap_jump_tol_m = 0.15, -- the cursor jumped from my aim onto the flush spot = a seen snap
     ceiling_below_m = 0.2, ceiling_stand_m = 0.8, -- a ceiling/roof off a wall top: aim at the wall face this far below
     -- its top, standing this far past the middle of the cell it covers
@@ -641,9 +644,16 @@ function M.flush_spot(anchor, side, new_box)
         -- off a wall's top toward that side (a ceiling tile / roof on the wall): its edge on the wall's line, its top
         -- flush with the wall's top, the same 90 degree grid as the wall
         local half = nb.extent[i]
-        if nb.extent[3] >= 0.5 then -- a roof (tall, sloped): it sits ON the wall top, its bottom on it
-            return { p[1] + axis[1] * half, p[2] + axis[2] * half, top - (nb.origin[3] - nb.extent[3]) }, axis,
-                { ceiling = true, roof = true, yaw = (anchor.yaw or 0) % 360, per = 90 }
+        if nb.extent[3] >= 0.5 then
+            -- a sloped roof over the cell on that side, its low eave on the wall's top. From Luis's house (census
+            -- 2026-11-01): 45° Roofs at the cell centres, 1.47 m over the wall tops (floor + 4.5 m), the eave toward
+            -- the wall at the piece's local +X (yaw 90 = eave S, rising N). So: the cell centre (its ridge-wise
+            -- half), up by that half times the slope (height / run of its bounds), facing away from the wall.
+            local hh = math.min(nb.extent[1], nb.extent[2])
+            local slope = nb.extent[3] / math.max(nb.extent[1], nb.extent[2])
+            local yaw = math.deg(math.atan(-axis[2], -axis[1])) % 360
+            return { p[1] + axis[1] * hh, p[2] + axis[2] * hh, top + hh * slope }, axis,
+                { ceiling = true, roof = true, yaw = yaw, per = 360 }
         end
         return { p[1] + axis[1] * half, p[2] + axis[2] * half, top - (nb.origin[3] + nb.extent[3]) }, axis,
             { ceiling = true, yaw = (anchor.yaw or 0) % 360, per = 90 }
@@ -673,6 +683,30 @@ function M.flush_report(anchor, side, new_box, built, tol)
                 level_m = math.floor(level * 100 + 0.5) / 100, facing_off_deg = math.floor(yo * 10 + 0.5) / 10 }
     r.flush = math.abs(gap) <= tol and math.abs(side_off) <= tol and math.abs(level) <= tol and math.abs(yo) <= 2
     return r
+end
+-- Does my capsule (here = its centre, m) overlap the new piece's box at spot (turned yaw)? Then I'd be in its way.
+function M.in_the_way(here, spot, box, yaw)
+    if not (here and spot and box) then return false end
+    local r = M.cfg.build.capsule_r_m
+    local c = math.rad(yaw or 0)
+    local dx, dy = here[1] - spot[1], here[2] - spot[2]
+    local lx, ly = dx * math.cos(c) + dy * math.sin(c), -dx * math.sin(c) + dy * math.cos(c)
+    if math.abs(lx - (box.origin[1] or 0)) > box.extent[1] + r or math.abs(ly - (box.origin[2] or 0)) > box.extent[2] + r then return false end
+    local zlo, zhi = spot[3] + box.origin[3] - box.extent[3], spot[3] + box.origin[3] + box.extent[3]
+    return here[3] - 0.88 < zhi and here[3] + 0.88 > zlo
+end
+-- Where the camera must point for an attach (the rotate phase aims there): a wall's top face just inside the edge,
+-- a frame's lintel, a wall's face just under its top (a ceiling), else the flush spot itself.
+function M.aim_point(on, spot, axis)
+    local a = on.anchor
+    if not (a and a.position and a.box and spot) then return spot end
+    local cfg = M.cfg.build
+    local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
+    local bottom = a.position[3] + a.box.origin[3] - a.box.extent[3]
+    if on.side == "in" then return { a.position[1], a.position[2], bottom + (top - bottom) * 0.88 } end
+    if on.mount and on.mount.ceiling and axis then return { a.position[1] + axis[1] * 0.1, a.position[2] + axis[2] * 0.1, top - cfg.ceiling_below_m } end
+    if on.mount and axis then return { spot[1] - axis[1] * cfg.edge_in_m, spot[2] - axis[2] * cfg.edge_in_m, top } end
+    return spot
 end
 -- What stands on each edge of a floor piece (a foundation) and over it, from the census: the perception a house
 -- needs (which edges still want a wall, which cells have a ceiling). rows: {id, name, position, yaw, box}.
@@ -715,6 +749,31 @@ function M.edges(rows)
         end
     end
     return out
+end
+-- Place an attach from where I stand? -> true | false, why. Within stay_m of the aim point, on the anchor's floor (a wall:
+-- its top face must be in view), not in the new piece's way, and the camera's ray reaching the aim point.
+function W.stay_ok(api, job, here)
+    local cfg = M.cfg.build
+    local on = job.on
+    if not (here and on and on.mount and on.anchor and on.anchor.box) then return false, "no_mount" end
+    local spot, axis = M.flush_spot(on.anchor, on.side, on.box)
+    local aim = M.aim_point(on, spot, axis)
+    if not (spot and aim) then return false, "no_aim" end
+    if math.sqrt((aim[1] - here[1]) ^ 2 + (aim[2] - here[2]) ^ 2) > cfg.stay_m then return false, "far" end
+    local a = on.anchor
+    local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
+    if not on.mount.ceiling and on.side ~= "in" and math.abs((here[3] - 0.88) - top) > 0.6 then return false, "not_on_its_floor" end
+    if M.in_the_way(here, spot, on.box, on.mount.yaw or 0) then return false, "in_the_way" end
+    local cam = W.camera(api)
+    if not cam then return false, "no_camera" end
+    local hit, o = W.trace(api, { X = cam[1] * 100, Y = cam[2] * 100, Z = cam[3] * 100 }, { X = aim[1] * 100, Y = aim[2] * 100, Z = aim[3] * 100 })
+    local ip = hit and o and o.ImpactPoint
+    if ip and type(ip.X) == "number" then
+        local tol = cfg.stay_clear_m + ((on.mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
+        local d = math.sqrt((ip.X / 100 - aim[1]) ^ 2 + (ip.Y / 100 - aim[2]) ^ 2 + (ip.Z / 100 - aim[3]) ^ 2)
+        if d > tol then return false, "view_blocked" end
+    end
+    return true
 end
 -- One line trace from my pawn (KismetSystemLibrary:LineTraceSingle, the call move.lua / spells use).
 function W.trace(api, a, b)
@@ -1004,6 +1063,17 @@ local function preview_reader(api, job)
                 -- the flush spot, green, the cursor settled there -> press; the game's snap (Basic mode) pulls it onto
                 -- the grid (live: the first foundation landed exactly on Luis's grid this way) and the census after the
                 -- press says whether it really sits flush. snapped = "unseen".
+                -- the camera swung after the aim (its spring arm turns round me and hits walls: live 16:33Z, a tile's
+                -- cursor wandered 1-7 m while the camera settled): aim again from where it is now, then wait
+                local cam = W.camera(api)
+                local ac = job.aim_cam
+                if cam and ac and job.aim_raw and job.env and math.sqrt((cam[1] - ac[1]) ^ 2 + (cam[2] - ac[2]) ^ 2 + (cam[3] - ac[3]) ^ 2) > cfg.reaim_cam_m
+                    and (job.on.reaims or 0) < cfg.reaims_max then
+                    job.on.reaims = (job.on.reaims or 0) + 1
+                    job.env.aim(job.aim_raw)
+                    job.on.prev_cursor = nil
+                    return { valid = false, why = "settling", position = at, fresh = fresh }
+                end
                 local prev = job.on.prev_cursor
                 local moved = prev and math.sqrt((m.position[1] - prev[1]) ^ 2 + (m.position[2] - prev[2]) ^ 2) or math.huge
                 job.on.prev_cursor = m.position
@@ -1025,10 +1095,13 @@ local function preview_reader(api, job)
                 end
                 -- settled off the spot (live: 0.6 m short and 0.2 m aside, the camera ray isn't the placement trace):
                 -- correct the aim by the miss, as a player nudges the mouse; the checker's next re-aim applies it
-                local c = job.on.corr or { 0, 0 }
-                c = { c[1] + (ct[1] - at[1]), c[2] + (ct[2] - at[2]) }
+                local c = job.on.corr or { 0, 0, 0 }
+                -- z too, toward a cursor target on a face (live 17:03Z: a ceiling aimed 0.2 m under a wall's top had its
+                -- cursor settle on the wall's face 0.4-1.2 m lower, every read; a player lifts the mouse)
+                local cz = (c[3] or 0) + (job.on.cursor_target and not zok and (ct[3] - at[3]) or 0)
+                c = { c[1] + (ct[1] - at[1]), c[2] + (ct[2] - at[2]), math.max(-cfg.corr_max_z_m, math.min(cfg.corr_max_z_m, cz)) }
                 local cl = math.sqrt(c[1] ^ 2 + c[2] ^ 2)
-                if cl > cfg.corr_max_m then c = { c[1] / cl * cfg.corr_max_m, c[2] / cl * cfg.corr_max_m } end
+                if cl > cfg.corr_max_m then c = { c[1] / cl * cfg.corr_max_m, c[2] / cl * cfg.corr_max_m, c[3] } end
                 job.on.corr, job.on.prev_cursor = c, nil
             elseif green and off <= cfg.snap_tol_m and dz <= cfg.snap_tol_z_m then
                 return { valid = true, snapped = true, position = at, fresh = fresh, colour = 2 }
@@ -1081,6 +1154,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     local where = string.format("[%.1f, %.1f, %.1f]", at[1], at[2], at[3] or 0)
     local rel = dir and (tostring(dist) .. " m " .. dir .. " of me") or "right beside me"
     local line = "Placed the " .. job.piece.name .. " and it is built" .. (#used > 0 and (" (" .. table.concat(used, ", ") .. ")") or "")
+    local fit -- the short "how it sits" sentence (a batch's line per piece)
     if s then
         line = line .. ": it stands " .. rel .. " at " .. where .. (facing and (", facing " .. facing) or "") .. " (" .. s.id .. ")."
     else
@@ -1116,7 +1190,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             if math.abs(att.offset_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m off to the side", math.abs(att.offset_m)) end
             if math.abs(att.level_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.level_m), att.level_m > 0 and "higher" or "lower") end
             if math.abs(att.facing_off_deg) > 2 then parts[#parts + 1] = string.format("turned %.0f degrees", att.facing_off_deg) end
-            line = line .. (att.flush and (ceil and (" It sits squarely " .. where_on .. (mount.roof and ": on the wall's top, lined up with it."
+            line = line .. (att.flush and (ceil and (" It sits squarely " .. where_on .. (mount.roof and ": its low edge on the wall's top, sloping up away from it."
                         or ": its edge on the wall's line, its top level with the wall's top, lined up with it."))
                     or mount and (" It stands squarely " .. where_on .. ": on the edge line, on its top, lined up with it.")
                     or (" It sits flush " .. where_on .. ": no gap, level, same facing."))
@@ -1124,6 +1198,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         else
             line = line .. " I meant it to sit flush " .. where_on .. " but can't measure it until I can see it."
         end
+        fit = line:match("(It [^.]*%.)$") or line:match("(I meant it [^.]*%.)$")
     end
     local rej = {}
     for _, r in ipairs(job.rejects or {}) do
@@ -1140,17 +1215,131 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         attached_to = job.on and job.on.anchor.id or nil, side = job.on and job.on.side or nil,
         flush = att and att.flush, gap_m = att and att.gap_m, offset_m = att and att.offset_m, level_m = att and att.level_m,
         facing_off_deg = att and att.facing_off_deg, snap_moved_m = att and att.snap_moved_m,
-        rejected_previews_before_placing = #rej > 0 and rej or nil }, RESULT_MT) }
+        rejected_previews_before_placing = #rej > 0 and rej or nil,
+        fit = fit or (s and ("It stands at " .. where .. ".")) or nil, stayed = job.stayed or nil }, RESULT_MT) }
 end
 M._success = success
+
+-- ------------------------------------------------------------------ several pieces in one go (speed)
+-- Luis builds the way players do: the build screen stays open, he switches pieces inside it and places what is in
+-- reach from where he stands. pieces = { {piece, on, at, near, rotation}, ... }; on may name an earlier item of the
+-- list as "#k" ("#1:N" = the N edge of the piece item 1 built). Order: the nearest item whose "#k" pieces are built.
+local function ref_of(on)
+    local k, side = tostring(on or ""):match("^#(%d+):?(.*)$")
+    return tonumber(k), side
+end
+function M.batch_items(list)
+    if type(list) ~= "table" or #list == 0 then return nil, "pieces must be a list of {piece, on, ...}" end
+    if #list > M.cfg.build.batch_max then return nil, "at most " .. M.cfg.build.batch_max .. " pieces in one go" end
+    local items = {}
+    for k, it in ipairs(list) do
+        if type(it) ~= "table" or type(it.piece) ~= "string" or it.piece == "" then
+            return nil, "pieces #" .. k .. " needs a piece name"
+        end
+        local r = ref_of(it.on)
+        if r and (r < 1 or r > #list or r == k) then return nil, "pieces #" .. k .. ": on '" .. tostring(it.on) .. "' names no other item of the list" end
+        local c = {}
+        for key, v in pairs(it) do c[key] = v end
+        items[k] = c
+    end
+    return items
+end
+function M.batch_args(b, k)
+    local it, a = b.items[k], {}
+    for key, v in pairs(it) do a[key] = v end
+    local r, side = ref_of(it.on)
+    if r then
+        local res = b.results[r]
+        local sid = res and res.ok and res.data and res.data.structure
+        a.on = (type(sid) == "string" and sid or ("#" .. r)) .. (side ~= "" and (":" .. side) or "")
+    end
+    return a
+end
+function M.batch_pick(api, b)
+    local here = api.my_position()
+    local best, bd
+    for k, it in ipairs(b.items) do
+        if not b.done[k] then
+            local r = ref_of(it.on)
+            local ready = not r or (b.results[r] and b.results[r].ok)
+            if ready then
+                local pos
+                if r then pos = b.results[r].data.position
+                elseif it.on then local a = W.actor_info(api, tostring(it.on):match("^([^:]+)")); pos = a and a.position
+                elseif type(it.at) == "table" then pos = it.at end
+                local d = (here and type(pos) == "table" and pos[1] and math.sqrt((pos[1] - here[1]) ^ 2 + (pos[2] - here[2]) ^ 2)) or 1e6 + k
+                if not bd or d < bd then best, bd = k, d end
+            end
+        end
+    end
+    return best
+end
+function M.batch_result(api, b, last, t_s)
+    local lines, built, spent = {}, {}, {}
+    local fail
+    for k = 1, #b.items do
+        local r = b.results[k]
+        if r and r.ok then
+            local d = r.data or {}
+            built[#built + 1] = { item = k, structure = d.structure, name = d.name, position = d.position, flush = d.flush,
+                                  attached_to = d.attached_to, side = d.side, fit = d.fit }
+            lines[#lines + 1] = "#" .. k .. " " .. tostring(d.name) .. " (" .. tostring(d.structure) .. "): " .. tostring(d.fit or "built")
+            if type(d.spent) == "table" then for item, c in pairs(d.spent) do spent[item] = (spent[item] or 0) + c end end
+        elseif r and not fail then fail = { k = k, r = r } end
+    end
+    local untried = {}
+    for k = 1, #b.items do if not b.results[k] then untried[#untried + 1] = "#" .. k end end
+    local n = #b.items
+    local head = string.format("Built %d of %d pieces in %d s", #built, n, math.floor((t_s or 0) + 0.5))
+    local text = head .. (#lines > 0 and (": " .. table.concat(lines, " ")) or ".")
+    if fail then
+        local it = b.items[fail.k]
+        text = text .. " Stopped at #" .. fail.k .. " (" .. tostring(it.piece) .. (it.on and (" on " .. tostring(it.on)) or "") .. "): "
+            .. tostring((fail.r.data or {}).detail or fail.r.reason)
+    end
+    if #untried > 0 then text = text .. " Not tried: " .. table.concat(untried, ", ") .. "." end
+    local data = { built_pieces = built, spent = api.object(spent), presses = last and last.data and last.data.presses or nil }
+    if fail or #built < n then
+        data.detail, data.why = text, fail and (fail.r.data or {}).why or "not_all_built"
+        data.failed_item = fail and fail.k or nil
+        return { ok = false, reason = fail and fail.r.reason or "verification_failed", data = data }
+    end
+    data.built = text
+    return { ok = true, data = data }
+end
+function M.batch_next(api, job, res)
+    local b = job.batch
+    b.results[b.i], b.done[b.i] = res, true
+    if not res.ok then b.over = true; return false end
+    local k = M.batch_pick(api, b)
+    if not k then b.over = true; return false end
+    local args = M.batch_args(b, k)
+    b.i = k
+    local nj = start_build(api, args, b.ctx)
+    if nj.ok == false then b.results[k], b.done[k], b.over = nj, true, true; return false end
+    -- the same job table goes on: the poll closure, the arbiter token and the open build screen stay with it
+    local keep = { batch = true, token = true, own = true, presses = true, phase_s = true, phase_at = true, last_phase = true }
+    for key in pairs(job) do if not keep[key] then job[key] = nil end end
+    for key, v in pairs(nj) do if key ~= "presses" then job[key] = v end end
+    job.rotation = tonumber(args.rotation) or job.rotation
+    return true
+end
 
 local function step(api, job, t)
     local cfg = M.cfg.build
     local i = IN(api)
     local function leave_then(res)
+        if job.batch and not job.batch.over and not job.stopped and M.batch_next(api, job, res) then return nil end
         job.final = job.final or res
         job.phase = "leave"
         return nil
+    end
+    if job.phase == "approach" and job.on and job.on.mount and not job.stand_at and not job.stay_checked then
+        -- in reach, a clear view, not in its way: place from here (a player turns, he doesn't walk)
+        job.stay_checked = true
+        local ok_stay, why = W.stay_ok(api, job, api.my_position())
+        job.stay_why = why
+        if ok_stay then job.stayed, job.phase = true, "open"; return nil end
     end
     if job.phase == "approach" then
         local here = api.my_position()
@@ -1172,16 +1361,30 @@ local function step(api, job, t)
                 if (h[1] - job.center[1]) * n[1] + (h[2] - job.center[2]) * n[2] < 0 then n = { -n[1], -n[2] } end
                 axis, out_m = n, 1.0 + cfg.stand_extra_m + 1.0
             end
-            job.stand_at = axis and { job.center[1] + axis[1] * out_m, job.center[2] + axis[2] * out_m, job.center[3] }
+            -- standing height: on the floor under it, never the piece's own height (live 17:44Z: a ceiling's stand
+            -- point at the wall top, 2.1 m up, so the go_to never arrived and kept steering the camera level at its
+            -- goal through the whole aim: every cursor read at camera height on the walls)
+            local sz = job.center[3]
+            if mount and mount.ceiling then
+                local a = job.on.anchor
+                sz = a.position[3] + a.box.origin[3] - a.box.extent[3] + 0.88
+            end
+            job.stand_at = axis and { job.center[1] + axis[1] * out_m, job.center[2] + axis[2] * out_m, sz }
                 or stand_point(here or job.center, job.center, out_m)
+        end
+        -- on to the build screen: the walk there ends first (a go_to still running steers the camera every frame,
+        -- over every aim)
+        local function to_open()
+            if job.moving and (api.move_status() or {}).mode == "go_to" then api.call("move", "stop") end
+            job.moving, job.phase = false, "open"
         end
         local ds = job.stand_at and here and math.sqrt((here[1] - job.stand_at[1]) ^ 2 + (here[2] - job.stand_at[2]) ^ 2)
         if (job.stand_at and ds and ds <= 1.2) or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5) then
-            job.phase = "open"; return nil
+            to_open(); return nil
         end
         if not job.moving then
             if (job.approaches or 0) >= 2 then
-                if job.stand_at and d and d <= cfg.reach_m - 1.5 and d >= 1.5 then job.phase = "open"; return nil end -- close enough to try
+                if job.stand_at and d and d <= cfg.reach_m - 1.5 and d >= 1.5 then to_open(); return nil end -- close enough to try
                 return api.fail("too_far", { piece = job.piece.id, distance = d, detail = "I can't get to a spot to build the " .. job.piece.name .. " from." })
             end
             local goal = job.stand_at or stand_point(here or job.center, job.center, job.standoff + 0.5)
@@ -1220,6 +1423,24 @@ local function step(api, job, t)
         local mode = W.mode(api)
         if mode == "Placement" and W.placing(api) == job.piece.id then
             job.phase = "rotate"
+            return nil
+        end
+        if mode == "Placement" and not job.sel_t then
+            -- placing another piece (the last one of a batch): pick the new one in the build UI straight away; if the
+            -- game doesn't switch, back out of placing and open the menu again
+            if not job.switch_t then
+                local ok = W.select(api, job.data)
+                job.presses[#job.presses + 1] = "select"
+                job.switch_t = ok and (t + cfg.select_wait_s) or t
+                return nil
+            end
+            if t < job.switch_t then return nil end
+            if not job.switch_out then
+                job.switch_out = true
+                job.presses[#job.presses + 1] = "cancel"
+                if i then i.leave_build_step(function(a) W.press(api, a) end) end
+                job.phase, job.open_t = "open", t + cfg.open_wait_s
+            end
             return nil
         end
         if not job.sel_t then
@@ -1266,9 +1487,11 @@ local function step(api, job, t)
                 return out
             end,
             aim = function(p)
+                job.aim_raw = p
                 local c = job.on and job.on.mode == "cursor" and job.on.corr
-                if c then p = { p[1] + c[1], p[2] + c[2], p[3] } end
+                if c then p = { p[1] + c[1], p[2] + c[2], p[3] + (c[3] or 0) } end
                 job.aim_seq, job.last_aim = W.hook_seq(), p
+                job.aim_cam = W.camera(api) -- the rotation is worked out from here; the camera swings after it
                 return W.aim(api, p)
             end,
             read = preview_reader(api, job),
@@ -1280,10 +1503,13 @@ local function step(api, job, t)
         -- still counts as snap (never press blind).
         local prof = W.piece_profile(api, job.data)
         local pa = W.preview_actor(api, job)
-        if job.on and not pa and (job.pa_waits or 0) < cfg.preview_waits then -- attaching: give a preview actor time to spawn
+        local nopa = mem().nopa or {}
+        mem().nopa = nopa
+        if job.on and not pa and not nopa[job.piece.id] and (job.pa_waits or 0) < cfg.preview_waits then -- attaching: give a preview actor time to spawn
             job.pa_waits = (job.pa_waits or 0) + 1
             return nil
         end
+        if job.on and not pa then nopa[job.piece.id] = true end -- an instance-only piece: never wait for its preview again
         if prof and prof.snap_only ~= nil then
             job.snap, job.snap_src = prof.snap_only, "piece data"
         elseif pa then
@@ -1494,6 +1720,7 @@ local function step(api, job, t)
         local function done(closed)
             if i then i.release("build") end
             local res = job.final or api.fail("verification_failed", { detail = "build ended" })
+            if job.batch then res = M.batch_result(api, job.batch, res, api.now() - (job.batch.t0 or api.now())) end
             res.data = res.data or {}
             res.data.left_build_mode = closed
             if not closed then
@@ -1525,8 +1752,22 @@ M.HANDLERS.build = function(log, args, ctx)
     local api = ctx and ctx.api
     if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
     args = args or {}
+    local batch
+    if args.pieces ~= nil then
+        local items, bad = M.batch_items(args.pieces)
+        if not items then return { ok = false, reason = "invalid_args", data = { detail = bad } } end
+        batch = { items = items, results = {}, done = {}, t0 = api.now(), ctx = ctx }
+        batch.i = M.batch_pick(api, batch)
+        if not batch.i then return { ok = false, reason = "invalid_args", data = { detail = "every piece names another one with #k: none can go first" } } end
+        args = M.batch_args(batch, batch.i)
+    end
     local job = start_build(api, args, ctx)
-    if job.ok == false then return job end
+    if job.ok == false then
+        if not batch then return job end
+        batch.results[batch.i] = job
+        return M.batch_result(api, batch, job, 0)
+    end
+    job.batch = batch
     job.rotation = tonumber(args.rotation) or job.rotation
     local A = arbiter(api)
     local function release(why)
@@ -1549,7 +1790,7 @@ M.HANDLERS.build = function(log, args, ctx)
         job.own = "waiting"
         return false
     end
-    local a = { kind = "build", id = ctx.id, timeout_s = M.cfg.build.timeout_s }
+    local a = { kind = "build", id = ctx.id, timeout_s = M.cfg.build.timeout_s * (batch and #batch.items or 1) }
     a.cancel = function()
         local i = IN(api)
         if i and not paused() then i.release("build"); i.leave_build_step(function(x) W.press(api, x) end) end
@@ -1571,13 +1812,31 @@ M.HANDLERS.build = function(log, args, ctx)
             if job.reopen then job.reopen, job.phase, job.opens, job.sel_t, job.open_t = nil, "open", 0, nil, nil
             elseif job.phase == "approach" then job.moving = false end
         end
-        local ok, res = pcall(step, api, job, W.clock(api))
+        -- where the time goes, per phase (s): the speed work measures against Luis's 3.81 s/piece from these
+        local now = W.clock(api)
+        job.phase_s = job.phase_s or {}
+        if job.phase_at and job.last_phase then
+            job.phase_s[job.last_phase] = (job.phase_s[job.last_phase] or 0) + (now - job.phase_at)
+        end
+        job.phase_at, job.last_phase = now, job.phase
+        local ph = job.phase
+        local ok, res = pcall(step, api, job, now)
         if not ok then
             job.final, job.phase = api.fail("body_error", { detail = "build: " .. tostring(res) }), "leave"
             res = nil
         end
+        if res and job.batch and ph ~= "leave" then -- a piece of a batch failed outside leave_then: record it, then leave
+            if not job.batch.over then job.batch.results[job.batch.i], job.batch.done[job.batch.i], job.batch.over = res, true, true end
+            job.final, job.phase, res = job.final or res, "leave", nil
+        end
         if res then release(res.ok and "done" or tostring(res.reason)) end
-        if res then res.data = res.data or {}; res.data.presses = job.presses end
+        if res then
+            res.data = res.data or {}
+            res.data.presses = job.presses
+            local ps = {}
+            for k, v in pairs(job.phase_s) do ps[k] = math.floor(v * 10 + 0.5) / 10 end
+            res.data.phase_s = api.object and api.object(ps) or ps
+        end
         return res
     end
     return { pending = a }
@@ -1671,19 +1930,22 @@ M.MANIFEST = {
     -- offered to the model after live P5 (2026-10-26, a Campfire built and verified on dev)
     build = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 12, timeout_s = 120,
         detail_is_speech = true,
-        description = "Build one piece by its name from buildables (you need its materials). Walks near the spot, tries "
-            .. "preview spots until the game shows one valid, places it once and checks it was built. ok: the reply's "
-            .. "'built' line says what stands where (metres and compass from you, facing, its structures id); spots "
-            .. "rejected before that are listed under rejected_previews_before_placing and are not failures. With on, it "
-            .. "only places once the preview snaps onto that piece and says whether it sits flush (gap, level, facing). Not ok: "
-            .. "detail says why, and no new piece was found standing there. Trains Construction.",
-        args = { type = "object", required = { "piece" }, properties = obj({
+        description = "Build a piece by its name from buildables (you need its materials), or several with pieces. Walks "
+            .. "near the spot (stays put when it is in reach), tries preview spots until one is valid, places it once and "
+            .. "checks it was built. ok: 'built' says what stands where (metres and compass from you, facing, its "
+            .. "structures id); rejected_previews_before_placing are not failures. With on, it only places once the preview "
+            .. "snaps onto that piece and says whether it sits flush (gap, level, facing). Not ok: detail says why, and no "
+            .. "new piece was found standing there. Trains Construction.",
+        args = { type = "object", properties = obj({
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
             near = { type = "string", description = "Somewhere next to this id ('me' for beside you)." },
             on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W' or ':top' (no side: the free side nearest you). A wall goes on a foundation's edge; ':in' puts a door into a door-frame wall; a tile or roof on a wall reaches out to that side off its top." },
-            rotation = { type = "number", minimum = 0, maximum = 360, description = "Turn it this many degrees (15 degree steps)." } }) },
-        reasons = { "no_permission", "host_only", "unknown_target", "ambiguous_target", "missing_materials", "blocked",
+            rotation = { type = "number", minimum = 0, maximum = 360, description = "Turn it this many degrees (15 degree steps)." },
+            pieces = { type = "array", maxItems = 12, items = { type = "object" }, description = "Several in one go, the build "
+                .. "screen kept open: a list of {piece, on, rotation}. on may name an earlier item as '#k' ('#1:N' = the N edge "
+                .. "of what item 1 built). I go in the order that keeps walking short and stop at the first that fails." } }) },
+        reasons = { "no_permission", "host_only", "unknown_target", "ambiguous_target", "missing_materials", "blocked", "invalid_args",
                     "limit_reached", "too_far", "path_blocked", "interrupted", "verification_failed", "timeout" } },
 }
 

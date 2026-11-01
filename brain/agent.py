@@ -37,6 +37,10 @@ HELP_REPEAT_S = 60.0
 # The agent loop: model turns after the first, per request (every turn's results go back to the model),
 # bounded by a turn cap and a wall deadline (a long chain such as "make an axe then cut a tree" fits).
 MAX_TURNS = 8
+# The turn budget ended a request with work open: it is handed on as a body situation this many times at most
+# (agent._hand_on), each a fresh run in which the model sees how its last calls went.
+CHAIN_BUDGET = "chain_budget"
+MAX_HAND_ONS = 2
 # The no-progress breaker parked a step (brain/progress.py): the model's last turn of this request.
 PARKED_NOTE = ("A step is parked (results above): the same call failed the same way with no progress. If the player "
                "hasn't heard why, tell him in one short plain line; this request ends after this reply.")
@@ -373,7 +377,10 @@ class Agent:
         deadline = self.clock() + REQUEST_SECONDS
         state = self._fresh_state()  # unavailable: still let the Controller answer; actions will refuse
         body_ctx = (body_events[0] if len(body_events) == 1 else {"events": body_events}) if body_events else None
-        d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed,
+        # the model's command.addressed: only a player's line is addressed to him; a body-initiated run (no text) is
+        # not (live 2026-11-01: body events came as addressed=true and he opened with "hey" when nobody spoke)
+        heard = addressed and bool(event.text)
+        d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=heard,
                                    body_event=body_ctx)
         if body_events:  # speak-time check of the situation itself, on fresh state
             state = self._fresh_state()
@@ -385,7 +392,7 @@ class Agent:
                     return
             body_events = still
         self.request_calls, self.request_parked = d.model_calls, None
-        d2, state = self._fresh_reply(event, d, state, addressed, body_ctx)
+        d2, state = self._fresh_reply(event, d, state, heard, body_ctx)
         if d2 is not d:
             self.request_calls += d2.model_calls
         d = d2
@@ -454,9 +461,15 @@ class Agent:
                              why="the player spoke" if spoke else "deadline" if late else "budget")
                 if self._directed is not None and spoke:
                     self._directed_end = "chat"
+                if not spoke and not late and self._hand_on(event, d, t, body_events):
+                    break  # the model hears the last results in a fresh run (live 17:2xZ: he stood 194 s here)
                 if t["failure"] and not spoke:  # the model never saw this failure; when he spoke, he has the
                     self.controller.report_failure(*t["failure"])  # floor (the next run's body_status has it)
                     said = True
+                elif not spoke and not said and self._directed is None:  # hand-ons used up, nothing said: he must
+                    line = fallback_line([{"type": CHAIN_BUDGET, "request": event.text or next(  # not stop silently
+                        (e.get("request") for e in body_events or [] if e.get("type") == CHAIN_BUDGET), None)}])
+                    said = bool(line) and self.controller.say(line, kind=kind) is not None
                 break
             turn += 1
             before, state = state, self._fresh_state()
@@ -495,7 +508,8 @@ class Agent:
             # what is still true is said, and nothing at all when the model's own action fixed it.
             still = self.broker.still_valid(body_events, self._fresh_state())
             if still and not acted:
-                line = fallback_line(still)  # None for a situation_review: the model chose silence
+                # None for a situation_review or a handed-on request (CHAIN_BUDGET): the model chose silence
+                line = fallback_line([e for e in still if e.get("type") != CHAIN_BUDGET])
                 said = bool(line) and self.controller.say(line, kind=kind) is not None
             else:
                 self.log.log("situation_unspoken", events=body_events, still=still,
@@ -510,6 +524,35 @@ class Agent:
             self.pending_goal = d.goal
         if self.pending_goal:
             self._goal_episode = self.log.episode_id  # the goal's rows stay in the episode that asked for it
+
+    def _hand_on(self, event: CommandReceived, d, t: dict, body_events: list[dict] | None) -> bool:
+        """The turn budget ended a request with work still open (its last turn ran tools whose results the model
+        never saw). Live 17:2xZ: the 8th turn cast Summon Shelter "to rest", the chain stopped, and he stood 194 s,
+        silent, to the run's end. The request is handed on as a body situation: a fresh run (fresh context) in which
+        the model hears what it asked for and how its last calls went, and decides: carry on, change course, tell
+        the player, or stop. At most MAX_HAND_ONS per request; a board run's step budget is the board's."""
+        if self._directed is not None:
+            return False
+        prev = next((e for e in body_events or [] if e.get("type") == CHAIN_BUDGET), None)
+        n = int(prev.get("hand_on") or 0) + 1 if prev else 1
+        if n > MAX_HAND_ONS:
+            return False
+        last = []
+        for c in d.actions:
+            r = t["results"].get(c.id) or t["results"].get(c.name) or {}
+            data = r.get("data") if isinstance(r.get("data"), dict) else {}
+            last.append({"tool": c.name, "args": c.arguments, "ok": r.get("ok"), "reason": r.get("reason"),
+                         "detail": str(data.get("detail") or data.get("why") or "")[:300] or None})
+        request = (prev or {}).get("request") or event.text or None
+        self._situations.append({
+            "type": CHAIN_BUDGET, "hand_on": n, "of": MAX_HAND_ONS, "request": request,
+            "from": (prev or {}).get("from") or (event.player if event.text else None),
+            "about": (f"your work on this request stopped at the turn limit ({MAX_TURNS + 1} turns) before you had "
+                      "seen how your last calls went; their results are in last_results"
+                      + ("; this is the last hand-on, the request ends after this run" if n == MAX_HAND_ONS else "")),
+            "last_results": last})
+        self.log.log("chain_handed_on", hand_on=n, request=request, last=[x["tool"] for x in last])
+        return True  # the next pump's flush_situations runs it (never nested inside this run's own wrap-up)
 
     def _run_turn(self, d, state: dict, event: CommandReceived) -> dict:
         """Run one model turn's calls in order; stop at the first failure. Every result is kept for the

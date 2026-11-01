@@ -1998,10 +1998,11 @@ function M.status_frame(F, pawn, me)
     end
 end
 
-eat_allowed = function(F)
+eat_allowed = function(F, kind)
     if F.next_eat and F.t < F.next_eat then return false, "cooldown" end
-    -- one use at a time: a press during another use's ~6 s animation is ignored by the game
-    if mcall("inventory", "consume_busy") then return false, "consume_in_progress" end
+    -- one use at a time per kind: a press during another use's ~6 s animation of the same kind is ignored by the game
+    -- (a food and a drink overlap: inventory.consume_busy(kind)); no kind = any use in progress
+    if mcall("inventory", "consume_busy", kind) then return false, "consume_in_progress" end
     local st = mcall("inventory", "eat_status")
     if type(st) == "table" and st.can_eat == false then
         if st.cooldown_s then F.next_eat = F.t + st.cooldown_s end
@@ -2027,7 +2028,7 @@ local function try_eat(F, me, force, verify_only)
     if F.heal_pending or verify_only then return end
     local frac = (me.hp or 0) / me.max_hp
     if not force and frac >= M.cfg.eat_hp then return end
-    local ok, why = eat_allowed(F)
+    local ok, why = eat_allowed(F, "food")
     if not ok then return false, why end
     local list = mcall("inventory", "list", F.log) or {}
     local pick = best_heal_food(list) or mcall("inventory", "best_consumable", list, "food")
@@ -2743,7 +2744,6 @@ function M.defence_reserve(F)
     return r
 end
 
-local function step_engage(F, pawn, me, acts, tgt)
 -- Stamina a primary swing needs now: its cost plus the defence reserve, or the cost alone for a finishing blow (the
 -- target's HP within one of his hits) or once the reserve has held him back cfg.reserve_wait_s. With his max stamina
 -- cut (rest low: 40 at endurance 0) reserve + cost was about all he had: he parried a 20-HP runt for 24 s without one
@@ -2758,6 +2758,7 @@ function M.swing_need(F, prim)
     return M.defence_reserve(F) + cost
 end
 
+local function step_engage(F, pawn, me, acts, tgt)
     local cfg = M.cfg
     local d_m = F.dist_m
     -- keep in range: a short gap on his level (a dodge took him out of reach) -> step back in with the movement input;
@@ -2848,10 +2849,10 @@ end
     elseif (me.stamina or 0) >= M.swing_need(F, prim) and acts.primary then
         tap(F, acts.primary, cfg.tap_frames, "primary")
         F.next_press = F.t + (prim.next_ms or 900) / 1000 + jitter(cfg.press_jitter_ms)
-    else
         F.reserve_held_since = nil
-        F.next_press = F.t + 0.3 -- let stamina come back (keep the reserve for defence)
+    else
         F.reserve_held_since = F.reserve_held_since or F.t
+        F.next_press = F.t + 0.3 -- let stamina come back (keep the reserve for defence)
         return M.held(F, "stamina")
     end
     F.last_press_t = F.t

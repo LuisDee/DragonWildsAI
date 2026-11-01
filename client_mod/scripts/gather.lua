@@ -201,7 +201,14 @@ function W.aim_cam(pc, pos)
     local yaw, pitch = math.deg(math.atan(dy, dx)), math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy)))
     return pcall(function() pc:SetControlRotation({ Pitch = pitch, Yaw = yaw, Roll = 0 }) end)
 end
-function W.nudge(pawn, dir, scale) pcall(function() pawn:AddMovementInput(dir, scale, false) end) end
+function W.nudge(pawn, dir, scale)
+    -- a nudge is a step: never toward a lethal edge (live 2026-11-01 16:37: a walk to his grave on a cliff-top
+    -- shoulder slid him off); move.unsafe_ahead names the drop, and then he only aims
+    local mv = mod("move")
+    local okh, bad = pcall(function() return mv and type(mv.unsafe_ahead) == "function" and mv.unsafe_ahead(pawn, dir.X, dir.Y) end)
+    if okh and bad then return end
+    pcall(function() pawn:AddMovementInput(dir, scale, false) end)
+end
 function W.actions(pawn) return mcall("combat", "actions", pawn) or {} end
 function W.inject(action)
     local cb = mod("combat")

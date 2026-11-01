@@ -1471,10 +1471,36 @@ M.ATTACKED_REPEAT_S = 5
 M.VITALS_LOW, M.VITALS_REARM, M.VITALS_CHECK_S, M.VITALS_REPEAT_S = 15, 25, 15, 180
 M.VITAL_NEEDS = { hydration = "drink", sustenance = "food" }
 
+-- The bars of a vitals row ({sustenance = {v, max}, ...} or {survival = {...}}) as percent of their max then:
+-- {food, water, rest} | nil. A death keeps them (get_state.last_death.bars), so the brain never guesses its cause.
+local function bars_of(row)
+    local s = type(row) == "table" and (type(row.survival) == "table" and row.survival or row) or {}
+    local function pct(x)
+        local v, mx = type(x) == "table" and tonumber(x[1]), type(x) == "table" and tonumber(x[2])
+        return v and mx and mx > 0 and math.floor(v / mx * 100 + 0.5) or nil
+    end
+    local b = { food = pct(s.sustenance), water = pct(s.hydration), rest = pct(s.endurance) }
+    return (b.food or b.water or b.rest) and b or nil
+end
+M._bars_of = bars_of
+-- What killed him, in words (the fatal row's killed_by {id, class, name, player, self}, status, text). KillZVolume:
+-- live 2026-11-01 15:56/16:01/16:37Z, falls of 29-31 m off the Temple Woods cliff ended in the game's kill zone with
+-- food 12-82 %, water 34-74 %: the fall, never a need (run 5 said "starving got me" at 12 % food).
+local function killed_by_words(m)
+    local kb = type(m.killed_by) == "table" and m.killed_by or nil
+    if kb and kb.class == "KillZVolume" then return "falling into a kill zone (a drop the game kills anything in)" end
+    if kb and kb.self then return (type(m.status) == "table" and m.status[1]) or "my own condition" end
+    return kb and (kb.name or kb.player or kb.class) or m.text
+end
+M._killed_by_words = killed_by_words
+
 local function forward_vitals()
     if not S.vitals_tail then return end
     for _, raw in ipairs(S.vitals_tail:read()) do
         local ok, m = pcall(S.jsonutil.decode, raw)
+        if ok and type(m) == "table" and (m.type == "survival" or m.type == "start") then
+            S.last_bars = { bars = bars_of(m), ts = tonumber(m.ts) or now_s() } -- the bars a fatal row lacks
+        end
         if ok and type(m) == "table" and m.type == "reflex" and type(m.action) == "string" and m.action ~= "verify" then
             -- the stay-fed reflex's own acts, as episodic memory (activity); failures too (verify ok=false
             -- marks an item unusable; no_hotbar_* = food/drink only in the bag)
@@ -1492,6 +1518,11 @@ local function forward_vitals()
                 life.move_death_seq = (life.move_death_seq or 0) + 1
                 if type(m.at) == "table" then life.at = m.at end
                 life.died_at, life.respawned_at = tonumber(m.ts) or now_s(), nil
+                -- its cause: the fatal row just before it (about 1 s, live), or none known. Never an older death's
+                if not life.fatal_at or life.died_at - life.fatal_at > 10 or life.died_at < life.fatal_at - 2 then
+                    life.killed_by, life.killed_by_class, life.fell_m, life.fatal_at = nil, nil, tonumber(m.fell_m), nil
+                end
+                life.bars = bars_of(m) or life.bars
                 -- BUGS L19: remember WHERE he died and what he carried, persisted, until the grave is recovered
                 local sk = M.module("skills")
                 if sk and type(sk.record_death) == "function" then
@@ -1505,9 +1536,16 @@ local function forward_vitals()
             local life = rawget(_G, "DW_LIFE") or {}
             _G.DW_LIFE = life
             local kb = type(m.killed_by) == "table" and m.killed_by or nil
-            life.killed_by = kb and (kb.self and (m.status and m.status[1] or "my own condition") or kb.name or kb.player or kb.class) or m.text
+            life.killed_by, life.killed_by_class = killed_by_words(m), kb and kb.class or nil
             life.fell_m = tonumber(m.fell_m)
             if type(m.at) == "table" then life.at = m.at end
+            -- the death row follows about 1 s later; a tool result in between (companion_down) is read with this
+            -- death already in get_state.last_death, cause and bars included (live 16:37Z: the follow-up turn saw
+            -- only "character is dead" and food 12 %, and he said "starving got me")
+            life.fatal_at = tonumber(m.ts) or now_s()
+            if not life.died_at or life.died_at < life.fatal_at - 2 then life.died_at, life.respawned_at = life.fatal_at, nil end
+            local lb = S.last_bars
+            life.bars = lb and lb.bars and life.fatal_at - (lb.ts or 0) <= 30 and lb.bars or nil
         end
         if ok and type(m) == "table" and m.type == "damage" and type(m.instigator) == "table" and not m.instigator.self then
             local by = m.instigator.id or m.instigator.name or m.instigator.player or "?"

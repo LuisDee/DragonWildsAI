@@ -110,12 +110,19 @@ P.update({
     "log_west": [9.03, 1805.8, -29.45],      # where he reached Luis at 11:39:30 (Luis's grave spot)
     "doric_tent": [111.19, 1842.91, -31.05], # 11:01:35 interact the Summon Shelter -> wedged 2 m short for 25 s
     "doric_ne": [116.5, 1850.5, -31.0],      # past the Doric structures (11:04-11:05 "jumped onto the tent")
+    "wise_old_man": [62.56, 1873.66, -35.45],  # where he stood talking to the Wise Old Man (quests 17:20Z), temple pit
+    # beside the Bramblemead Wise Old Man, on his platform 6 m above the ground (capsule centre; the floor is -35.3):
+    # the way up is a switchback of two ramps east of the house (trace grid 18:16Z), not on the dev navmesh
+    "bramblemead": [484.0, 1775.0, -34.4],
 })
 OBSTACLES = [
     _j("obstacle_log", "log_east", "log_west", "obstacle: a log on the floor, 59 m (co-play 11:38)", human_m=62),
     _j("obstacle_log_back", "log_west", "log_east", "obstacle: the same log, the other way", human_m=62),
     _j("obstacle_doric", "doric_tent", "doric_ne", "obstacle: round the Doric structures (co-play 11:02/11:05)", human_m=11),
     _j("obstacle_doric_back", "doric_ne", "doric_tent", "obstacle: the same, the other way", human_m=11),
+    # quests 17:20Z: from the temple pit (a navmesh island on the dev oracle) out of the doorway and 400 m east; he
+    # gave up "the walkable map ends 414 m short". human_m: pit -> doorway 34 m + doorway -> marker 403 m straight, +2 %
+    _j("quest_bramblemead", "wise_old_man", "bramblemead", "obstacle: out of the temple pit, 434 m east, then up the ramps onto his platform (quests 17:20)", human_m=470),
 ]  # kept out of JOURNEYS: tools/chat_ladder.py asks JOURNEYS' goals in chat (Rung 1)
 
 
@@ -231,6 +238,20 @@ def reflex_busy(c, max_s=45.0) -> bool:
     return held
 
 
+def rested(dev, c, below: float = 0.5) -> float | None:
+    """A rested start (dev fixture set_stat, like tools.supply's food and water): at endurance 0 he can't sprint and
+    his jumps fail (live 17:26Z: follow_doric_pond 46 % within 6 m, stuck where the track hops), which measures
+    exhaustion, not movement. Returns the endurance share found, after topping it up when under `below`."""
+    st = (c.request("get_state", {}, timeout=30) or {}).get("data") or {}
+    e = (st.get("survival") or {}).get("endurance")
+    cur, mx = (e[0], e[1]) if isinstance(e, list) and len(e) >= 2 else (st.get("endurance"), st.get("endurance_max"))
+    if not (isinstance(cur, (int, float)) and isinstance(mx, (int, float)) and mx > 0):
+        return None
+    if cur / mx < below:
+        dev.setup("set_stat", purpose="travel ladder: a rested start", stat="endurance", value=float(mx))
+    return round(cur / mx, 2)
+
+
 def run_journey(dev, j):
     name, a, b, note, start, goal = j["id"], j["from"], j["to"], j["kind"], j["start"], j["goal"]
     c, sampler = client(), client()
@@ -238,6 +259,7 @@ def run_journey(dev, j):
     s = place(dev, c, start)
     if reflex_busy(c):  # a fight from the last journey (live 21:20: "busy: combat:reflex"): let it end, start again
         s = place(dev, c, start)
+    rest0 = rested(dev, c)
     samples, stop = [(time.time(), s)], threading.Event()
 
     def sample():
@@ -269,7 +291,7 @@ def run_journey(dev, j):
     return {
         "human_s": hs, "vs_human": round((t1 - t0) / hs, 2) if hs else None,
         "human_ok": (ok and (t1 - t0) <= H_RATIO * hs) if hs else None,
-        "journey": name, "note": note, "from": a, "to": b, "ok": ok, "body_ok": bool(r and r.get("ok")),
+        "journey": name, "note": note, "from": a, "to": b, "ok": ok, "body_ok": bool(r and r.get("ok")), "endurance_at_start": rest0,
         "reason": (r or {}).get("reason"), "detail": data.get("detail"), "why": data.get("why"),
         "s": round(t1 - t0, 1), "straight_m": round(straight, 1), "walked_m": round(walked, 1),
         "end_dist_m": round(d2(end, goal), 1), "end_dz_m": round(end[2] - goal[2], 1), "closest_m": round(closest, 1),
@@ -490,14 +512,29 @@ def run_follow(dev, name: str, g: dict, delay_s: float = 2.0, hold_s: float = 10
     cmds = ROOT / "client_mod" / "commands"
     c = client()
     c.request("stop", {}, timeout=10)
-    if g.get("door"):  # the house may have grown or changed: the leg holds only while its door is where it was
-        st0 = c.request("get_state", {}, timeout=30)
-        rows0 = ((st0 or {}).get("data") or {}).get("structures") or []
-        if not any(r.get("name") == "Door" and d2(r.get("position") or [0, 0], g["door"]) < 0.5 for r in rows0):
-            raise RuntimeError(f"no door at {g['door']} any more: re-make the leg (--make-house-exit) for the house as built")
     s = place(dev, c, g["claude_start"])
     if reflex_busy(c):
         s = place(dev, c, g["claude_start"])
+    rest0 = rested(dev, c)
+    if g.get("door"):  # the house may have grown or changed: the leg holds only while its door is where it was. Read
+        # from inside (the door streams out of his census far away); an open door's leaf stands ~0.9 m off its frame
+        st0 = c.request("get_state", {}, timeout=30)
+        rows0 = ((st0 or {}).get("data") or {}).get("structures") or []
+        if not any(str(r.get("name")).upper() in ("DOOR", "WALL WITH DOOR FRAME") and d2(r.get("position") or [0, 0], g["door"]) < 1.2
+                   for r in rows0):
+            raise RuntimeError(f"no door at {g['door']} any more: re-make the leg (--make-house-exit) for the house as built")
+        door = next((r for r in ((st0 or {}).get("data") or {}).get("interactables") or []
+                     if r.get("class") == "BP_T1_Door_C" and d2(r.get("position") or [0, 0], g["door"]) < 1.2), None)
+        if door and str(door.get("prompt", "")).lower().startswith("close"):
+            # left open (the last leg, or the builder): the leg is about a SHUT door, so shut it as a player would (the
+            # interact skill: walk up, press), then start inside again (live 17:1xZ: "door already open", nothing tested)
+            shut = c.request("interact", {"target": door["id"]}, timeout=60)
+            print(f"  door was open: shut it ({'ok' if (shut or {}).get('ok') else (shut or {}).get('reason')})", flush=True)
+            s = place(dev, c, g["claude_start"])
+            st0 = c.request("get_state", {}, timeout=30)
+            door = next((r for r in ((st0 or {}).get("data") or {}).get("interactables") or []
+                         if r.get("class") == "BP_T1_Door_C" and d2(r.get("position") or [0, 0], g["door"]) < 1.2), door)
+        g = dict(g, door_open=str(door.get("prompt")) if door else None)
     r = run_client_cmd(cmds / "move_ghost_follow.lua", "move_ghost_follow",
                        {"track": g["track"], "delay_s": delay_s, "hold_s": hold_s, "distance_m": 3}, timeout=20)
     res = (r or {}).get("result") or {}
@@ -535,7 +572,7 @@ def run_follow(dev, name: str, g: dict, delay_s: float = 2.0, hold_s: float = 10
             "lp_runs": last.get("lp_runs"), "trail_entries": last.get("trail_entries"), "backtracks": last.get("backtracks"),
             "sprint_presses": last.get("sprint_presses"), "trail_skips": last.get("trail_skips"),
             "double_jumps": last.get("double_jumps"), "trail_jumps": last.get("trail_jumps"), "result": last.get("result"),
-            "start": [round(x, 2) for x in s], "ts": round(t0, 1), "rows": rows}
+            "start": [round(x, 2) for x in s], "door_prompt_at_start": g.get("door_open"), "endurance_at_start": rest0, "ts": round(t0, 1), "rows": rows}
 
 
 def main() -> None:

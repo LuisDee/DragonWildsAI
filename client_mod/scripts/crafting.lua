@@ -96,10 +96,15 @@ local DATA -- recipe_data table (cached in _G across hot reloads: it is ~1 MB of
 function M.set_data(d) DATA = d; M._idx = nil end
 function M.data()
     if DATA then return DATA end
+    -- the cache is per file size: a regenerated catalog (tools/build_recipes.py) loads with the module's next
+    -- hot reload instead of staying stale until the client restarts (rung 3: the burnt-food alts, 17:20Z)
+    local path = ROOT .. "/mod/body/recipe_data.lua"
+    local f, size = io.open(path, "rb"), nil
+    if f then size = f:seek("end"); f:close() end
     DATA = rawget(_G, "DWRecipeData")
-    if not DATA then
-        DATA = assert(loadfile(ROOT .. "/mod/body/recipe_data.lua"))()
-        _G.DWRecipeData = DATA
+    if not DATA or (size and rawget(_G, "DWRecipeDataSize") ~= size) then
+        DATA = assert(loadfile(path))()
+        _G.DWRecipeData, _G.DWRecipeDataSize = DATA, size
     end
     return DATA
 end
@@ -182,6 +187,21 @@ function M.resolve_item(q)
     table.sort(hits)
     if #hits == 1 then return hits[1] end
     if #hits > 0 then return nil, hits end
+    -- every word he said is a word of the name ("stone axe" -> Stone Logging Axe; live 17:10Z it read unknown)
+    local qw = {}
+    for w in lq:gmatch("%a+") do if #w > 2 then qw[#qw + 1] = w:gsub("s$", "") end end
+    if #qw > 0 then
+        for id in pairs(I.by_output) do
+            local tok = {}
+            for w in lower(name_of_id(id)):gmatch("%a+") do tok[(w:gsub("s$", ""))] = true end
+            local all = true
+            for _, w in ipairs(qw) do if not tok[w] then all = false; break end end
+            if all then hits[#hits + 1] = id end
+        end
+        table.sort(hits)
+        if #hits == 1 then return hits[1] end
+        if #hits > 0 then return nil, hits end
+    end
     local want = lower(q):match("^%s*(.-)%s*$")
     for id in pairs(I.by_output) do
         local item = (M.data().items or {})[I.path_of[id]] or {}
@@ -223,6 +243,34 @@ local function unlock_text(r)
 end
 M.unlock_text = unlock_text
 
+-- Which parts of a recipe's unlock rule he has met, in words (rung 3, live 18:05Z: "ALL ITEMS[ Flax ] AND ALL
+-- ACTORS[ Spinning Wheel ]" with Flax carried read to him as a riddle: "no idea how to unlock it"). The rule counts
+-- items he has PICKED UP and stations he has USED (W.discovered); disc nil = unknown, then nil.
+function M.unlock_status(r, disc)
+    if type(r) ~= "table" or type(r.uq) ~= "table" or not disc then return nil end
+    local by_name = {}
+    for id in pairs(disc.items or {}) do by_name[lower(name_of_id(id))] = true end
+    local alts = {}
+    for _, q in ipairs(r.uq) do
+        local parts = {}
+        for quant, kind, list in q:gmatch("(%u+)%s+(%u+)%[([^%]]*)%]") do
+            for name in list:gmatch("[^,]+") do
+                name = name:match("^%s*(.-)%s*$")
+                if kind == "ITEMS" then
+                    parts[#parts + 1] = "picked up " .. name .. ": " .. (by_name[lower(name)] and "yes" or "not yet")
+                elseif kind == "ACTORS" then
+                    local sid = idx().class_sid[name]
+                    parts[#parts + 1] = "used a " .. tostring(sid and station_name(sid) or name) .. ": "
+                        .. ((disc.actors or {})[name] and "yes" or "not yet")
+                end
+            end
+            if quant == "ANY" and #parts > 1 then parts[#parts] = parts[#parts] .. " (any one of these)" end
+        end
+        if #parts > 0 then alts[#alts + 1] = table.concat(parts, "; ") end
+    end
+    return (#alts > 0) and table.concat(alts, " | or: ") or nil
+end
+
 -- ------------------------------------------------------------------ the pure plan (one recipe)
 local function per_craft(r, item)
     for _, o in ipairs(r.outputs or {}) do if item_id(o[1]) == item then return o[2] end end
@@ -239,6 +287,9 @@ function M.plan(rid, crafts, sid)
     local p = { recipe = rid, crafts = crafts, station = sid, kind = st and st.kind or "crafting", inputs = {}, outputs = {} }
     for _, c in ipairs(r.inputs or {}) do p.inputs[#p.inputs + 1] = { path = c[1], item = item_id(c[1]), name = item_name(c[1]), count = c[2] * crafts } end
     for _, c in ipairs(r.outputs or {}) do p.outputs[#p.outputs + 1] = { path = c[1], item = item_id(c[1]), name = item_name(c[1]), count = c[2] * crafts } end
+    -- the failed result a craft can give instead (burnt food: the recipe's AlternativeOutput, by the cook's level)
+    p.alts = {}
+    for _, c in ipairs(r.alt or {}) do p.alts[#p.alts + 1] = { path = c[1], item = item_id(c[1]), name = item_name(c[1]), per = c[2], chance = r.alt_chance } end
     if p.kind == "processing" then
         local pt = r.pt or {}
         local lo, hi = tonumber(pt[1]) or 0, tonumber(pt[2]) or tonumber(pt[1]) or 0
@@ -307,7 +358,10 @@ function M.assess(rid, crafts, ctx)
         a.detail = (a.name or rid) .. " is bought from " .. tostring(a.station_name) .. ", and I can't trade with vendors yet"
     elseif unl == false then
         a.status = "not_unlocked"
-        a.detail = "I haven't unlocked " .. tostring(a.name or rid) .. " yet" .. (a.unlock and (" (it unlocks with: " .. a.unlock .. ")") or "")
+        a.unlock_status = M.unlock_status(r, ctx.discovered and ctx.discovered() or nil)
+        a.detail = "I haven't unlocked " .. tostring(a.name or rid) .. " yet" .. (a.unlock_status
+            and (" (it unlocks once I've " .. a.unlock_status .. ")")
+            or (a.unlock and (" (it unlocks with: " .. a.unlock .. ")") or ""))
     elseif unl == nil then
         a.status, a.detail = "unlock_unknown", "I can't read which recipes I've unlocked right now"
     elseif #a.missing > 0 then
@@ -344,12 +398,31 @@ function M.candidates(item_id, count, ctx)
     return out
 end
 
+-- Food that can burn: the recipe's alt output behind ChanceToBurnFoodLevelN (the ingredient's power level). The
+-- Cooking levels per power level are the wiki's Culinary Confidence table (50 % not burnt at the first level,
+-- 100 % at the second; https://dragonwilds.runescape.wiki/w/Culinary_Confidence, read 2026-11-01). Live 17:07 and
+-- 17:40Z: ClaudeDev at Cooking 7-8 burnt 5 of 5 Raw Farm Meat (power level 2, below its first level 12).
+M.BURN_LEVELS = { { 1, 12 }, { 12, 27 }, { 27, 41 }, { 41, 50 }, { 50, 75 }, { 75, 99 } }
+local function burn_note(rid)
+    local r = recipe_of(rid) or {}
+    local n = tonumber(tostring(r.alt_chance or ""):match("ChanceToBurnFoodLevel(%d+)"))
+    if not n or not r.alt or not r.alt[1] then return nil end
+    local lv = M.BURN_LEVELS[n] or {}
+    return { into = item_name(r.alt[1][1]) or item_id(r.alt[1][1]), food_power_level = n,
+             text = "can come out as " .. tostring(item_name(r.alt[1][1])) .. ": power level " .. n .. " food; "
+                 .. ((tonumber(lv[1]) or 1) > 1 and ("below Cooking " .. lv[1] .. " most burn, ") or "")
+                 .. "at Cooking " .. tostring(lv[1]) .. " about half, from " .. tostring(lv[2]) .. " none" }
+end
+M.burn_note = burn_note
+
 -- Wire form of an assessment.
 function M.card(a)
     local c = { recipe = a.recipe, name = a.name, item = a.item, crafts = a.crafts, status = a.status, station = a.station,
-                station_name = a.station_name, kind = a.kind, inputs = a.inputs, outputs = a.outputs, detail = a.detail }
+                station_name = a.station_name, kind = a.kind, inputs = a.inputs, outputs = a.outputs, detail = a.detail,
+                may_burn = burn_note(a.recipe) }
     if #a.missing > 0 then c.missing = a.missing end
     if a.unlock then c.unlock = a.unlock end
+    if a.unlock_status then c.unlock_status = a.unlock_status end
     if a.station_row then c.station_id, c.station_distance = a.station_row.id, a.station_row.distance end
     return c
 end
@@ -586,6 +659,30 @@ function W.unlocked(api)
     end)
     if not ok or n == 0 then return nil end
     return set, n
+end
+
+-- What his unlock rules count (UProgressComponent, dump 26161880): ItemsPickedUp (TSet<UItemData*>, "ITEMS[...]")
+-- and ActorsInteractedWith (TSet<TSubclassOf<AActor>>, "ACTORS[...]": a station used at least once).
+-- -> {items = {item_id = true}, actors = {class_short = true}} | nil
+function W.discovered(api)
+    local U = sense_U(api)
+    local pc = local_pc(api)
+    local prog = pc and U and U.try(function() return pc.ProgressComponent end)
+    if not (U and U.valid(prog)) then return nil end
+    local out, n = { items = {}, actors = {} }, 0
+    for field, key in pairs({ ItemsPickedUp = "items", ActorsInteractedWith = "actors" }) do
+        pcall(function()
+            prog[field]:ForEach(function(a, b)
+                local e = b ~= nil and b or a
+                local v = U.try(function() return e:get() end)
+                local path = U.path_of(v ~= nil and v or e)
+                local short = path and path:match("%.([%w_]+)$")
+                if short then out[key][short] = true; n = n + 1 end
+            end)
+        end)
+    end
+    if n == 0 then return nil end
+    return out
 end
 
 -- Contents of an inventory component: {slots = n, rows = {{slot, item, name, count}}, by_item = {id = n}}
@@ -840,7 +937,14 @@ local function context(api, radius_m)
         end
         return seen[item] or nil
     end
-    return { have = have, native = native, unlocked = unl, unlocked_n = n, near = near_map(rows), stations = rows }
+    -- what the unlock rules count, read lazily (only a locked recipe asks)
+    local disc, disc_read = nil, false
+    local function discovered()
+        if not disc_read then disc_read = true; disc = W.discovered(api) end
+        return disc
+    end
+    return { have = have, native = native, unlocked = unl, unlocked_n = n, near = near_map(rows), stations = rows,
+             discovered = discovered }
 end
 
 -- ------------------------------------------------------------------ the pawn (arbiter), as skills.lua
@@ -1060,6 +1164,28 @@ local function pick_station(api, a, args, ctx)
     return nil, api.fail("unknown_target", { station = args.station, detail = "I can't see that station (" .. args.station .. ") near here." })
 end
 
+-- A processing station that can take this recipe's inputs now: not running another recipe, and every input has a
+-- slot (its own stack or a free one). nil + what blocks it otherwise (rung 3: Luis's Spinning Wheel holds his
+-- fur in its only slot; the nearest wheel must not win over Claude's own empty one).
+local function station_takes(api, row, a)
+    local actor = api.actor_of({ id = row.id, class = row.class })
+    local s = actor and W.station_state(api, actor, "processing")
+    if not s then return true end -- unreadable: the load step reports the truth
+    if s.running and s.recipe and s.recipe ~= a.recipe then return false, "it is making " .. tostring(s.recipe) end
+    local want, have, used = {}, {}, 0
+    for _, c in ipairs(a.inputs or {}) do want[c.item] = true end
+    local foreign = {}
+    for _, r in ipairs(s.resources.rows) do
+        used = used + 1
+        have[r.item] = true
+        if not want[r.item] then foreign[#foreign + 1] = tostring(r.count) .. " " .. tostring(r.name or name_of_id(r.item)) end
+    end
+    local need = 0
+    for it in pairs(want) do if not have[it] then need = need + 1 end end
+    if need <= (s.resources.slots or 0) - used then return true end
+    return false, "it already holds " .. (#foreign > 0 and table.concat(foreign, ", ") or "other things")
+end
+
 local function start_craft(api, args, ctx0)
     local ctx, bad = context(api)
     if not ctx then return bad end
@@ -1087,8 +1213,24 @@ local function start_craft(api, args, ctx0)
     end
     local row, perr = pick_station(api, a, args, ctx)
     if not row then return perr end
+    local passed = {}
+    if not need_str(args.station) and a.kind == "processing" then
+        local ok_type = {}
+        for _, sid in ipairs(recipe_of(a.recipe).stations or {}) do ok_type[sid] = true end
+        local free
+        for _, s in ipairs(ctx.stations) do -- nearest first
+            if ok_type[s.station] then
+                local ok, why = station_takes(api, s, a)
+                if ok then free = s; break end
+                passed[#passed + 1] = { id = s.id, name = s.name, why = why }
+            end
+        end
+        row = free or row
+        if not free then passed = {} end -- none free: the nearest one's load step says what fills it
+    end
     local plan = M.plan(a.recipe, a.crafts, row.station)
-    local job = { kind = "craft", a = a, plan = plan, station = row, alternatives = {}, ctx = ctx, args = args }
+    local job = { kind = "craft", a = a, plan = plan, station = row, alternatives = {}, ctx = ctx, args = args,
+                  passed = (#passed > 0) and passed or nil }
     for _, o in ipairs(list) do if o ~= a then job.alternatives[#job.alternatives + 1] = { recipe = o.recipe, status = o.status } end end
     job.open = { phase = "approach", moving = false, approaches = 0, presses = 0 }
     job.phase = "open"
@@ -1106,6 +1248,12 @@ end
 local function base_data(job)
     local d = { recipe = job.a.recipe, recipe_chosen = job.a.recipe, item = job.a.item, crafts = job.a.crafts,
                 station = job.station.name, station_id = job.station.id, alternatives = job.alternatives }
+    if job.passed then -- nearer stations he did not use, and why (so he can say which one he used)
+        d.passed_stations = job.passed
+        local w = {}
+        for _, p in ipairs(job.passed) do w[#w + 1] = "the nearer " .. tostring(p.name) .. " (" .. tostring(p.why) .. ")" end
+        d.why_this_station = "I used the " .. tostring(job.station.name) .. " " .. tostring(job.station.id) .. ", not " .. table.concat(w, "; ")
+    end
     return d
 end
 
@@ -1223,7 +1371,10 @@ local function load_step(api, job, t)
             q.count = q.count - job.moving.amount
             job.moving = nil
             if q.count <= 0 then table.remove(job.queue, 1) end
-            return nil
+            -- the next drag, or the start, in this same poll (live 17:40Z: 1.2 s from the fuel landing to the toggle
+            -- vs Luis's 0.9 s, one poll per phase change)
+            if not job.queue[1] then job.phase = "start" end
+            return nil, true
         end
         if t >= job.moving.until_t then
             local d = base_data(job)
@@ -1244,7 +1395,10 @@ local function load_step(api, job, t)
     if not to then
         local d = base_data(job)
         d.station_before = job.station_before
-        d.detail = "The " .. tostring(job.station.name) .. " has no free slot for the " .. tostring(q.name) .. "."
+        local held = {}
+        for _, r in ipairs(inv.rows or {}) do held[#held + 1] = tostring(r.count) .. " " .. tostring(r.name or name_of_id(r.item)) end
+        d.detail = "The " .. tostring(job.station.name) .. " has no free slot for the " .. tostring(q.name)
+            .. (#held > 0 and (": it already holds " .. table.concat(held, ", ")) or "") .. "."
         return api.fail("station_busy", d)
     end
     local amount = math.min(q.count, tonumber(row.count) or 1)
@@ -1257,6 +1411,7 @@ end
 local function proc_collect_targets(api, job)
     local want = {}
     for _, o in ipairs(job.plan.outputs) do want[o.item] = true end
+    for _, o in ipairs(job.plan.alts or {}) do want[o.item] = true end
     local list = {}
     for _, t in ipairs(api.census_things(M.cfg.collect_radius_m + 30, 60) or {}) do
         if t.category == "items" and want[t.item] and not job.pre_items[t.id] and t.position
@@ -1267,10 +1422,17 @@ local function proc_collect_targets(api, job)
     return list
 end
 
+local function out_items(job) -- what this recipe can drop: its outputs and its failed result (burnt food)
+    local l = {}
+    for _, o in ipairs(job.plan.outputs) do l[#l + 1] = o end
+    for _, o in ipairs(job.plan.alts or {}) do l[#l + 1] = o end
+    return l
+end
+
 local function produced_total(api, job, s)
     local n = 0
     local now = api.counts()
-    for _, o in ipairs(job.plan.outputs) do
+    for _, o in ipairs(out_items(job)) do
         n = n + math.max(0, gained(job.before, now, o.item) or 0) + ((s and s.output.by_item[o.item]) or 0)
             - ((job.st0.output.by_item[o.item]) or 0)
     end
@@ -1285,7 +1447,11 @@ local function out_total(job)
 end
 
 local function proc_step(api, job, t)
-    if job.phase == "load" then return load_step(api, job, t) end
+    if job.phase == "load" then
+        local r, again = load_step(api, job, t)
+        if again and job.phase == "load" then r = load_step(api, job, t) end
+        if r ~= nil or job.phase == "load" then return r end
+    end
     local s = W.station_state(api, job.actor, "processing")
     if not s then return api.fail("state_unavailable", { detail = "I lost track of the " .. tostring(job.station.name) .. "." }) end
     if job.phase == "start" then
@@ -1347,7 +1513,7 @@ local function proc_step(api, job, t)
             return nil
         end
         local want = {}
-        for _, o in ipairs(job.plan.outputs) do want[o.item] = true end
+        for _, o in ipairs(out_items(job)) do want[o.item] = true end
         if s.store_output and not job.took then
             job.took = true
             for _, r in ipairs(s.output.rows) do if want[r.item] then W.take_from(api, r.slot, s._out) end end
@@ -1370,15 +1536,28 @@ local function proc_step(api, job, t)
         end
         if job.took and t < (job.collect_until or 0) then return nil end
         local now = api.counts()
-        local collected, total = {}, 0
+        local collected, total, failed, bad = {}, 0, {}, 0
         for _, o in ipairs(job.plan.outputs) do
             local g = gained(job.before, now, o.item)
             if g and g > 0 then collected[#collected + 1] = { item = o.item, name = o.name, count = g }; total = total + g end
         end
+        for _, o in ipairs(job.plan.alts or {}) do -- the recipe's failed result (burnt food): his to report, not a win
+            local g = gained(job.before, now, o.item)
+            if g and g > 0 then failed[#failed + 1] = { item = o.item, name = o.name, count = g }; bad = bad + g end
+        end
         local d = base_data(job)
         d.loaded, d.fuel_used, d.station_before, d.collected = job.loaded, job.fuel, job.station_before, collected
+        if bad > 0 then d.failed_output = failed end
         local out = job.plan.outputs[1]
         d.count = out and gained(job.before, now, out.item) or 0
+        local spoilt = {}
+        for _, f in ipairs(failed) do spoilt[#spoilt + 1] = f.count .. " " .. tostring(f.name) end
+        spoilt = table.concat(spoilt, ", ")
+        if total <= 0 and bad > 0 then
+            d.detail = "The " .. tostring(job.station.name) .. " finished, but nothing came out right: I got " .. spoilt .. " and no " .. tostring(out and out.name) .. "."
+                .. (job.fuel and job.fuel.source == "station" and " (I used the fuel that was already in it.)" or "")
+            return api.fail("craft_failed", d)
+        end
         if total <= 0 then
             d.detail = now == nil and ("The " .. tostring(job.station.name) .. " finished, but I couldn't read my inventory to check what I got.")
                 or ("The " .. tostring(job.station.name) .. " finished, but I couldn't pick up what it made."
@@ -1387,6 +1566,7 @@ local function proc_step(api, job, t)
         end
         d.detail = "I made " .. total .. " " .. tostring(out and out.name) .. " in the " .. tostring(job.station.name)
             .. (job.fuel and job.fuel.source == "station" and " (using the fuel that was already in it)" or "") .. "."
+            .. (bad > 0 and (" The rest came out wrong: " .. spoilt .. ".") or "")
         if total < out_total(job) then d.partial = true end
         return { ok = true, data = d }
     end
@@ -1614,7 +1794,8 @@ M.MANIFEST = {
     craft = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 15, timeout_s = 300,
         detail_is_speech = true,
         description = "Make one recipe at a nearby station from carried items (walks there, uses it, collects the "
-            .. "result). Does not gather or craft ingredients: see craft_plan.",
+            .. "result). Safe to try straight away: when an input, the unlock or a station is missing it does nothing "
+            .. "and says which. It does not gather or craft ingredients (craft_plan plans those).",
         args = { type = "object", properties = obj({
             item = str("Item to make (name or id)."),
             recipe = str("Recipe id, to pick one of several."),

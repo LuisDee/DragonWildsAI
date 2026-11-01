@@ -416,6 +416,19 @@ def test_current_observation_unknown_and_bounded():
     assert current_observation({"stations_nearby": []})["stations"] == {"status": "observed", "rows": [], "omitted": 0}
 
 
+def test_current_observation_names_a_recent_death_cause():
+    """Run 5 (16:37Z): the follow-up turn after companion_down saw only the bars, and he said "starving got me"."""
+    from brain.controller import current_observation
+    obs = current_observation({"sustenance": 12.0, "last_death": {"ago_s": 1, "respawned": False, "fell_m": 31.0,
+                               "killed_by": "falling into a kill zone (a drop the game kills anything in)",
+                               "bars": {"food": 12, "water": 61, "rest": 87}}})
+    assert obs["last_death"].startswith("1 s ago: killed by falling into a kill zone"), obs
+    assert "not hunger or thirst" in obs["last_death"] and obs["last_death"].endswith("not respawned yet"), obs
+    assert current_observation({"last_death": {"ago_s": 4, "respawned": True}})["last_death"] == (
+        "4 s ago: cause unknown (the game didn't say); respawned")
+    assert "last_death" not in current_observation({"last_death": {"ago_s": 900, "killed_by": "Goblin"}})
+
+
 def test_unavailable_observation_preserves_each_tool_result_id(rig):
     from brain.controller import Decision
     from brain.llm import ToolCall, assistant_message

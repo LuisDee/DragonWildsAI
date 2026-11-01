@@ -168,6 +168,7 @@ local function reset()
     _G.DW_PAUSE, _G.DWSkills, _G.DW_LIFE = nil, nil, nil
     _G.DWInput = nil
     F.screens, F.screen_owner, F.screen_kind, F.screen_unknown = {}, nil, nil, nil
+    F.free_slots = nil
     local inp = B.module("input")
     inp.clock = function() return T end
     inp.observe_screens = function() if F.screen_unknown then return nil end return F.screens end
@@ -331,6 +332,16 @@ test("consume waits out another use's animation, then presses once (or says what
     r = r0 or run(id, 40)
     F.consume_busy = nil
     assert(r and r.reason == "busy" and r.data.detail:find("Pumpkin Spice Infusion", 1, true) and F.uses == 1, json.encode(r))
+end)
+
+test("consume: a food mid-animation does not hold a drink (the game's use lock is per kind)", function()
+    reset()
+    F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar", stat = "hydration", amount = 25 } }
+    F.consume_busy = { item = "Fillet", kind = "food", left_s = 5 }
+    local r0, id = rpc("consume", { item = "drink" })
+    local r = r0 or run(id, 15)
+    F.consume_busy = nil
+    assert(r and r.ok and F.uses == 1, json.encode(r))
 end)
 
 test("consume from the hotbar: verified by the stat rising", function()
@@ -558,6 +569,98 @@ test("recover_grave: never another player's grave; several unknown -> ambiguous;
     assert(r.reason == "nothing_in_range" and r.data.detail:find("grave"))
 end)
 
+-- An "Open" grave (live 2026-11-01 17:14: 33 stacks, 145 items, 15 free slots; the press opened its storage screen):
+-- the rows carry the item's own data, as inventory.external_rows reads it
+local function open_grave(free, extra)
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    F.world.interactables = { { id = "grave_9", class = "BP_PlayerGravestone_C", name = "", prompt = "Open", position = { 1, 30, 3 }, chest = true } }
+    local sk = B.module("skills")
+    sk.W.grave_owner = function(_, t) return t.id == "grave_9" end
+    F.extra = extra or { ITEM_Resources_Stone = 95, ITEM_Consumable_GoblinPack = 2 }
+    F.chests = { grave_9 = { slots = 40, rows = {
+        { slot = 1, item = "ITEM_Consumable_GoblinPack", name = "Goblin Pack", count = 15, category = "ItemFilter.Container", max_stack = 99, weight = 1 },
+        { slot = 2, item = "ITEM_Resources_Coarse_Animal_Fur", name = "Coarse Fur", count = 19, category = "ItemFilter.Material.BasicMaterial", max_stack = 99, weight = 0.2 },
+        { slot = 3, item = "ITEM_Club_Stone", name = "Stone Club", count = 1, category = "Item.Equipment.Weapon.1H.Club", max_stack = 1, weight = 8, power = 1 },
+        { slot = 4, item = "ITEM_Resources_Stone", name = "Stone", count = 12, category = "Item.BuildingResource", max_stack = 99, weight = 1 },
+        { slot = 5, item = "ITEM_Sword_Bronze", name = "Bronze Sword", count = 1, category = "Item.Equipment.Weapon.1H.Sword", max_stack = 1, weight = 15, power = 3 },
+        { slot = 6, item = "ITEM_Resources_VaultCore", name = "Vault Core", count = 1, category = "ItemFilter.Material.BasicMaterial", max_stack = 99, weight = 50 },
+        { slot = 7, item = "ITEM_Consumable_Bread", name = "Bread", count = 7, category = "Item.Food", max_stack = 99, weight = 0.2 },
+    } } }
+    F.open_chest, F.closed, F.transfers, F.transfer_noop, F.free_slots = nil, 0, 0, nil, free
+    local W8 = { ITEM_Sword_Bronze = 15, ITEM_Club_Stone = 8, ITEM_Resources_VaultCore = 50, ITEM_Resources_Stone = 1,
+                 ITEM_Consumable_GoblinPack = 1, ITEM_Consumable_Bread = 0.2, ITEM_Resources_Coarse_Animal_Fur = 0.2 }
+    sk.W.carry = function()
+        local w = 60
+        for k, n in pairs(F.extra) do w = w + n * (W8[k] or 0) end
+        return { cur = w, max = 250 }
+    end
+    -- he died by it: the death is remembered there
+    F.move.position = { 1, 25, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    return sk
+end
+
+test("recover_grave: an \"Open\" grave: its storage screen, gear first, then merges, then the rest; what stayed and why", function()
+    local sk = open_grave(5)
+    -- the order from the items' own data: gear (highest power first), merges (biggest first), food, then the biggest
+    local order = sk.grave_take_order(F.chests.grave_9.rows, { { item = "ITEM_Resources_Stone" }, { item = "ITEM_Consumable_GoblinPack" } })
+    local ids = {}
+    for _, o in ipairs(order) do ids[#ids + 1] = o.item:gsub("^ITEM_", "") end
+    assert(table.concat(ids, ",") == "Sword_Bronze,Club_Stone,Consumable_GoblinPack,Resources_Stone,Consumable_Bread,Resources_Coarse_Animal_Fur,Resources_VaultCore",
+        table.concat(ids, ","))
+    local _, id = rpc("recover_grave")
+    local r = run(id, 120)
+    assert(r and r.ok and r.data.opened and r.data.count == 55, json.encode(r))
+    assert(r.data.taken[1].item == "ITEM_Sword_Bronze" and r.data.taken[2].item == "ITEM_Club_Stone", json.encode(r.data.taken))
+    -- 95 + 12 Stone: 4 fill his stack to the game's max (99), the other 8 a new slot
+    assert(F.extra.ITEM_Resources_Stone == 107 and F.extra.ITEM_Consumable_GoblinPack == 17, json.encode(F.extra))
+    assert(#r.data.left == 1 and r.data.left[1].item == "ITEM_Resources_VaultCore" and r.data.left[1].why == "too_heavy", json.encode(r.data.left))
+    assert(r.data.detail == "I took 55 things from the grave: Bronze Sword, Stone Club, 15 Goblin Pack, 12 Stone, 7 Bread and 19 Coarse Fur. "
+        .. "Too heavy to carry (I'm at 212 of 250): Vault Core still in the grave.", r.data.detail)
+    assert(F.open_chest == nil and F.closed == 1, "the screen is closed after")
+    assert(B.module("input").owner("container") == nil, "modal released")
+    -- not emptied: the death stays unrecovered, and what it lost is what is still there
+    local d = sk.death_memory()
+    assert(d and not d.recovered and #d.lost == 1 and d.lost[1].item == "ITEM_Resources_VaultCore" and d.partial_how == "recover_grave", json.encode(d))
+end)
+
+test("recover_grave / interact: a full bag leaves the rest (said, from the game's free slots); an emptied grave is recovered", function()
+    local sk = open_grave(2, { ITEM_Resources_Stone = 10, ITEM_Consumable_GoblinPack = 2 })
+    local _, id = rpc("recover_grave")
+    local r = run(id, 120)
+    assert(r and r.ok and r.data.count == 1 + 1 + 15 + 12, json.encode(r))
+    assert(r.data.detail == "I took 29 things from the grave: Bronze Sword, Stone Club, 15 Goblin Pack and 12 Stone. "
+        .. "My bag's full: 7 Bread, 19 Coarse Fur and Vault Core still in the grave.", r.data.detail)
+    assert(not sk.death_memory().recovered and #sk.death_memory().lost == 3, json.encode(sk.death_memory()))
+    -- nothing fits at all: a truthful failure, nothing claimed, the screen closed
+    sk = open_grave(0, { ITEM_Resources_Stone = 10 })
+    F.chests.grave_9.rows = { F.chests.grave_9.rows[2], F.chests.grave_9.rows[7] } -- only Fur and Bread (no stack of either)
+    _, id = rpc("recover_grave")
+    r = run(id, 60)
+    assert(r and not r.ok and r.reason == "inventory_full" and r.data.detail:find("My bag's full: 7 Bread and 19 Coarse Fur still in the grave", 1, true)
+        and F.open_chest == nil, json.encode(r))
+    -- the brain's own path (interact on his grave) takes the same way; room for all: emptied, so recovered
+    sk = open_grave(10)
+    sk.W.carry = function() return nil end -- unreadable weight: slots alone
+    F.move.position = { 1, 29, 3 }
+    _, id = rpc("interact", { target = "grave_9" })
+    r = run(id, 120)
+    assert(r and r.ok and r.data.opened and r.data.count == 56 and #r.data.left == 0 and r.data.detail == "I took 56 things from the grave: Bronze Sword, "
+        .. "Stone Club, 15 Goblin Pack, 12 Stone, 7 Bread, 19 Coarse Fur and Vault Core.", json.encode(r))
+    assert(sk.death_memory() == nil, "emptied: recovered")
+    -- someone else's grave that opens: never taken from
+    sk = open_grave(10)
+    sk.W.grave_owner = function() return false end
+    F.move.position = { 1, 29, 3 }
+    _, id = rpc("interact", { target = "grave_9" })
+    r = run(id, 60)
+    assert(r and r.ok and r.data.changed == "opened" and not r.data.opened and F.transfers == 0, json.encode(r))
+    F.chests, F.open_chest, F.free_slots = nil, nil, nil
+end)
+
 test("give: walk to the player, drop at his feet, verified by the count falling", function()
     reset()
     F.follow = "near"
@@ -692,6 +795,32 @@ test("death and respawn rows from the vitals watcher -> get_state.last_death", f
     B.step()
     local s = rpc("get_state")
     assert(s.data.last_death and s.data.last_death.ago_s >= 60 and s.data.last_death.respawned == true, json.encode(s.data.last_death))
+end)
+
+test("death cause truth: a fatal row puts the cause and the bars in last_death at once; a death with no fatal says none", function()
+    reset()
+    _G.DW_LIFE = nil
+    write(base .. "/vitals.jsonl", json.encode({ type = "survival", ts = T - 5, sustenance = { 11.5, 100 }, hydration = { 60.7, 100 },
+                                                 endurance = { 86.8, 100 }, hp = 100 }) .. "\n")
+    write(base .. "/vitals.jsonl", json.encode({ type = "fatal", ts = T - 1, fell_m = 31, status = {},
+                                                 killed_by = { id = "Default__KillZVolume", class = "KillZVolume" }, at = { 48.3, 1741, -60.8 } }) .. "\n")
+    B.step()
+    local d = rpc("get_state").data.last_death
+    assert(d and d.killed_by:find("kill zone", 1, true) and d.killed_by_class == "KillZVolume" and d.fell_m == 31, json.encode(d))
+    assert(d.bars and d.bars.food == 12 and d.bars.water == 61 and d.bars.rest == 87, json.encode(d))
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0, fell_m = 41.2, at = { 48.6, 1740.4, -70.9 },
+                                                 survival = { sustenance = { 11.4, 100 }, hydration = { 60.6, 100 }, endurance = { 86.8, 100 } } }) .. "\n")
+    B.step()
+    d = rpc("get_state").data.last_death
+    assert(d.killed_by:find("kill zone", 1, true) and d.fell_m == 31 and d.bars.food == 11, json.encode(d))
+    -- a later death with no fatal row: no cause is carried over from the fall
+    write(base .. "/vitals.jsonl", json.encode({ type = "revive", ts = T + 5, hp = 100 }) .. "\n")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T + 100, hp = 0,
+                                                 survival = { sustenance = { 0, 75 }, hydration = { 30, 75 }, endurance = { 50, 100 } } }) .. "\n")
+    B.step()
+    d = rpc("get_state").data.last_death
+    assert(d and d.killed_by == nil and d.fell_m == nil and d.bars.food == 0 and d.bars.water == 40, json.encode(d))
+    _G.DW_LIFE = nil
 end)
 
 test("activity.jsonl lines are forwarded as activity events (kind and fields kept)", function()
@@ -1156,6 +1285,53 @@ test("BUGS L19: a death is remembered (where, what he carried), persisted, shown
     assert(g and g.ok, json.encode(g))
     s = rpc("get_state")
     assert(s.data.death_memory == nil, "recovered: no longer shown")
+end)
+
+test("a fall: the death is remembered where he last stood (the grave's spot); go_to my_grave walks to the grave he saw", function()
+    reset()
+    F.move.position = { 1, 25, 3 }
+    rpc("get_state")
+    _G.DW_LAST_GROUND = { X = 100, Y = 2900, Z = 300, t = T - 3 } -- move.lua: his last step on the cliff top (cm)
+    F.move.position = { 1, 22, -60 }                             -- the body ended 63 m below (live 2026-11-01 15:56)
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    local sk = B.module("skills")
+    local d = sk.death_memory()
+    assert(d and d.position[2] == 29 and d.position[3] == 3 and d.body_position and d.body_position[3] == -60, json.encode(d))
+    -- the grave in sight binds to that death; go_to my_grave then walks to the grave itself, not the remembered spot
+    F.move.position = { 1, 27, 3 }
+    rpc("get_state")
+    assert(sk.death_memory().grave_id == "grave_1", json.encode(sk.death_memory()))
+    F.move.position = { 20, 40, 3 }
+    local r0, id = rpc("go_to", { target = "my_grave" })
+    local r = r0 or run(id, 10)
+    assert(r and r.ok and F.move.target[2] == 30, "walked to the grave: " .. json.encode(F.move.target))
+    -- a stale last step (a walk long before the death) is not used: the body's spot is
+    reset()
+    _G.DW_LAST_GROUND = { X = 100, Y = 2900, Z = 300, t = T - 120 }
+    F.move.position = { 1, 22, -60 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    d = B.module("skills").death_memory()
+    assert(d and d.position[3] == -60 and d.body_position == nil, json.encode(d))
+    _G.DW_LAST_GROUND = nil
+end)
+
+test("a facing nudge is a step: never toward a lethal edge (aim only then)", function()
+    local SK = assert(loadfile(REPO .. "/client_mod/scripts/skills.lua"))()
+    local pushes, danger = 0, nil
+    local pawn = { AddMovementInput = function() pushes = pushes + 1 end }
+    local api = { aim_at = function() return true end, my_position = function() return { 0, 0, 0 } end,
+                  module = function(n)
+                      if n == "sense" then return { local_pawn = function() return pawn end } end
+                      if n == "move" then return { unsafe_ahead = function() return danger end } end
+                  end }
+    SK.W.face(api, { 5, 0, 0 }, true)
+    assert(pushes == 1, "a safe nudge pushes")
+    danger = "a 40 m drop ahead"
+    SK.W.face(api, { 5, 0, 0 }, true)
+    assert(pushes == 1, "no push toward the edge")
 end)
 
 test("vitals drain rate from samples (for 'empty in ~N min')", function()

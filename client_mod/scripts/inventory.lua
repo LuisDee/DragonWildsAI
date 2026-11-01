@@ -424,14 +424,61 @@ function M.equip_state(log, item, l)
     return st
 end
 
--- One consumable use at a time, shared by every loaded copy of this module (the consume skill, the stay-fed
--- reflex, combat cure/eat): the game ignores a second press during a use's ~6 s animation and the stat does
--- not rise (DISCOVERIES "Consumables", 20261027-203109). Callers check consume_busy() before pressing.
+-- One consumable use at a time PER KIND, shared by every loaded copy of this module (the consume skill, the stay-fed
+-- reflex, combat cure/eat): the game ignores a second press of the same kind during a use's ~6 s animation and the
+-- stat does not rise (DISCOVERIES "Consumables", 20261027-203109), but a food and a drink overlap: Luis ate and drank
+-- 0.06-0.83 s apart five times (recorder 12:47-13:19Z), and Claude's client too (2026-11-01 17:03Z, use_overlap_probe:
+-- a Fillet and a Clean Water pressed in one frame, or 0.26-0.5 s apart either way, both stats rose within 1.3 s, one of
+-- each spent). A potion, or any other kind, is not measured yet: it waits for, and blocks, every kind.
+-- consume_busy(kind) -> {item, kind, left_s} | nil; consume_busy() = any use in progress. The clock is os.clock(),
+-- wall time with ms under the MSVC CRT (mod/scripts/walltime.lua), so a lock ends at 6.0 s, not 5-6 s.
 local USING = _G.DWConsumeInProgress or {}
 _G.DWConsumeInProgress = USING
 M.CONSUME_BUSY_S = 6
-function M.consume_busy()
-    if USING.until_t and os.time() < USING.until_t then return { item = USING.item, left_s = USING.until_t - os.time() } end
+M.busy_clock = os.clock
+local function lock_key(kind) return (kind == "food" or kind == "drink") and kind or "other" end
+M.lock_key = lock_key
+function M.consume_busy(kind)
+    local now = M.busy_clock()
+    local keys = kind == nil and { "food", "drink", "other" }
+        or (lock_key(kind) == "other" and { "other", "food", "drink" }) or { lock_key(kind), "other" }
+    for _, k in ipairs(keys) do
+        local u = USING[k]
+        if type(u) == "table" and u.until_t and now < u.until_t then
+            return { item = u.item, kind = k, left_s = math.ceil((u.until_t - now) * 10) / 10 }
+        end
+    end
+    return nil
+end
+local function mark_using(d)
+    USING[lock_key(d.consumable)] = { item = d.name or d.item, until_t = M.busy_clock() + M.CONSUME_BUSY_S }
+end
+
+-- His own eat/drink comes first: the stay-fed reflex defers to the model (main 2026-11-01). Live 15:49Z: he moved a
+-- Pumpkin Spice to the hotbar to drink it, the reflex drank it within its 2 s tick, and his own drink ran on a full bar
+-- (wasted); 16:20Z the reflex drank a second Clean Water while his Fillet and Clean Water were queued. So:
+--   * a command's consume (skills.lua) holds EVERY kind while it waits and presses, and M.use of a command
+--     (opts.by == "command") holds every kind for the use's animation plus REFLEX_HOLD_S.use (his next queued use
+--     follows within ~0.5 s, or a model call later). Only the reflex waits: his own food and drink still overlap
+--     (the per-kind lock above); a combat use holds nothing (its kind's lock is enough);
+--   * a move_item of food/drink to the hotbar (M.move) holds THAT kind for REFLEX_HOLD_S.move, the time his consume
+--     needs to follow (one model call); if none follows, the reflex uses it then.
+-- Under the safety floor only a hold on that very kind counts (he is fixing that stat himself); an all-kinds hold
+-- never keeps him from water at the floor while he eats. Never refuses the model: only the reflex reads this.
+local HOLD = _G.DWReflexHold or {}
+_G.DWReflexHold = HOLD
+M.REFLEX_HOLD_S = { use = 4, move = 6 }
+function M.hold_reflex(kind, secs, why)
+    local key = kind or "all"
+    local until_t = os.time() + (tonumber(secs) or 0)
+    if not HOLD[key] or HOLD[key].until_t < until_t then HOLD[key] = { until_t = until_t, why = why } end
+end
+function M.reflex_held(kind, at_floor)
+    local now = os.time()
+    local h = kind and HOLD[kind]
+    if h and now < h.until_t then return h end
+    h = HOLD.all
+    if h and now < h.until_t and not at_floor then return h end
     return nil
 end
 
@@ -445,7 +492,7 @@ function M.use(log, what, opts)
     if not d or where == "loadout" then return { ok = false, reason = "not in hotbar/bag: " .. tostring(what) } end
     local refuse = M.crash_refusal(d.item, d.name, d.consumable)
     if refuse then say(log, "use refused (crash-safety): " .. tostring(d.item)); return refuse end
-    local busy = d.consumable and M.consume_busy()
+    local busy = d.consumable and M.consume_busy(d.consumable)
     if busy then
         return { ok = false, reason = "busy", item = d,
                  detail = "still using the " .. tostring(busy.item) .. " (about " .. busy.left_s .. " s left)" }
@@ -465,7 +512,10 @@ function M.use(log, what, opts)
         if not bar then return { ok = false, reason = "no hotbar widget" } end
         say(log, "use: hotbar UseItemInSlot(" .. d.slot .. ") " .. tostring(d.item))
         local ok, err = pcall(function() bar:UseItemInSlot(d.slot) end)
-        if ok and d.consumable then USING.item, USING.until_t = d.name or d.item, os.time() + M.CONSUME_BUSY_S end
+        if ok and d.consumable then mark_using(d) end
+        if ok and d.consumable and opts.by == "command" then
+            M.hold_reflex(nil, M.CONSUME_BUSY_S + M.REFLEX_HOLD_S.use, "his own use of " .. tostring(d.name or d.item))
+        end
         return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "hotbar key " .. (d.slot + 1), item = d }
     end
     if opts.hotbar_only then return { ok = false, reason = "not on the hotbar (bag use disabled)", item = d } end
@@ -473,7 +523,10 @@ function M.use(log, what, opts)
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
     say(log, "use: HandleInternalUseItem(" .. d.slot .. ", " .. tostring(d.slot_type) .. ") " .. tostring(d.item))
     local ok, err = pcall(function() api:HandleInternalUseItem(d.slot, SLOT_TYPE[d.slot_type]) end)
-    if ok and d.consumable then USING.item, USING.until_t = d.name or d.item, os.time() + M.CONSUME_BUSY_S end
+    if ok and d.consumable then mark_using(d) end
+    if ok and d.consumable and opts.by == "command" then
+        M.hold_reflex(nil, M.CONSUME_BUSY_S + M.REFLEX_HOLD_S.use, "his own use of " .. tostring(d.name or d.item))
+    end
     return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "inventory use", item = d }
 end
 
@@ -541,6 +594,9 @@ function M.move(log, what, to, to_slot)
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
     say(log, string.format("HandleInternalDragAndDrop(%d, %s, %d, %s) %s", d.slot, tostring(d.slot_type), slot, page, tostring(d.item)))
     local ok, err = pcall(function() api:HandleInternalDragAndDrop(d.slot, SLOT_TYPE[d.slot_type], slot, SLOT_TYPE[page]) end)
+    if ok and page == M.MOVE_PAGES.hotbar and (d.consumable == "food" or d.consumable == "drink") then
+        M.hold_reflex(d.consumable, M.REFLEX_HOLD_S.move, "he moved " .. tostring(d.name or d.item) .. " to the hotbar")
+    end
     return { ok = ok, reason = (not ok) and tostring(err) or nil, item = d, to = page, to_slot = slot }
 end
 
@@ -571,7 +627,13 @@ function M.external_rows(inv)
                 local id = item_id(data)
                 local n = tonumber(U.try(function() return it.Count end)) or tonumber(U.try(function() return it:GetStackSize() end)) or 1
                 if id then
-                    out.rows[#out.rows + 1] = { slot = i - 1, item = id, name = text(U.try(function() return data.Name end)) or id, count = n }
+                    -- + what the item's data says about itself (category tag, max stack, weight, power level): a grave
+                    -- take ranks by it and fits stacks / carry weight by it (skills.grave_take_order)
+                    out.rows[#out.rows + 1] = { slot = i - 1, item = id, name = text(U.try(function() return data.Name end)) or id, count = n,
+                        category = text(U.try(function() return data.Category.TagName end)),
+                        max_stack = num(U.try(function() return data.MaxStackSize end)),
+                        weight = num(U.try(function() return data.Weight end)),
+                        power = num(U.try(function() return data.PowerLevel end)) }
                     out.by_item[id] = (out.by_item[id] or 0) + n
                 end
             end
@@ -1008,26 +1070,33 @@ function R.tick(log)
     local t = os.time()
     R.last = R.last or {}
     R.bad = R.bad or {}
-    -- Outcome of the previous use: the stat must have risen, else that item is marked bad (no retries).
-    local pend = R.pending
+    -- Outcome of the previous uses: the stat must have risen, else that item is marked bad (no retries). One pending
+    -- use per kind (drink, food, heal): a food and a drink overlap in the game (consume_busy above), so a drink never
+    -- waits for a food's verify, nor the other way round. R.pending = {kind = {kind, item, before, t}} | nil.
     local hp = U.try(function() return p.HealthComponent:GetAuthoritativeHealth() end)
     local hp_max = U.try(function() return p.HealthComponent:GetMaxHealth() end)
-    if pend and t - pend.t >= cfg.verify_s then
-        local now_v = (pend.kind == "drink" and hyd) or (pend.kind == "heal" and hp) or sus
-        local known = type(now_v) == "number" and type(pend.before) == "number"
-        local ok = known and now_v > pend.before + 0.5
-        reflex_emit({ action = "verify", kind = pend.kind, item = pend.item, before = pend.before, after = now_v, ok = ok == true })
-        if known then strike(pend.item, ok) end -- an unreadable stat is not the item's fault
-        R.pending = nil
-        pend = nil
+    if type(R.pending) == "table" and R.pending.kind then R.pending = { [R.pending.kind] = R.pending } end -- pre-reload shape
+    for k, pd in pairs(R.pending or {}) do
+        if t - pd.t >= cfg.verify_s then
+            local now_v = (k == "drink" and hyd) or (k == "heal" and hp) or sus
+            local known = type(now_v) == "number" and type(pd.before) == "number"
+            local ok = known and now_v > pd.before + 0.5
+            reflex_emit({ action = "verify", kind = k, item = pd.item, before = pd.before, after = now_v, ok = ok == true })
+            if known then strike(pd.item, ok) end -- an unreadable stat is not the item's fault
+            R.pending[k] = nil
+        end
     end
+    if R.pending and not next(R.pending) then R.pending = nil end
+    local pending = R.pending or {}
+    local pend = next(pending) ~= nil -- any use still being verified
+    local function set_pending(k, row) R.pending = R.pending or {}; R.pending[k] = row end
     -- Nothing to drink / eat carried at all (live 2026-10-26 15:06: hydration 0, HP falling, and the reflex
     -- was SILENT because it only warned about bag-only items): tell the brain once a minute, so it fetches some.
     -- `failed` = carried, but every one is marked bad (failed bad_after uses in a row).
     local carried
-    if (thirsty or hungry) and not pend then
+    if (thirsty or hungry) and not (pending.drink and pending.food) then
         carried = M.list(log)
-        for _, need in ipairs({ { thirsty, "drink", hyd, hyd_max }, { hungry, "food", sus, sus_max } }) do
+        for _, need in ipairs({ { thirsty and not pending.drink, "drink", hyd, hyd_max }, { hungry and not pending.food, "food", sus, sus_max } }) do
             local risky
             for _, where in ipairs({ "hotbar", "bag" }) do
                 for _, x in ipairs(carried[where] or {}) do if x.consumable == need[2] and M.risk_of(x.item) then risky = risky or x end end
@@ -1090,12 +1159,13 @@ function R.tick(log)
         end
         return
     end
-    -- another use (a command, combat) is mid-animation: a press now would be ignored, so wait for it
-    if M.consume_busy() then return end
+    -- another use of the same kind (a command, combat) is mid-animation: a press now would be ignored, so that kind
+    -- waits (consume_busy(kind) in each branch below); the other kind goes ahead
     -- eat to heal (policy heal_below_pct, the model's call): food whose item data heals (heal > 0)
     local hurt = pol.heal_below_pct and type(hp) == "number" and type(hp_max) == "number" and hp_max > 0
         and hp < hp_max * pol.heal_below_pct / 100
-    if hurt and not pend and not hungry and (not R.last.heal or t - R.last.heal >= cfg.cooldown_s) then
+    if hurt and not pending.heal and not pending.food and not hungry and (not R.last.heal or t - R.last.heal >= cfg.cooldown_s)
+        and not M.reflex_held("food") and not M.consume_busy("food") then
         local l = M.list(log)
         local pick
         for _, d in ipairs(l.hotbar or {}) do
@@ -1105,15 +1175,15 @@ function R.tick(log)
         end
         if pick then
             R.last.heal = t
-            local r = M.use(log, pick.item, { require = "food", hotbar_only = true })
+            local r = M.use(log, pick.item, { require = "food", hotbar_only = true, by = "reflex" })
             reflex_emit({ action = "use", kind = "heal", item = pick.item, name = pick.name, stat = hp, ok = r.ok, via = r.via,
                           reason = r.reason })
-            if r.ok then R.pending = { kind = "heal", item = pick.item, before = hp, t = t } else strike(pick.item, false) end
+            if r.ok then set_pending("heal", { kind = "heal", item = pick.item, before = hp, t = t }) else strike(pick.item, false) end
             return
         end
     end
     if not (thirsty or hungry) then return end -- (after the verify: a successful use ends the need)
-    if not pend then
+    if not (pending.drink and pending.food) then
         local l = carried or M.list(log)
         -- the floor is per stat (it used to be either: a sustenance under the floor let him drink Dirty Water at 39 % water)
         local at_floor = { drink = hyd and hyd < hyd_max * floor / 100, food = sus and sus < sus_max * floor / 100 }
@@ -1122,7 +1192,14 @@ function R.tick(log)
         local function sc(x) return x and (tonumber(x.soulscourge) or 0) or nil end
         for _, need in ipairs({ { thirsty, "drink", hyd }, { hungry, "food", sus } }) do
             local kind = need[2]
-            if not R.pending and need[1] and (not R.last[kind] or t - R.last[kind] >= cfg.cooldown_s) then
+            local held = need[1] and M.reflex_held(kind, at_floor[kind])
+            if held and (not R.held_said or R.held_said ~= held) then
+                R.held_said = held -- the log says once per hold why it waits (no event: it is his own use)
+                say(log, "reflex: " .. kind .. " held off (" .. tostring(held.why) .. ")")
+            end
+            local busy = need[1] and not held and M.consume_busy(kind)
+            if not pending[kind] and not (kind == "food" and pending.heal) and need[1] and not held and not busy
+                and (not R.last[kind] or t - R.last[kind] >= cfg.cooldown_s) then
                 local why -- the reason this use was chosen, for the brain (activity reflex_use.reason)
                 local stat_s = string.format("%s %.0f/%.0f", words[kind], need[3] or 0, maxes[kind] or 0)
                 -- Hotbar only by default: the client hung right after a bag "use"
@@ -1191,10 +1268,10 @@ function R.tick(log)
                     why = why or string.format("%s is under %s", stat_s, at_floor[kind] and (floor .. "% (the safety floor)")
                         or (tostring(pcts[kind]) .. "% (my vitals policy)"))
                     R.last[kind] = t
-                    local r = M.use(log, d.item, { require = kind, hotbar_only = not cfg.allow_bag })
+                    local r = M.use(log, d.item, { require = kind, hotbar_only = not cfg.allow_bag, by = "reflex" })
                     reflex_emit({ action = "use", kind = kind, item = d.item, name = d.name, stat = need[3], ok = r.ok,
                                   via = r.via, reason = r.ok and why or r.reason, floor = at_floor[kind] == true })
-                    if r.ok then R.pending = { kind = kind, item = d.item, before = need[3], t = t }
+                    if r.ok then set_pending(kind, { kind = kind, item = d.item, before = need[3], t = t })
                     else strike(d.item, false) end
                 end
             end
@@ -1244,7 +1321,7 @@ function M.reflex_stop()
 end
 
 function M.reflex_status()
-    return { running = R.loop ~= nil, last = R.last, bad = R.bad, pending = R.pending, err = R.err, cfg = R.cfg,
+    return { running = R.loop ~= nil, last = R.last, bad = R.bad, pending = R.pending, err = R.err, cfg = R.cfg, held = HOLD,
              warned = R.warned, floor_hit = R.floor_hit, floor_leaves = R.floor_leaves }
 end
 

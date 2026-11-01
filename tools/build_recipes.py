@@ -453,12 +453,17 @@ def lua_data(cat: dict) -> dict:
             rec["fuel"] = [[f["path"], f["count"]] for f in r["fuel_override"]]
         if r.get("extra") and (r["extra"].get("chance") or 0) > 0:
             rec["extra"] = {"chance": r["extra"]["chance"], "items": [[x["path"], x["count"]] for x in r["extra"]["items"]]}
+        if (alt := r.get("alternative")) and alt.get("path"):  # the failed result (burnt food), e.g. Steak -> Burnt Steak
+            rec["alt"] = [[alt["path"], alt.get("count") or 1]]
+            if alt.get("chance_attribute"):
+                rec["alt_chance"] = alt["chance_attribute"]
         queries = [b.get("query") for b in (r.get("unlock") or {}).get("bundles") or [] if b.get("query")]
         if queries:  # unlock rules (FProgressionBundleRow.UnlockQueryString), e.g. "ALL ITEMS[ Iron Ore ] AND ..."
             rec["uq"] = [" ".join(q.split()) for q in queries]
         if r.get("vendor_reputation"):
             rec["rep"] = [r["vendor_reputation"].get("tag"), r["vendor_reputation"].get("amount")]
-        for lst in (rec["inputs"], rec["outputs"], rec.get("fuel") or [], (rec.get("extra") or {}).get("items") or []):
+        for lst in (rec["inputs"], rec["outputs"], rec.get("fuel") or [], (rec.get("extra") or {}).get("items") or [],
+                    rec.get("alt") or []):
             used.update(x[0] for x in lst)
         recipes[rid] = rec
     stations = {}

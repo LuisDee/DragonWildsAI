@@ -668,6 +668,7 @@ local function nav_request(st, from, to, offer, world)
     end
     if not (finite3(from) and finite3(to)) then return false end
     st.nav_id = (st.nav_id or 0) + 1
+    st.nav_from = { X = from.X, Y = from.Y, Z = from.Z } -- where the route is asked from (nav_response: a route left behind)
     local body = string.format('{"version":2,"epoch":"%s","nonce":"%s","id":%d,"from":[%.2f,%.2f,%.2f],"to":[%.2f,%.2f,%.2f]}',
         offer.epoch, offer.nonce, st.nav_id, from.X / 100, from.Y / 100, from.Z / 100, to.X / 100, to.Y / 100, to.Z / 100)
     local f = io.open(NAV_REQ .. ".tmp", "w")
@@ -1421,8 +1422,11 @@ local function lp_work(st, t, log)
                 if zc and log then log(string.format("move: no way round avoid zone %s; crossing it (ends in %.1fs)", zc.id, zc.until_s - t)) end
             end
             if log then
-                log(string.format("move: local path %d pts [%s] traces=%d cache_hits=%d replans=%d stand=%.2fs end=%s",
-                    #st.lpath, table.concat(acts), P.traces, P.cache_hits or 0, st.lp_rounds, st.lp_stand_s, fmt(st.lpath[#st.lpath])))
+                local at = {}
+                for _, p in ipairs(st.lpath) do at[#at + 1] = string.format("%.0f,%.0f,%.1f", p.X / 100, p.Y / 100, p.Z / 100) end
+                log(string.format("move: local path %d pts [%s] traces=%d cache_hits=%d replans=%d stand=%.2fs end=%s pts=%s",
+                    #st.lpath, table.concat(acts), P.traces, P.cache_hits or 0, st.lp_rounds, st.lp_stand_s, fmt(st.lpath[#st.lpath]),
+                    table.concat(at, " ")))
             end
             st.lp = nil
             return false
@@ -1965,6 +1969,18 @@ local function nav_response(f, pending)
     -- a segment rising more than a step over a short run is a nav LINK (the dev navmesh's jump links): jump it
     for i = 2, #pts do
         if pts[i].Z - pts[i - 1].Z > 60 and d2(pts[i - 1], pts[i]) < 300 then pts[i].link = true end
+    end
+    -- a partial route asked from where he WAS can end behind him once he has walked on (the temple is a navmesh island
+    -- on the dev oracle: every route from inside it ends at its edge). Joining it walked him back inside, where he gave
+    -- up with "the walkable map ends 414 m short" (live 2026-11-01 17:20, a 434 m quest walk out of the temple: he had
+    -- reached the doorway while the route was computed). Ask again from here instead (a few times a trip, 10+ m on).
+    local endp = pts[#pts]
+    if r.partial and st.mode == "go_to" and st.nav_from and d2(st.nav_from, me) > 1000 and d2(me, goal) + 300 < d2(endp, goal)
+        and (st.nav_reasks or 0) < 3 then
+        st.nav_reasks, st.path, st.nav_fail = (st.nav_reasks or 0) + 1, nil, nil
+        if log then log(string.format("move: the route asked from (%.0f,%.0f) ends %.0f m behind me, short of the goal; asking again from here",
+            st.nav_from.X / 100, st.nav_from.Y / 100, (d2(endp, goal) - d2(me, goal)) / 100)) end
+        return
     end
     if st.lp_observe then
         st.lp, st.lp_state, st.lp_observe, st.local_binding = nil, nil, nil, nil
@@ -3185,7 +3201,9 @@ end
 -- along (dx, dy) (unit, world), or nil when a step that way is safe.
 function M.unsafe_ahead(pawn, dx, dy)
     local okm, me = pcall(function() return pawn:K2_GetActorLocation() end)
-    if not (okm and me) then return nil end
+    local l = math.sqrt((tonumber(dx) or 0) ^ 2 + (tonumber(dy) or 0) ^ 2)
+    if not (okm and me) or l < 1e-6 then return nil end
+    dx, dy = dx / l, dy / l
     local lim = rawget(_G, "DW_FALL_LIMITS") or {}
     _G.DW_FALL_LIMITS = lim
     local safe, walk_z = fall_limits(lim, pawn)
@@ -3347,6 +3365,20 @@ local function stuck_tick(f)
         tostring(st.trail_i), #st.crumbs)
     st.last_stuck = ev
     if log then log(ev) end
+    -- pushing against a shut door ahead (his house door, the trail through it: live 18:08:33-35 he pushed 2 s, re-planned
+    -- "walls everywhere", and only then opened it): open it at the first stuck
+    if n == 1 and not st.door then
+        local ahead = f.aim or goal
+        local okd, dd = pcall(shut_door_near, me, ahead, 250)
+        if okd and dd and ahead then
+            local ax, ay, dx, dy = ahead.X - me.X, ahead.Y - me.Y, dd.at.X - me.X, dd.at.Y - me.Y
+            local la, ld = math.sqrt(ax * ax + ay * ay), math.sqrt(dx * dx + dy * dy)
+            if la > 1 and ld > 1 and (ax * dx + ay * dy) / (la * ld) > 0.3 and door_begin(st, t, log) then
+                st.win_t, st.win_pos = t, v(me)
+                return
+            end
+        end
+    end
     local planned = false
     if n == 1 and not st.stepoff_tried then
         -- standing ON TOP of geometry (the floor around him is well below his feet, e.g. on the shelter,

@@ -273,7 +273,7 @@ def test_get_your_stuff_is_interact_on_his_own_grave(lua_caps, tmp_path):
     rig = Rig(tmp_path, lua_caps)
     digest = "\n".join(summary(rig.game.state))
     assert "YOUR gravestone is 2 m away (id BP_PlayerGravestone_C_2147463090) holding 12 of your items" in digest
-    assert "you died 5 min ago and respawned" in digest
+    assert "you died 5 min ago (cause unknown (the game didn't say)) and respawned" in digest  # never left to guess
     assert "Inventory read" not in digest and "at least" not in digest
     assert "Pumpkin Spice Infusion x1 (drink, hotbar)" in digest
     assert "Pumpkin Spice Infusion x2 (4 m, id BP_RuntimeSpawnedWorldItem_C_2147465124, drink)" in digest

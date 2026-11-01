@@ -171,7 +171,8 @@ def test_own_knowledge_and_lodestones(places):
 def test_partial_name_and_empty_query(places):
     d = res(places, "Bramble")
     assert {r["name"] for r in d["results"]} >= {"Bramble Valley", "Bramble Village"}
-    assert all(r["match"] == "part" for r in d["results"])
+    assert all(r["match"] == "leading" for r in d["results"])  # the first word of both names
+    assert all(r["match"] == "part" for r in res(places, "Valley")["results"])
     assert places.where("the", HERE)["ok"] is False
 
 
@@ -367,6 +368,21 @@ def test_go_to_an_unknown_or_partial_name_keeps_the_bodys_answer(tmp_path):
         out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": name}))
         assert not out.ok and out.reason == "unknown_target" and body.calls == [{"target": name}]
         assert "resolved" not in (out.data or {})
+
+
+def test_go_to_a_names_leading_words_walks_there_only_when_one_name_leads_so(tmp_path):
+    from brain.state_store import Task
+    out = _executor(tmp_path, _Body(HERE)).run_task(Task(skill="go_to", args={"target": "Temple"}))
+    assert "region Temple Woods" in out.data["resolved"], out.data  # "Temple" leads only Temple Woods (he is in it)
+    body = _Body(HERE)
+    out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "Bramble"}))  # Valley and Village
+    assert not out.ok and out.reason == "unknown_target" and body.calls == [{"target": "Bramble"}]
+    assert {"Bramble Valley", "Bramble Village"} <= {x.split(" (")[0] for x in out.data["map_names_like_it"]}
+
+
+def test_real_data_bramblemead_is_the_valley():
+    d = Places().where("Bramblemead", [62.6, 1873.7, -35.5])["data"]  # live 17:2xZ: go_to "Bramblemead" unknown_target
+    assert d["results"][0]["name"] == "Bramblemead Valley" and d["results"][0]["match"] == "leading"
 
 
 def test_go_to_the_region_you_are_in_says_so(tmp_path):

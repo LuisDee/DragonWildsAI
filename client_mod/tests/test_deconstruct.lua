@@ -335,6 +335,34 @@ local job4 = { kind = "deconstruct", phase = "next", presses = {}, removed = {},
 local res4 = run(job4)
 check("left on ground: reported", res4 and res4.data.on_ground and #res4.data.on_ground == 1, res4 and res4.data.detail)
 check("left on ground: the sentence says so", res4 and res4.data.detail:find("still lie on the ground", 1, true), res4 and res4.data.detail)
+-- nothing came back and nothing dropped: the cost is named with the game's display name from my inventory listing
+-- (live 16:11Z: "it cost 4 Resources Wood Ash")
+_G.DWDecon = nil
+G.mode, G.presses, G.cross, aims, G.ground = "None", {}, nil, 0, {}
+G.alive[14] = true
+local press_drop = D.W.press
+D.W.press = function(a2, a)
+    if a == "destroy" and G.mode == "RepairAndEdit" and G.cross and G.cross.pid == 14 then
+        G.presses[#G.presses + 1] = a; G.alive[14] = nil; return true
+    end
+    return real_press(a2, a)
+end
+api.call = function(mod, fn, goal)
+    if mod == "inventory" and fn == "list" then
+        return { ok = true, data = { bag = { { item = "ITEM_Resources_Wood_Ash", name = "Ash Logs", count = 3 } } } }
+    end
+    if mod == "move" and fn == "go_to" then G.me = { goal[1], goal[2], G.me[3] } end
+    return { ok = true }
+end
+CRATE.done = nil
+local job5 = { kind = "deconstruct", phase = "next", presses = {}, removed = {}, collapsed = {}, refund = {}, dropped = {},
+               expected = { ITEM_Resources_Wood_Ash = 4 }, t0 = G.t, queue = { CRATE }, left = {}, target = CRATE,
+               planned = { [14] = CRATE }, world = "dev", rows = { CRATE },
+               counts_start = { ITEM_Resources_Wood_Ash = G.counts.ITEM_Resources_Wood_Ash } }
+local res5 = run(job5)
+check("no refund: the cost in the game's own name (Ash Logs), not the item id", res5 and res5.data.detail
+    and res5.data.detail:find("Ash Logs)", 1, true) and not res5.data.detail:find("Wood Ash", 1, true), res5 and res5.data.detail)
+D.W.press = press_drop
 -- safety: a press that also takes down something I didn't plan (a station, a supporting floor) stops the job
 _G.DWDecon = nil
 G.mode, G.presses, G.cross, aims, G.ground = "None", {}, nil, 0, {}

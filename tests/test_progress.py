@@ -195,14 +195,33 @@ def test_nav_unavailable_and_resting_are_reasons_of_their_own():
     assert {Reason.NAV_UNAVAILABLE, Reason.RESTING} <= Reason.DETERMINISTIC  # back to the model, never retried blindly
 
 
+def test_recent_life_death_cause_kill_zone_and_bars():
+    """Run 5 (16:37Z): a 31 m fall into the KillZVolume at food 12 %; the line names the fall and the bars, and the
+    gravestone after it is not cut off."""
+    from brain.situation import recent_life
+    st = {"last_death": {"ago_s": 3, "killed_by": "falling into a kill zone (a drop the game kills anything in)",
+                         "killed_by_class": "KillZVolume", "fell_m": 31.0, "bars": {"food": 12, "water": 61, "rest": 87},
+                         "at": [48.3, 1741.0, -60.8]},
+          "my_grave": {"id": "BP_PlayerGravestone_C_1", "distance": 30.0, "items": 9, "contents": ["Fillet x3"]}}
+    line = recent_life(st)[0]
+    assert "killed by falling into a kill zone" in line and "fell 31 m" in line, line
+    assert "bars then food 12%, water 61%, rest 87%: food and water above 0, so not hunger or thirst" in line, line
+    assert "YOUR gravestone is 30 m away" in line and "Fillet x3" in line, line
+    raw = recent_life({"last_death": {"ago_s": 3, "killed_by": "KillZVolume"}})[0]  # an older body's raw class
+    assert "kill zone" in raw and "KillZVolume" not in raw, raw
+    starved = recent_life({"last_death": {"ago_s": 3, "killed_by": "my own condition", "bars": {"food": 0, "water": 40}}})[0]
+    assert "food 0%, water 40%: food empty" in starved, starved
+
+
 def test_recent_life_says_what_killed_him_and_where():
     from brain.situation import recent_life
     assert recent_life({"last_death": {"ago_s": 200, "respawned": True, "killed_by": "Giant Rat"}}) == [
         "Recent: you died 3 min ago (killed by Giant Rat) and respawned"]
     line = recent_life({"last_death": {"ago_s": 20, "fell_m": 12.4, "at": [99999.0, 99999.0, 0.0]}})[0]
-    assert line == "Recent: you died 20 s ago (fell 12 m; at [99999, 99999, 0])"
+    assert line == "Recent: you died 20 s ago (cause unknown (the game didn't say); fell 12 m; at [99999, 99999, 0])"
     assert recent_life({"last_death": {"ago_s": 20, "killed_by": {"self": False, "name": "Goblin"}}})[0].endswith(
         "(killed by Goblin)")
-    assert recent_life({"last_death": {"ago_s": 20}}) == ["Recent: you died 20 s ago"]
+    # nothing said what killed him: he is told so, never left to guess (live 16:37Z "starving got me" at 12 % food)
+    assert recent_life({"last_death": {"ago_s": 20}}) == ["Recent: you died 20 s ago (cause unknown (the game didn't say))"]
     assert recent_life({"last_death": {"ago_s": 20, "at": [176.25, 1863.53, -30.23]}})[0].endswith(
-        "(at Temple Woods)")  # the game map's region (data/places_<build>.json)
+        "; at Temple Woods)")  # the game map's region (data/places_<build>.json)

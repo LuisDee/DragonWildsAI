@@ -162,7 +162,7 @@ local function furnace_tick(s)
                 local id = C.asset(c[1])
                 for _, r in ipairs(s.res) do if r.item == id then r.count = r.count - c[2] end end
             end
-            for _, o in ipairs(rec.outputs) do
+            for _, o in ipairs((s.burn and rec.alt) or rec.outputs) do -- s.burn: the cook fails (the recipe's alt)
                 local id = C.asset(o[1])
                 if s.store then s.out[#s.out + 1] = { slot = #s.out, item = id, name = C.item_name_of(id), count = o[2] }
                 else
@@ -182,6 +182,7 @@ local function recipe_from_contents(s)
     for _, r in ipairs(s.res) do by[r.item] = (by[r.item] or 0) + r.count end
     if (by.ITEM_Resources_CopperOre or 0) >= 3 and (by.ITEM_Resources_TinOre or 0) >= 3 then return "RECIPE_Process_BronzeBar" end
     if (by.ITEM_Resources_IronOre or 0) >= 3 and not by.ITEM_Resources_TinOre then return "RECIPE_Process_IronBar" end
+    if (by.ITEM_Resources_Meat_Farm or 0) >= 1 then return "RECIPE_Consumable_Steak_From_Farm" end
     return nil
 end
 
@@ -291,6 +292,10 @@ do -- alternatives listed; locked recipes carry their unlock text with station n
     check("locked: status + unlock text names the Furnace", a.status == "not_unlocked" and tostring(a.unlock):find("Furnace", 1, true) ~= nil, tostring(a.unlock))
 end
 do -- held-out: an item absent from every fixture above resolves from the catalog by display name
+    -- every word he said is a word of the name (live 2026-11-01 17:10Z: "Stone Axe" read unknown, then 24 axes)
+    check("resolve: words -> Stone Logging Axe", C.resolve_item("Stone Axe") == "ITEM_Logging_Axe_Stone")
+    check("resolve: words -> Wooden Spade", C.resolve_item("wooden spade") == "ITEM_Spade_T1_Wood")
+    check("resolve: one word still ambiguous", C.resolve_item("axe") == nil)
     local id = C.resolve_item("stone dagger")
     check("resolve by display name (held-out)", id == "ITEM_Weapon_Dagger_Stone" or (id and id:find("Dagger")), id)
     local _, hits = C.resolve_item("Torc")
@@ -481,6 +486,33 @@ do -- ambiguous recipe (two viable) -> candidates; one viable -> recipe_chosen +
     check("proc: UI closed", F.closed == 1)
     check("proc: the open station screen was claimed, and released at the end", INPUTF.claims >= 1 and INPUTF.owners.screen == nil)
     check("proc: inputs + fuel dragged (3 moves)", F.drags == 3, F.drags)
+end
+do -- a nearer station whose slots hold someone else's things is passed over for a free one (rung 3: Luis's
+   -- Spinning Wheel holds his fur in its only slot); the result says which one he used and why
+    local full = FURNACE()
+    full.res = { { slot = 0, item = "ITEM_Resources_Flax", name = "Flax", count = 2 },
+                 { slot = 1, item = "ITEM_Resources_Coarse_Animal_Fur", name = "Coarse Animal Fur", count = 2 } }
+    local far = station("Furnace", "furnace_2", { 20, 3, 0 })
+    reset({ stations = { full, far }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    local r = run({ recipe = "RECIPE_Process_IronBar" })
+    check("free station: ok at the far one", r.ok and r.data.station_id == "furnace_2",
+          tostring(r.reason) .. " " .. tostring((r.data or {}).station_id) .. " " .. tostring((r.data or {}).detail))
+    check("free station: the full one untouched", #full.res == 2 and full.res[1].count == 2 and full.res[2].count == 2)
+    check("free station: says why", tostring((r.data or {}).why_this_station):find("Coarse Animal Fur", 1, true) ~= nil,
+          tostring((r.data or {}).why_this_station))
+end
+do -- burnt food (live 2026-11-01 17:07Z, rung 3 cook): the Campfire dropped Burnt Steak; he waited for Steak,
+   -- timed out "made 0 of 2" and could not say why. The recipe's alt output ends the wait and is reported
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }, { burn = true }) },
+            unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    local r = run({ item = "Steak" })
+    check("burnt: craft_failed (not a timeout)", r.reason == "craft_failed", tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    check("burnt: the detail names the burnt item", tostring((r.data or {}).detail):find("Burnt Steak", 1, true) ~= nil,
+          tostring((r.data or {}).detail))
+    check("burnt: picked up", inv_counts().ITEM_Consumable_Farm_Steak_Burnt == 1, inv_counts().ITEM_Consumable_Farm_Steak_Burnt)
+    check("burnt: failed_output listed", r.data and r.data.failed_output and r.data.failed_output[1].count == 1)
 end
 do -- the output lies at the station, whose interaction wins a near miss (live 2026-10-26: "the game targets
    -- BP_Station_Campfire_C, not the Clean Water"): he stands where the station is not behind the item

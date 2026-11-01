@@ -1120,6 +1120,15 @@ function M.result(api, job, closed, mode)
     local n = #job.removed
     local names = {}
     for _, g in ipairs(job.dropped) do if g.item then names[g.item] = g.name end end
+    -- the game's display names for the rest from my inventory listing (skills.lua gain_words; live 16:11Z: an
+    -- undropped refund read "4 Resources Wood Ash" for 4 Ash Logs)
+    local okl, lr = pcall(api.call, "inventory", "list")
+    local inv = okl and type(lr) == "table" and (type(lr.data) == "table" and lr.data or lr) or {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs(type(inv[where]) == "table" and inv[where] or {}) do
+            if type(e) == "table" and e.item and e.name and not names[e.item] then names[e.item] = e.name end
+        end
+    end
     -- the refund = what my inventory gained over the whole job in the refund's items (its cost, plus what dropped);
     -- still on the ground = the drops the census still shows
     local keys = {}

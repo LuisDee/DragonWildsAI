@@ -445,9 +445,54 @@ do
     S.hyd, S.sus, R.last, R.pending = 5, 80, {}, nil
     R.tick_fn(nil)
     check(#S.presses == 1, "busy: the reflex waits too (presses " .. #S.presses .. ")")
-    _G.DWConsumeInProgress.until_t = nil
+    for k in pairs(_G.DWConsumeInProgress) do _G.DWConsumeInProgress[k] = nil end
     R.tick_fn(nil)
     check(#S.presses == 2, "busy: once it ends the reflex drinks (presses " .. #S.presses .. ")")
+    I.CONSUME_BUSY_S = 0; I.reflex_stop()
+end
+
+-- The use lock is per kind (Luis 0.06-0.83 s apart; Claude's client live 2026-11-01, use_overlap_probe): a food use
+-- mid-animation never holds a drink, the reflex eats and drinks in the same tick, a command's use holds the reflex
+-- (every kind) but not his own next use of the other kind, and a combat use (no `by`) holds nothing.
+do
+    I.reflex_stop()
+    for k in pairs(_G.DWConsumeInProgress) do _G.DWConsumeInProgress[k] = nil end
+    for k in pairs(_G.DWReflexHold) do _G.DWReflexHold[k] = nil end
+    I.CONSUME_BUSY_S = 6
+    S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    S.effect[DATA.sand:GetFullName()] = { "sus", 60 }
+    hotbar_items = { item(DATA.sand, 4), item(DATA.tea, 4) }; bag_items = {}; refresh()
+    S.presses, S.hyd, S.sus = {}, 80, 80
+    local food = I.use(nil, "Sandwich", { require = "food", hotbar_only = true })
+    local drink = I.use(nil, "Pumpkin Spice Infusion", { require = "drink", hotbar_only = true })
+    check(food.ok and drink.ok and #S.presses == 2, "per kind: a drink right after a food is pressed (presses " .. #S.presses .. ")")
+    check(I.consume_busy("food") and I.consume_busy("drink") and I.consume_busy("potion"), "per kind: each kind busy; a potion waits for both")
+    local again = I.use(nil, "Sandwich", { require = "food", hotbar_only = true })
+    check(not again.ok and again.reason == "busy" and #S.presses == 2, "per kind: a second food in the animation is refused")
+    check(not next(_G.DWReflexHold), "per kind: a use without by=command (combat) holds no reflex kind")
+    -- the reflex, both low: drink and food in ONE tick
+    for k in pairs(_G.DWConsumeInProgress) do _G.DWConsumeInProgress[k] = nil end
+    I.reflex_start(nil, { verify_s = 4 }); R = _G.DWFedReflex
+    S.presses, S.hyd, S.sus, R.last, R.pending = {}, 20, 20, {}, nil
+    R.tick_fn(nil)
+    check(#S.presses == 2, "reflex: thirsty and hungry -> a drink and a food in the same tick (" .. table.concat(S.presses, ",") .. ")")
+    check(R.pending and R.pending.drink and R.pending.food, "reflex: one pending verify per kind")
+    -- a food busy from someone else: the reflex still drinks
+    for k in pairs(_G.DWConsumeInProgress) do _G.DWConsumeInProgress[k] = nil end
+    _G.DWConsumeInProgress.food = { item = "Fillet", until_t = I.busy_clock() + 6 }
+    S.presses, S.hyd, S.sus, R.last, R.pending = {}, 20, 20, {}, nil
+    R.tick_fn(nil)
+    check(#S.presses == 1 and S.presses[1] == "Pumpkin Spice Infusion", "reflex: a food mid-animation, the drink goes ahead (" .. table.concat(S.presses, ",") .. ")")
+    -- his command's use holds the reflex for every kind (it defers to the model); his own other kind still goes
+    for k in pairs(_G.DWConsumeInProgress) do _G.DWConsumeInProgress[k] = nil end
+    S.presses, S.hyd, S.sus, R.last, R.pending = {}, 20, 20, {}, nil
+    local mine = I.use(nil, "Sandwich", { require = "food", hotbar_only = true, by = "command" })
+    R.tick_fn(nil)
+    check(mine.ok and #S.presses == 1, "command use: the reflex holds off both kinds (" .. table.concat(S.presses, ",") .. ")")
+    local mine2 = I.use(nil, "Pumpkin Spice Infusion", { require = "drink", hotbar_only = true, by = "command" })
+    check(mine2.ok and #S.presses == 2, "command use: his drink right after his food is pressed")
+    for k in pairs(_G.DWReflexHold) do _G.DWReflexHold[k] = nil end
+    for k in pairs(_G.DWConsumeInProgress) do _G.DWConsumeInProgress[k] = nil end
     I.CONSUME_BUSY_S = 0; I.reflex_stop()
 end
 
@@ -464,7 +509,7 @@ do
     I.CONSUME_BUSY_S = 0
     I.reflex_start(nil, { verify_s = 0, fetch_cooldown_s = 0 })
     R = _G.DWFedReflex
-    if _G.DWConsumeInProgress then _G.DWConsumeInProgress.until_t = nil end -- the busy test's last use
+    for k in pairs(_G.DWConsumeInProgress or {}) do _G.DWConsumeInProgress[k] = nil end -- the busy test's last use
     local g0 = I._input_gate
     I._input_gate = function() return nil end
     pc.CurrentInputMode = obj("DataAsset /Game/Input/DIM_Gameplay.DIM_Gameplay")

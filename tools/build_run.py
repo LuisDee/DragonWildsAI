@@ -52,6 +52,17 @@ def build_results(rows: list[dict]) -> list[dict]:
             continue
         res = r.get("result") or {}
         d = res.get("data") if isinstance(res.get("data"), dict) else {}
+        # a `pieces` batch: one row per piece it built (each with its own fit sentence), then the stop, if any
+        for p in d.get("built_pieces") or []:
+            out.append({"ts": float(r.get("ts") or 0), "ok": True, "reason": None, "structure": p.get("structure"),
+                        "position": p.get("position"), "flush": p.get("flush"), "attached_to": p.get("attached_to"),
+                        "side": p.get("side"), "name": p.get("name"), "said": p.get("fit") or ""})
+        if d.get("built_pieces") is not None:
+            if not res.get("ok"):
+                out.append({"ts": float(r.get("ts") or 0), "ok": False, "reason": res.get("reason"), "structure": None,
+                            "position": None, "flush": None, "attached_to": None, "side": None, "name": None,
+                            "said": d.get("detail")})
+            continue
         out.append({"ts": float(r.get("ts") or 0), "ok": res.get("ok"), "reason": res.get("reason"),
                     "structure": d.get("structure"), "position": d.get("position"), "flush": d.get("flush"),
                     "attached_to": d.get("attached_to"), "side": d.get("side"), "name": d.get("name"),
