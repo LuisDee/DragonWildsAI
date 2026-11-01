@@ -10,6 +10,11 @@ collided with it). Hold it with `run`, which refreshes it every REFRESH_S while 
 
 Taking the lock sends the body a `stop` first (clean=True; --no-clean to skip), so no job is left over from the last
 owner. Release it only after your own brain is stopped: a brain left running keeps driving him under the next owner.
+
+Waiters queue first come, first served (a ticket lock: one file per waiter in logs/state/live_queue, oldest live
+ticket claims next; a dead waiter's ticket is dropped). With plain 5 s polling the agent that happened to poll first
+after a release won, so one waiter could starve (live 2026-11-01 16:13-16:43Z: the rung 1 gate waited 30 min while
+quests, pickup and needs took turns).
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LOCK = Path(__file__).resolve().parents[1] / "logs" / "state" / "live_owner.txt"
+QUEUE = LOCK.parent / "live_queue"
 STALE_S = 300
 REFRESH_S = 60
 
@@ -99,7 +105,9 @@ def stop_body(timeout_s: float = 15.0) -> str:
     def go():
         try:
             from evals.bench.devrun import default_dev
-            r = default_dev().body_call("stop", {})
+            # force: the debug channel never pre-empts a brain action without it (BUGS L12), and a left-over action
+            # outlives the brain that started it (live 16:4xZ: "stop left-over jobs: failed: busy", a grave walk ran on)
+            r = default_dev().body_call("stop", {"force": True})
             out.append("ok" if r.get("ok") else f"failed: {r.get('reason')}")
         except Exception as exc:  # the client may be down or respawning; the lock is still held
             out.append(f"{type(exc).__name__}: {exc}"[:200])
@@ -109,13 +117,51 @@ def stop_body(timeout_s: float = 15.0) -> str:
     return out[0] if out else f"no answer in {timeout_s:.0f} s"
 
 
+def _ticket(owner: str, qdir: Path | None = None) -> Path:
+    qdir = qdir or QUEUE
+    qdir.mkdir(parents=True, exist_ok=True)
+    t = qdir / f"{time.time_ns()}_{owner.replace('_', '-')}_{os.getpid()}"
+    t.write_text(owner, encoding="utf-8")
+    return t
+
+
+def queue(qdir: Path | None = None) -> list[dict]:
+    """The waiters, oldest first; a ticket whose process is gone is removed."""
+    qdir = qdir or QUEUE
+    out = []
+    for t in (qdir.iterdir() if qdir.exists() else []):
+        ns, _, rest = t.name.partition("_")
+        owner, _, pid = rest.rpartition("_")
+        if not (ns.isdigit() and pid.isdigit()):
+            continue
+        if not _alive(int(pid)):
+            try:
+                t.unlink()
+            except OSError:
+                pass
+            continue
+        out.append({"ticket": t, "ns": int(ns), "owner": owner, "pid": int(pid)})
+    return sorted(out, key=lambda x: x["ns"])
+
+
 @contextmanager
 def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, clean: bool = True):
     t0 = time.time()
-    while not try_claim(owner, pid):
-        if time.time() - t0 > wait_s:
-            raise TimeoutError(f"live lock busy: {read()}")
-        time.sleep(5)
+    ticket = _ticket(owner)
+    try:
+        while True:
+            q = queue()
+            mine = not q or q[0]["ticket"] == ticket  # first in the queue (or the queue is unreadable)
+            if mine and try_claim(owner, pid):
+                break
+            if time.time() - t0 > wait_s:
+                raise TimeoutError(f"live lock busy: {read()}; queue {[x['owner'] for x in q]}")
+            time.sleep(2 if mine else 4)
+    finally:
+        try:
+            ticket.unlink()
+        except OSError:
+            pass
     log(f"live lock: {owner} holds it" + (f"; stop left-over jobs: {stop_body()}" if clean else ""))
     stop = threading.Event()
 
@@ -153,6 +199,9 @@ def main(argv=None) -> int:
     a, extra = ap.parse_known_args(argv)
     if a.cmd == "status":
         print(read() or "free")
+        q = queue()
+        if q:
+            print("queue: " + ", ".join(f"{x['owner']} (pid {x['pid']}, {time.time() - x['ns'] / 1e9:.0f} s)" for x in q))
         return 0
     cmd = tail if tail is not None else extra
     if not cmd:
