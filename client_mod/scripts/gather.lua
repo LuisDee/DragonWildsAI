@@ -180,6 +180,16 @@ function W.stamina(pawn) local v = U.try(function() return pawn.StaminaComponent
 function W.yaw(pawn) local r = U.try(function() return pawn:K2_GetActorRotation() end); return r and r.Yaw or 0 end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
 function W.face(pc, yaw) pcall(function() pc:SetControlRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }) end) end
+-- Aim the camera AT a point (yaw and pitch from the camera, as the mouse aims): the game's interaction detector casts
+-- its ray from the camera, which sits behind and above him (client_bridge aim_at, live-verified on small items).
+function W.aim_cam(pc, pos)
+    local cam = U.try(function() return pc.PlayerCameraManager:GetCameraLocation() end)
+    local ok, cx, cy, cz = pcall(function() return cam.X, cam.Y, cam.Z end)
+    if not (ok and type(cx) == "number" and type(cz) == "number" and pos) then return false end
+    local dx, dy, dz = pos.X - cx, pos.Y - cy, (pos.Z or cz) - cz
+    local yaw, pitch = math.deg(math.atan(dy, dx)), math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy)))
+    return pcall(function() pc:SetControlRotation({ Pitch = pitch, Yaw = yaw, Roll = 0 }) end)
+end
 function W.nudge(pawn, dir, scale) pcall(function() pawn:AddMovementInput(dir, scale, false) end) end
 function W.actions(pawn) return mcall("combat", "actions", pawn) or {} end
 function W.inject(action)
@@ -191,7 +201,7 @@ local json_mod
 function W.emit(ev)
     json_mod = json_mod or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))()
     local okw, walltime = pcall(require, "walltime") -- ms ts + act/ep (telemetry items 2, 5)
-    if okw then walltime.stamp(ev) else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
+    if okw and type(walltime) == "table" and type(walltime.stamp) == "function" then walltime.stamp(ev) else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
     local line = U.try(function() return json_mod.encode(ev) end)
     if not line then return end
     local f = io.open(ROOT .. "/client_io/events/gather.jsonl", "a")
@@ -264,6 +274,7 @@ local function result_of(J, ok, reason, data)
     data.radius_m = J.radius_cm and J.radius_cm / 100 or nil
     data.near = J.anchor and J.anchor.name or nil -- the radius was around this player, not around me
     data.tool = J.tool and J.tool.name or nil
+    if J.sweep and J.sweep.presses > 0 then data.presses, data.presses_on_move = J.sweep.presses, J.sweep.on_move end
     data.phase_log = J.phase_log
     return { ok = ok, reason = reason, data = data }
 end
@@ -334,11 +345,28 @@ local function refresh_count(J, force)
     local have = now_counts[J.item] or 0
     local gained = have - (J.inv0[J.item] or 0)
     if gained ~= J.gained then
+        local sw = J.sweep -- presses this gain answers are no longer pending
+        if sw then for _ = 1, math.max(0, gained - (J.gained or 0)) do table.remove(sw.pending, 1) end end
         J.gained, J.have = gained, have
         J.bad_streak = 0
         pcall(W.emit, { type = "gather_progress", task_id = J.task_id, resource = J.key, item = J.item, have = math.max(gained, 0), want = J.want })
     end
     J.have = have
+end
+
+-- A pickup sweep's presses not yet answered by a gain (the client's inventory lags a press by 0.4-1.2 s live) already
+-- cover what is still wanted: pressing again (sweep or pick) would take one more than asked (rocks leg, 7 of 6). A press
+-- with no gain within sweep_hold_s was a miss and stops counting.
+local function sweep_owed(J)
+    local sw = J.sweep_on and J.sweep
+    if not (sw and J.want) then return false end
+    while sw.pending[1] and J.t - sw.pending[1] > M.cfg.sweep_hold_s do table.remove(sw.pending, 1) end
+    return (J.gained or 0) + #sw.pending >= J.want
+end
+
+-- ...then only recount (5 Hz) until the gains land or the presses expire: no new target, no extra press.
+local function await_owed(J)
+    if J.t - (J.owed_t or -9) >= 0.2 then J.owed_t = J.t; refresh_count(J, true) end
 end
 
 -- ------------------------------------------------------------------ target selection
@@ -466,6 +494,16 @@ local function choose(J, me)
     end
     -- 3. a new root (around the player named in args.near when given: "the stones near me", said by him)
     local roots = roots_near(J, J.anchor and J.anchor.pos or me, J.radius_cm)
+    if J.sweep_on and J.profile.mode == "pickup" then
+        -- pickups: skip the ones just pressed (taken, or the game is still removing them), and walk the nearest few
+        -- as ONE path (the next is its first stop), as a player sweeps a patch instead of zig-zagging nearest-first
+        local sw, keep = J.sweep, {}
+        for _, T in ipairs(roots) do
+            local p = sw and (sw.pressed[T.key] or (T.alias and sw.pressed[T.alias]))
+            if not (p and J.t - p.t < cfg.sweep_hold_s) then keep[#keep + 1] = T end
+        end
+        roots = M.path_order(me, keep, math.min(cfg.path_k, math.max(1, (J.want or 1) - (J.gained or 0))))
+    end
     local too_hard
     for _, T in ipairs(roots) do
         if J.tool and T.tier and T.tier > J.tool.tier then too_hard = too_hard or T
@@ -484,12 +522,13 @@ local function tap(J, action, frames)
     return true
 end
 
-local function start_move(J, goal_cm, tol_m, timeout_s)
+local function start_move(J, goal_cm, tol_m, timeout_s, local_plan)
     J.drove_move = true
     local me = J.me
     local far = me and U.dist2d(me, goal_cm) > 1200
     local r = mcall("move", "go_to", J.log, { goal_cm.X / 100, goal_cm.Y / 100, goal_cm.Z / 100 },
-        { tolerance_m = tol_m, timeout_s = timeout_s or M.cfg.approach_timeout_s, sprint = far, owner_token = J.token })
+        { tolerance_m = tol_m, timeout_s = timeout_s or M.cfg.approach_timeout_s, sprint = far, owner_token = J.token,
+          local_plan = local_plan })
     J.move_started = J.t
     return r and r.ok ~= false
 end
@@ -516,10 +555,23 @@ end
 M._stand_point = stand_point
 
 -- The foliage instance we walked to became an actor (the server's converter / our swing): adopt it.
+-- Pickups: the NEAREST matching actor within pick_adopt_cm. Stones and branches lie 0.5-2 m apart, so "the first one
+-- within 2 m" adopted a neighbour (live 2026-11-01 14:08Z: the press took the real one, the adopted neighbour was then
+-- faced for 8 s and given up).
+M.cfg.pick_adopt_cm = 100
 local function adopt(J, T)
     if T.kind ~= "foliage" then return false end
     local root = J.profile.root
-    for _, a in ipairs(W.actors(root.class)) do
+    local pick = J.profile.mode == "pickup"
+    local best, bd
+    if pick then
+        for _, a in ipairs(W.actors(root.class)) do
+            local p = W.loc(a)
+            local dd = p and U.dist2d(p, T.pos)
+            if dd and dd < M.cfg.pick_adopt_cm and (not bd or dd < bd) and matches(W.class(a), root.match, root.exclude) then best, bd = a, dd end
+        end
+    end
+    for _, a in ipairs(best and { best } or (pick and {} or W.actors(root.class))) do
         local p = W.loc(a)
         if p and U.dist2d(p, T.pos) < M.cfg.adopt_cm and matches(W.class(a), root.match, root.exclude) then
             T.kind, T.actor, T.alias = "actor", a, T.key
@@ -580,13 +632,15 @@ local function on_done(J, T, how)
     c.counts.broken = c.counts.broken + 1
     J.targets = J.targets + 1
     local at = W.loc(T.actor) or T.pos
-    if T.stage == "root" and at then J.sites[#J.sites + 1] = { X = at.X, Y = at.Y, Z = at.Z } end
+    local pickup = J.sweep_on and J.profile.mode == "pickup"
+    -- a picked bush / branch drops nothing to wait for: no site, no drop wait (it cost 1.2 s per item)
+    if T.stage == "root" and at and not pickup then J.sites[#J.sites + 1] = { X = at.X, Y = at.Y, Z = at.Z } end
     say(J.log, string.format("%s %s (%s)", tostring(T.key), how, T.stage))
     if T.stage == "root" and J.profile.settle then
         J.settle_t = J.t
         return set_phase(J, "settle", how)
     end
-    J.wait_until = J.t + M.cfg.drop_wait_s
+    if not pickup then J.wait_until = J.t + M.cfg.drop_wait_s end
     refresh_count(J, true)
     return set_phase(J, "scan", how)
 end
@@ -613,6 +667,7 @@ local function step_scan(J, me)
     refresh_count(J)
     if J.done then return end
     if J.item and (J.gained or 0) >= J.want then return end -- the frame ends it
+    if J.profile.mode == "pickup" and sweep_owed(J) then return await_owed(J) end
     local T, why, hard = choose(J, me)
     if T then
         J.T = T
@@ -649,6 +704,7 @@ local function step_scan(J, me)
         math.floor(J.radius_cm / 100), of))
 end
 
+local approach_failed -- (J, T, st, res): below, shared with step_sweep
 local function step_approach(J, pawn, me)
     local T = J.T
     if adopt(J, T) then end
@@ -680,8 +736,179 @@ local function step_approach(J, pawn, me)
     if res.status == "arrived" or (level and d <= reach + M.cfg.near_enough_cm) then
         return set_phase(J, "aim", string.format("%.2f m", d / 100))
     end
-    -- could not get there: move's own reason, or (a bare timeout, or our own wait ran out) the shared
-    -- approach-progress verdict, which says WHY it was not getting closer (e.g. target_above_jump_height)
+    return approach_failed(J, T, st, res)
+end
+
+-- ------------------------------------------------------------------ sweep (pickup mode): pick up on the move
+-- Luis's recorded run (docs/BASELINES-2026-11-01-luis.md): 85 of his 97 pickup presses were made WHILE MOVING, about
+-- one item a second in a cluster: he runs through the patch and presses E as each item comes under the prompt (the
+-- game's detector offers a ground item 1-2.5 m ahead, recorder press distances). Claude did the opposite: walk to a
+-- stand point, stop, look, press, wait (2.3 s an item, standing, live 2026-11-01 12:50). So pickup mode walks the
+-- cluster as one path (path_order), never stops for a target, presses E whenever the game's own detector highlights a
+-- thing of the wanted kind (the target or any other on the way), goes for the next one the moment the game reads it
+-- taken, and stops to face a target only when it reached one the game never offered on the way (the old pick phase).
+M.cfg.sweep = true
+M.cfg.sweep_press_gap_s = 0.2 -- between two presses (Luis: 0.14-0.6 s apart in a dense patch)
+M.cfg.sweep_repress_s = 1.0   -- the same thing is not pressed again sooner (a just-taken item lingers client-side)
+M.cfg.sweep_hold_s = 2.5      -- a pressed thing is no next target this long (taken: it goes; a miss: it comes back)
+M.cfg.sweep_arrive_m = 0.5    -- walk at the thing itself; reaching it this close without an offer = stop and face
+M.cfg.sweep_direct_m = 10     -- hops shorter than this walk straight (move's local planner stands ~1 s per plan)
+M.cfg.sweep_count_s = 0.4     -- re-count the inventory this soon after a press
+M.cfg.creep_m = 1.3           -- closer than this: face it and creep (movement input at creep_scale), no go_to
+M.cfg.creep_scale = 0.5
+M.cfg.creep_s = 1.5           -- creeping this long without an offer: stop and face it (pick)
+M.cfg.pick_budget_s = 4       -- pick (stopped, facing it) this long without an offer: give it up (was 8 s)
+M.cfg.path_k = 8              -- the nearest this many are ordered as one path
+
+-- Shortest open path from `me` through the first k of pts (each with .pos; fixed start, open end), exact by Held-Karp
+-- dynamic programming over subsets (k <= 8: 2^8 x 8 x 8 steps, well under a millisecond). Nearest-neighbour + 2-opt
+-- was the first try and kept a 2-opt local optimum that zig-zags (near-east, far-east, back past the start to the
+-- west); a small set is solved exactly instead (sources in DISCOVERIES "Pick up on the move"). Returns the k ordered,
+-- then the rest in their given order. Pure.
+function M.path_order(me, pts, k)
+    k = math.min(k or #pts, #pts, 10)
+    if k < 2 then return pts end
+    -- metres on the ground, plus roots_near's penalty for a change of level (a ledge needs a way up); `me` is the
+    -- capsule centre, a target's pos its ground (+90)
+    local function z(a) return a.pos and a.pos.Z and (a.pos.Z + 90) or a.Z end
+    local function d(a, b)
+        local za, zb = z(a), z(b)
+        local dz = (za and zb) and math.abs(za - zb) or 0
+        return U.dist2d(a.pos or a, b.pos or b) + 3 * math.max(0, dz - M.cfg.stand_dz_cm)
+    end
+    local D, D0 = {}, {}
+    for i = 1, k do
+        D0[i], D[i] = d(me, pts[i]), {}
+        for j = 1, k do D[i][j] = d(pts[i], pts[j]) end
+    end
+    local full = (1 << k) - 1
+    local dp, par = {}, {}
+    for m = 1, full do dp[m], par[m] = {}, {} end
+    for i = 1, k do dp[1 << (i - 1)][i] = D0[i] end
+    for m = 1, full do
+        local row = dp[m]
+        for j = 1, k do
+            local c = row[j]
+            if c then
+                for n = 1, k do
+                    local bit = 1 << (n - 1)
+                    if m & bit == 0 then
+                        local m2, c2 = m | bit, c + D[j][n]
+                        local old = dp[m2][n]
+                        if not old or c2 < old then dp[m2][n], par[m2][n] = c2, j end
+                    end
+                end
+            end
+        end
+    end
+    local bj, bc
+    for j = 1, k do local c = dp[full][j]; if c and (not bc or c < bc) then bj, bc = j, c end end
+    local rev, m, j = {}, full, bj
+    while j do
+        rev[#rev + 1] = pts[j]
+        local pj = par[m][j]
+        m, j = m & ~(1 << (j - 1)), pj
+    end
+    local path = {}
+    for i = #rev, 1, -1 do path[#path + 1] = rev[i] end
+    for i = k + 1, #pts do path[#path + 1] = pts[i] end
+    return path
+end
+
+-- Is what the game's detector highlights a thing this job wants? The target itself, a world item / spawner of the
+-- counted item, or (item still unknown) the profile's own class match.
+local function wanted(J, tg)
+    if type(tg) ~= "table" or tg.none or not tg.actor then return false end
+    local T = J.T
+    if T and (tg.actor == T.key or tg.actor == T.alias) then return true end
+    if J.item and tg.item then return tg.item == J.item end
+    local root = J.profile.root
+    return root.match ~= nil and matches(tg.class, root.match, root.exclude)
+end
+M._wanted = wanted
+
+-- Press E on the move when the prompt is on a wanted thing (no stop). -> the detector row pressed, or nil.
+local function sweep_press(J, pawn)
+    local sw, cfg = J.sweep, M.cfg
+    if J.t - (sw.last_t or -9) < cfg.sweep_press_gap_s then return nil end
+    local tg = mcall("inventory", "interact_target", pawn)
+    if not wanted(J, tg) then
+        if type(tg) == "table" and tg.actor and not sw.seen[tg.actor] then
+            sw.seen[tg.actor] = true
+            say(J.log, string.format("prompt on %s %s (%s): not a %s", tostring(tg.class), tostring(tg.actor), tostring(tg.prompt), tostring(J.key)))
+        end
+        return nil
+    end
+    local prev = sw.pressed[tg.actor]
+    if prev and (J.t - prev.t < cfg.sweep_repress_s or prev.n >= cfg.collect_presses) then return nil end
+    if sweep_owed(J) then return nil end
+    sw.pressed[tg.actor] = { t = J.t, n = (prev and prev.n or 0) + 1 }
+    sw.last_t, sw.presses = J.t, sw.presses + 1
+    sw.pending[#sw.pending + 1] = J.t
+    if J.moving then sw.on_move = sw.on_move + 1 end
+    mcall("inventory", "press_interact", J.log)
+    J.count_t = math.min(J.count_t or J.t, J.t - cfg.count_every_s + cfg.sweep_count_s)
+    say(J.log, string.format("press %s (%s)%s", tostring(tg.actor), tostring(tg.prompt), J.moving and " on the move" or ""))
+    return tg
+end
+
+local function step_sweep(J, pawn, me)
+    local T, cfg = J.T, M.cfg
+    adopt(J, T)
+    local done, how = target_done(J, T)
+    if done then return on_done(J, T, how) end
+    local tg = sweep_press(J, pawn)
+    if tg and (tg.actor == T.key or tg.actor == T.alias) then T.press_t, T.presses = J.t, (T.presses or 0) + 1 end
+    if (T.presses or 0) >= cfg.collect_presses and J.t - T.press_t > cfg.sweep_repress_s then
+        mark_bad(J, T, "interact had no effect")
+        J.T = nil
+        refresh_count(J, true)
+        if J.empty_slots == 0 then return fail(J, "inventory_full", "inventory_full", "My bags are full, so I can't pick up any more.") end
+        return set_phase(J, "scan", "interact no effect")
+    end
+    local d = U.dist2d(me, T.pos)
+    local level = not (T.pos.Z and math.abs((T.pos.Z + 90) - me.Z) > cfg.stand_dz_cm)
+    if level and d <= cfg.creep_m * 100 and not (T.press_t and J.t - T.press_t < cfg.sweep_repress_s) then
+        -- close: no go_to (a straight go_to this short stood still ~3.5 s, live 14:08:45Z; move's waypoint radius is
+        -- 1.2 m): face it and creep at it, as a player takes the last step, until the game offers it
+        if J.moving then
+            local ms = move_state()
+            if ms == "moving" then mcall("move", "stop", J.log) end
+            J.moving = false
+        end
+        T.creep_t = T.creep_t or J.t
+        if d <= cfg.sweep_arrive_m * 100 or J.t - T.creep_t > cfg.creep_s then return set_phase(J, "pick", "close, not offered") end
+        local r = math.rad(bearing(me, T.pos))
+        J.nudge, J.nudge_until, J.nudge_scale = { X = math.cos(r), Y = math.sin(r), Z = 0 }, J.t + 0.15, cfg.creep_scale
+        W.aim_cam(J.pc, T.pos)
+        return
+    end
+    if not J.moving then
+        local goal = { X = T.pos.X, Y = T.pos.Y, Z = level and me.Z or (T.pos.Z + 90) }
+        local lp -- a short level hop walks straight (nil = move's default planner); never `x and false or nil` (always nil)
+        if d <= cfg.sweep_direct_m * 100 and level then lp = false end
+        if not start_move(J, goal, cfg.sweep_arrive_m, nil, lp) then
+            mark_bad(J, T, "move refused")
+            J.T = nil
+            return set_phase(J, "scan", "move refused")
+        end
+        J.moving = true
+        return
+    end
+    local ms, st = move_state()
+    if ms == "moving" and J.t - (J.move_started or J.t) <= cfg.approach_timeout_s + 5 then return end
+    J.moving = false
+    local res = st and st.result or {}
+    if res.status == "arrived" or (level and d <= (T.reach_cm or 130) + cfg.near_enough_cm) then
+        if T.press_t and J.t - T.press_t < cfg.sweep_repress_s then return end -- just pressed: let the game take it
+        return set_phase(J, "pick", "reached, not offered on the way")
+    end
+    return approach_failed(J, T, st, res)
+end
+
+-- could not get there: move's own reason, or (a bare timeout, or our own wait ran out) the shared
+-- approach-progress verdict, which says WHY it was not getting closer (e.g. target_above_jump_height)
+approach_failed = function(J, T, st, res)
     local pv = st and type(st.progress) == "table" and st.progress or nil
     local why = res.why or res.reason
     if (why == nil or why == "timeout") and pv and pv.why then why = pv.why end
@@ -897,24 +1124,27 @@ local function step_pick(J, pawn, me)
         refresh_count(J)
         if (J.gained or 0) > (T.g0 or 0) then return on_done(J, T, "picked") end
     end
-    if J.t - J.phase_t > 8 then
+    if J.t - J.phase_t > M.cfg.pick_budget_s then
         mark_bad(J, T, "detector never targeted it")
         J.T = nil
         return set_phase(J, "scan", "not targeted")
     end
     if J.t - (T.press_t or -9) < M.cfg.collect_press_gap_s then return end
+    if sweep_owed(J) then return await_owed(J) end
     local tg = mcall("inventory", "interact_target", pawn)
-    if type(tg) ~= "table" or tg.none then
+    local mine = type(tg) == "table" and not tg.none and ((T.kind == "actor" and tg.actor == T.key)
+        or (T.kind == "foliage" and matches(tg.class, J.profile.root.match))
+        or (J.item and tg.item == J.item))
+    if not mine then
+        -- nothing, or something else holds the prompt: aim the camera at it (pitch too: the detector's ray starts at the
+        -- camera) and lean in; the swept one had a sweep job: aim only once it is within half a metre
         local r = math.rad(bearing(me, T.pos))
-        J.nudge = { X = math.cos(r), Y = math.sin(r), Z = 0 }
-        J.nudge_until = J.t + 0.1
-        W.face(J.pc, math.deg(r))
+        if U.dist2d(me, T.pos) > 45 then
+            J.nudge, J.nudge_until, J.nudge_scale = { X = math.cos(r), Y = math.sin(r), Z = 0 }, J.t + 0.1, nil
+        end
+        if J.sweep_on then W.aim_cam(J.pc, T.pos) else W.face(J.pc, math.deg(r)) end
         return
     end
-    local mine = (T.kind == "actor" and tg.actor == T.key)
-        or (T.kind == "foliage" and matches(tg.class, J.profile.root.match))
-        or (J.item and tg.item == J.item)
-    if not mine then return end
     T.press_t, T.presses = J.t, (T.presses or 0) + 1
     if T.presses > M.cfg.collect_presses then
         mark_bad(J, T, "interact had no effect")
@@ -922,6 +1152,12 @@ local function step_pick(J, pawn, me)
         refresh_count(J, true)
         if J.empty_slots == 0 then return fail(J, "inventory_full", "inventory_full", "My bags are full, so I can't pick up any more.") end
         return set_phase(J, "scan", "interact no effect")
+    end
+    if J.sweep_on and J.sweep then
+        local sw = J.sweep
+        sw.presses, sw.last_t = sw.presses + 1, J.t
+        sw.pending[#sw.pending + 1] = J.t
+        sw.pressed[tg.actor] = { t = J.t, n = ((sw.pressed[tg.actor] or {}).n or 0) + 1 }
     end
     mcall("inventory", "press_interact", J.log)
     J.count_t = nil
@@ -971,7 +1207,7 @@ local function frame(J)
         if inp.frames > 0 then keep[#keep + 1] = inp end
     end
     J.inputs = keep
-    if J.nudge and J.t < (J.nudge_until or 0) then W.nudge(pawn, J.nudge, M.cfg.nudge_scale) end
+    if J.nudge and J.t < (J.nudge_until or 0) then W.nudge(pawn, J.nudge, J.nudge_scale or M.cfg.nudge_scale) end
     if J.t - (J.dec_t or -1) < M.cfg.decide_s then return end
     J.dec_t = J.t
     local arb = mod("arbiter")
@@ -1007,9 +1243,14 @@ local function frame(J)
         if step_equip(J, pawn) then set_phase(J, "scan", "tool ready") end
     elseif ph == "scan" then step_scan(J, me)
     elseif ph == "approach" then
-        if J.profile.mode == "pickup" and J.T and J.T.kind ~= "drop" then
-            local d = U.dist2d(me, J.T.pos)
-            if d <= (J.T.reach_cm or 110) then mcall("move", "stop", J.log); J.moving = false; return set_phase(J, "pick") end
+        if J.sweep_on and J.profile.mode == "pickup" and J.T and J.T.kind ~= "drop" then
+            step_sweep(J, pawn, me)
+            -- taken: on to the next one in the same tick, so the walk never pauses between two
+            if J.phase == "scan" and not J.done then
+                step_scan(J, me)
+                if J.phase == "approach" and J.T and J.T.kind ~= "drop" then step_sweep(J, pawn, me) end
+            end
+            return
         end
         step_approach(J, pawn, me)
         if J.phase == "aim" and J.profile.mode == "pickup" then set_phase(J, "pick") end
@@ -1189,6 +1430,7 @@ function M.start(log, args, ctx)
           max_radius_cm = anchor and math.max(radius_cm(), M.cfg.near_max_radius_m * 100) or nil,
           inv0 = counts_of(list), gained = 0, have = M.count_in(list, profile.item), t0 = t, t = t, phase_t = t,
           inputs = {}, sites = {}, swings = 0, hits = 0, broken = 0, targets = 0, phase_log = {}, bad_streak = 0,
+          sweep = { pressed = {}, pending = {}, seen = {}, presses = 0, on_move = 0 }, sweep_on = M.cfg.sweep and args.sweep ~= false,
           style = (args.style ~= nil and args.style ~= "" and args.style ~= "auto") and tostring(args.style) or nil,
           timeout_s = math.min(M.cfg.timeout_base_s + M.cfg.timeout_per_unit_s * want, M.cfg.timeout_max_s) }
     c.job = J
@@ -1290,7 +1532,8 @@ M.HANDLERS = {
             return { ok = false, reason = "invalid_args", data = { detail = "count must be 1 or more" } }
         end
         local r = M.start(log, { resource = args.resource, count = args.count or 1, radius = args.radius, stumps = args.stumps,
-                                 style = args.style, mode = args.mode, near = args.near }, ctx)
+                                 style = args.style, mode = args.mode, near = args.near,
+                                 sweep = args.sweep }, ctx) -- sweep = false: the stop-and-press pickup (debug A/B only)
         if not r.ok then return r end
         local J = C().job
         local a = { kind = "gather", id = ctx and ctx.id, timeout_s = (J and J.timeout_s or 600) + 15 }

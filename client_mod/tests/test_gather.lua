@@ -145,6 +145,7 @@ local fake_move = {}
 function fake_move.go_to(log, goal, opts)
     Wd.moves = Wd.moves + 1
     MV.mode, MV.goal, MV.tol, MV.t0, MV.result = "go_to", { X = goal[1] * 100, Y = goal[2] * 100, Z = goal[3] * 100 }, (opts.tolerance_m or 1.5) * 100, T, nil
+    MV.straight = (MV.straight or 0) + (opts.local_plan == false and 1 or 0)
     return { ok = true }
 end
 function fake_move.follow() return { ok = true } end
@@ -203,7 +204,7 @@ local function near_interactable()
     local me = Wd.pawn.pos
     for _, w in ipairs(Wd.drops) do if w._alive and d2(me, w.pos) <= 150 then return { actor = w.id, item = w.item, class = "BP_RuntimeSpawnedWorldItem_C", w = w } end end
     for _, a in ipairs(Wd.actors) do
-        if a._alive and a.fams[1] == "BaseInteractableResource" and a.available and d2(me, a.pos) <= 150 then
+        if a._alive and a.fams[1] == "BaseInteractableResource" and a.available and d2(me, a.pos) <= (Wd.offer_m or 1.5) * 100 then
             return { actor = a.id, item = a.item, class = a.cls, a = a }
         end
     end
@@ -214,7 +215,13 @@ function fake_inv.press_interact()
     local t = near_interactable()
     if not t or Wd.full then return { ok = true } end
     if t.w then t.w._alive = false; Wd.inv[t.w.item] = (Wd.inv[t.w.item] or 0) + 1 end
-    if t.a then t.a.available = false; Wd.inv[t.a.item] = (Wd.inv[t.a.item] or 0) + (t.a.yield or 1) end
+    if t.a then
+        t.a.available = false
+        local item, n = t.a.item, t.a.yield or 1
+        local function gain() Wd.inv[item] = (Wd.inv[item] or 0) + n end
+        -- Wd.inv_lag: the client's inventory replicates late (live up to ~1 s after the press, 2026-11-01 rocks leg)
+        if Wd.inv_lag then Wd.pending[#Wd.pending + 1] = { t = T + Wd.inv_lag, fn = gain } else gain() end
+    end
     return { ok = true }
 end
 
@@ -279,7 +286,11 @@ W.nudge = function(pawn, dir, s)
     local e = wrap(want - Wd.pawn.yaw)
     local stepd = math.max(-5.4, math.min(5.4, e))
     Wd.pawn.yaw = Wd.pawn.yaw + stepd
+    if Wd.nudge_moves then -- movement input moves him too (450 cm/s x scale, one 10 ms frame)
+        Wd.pawn.pos.X, Wd.pawn.pos.Y = Wd.pawn.pos.X + dir.X * 4.5 * s, Wd.pawn.pos.Y + dir.Y * 4.5 * s
+    end
 end
+W.aim_cam = function(pc, pos) Wd.aims = (Wd.aims or 0) + 1; return true end
 local last_inj = {}
 W.inject = function(action)
     Wd.injected = Wd.injected + 1
@@ -579,6 +590,64 @@ do
     end
     res = run_job({ resource = "flax", count = 2 }, 120)
     check("pickup flax (item learned)", res.ok == true and res.data.item == "ITEM_Resources_Flax", tostring(res.reason) .. " item=" .. tostring(res.data and res.data.item))
+end
+
+-- ================================================================ 12a. pick up on the move (sweep; Luis's baseline 2026-11-01)
+do
+    -- a patch of 7 branches 2 m apart on a zig-zag: pressed as each comes under the prompt, without stopping
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    local zig = { { 200, 50 }, { 400, -60 }, { 600, 80 }, { 800, -40 }, { 1000, 60 }, { 1200, -70 }, { 1400, 30 } }
+    for i, p in ipairs(zig) do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Sw:" .. i, class = "BP_Spawner_AshBranch_03_C", _pos = { X = p[1], Y = p[2], Z = 0 },
+                                        name = "Ash Logs", kind = "pickup", visible = true, item = "ITEM_Resources_Wood_Ash" }
+    end
+    local stops = 0
+    local real_stop = fake_move.stop
+    fake_move.stop = function(...) stops = stops + 1; return real_stop(...) end
+    local t0 = T
+    MV.straight = 0
+    local res = run_job({ resource = "sticks", count = 6 }, 120)
+    fake_move.stop = real_stop
+    local s = T - t0
+    check("sweep: 6 sticks", res.ok == true and (Wd.inv.ITEM_Resources_Wood_Ash or 0) >= 6, tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Wood_Ash))
+    check("sweep: no more than asked (count lag)", (Wd.inv.ITEM_Resources_Wood_Ash or 0) == 6, Wd.inv.ITEM_Resources_Wood_Ash)
+    check("sweep: every press on the move", res.data and res.data.presses == 6 and res.data.presses_on_move == 6,
+          res.data and (tostring(res.data.presses) .. "/" .. tostring(res.data.presses_on_move)))
+    check("sweep: no stop between items (only the start's and the end's)", stops <= 2, stops)
+    check("sweep: ~walk time, under 1 s an item", s < 6, s)
+    check("sweep: the short hops walk straight (local_plan = false reaches move)", MV.straight >= 5, MV.straight)
+    -- the path: 4 in a row east and 3 back west near the start: one pass, not nearest-first zig-zag
+    local order = G.path_order({ X = 0, Y = 0, Z = 0 }, {
+        { pos = { X = 100, Y = 0, Z = 0 } }, { pos = { X = -150, Y = 0, Z = 0 } }, { pos = { X = 300, Y = 0, Z = 0 } },
+        { pos = { X = 500, Y = 0, Z = 0 } }, { pos = { X = -300, Y = 0, Z = 0 } } }, 8)
+    check("path_order: the short side first, then the long side in one sweep (no zig-zag past the start)",
+          order[1].pos.X < 0 and order[2].pos.X < 0 and order[3].pos.X == 100 and order[5].pos.X == 500,
+          order[1].pos.X .. "," .. order[2].pos.X .. "," .. order[3].pos.X .. "," .. order[4].pos.X .. "," .. order[5].pos.X)
+    -- the detector never offers one on the way (a hitbox under a rock): stop, face it, press (the old pick)
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.foliage[#Wd.foliage + 1] = { id = "fol:Hid:1", class = "BP_Spawner_Stone_C", _pos = { X = 500, Y = 0, Z = 0 }, name = "Stone",
+                                    kind = "pickup", visible = true, item = "ITEM_Resources_Stone" }
+    Wd.offer_m = 0.6 -- the fake detector offers it only within 0.6 m (he creeps at it from 1.3 m)
+    Wd.nudge_moves = true
+    res = run_job({ resource = "stones", count = 1 }, 60)
+    Wd.offer_m = nil
+    check("sweep fallback: reached unoffered -> pick still gets it", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 1, tostring(res.reason))
+    -- the count lags the presses by 1.2 s and one more stone lies on: the last presses being counted cover the ask, so
+    -- neither the sweep nor the stop-and-press fallback takes a 7th (live rocks leg 14:4xZ: 7 of 6)
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 7 do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Lag:" .. i, class = "BP_Spawner_Stone_C", _pos = { X = 150 * i, Y = (i % 2) * 40, Z = 0 },
+                                        name = "Stone", kind = "pickup", visible = true, item = "ITEM_Resources_Stone" }
+    end
+    Wd.inv_lag = 1.2
+    res = run_job({ resource = "stones", count = 6 }, 60)
+    pump(3) -- let every scheduled gain land
+    Wd.inv_lag = nil
+    check("sweep, count lagging 1.2 s: exactly the 6 asked", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 6,
+          tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " presses=" .. tostring(Wd.presses))
 end
 
 -- ================================================================ 12c. sticks on a ledge (live 2026-10-26 16:05)
