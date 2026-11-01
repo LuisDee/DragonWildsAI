@@ -1091,6 +1091,24 @@ local function stat_now(api, stat)
     local s = type(d.survival) == "table" and d.survival[stat]
     return type(s) == "table" and tonumber(s[1]) or nil
 end
+local function stat_max(api, stat)
+    local d = api.me()
+    if not d then return nil end
+    if stat == "health" then return tonumber(d.max_health) end
+    local s = type(d.survival) == "table" and d.survival[stat]
+    return type(s) == "table" and tonumber(s[2]) or nil
+end
+-- live 2026-11-01 13:14: two Forager's Sandwiches eaten at 74.7/75 food, both wasted. Says so; never refuses.
+local function used_data(api, job, now_v, now_n, rose)
+    local d = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat, before = job.before,
+        after = now_v, max = job.max, stat_rose = rose == true, count_left = now_n, fetched = job.fetched == true, risk = job.row.risk }
+    if type(job.before) == "number" and type(job.max) == "number" and job.before >= job.max - 1 then
+        d.wasted = true
+        d.detail = "My " .. tostring(job.stat) .. " was already full (" .. math.floor(job.before + 0.5) .. "/"
+            .. math.floor(job.max + 0.5) .. "), so that " .. tostring(job.row.name) .. " was wasted."
+    end
+    return d
+end
 
 local function count_of(api, item)
     local c = api.counts()
@@ -1130,7 +1148,7 @@ local function start_consume(api, args, ctx)
             if api.now() < job.busy_until then return nil end
             return api.fail("busy", { item = r.item, detail = "I'm still busy using the " .. tostring(busy.item) .. "." })
         end
-        job.before, job.before_n = stat_now(api, job.stat), count_of(api, r.item)
+        job.before, job.before_n, job.max = stat_now(api, job.stat), count_of(api, r.item), stat_max(api, job.stat)
         local ur = api.call("inventory", "use", r.item, { require = r.consumable, hotbar_only = true })
         if not ur.ok then
             local d = copy(ur.data); d.detail = d.detail or ("I tried to use the " .. tostring(r.name) .. " but the game didn't take it.")
@@ -1185,16 +1203,10 @@ local function start_consume(api, args, ctx)
         local rose = now_v and job.before and now_v > job.before + 0.5
         local used = now_n ~= nil and job.before_n ~= nil and now_n < job.before_n
         if rose or (used and t >= job.until_t - M.cfg.consume_verify_s / 2) then
-            return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
-                before = job.before, after = now_v, stat_rose = rose == true, count_left = now_n, fetched = job.fetched == true,
-                risk = job.row.risk } }
+            return { ok = true, data = used_data(api, job, now_v, now_n, rose) }
         end
         if t >= job.until_t then
-            if used then
-                return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
-                    before = job.before, after = now_v, stat_rose = false, count_left = now_n, fetched = job.fetched == true,
-                    risk = job.row.risk } }
-            end
+            if used then return { ok = true, data = used_data(api, job, now_v, now_n, false) } end
             local known_stat = type(now_v) == "number" and type(job.before) == "number"
             return api.fail("verification_failed", { item = job.row.item, stat = job.stat, before = job.before, after = now_v,
                 detail = known_stat and ("I tried to use the " .. tostring(job.row.name) .. " but my " .. tostring(job.stat) .. " didn't go up.")
@@ -1298,6 +1310,19 @@ local function start_recover_grave(api, args, ctx)
     local rows = {}
     for _, t in ipairs(things) do if is_grave(t) then rows[#rows + 1] = t end end
     local mine, others = grave_of(api, rows)
+    -- the NEWEST death's grave first (live 2026-11-01 13:06: with the newest grave 212 m off he looted a week-old
+    -- grave 79 m away, the nearest one in sight, and starved on the way back): among his own graves in sight, the
+    -- one bound to the newest unrecovered death (grave_id, else within GRAVE_MATCH_M of where he died)
+    local newest = M.death_memory()
+    if mine and newest then
+        for _, r in ipairs(rows) do
+            local same = (newest.grave_id and r.id == newest.grave_id)
+                or (type(newest.position) == "table" and type(r.position) == "table" and dist2d(r.position, newest.position) <= M.GRAVE_MATCH_M)
+            if same and W.grave_owner(api, r) == true then mine = r; mine.owner_check = "verified"; break end
+        end
+    end
+    local is_newest = newest and mine and ((newest.grave_id and mine.id == newest.grave_id)
+        or (type(newest.position) == "table" and type(mine.position) == "table" and dist2d(mine.position, newest.position) <= M.GRAVE_MATCH_M)) or false
     if not mine then
         if #rows == 0 then
             return api.fail("nothing_in_range", { radius_m = M.cfg.grave_radius_m,
@@ -1333,6 +1358,10 @@ local function start_recover_grave(api, args, ctx)
         if not r.ok then return r end
         local d = r.data
         d.grave, d.items = mine.id, d.gained
+        d.newest = is_newest == true
+        if newest and not is_newest then -- truthful: this was an older grave; the newest one is still out there
+            d.newest_grave = { iso = newest.iso, position = newest.position, go_to = "my_grave:" .. tostring(newest.ts) }
+        end
         M.death_recovered("recover_grave", mine.position, mine.id)
         local n = 0
         for _, v in pairs(d.gained or {}) do n = n + v end
@@ -1631,11 +1660,15 @@ function M.state_extras(api, data)
         if mins >= 0.5 then
             -- only the falling part counts (eating makes it jump up): the drain = the steepest fall rate
             local sus_rate, hyd_rate
+            -- a fall across a death is not drain (HydrationRemovedOnDeath 10, respawn vitals vary: DISCOVERIES
+            -- 2382); it read 41-55/min at 11:19:45 and told the brain "empty in ~1 min" at 42% food
+            local life = rawget(_G, "DW_LIFE")
+            local cut = type(life) == "table" and math.max(num(life.died_at) or 0, num(life.respawned_at) or 0) or 0
             local function rate(key)
                 local best
                 for i = 2, #mem.vit do
                     local p, q = mem.vit[i - 1], mem.vit[i]
-                    if p[key] and q[key] and q[key] < p[key] and q.t > p.t then
+                    if p[key] and q[key] and q[key] < p[key] and q.t > p.t and p.t >= cut then
                         local r = (p[key] - q[key]) / ((q.t - p.t) / 60)
                         best = best and math.max(best, r) or r
                     end

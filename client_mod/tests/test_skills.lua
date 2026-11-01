@@ -346,6 +346,17 @@ test("consume from the hotbar: verified by the stat rising", function()
     assert(r and r.ok and r.data.item == "ITEM_Consumable_Water_Clean" and r.data.count_left == 0, json.encode(r))
 end)
 
+test("consume at a full stat still eats (the model's call) and says it was wasted (live 2026-11-01 13:14)", function()
+    reset()
+    F.survival.sustenance = { 74.7, 75 }
+    F.cons = { { name = "Forager's Sandwich", item = "ITEM_Consumable_Sandwich", count = 2, consumable = "food", where = "hotbar",
+                 stat = "sustenance", amount = 58 } }
+    local r0, id = rpc("consume", { item = "food" })
+    local r = r0 or run(id, 10)
+    assert(r and r.ok and r.data.wasted == true and r.data.max == 75 and r.data.count_left == 1
+           and r.data.detail:find("already full %(75/75%)", 1, false), json.encode(r))
+end)
+
 test("consume: crash-safety mechanism (BUGS L38): a crash-risk item is refused with the truthful reason, nothing used", function()
     reset()
     local inv = mods()
@@ -1080,6 +1091,17 @@ test("vitals drain rate from samples (for 'empty in ~N min')", function()
     local s = rpc("get_state")
     assert(s.data.vitals_rate and s.data.vitals_rate.sustenance_per_min == 2 and s.data.vitals_rate.hydration_per_min == 3,
            json.encode(s.data.vitals_rate))
+    -- a death and respawn in between: that fall is not drain (11:19:45 read 41/min at 42% food)
+    T = T + 30
+    _G.DW_LIFE = { died_at = T - 5, respawned_at = T }
+    F.survival.sustenance[1], F.survival.hydration[1] = 8, 17
+    rpc("get_state")
+    T = T + 60
+    F.survival.sustenance[1], F.survival.hydration[1] = 5, 15
+    s = rpc("get_state")
+    _G.DW_LIFE = nil
+    assert(s.data.vitals_rate.sustenance_per_min == 3 and s.data.vitals_rate.hydration_per_min == 2,
+           json.encode(s.data.vitals_rate))
 end)
 
 test("activity: XP/min per skill and item gains/min over the window, with the best seen", function()
@@ -1213,6 +1235,26 @@ test("BUGS L22: every unrecovered grave is kept (newest is not the only one); re
     s = rpc("get_state")
     g = s.data.graves_remembered
     assert(g and #g == 1 and g[1].position[1] == 80, "the other grave stays remembered: " .. json.encode(g))
+end)
+
+test("recover_grave: the newest death's grave beats a nearer older one of his (live 2026-11-01 13:06)", function()
+    reset()
+    local sk = B.module("skills")
+    sk.W.grave_owner = function() return true end
+    local g1 = F.world.interactables[2]
+    local newer = {}
+    for k, v in pairs(g1) do newer[k] = v end
+    newer.id, newer.position = "grave_new", { 1, 58, 3 }
+    table.insert(F.world.interactables, newer)
+    F.move.position = { 1, 58, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step() -- died at (1,58); grave_1 at (1,30) is an older grave of his
+    F.move.position = { 1, 29, 3 } -- standing by the OLD one, the newest 29 m off
+    local _, id = rpc("recover_grave")
+    local r = run(id, 40)
+    assert(r and (r.data.grave == "grave_new" or r.data.target == "grave_new"), json.encode(r))
+    if r.ok then assert(r.data.newest == true and r.data.newest_grave == nil, json.encode(r.data)) end
 end)
 
 test("emptying a grave that matches no remembered death leaves the newest death remembered (live 2026-11-01 11:22)", function()

@@ -869,8 +869,11 @@ _G.DWVitals = V
 local json_mod
 local function emit(ev)
     json_mod = json_mod or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))()
-    ev.ts = os.time()
-    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local okw, walltime = pcall(require, "walltime") -- ms ts + act/ep (telemetry items 2, 5)
+    -- (a client whose require cache holds an older walltime without stamp: fall back, never lose the row; live
+    -- 13:33-13:4x 2026-11-01 the vitals watcher died on "attempt to call a nil value (field 'stamp')")
+    if okw and type(walltime) == "table" and type(walltime.stamp) == "function" then walltime.stamp(ev)
+    else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
     local line = U.try(function() return json_mod.encode(ev) end)
     if not line then return end
     local f = io.open(M.VITALS_PATH, "a")
@@ -913,7 +916,17 @@ local function read_damage(e)
     local cls = num(U.try(function() return e.DamageClass end))
     d.class = cls and DAMAGE_CLASS[cls] or nil
     local src = U.try(function() return e.Source end)
-    if U.valid(src) then d.source = { id = U.short(src), class = U.class_word(src) } end
+    if U.valid(src) then
+        d.source = { id = U.short(src), class = U.class_word(src) }
+        -- an environment emitter COMPONENT (PoisonEmitterBox killed him twice on 2026-11-01): which actor, and where
+        if tostring(d.source.class or ""):find("Emitter", 1, true) then
+            local o = U.try(function() return src:GetOwner() end)
+            if U.valid(o) then d.source.owner, d.source.owner_class = U.short(o), U.class_word(o) end
+            local l = U.try(function() return src:K2_GetComponentLocation() end)
+            local x, y, z = l and num(U.try(function() return l.X end)), l and num(U.try(function() return l.Y end)), l and num(U.try(function() return l.Z end))
+            if x and y and z then d.source.at = { r1(x / 100), r1(y / 100), r1(z / 100) } end
+        end
+    end
     local types, status = {}, {}
     pcall(function()
         e.TypeDamagesArray.TypeDamages:ForEach(function(_, t)

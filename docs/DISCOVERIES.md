@@ -2350,3 +2350,82 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - 12:57Z: a commanded attack on a Kebbit 59 m away, after the navmem fix: `approach` 13:57:05.33 -> `move: memory: remembered route, 28 pts` 13:57:06.13 (0.8 s incl. the plan; was 9.8 s). He sprinted the route and killed it. No lease_expired.
   - 12:52Z, bare-handed after a 12:46 death (dehydration + poison from dirty water, not combat): a dodge-only fight became a loop. Each dodge carried him 2.5-3.3 m out of reach, and move.follow's stuck detector + local planner stood ~2 s per gap (`stuck n=1 ... local plan #1`), so the next swing came first (out_of_reach 36.7 s, 7 presses in a minute). Losing fast -> flee -> leash at 25 m -> cornered -> fought -> died at 12:53:56.
   - Now a gap of at most 5 m on his level is closed with the movement input in combat.lua (`step_in`), and the follow is kept for longer gaps and ledges.
+
+## Survival mechanics, verified live (2026-11-01 13:00-13:40Z; build 26161880, client 26162923, dev world, ClaudeDev; survival agent)
+- **Hunger and thirst alone don't kill; they leave him at about 1 HP.**
+  - Starvation: at sustenance 0 he took 1 HP/s (status `starvation`) from 100 down to exactly 1.0. HP then stayed at 1.0 for 60 s (13:07:44-13:08:45) until he ate.
+  - Dehydration: at hydration 0 he took 1 HP/s (status `dehydration`) down to 0.5, and stayed there (13:36:10-13:38:11+).
+  - At that HP any hit kills him. This explains the co-play start at 0.5/100 HP (B12).
+- **Environmental poison killed him twice** (`PoisonEmitterBox`, a Dominion `UPoisonEmitterBox` component, a `UTrackedStatusEmitterBox`). It deals 4 HP/s, status `poison` (EStatusEffectType 1).
+  - 13:26:28-13:26:53 at [445.1, 1813.0, -30.5]: 100 to 0 in 25 s while another agent walked him. The damage row's `source` was `PoisonEmitterBox`.
+  - 12:45:50-12:46:20 at [566.5, 1884.7, -47.5]: the same 4/s poison. He had been stuck there 12 s ("Moved 0 m"), and no source was logged then.
+  - This is not Soulscourge. Dirty Water's build-up is the toxicity component (status `toxicity`, type 7). So the earlier "12:46 died of dehydration + poison from dirty water" is wrong about the cause.
+  - `FindAllOf("PoisonEmitterBox")` found none from the respawn point (streamed out 350 m away), so the emitters' owners are still unknown. `client_mod/commands/poison_emitters_probe.lua` lists them when near. Damage rows now carry `source.owner`, `owner_class` and `at` for emitters (sense.lua).
+- **Rest = the endurance component** (`BP_EnduranceComponent`). Live read with `client_mod/commands/survival_probe.lua`:
+  - `EnduranceEffectLevels` are 0/25/50/75/100.
+  - `EnduranceRemovedOnDeath` is 15, and `EnduranceRemovedFromSpellCast` is 0.15 per cast.
+  - At endurance 14.8 his `StaminaComponent` max was 60, and his hydration and sustenance maxes were 75. This is the wiki's "Knackered" step (dragonwilds.runescape.wiki/w/Rest: max stamina 80 under 50, 60 under 25, 40 at 0; food and water capped at 75 under 25; a day nap +1/s; night sleep refills it and clears poison and Soulscourge).
+  - A death at endurance 12.6 respawned him at 25.0 (13:26:53 to 13:27:00). The death penalty can't take him under 25, and here it raised him to 25.
+- **Toxicity (the Soulscourge bar):** `pawn.BP_Components_Toxicity.CurrentToxicity` is readable (it read 0 at 13:2x after 3 Dirty Waters at 13:03). Its `ToxicityEffectLevels` is a single level at 100. The wiki gives 10 damage/s for 5 s when the bar fills.
+- **Measured values:**
+  - Collecting Dirty Water: `collect_water` 3 took 20 s, and 6 took about 30 s.
+  - Boiling: one Campfire run turned 6 Dirty Water + 1 Ash Log into 6 Clean Water in 33 s (13:10:03-13:10:36), so it is 1:1 here.
+  - Clean Water: +25 hydration (36.6 to 61.6).
+  - Pumpkin Spice Infusion: +74.6 (0 to 74.6).
+  - Forager's Sandwich: +57.9 (16.9 to 74.7).
+  - Redberries: +4.8 each.
+  - An empty-looking Redberry Bush (`fol:` id) gave 3 Redberries on interact.
+  - `consume` eats even at full sustenance (74.7/75: 2 sandwiches wasted).
+- **Spells for food:**
+  - Bark to Bones on an Ash Tree worked (5 Animal Bones, 10 Earth + 10 Nature).
+  - Bones to Peaches failed 5 of 5 tries: 4 times "RequiresBone", with the placement preview landing 1-3 m short of the bones on the ground, including bones dropped at his feet; once it ended `still_preparing` with no runes spent. **Open:** its aim can't reach a ground bone yet.
+- **Respawn vitals vary:** hydration 41.3/75 and sustenance 25.0/75 at 12:46:27; 26.1 and 61.9 at 13:27:00. He respawns with nothing to eat or drink, so the first minutes after a death are a survival task.
+- **Drain at rest under 25, standing still:** hydration 2.8/min, sustenance 4.2/min (13:31:41-13:33:11). Earlier, at rest above 25: sustenance 2.08/min.
+- **Grave recovery, timed:** the brain's own path is `go_to my_grave` (the newest unrecovered death), then `look`, then `interact` (Take All).
+  - The newest grave (12:53Z) took 70 s from the order to Take All (13:11:16.8 to 13:12:26.5; 218 m at 4.1 m/s).
+  - The gear grave (12:46Z) took 72 s to Take All and 90 s to the Bronze Sword back in his hand (13:12:38.6 to 13:14:08.8; 259 m at 5.2 m/s).
+  - The newest death was correctly next each time: commit b70292f holds.
+  - The `recover_grave` compound (a debug tool, not offered to the model) instead looted the NEAREST own grave in sight, a week-old one 79 m away (bones, essence, a stone axe). He was starving to 1 HP on the way. It now prefers the newest death's grave and says when it took an older one (skills.lua).
+- **Hot-reload hazard (13:24-13:36Z):** `walltime.lua` gained `stamp()`, but the running client's `require` cache still held the old module. Every `walltime.stamp(ev)` raised "attempt to call a nil value (field 'stamp')". That killed the vitals watcher (no rows from 13:33:11) and aborted every fed-reflex tick, so he could not drink.
+  - Fixed with a guarded call in sense.lua and inventory.lua, plus `package.loaded.walltime = nil; require` in the live client.
+  - gather.lua, chat.lua, combat.lua and spells.lua have the same unguarded call, but they are fine now that the cache is reloaded.
+
+## Movement ladder: following a moving human, encumbrance, sprint drops (2026-11-01 13:20-14:53Z; game build 26161880, client 26162923, dev world, ClaudeDev; movement agent; tools/travel_ladder.py --follow)
+- **Encumbrance (read-only, live):**
+  - `pawn.PlayerEncumbranceComponent` exposes `IsEncumbered()`, `GetCurrentCarryWeight()` and `GetMaxCarryWeight()`. Measured at 13:2x: true, 446.5 / 300 (he carried 59 Ash Logs and more).
+  - Effects observed live: about 0.6x walk (2.7 m/s), sprint and jumps fail. `CharacterMovement.MaxWalkSpeed` still reads 450, so speed alone does not show it.
+  - Probe: `client_mod/commands/encumbrance_probe.lua`.
+- **Claude's envelope this session:** double jump unlocked and measured (`env.double_jump` true, dj_delay 0.4 s), single-jump reach 164 cm, apex 180 cm, step 45.
+- **Why the follow fell behind (ghost of Luis's 13:01:23-13:02:12 run, 182 m in 53 s):**
+  - (1) Past 10 m the old code required an oracle route. Each 3 m the leader moved dropped the pending request, so Claude stood "planning" while the gap grew from 9 to 21 m.
+  - (2) Sprint switched on only beyond 10 m: 4.5 m/s behind a 6.8 m/s sprint.
+  - (3) Luis hops onto and along crates and wall tops 2.3-2.8 m up. His recorded track shows 0.2 s ground touches between air runs. Walking that trail exactly wedged Claude under the crumbs.
+  - (4) **A jump ends the sprint.** IsSprinting reads false from take-off: 8 of 10 drops at 14:52 had jump=true, and most were airborne.
+- **Human bar for following:** a perfect human follower (his path, 3 m behind, 0.5 s reaction, his speed) scores only 60-86% within 6 m on these tracks. At equal speed the gap peaks at 6.4 m right after each of his starts. A 90% bar is therefore stricter than a human on sprint-start-heavy tracks.
+- **Sources (search-before-building):**
+  - mineflayer-pathfinder GoalFollow re-paths to a moving entity (dynamic goal; thinkTimeout 5 s, tickTimeout 40 ms). This is exactly what stood still here, because each re-path waited for a slow planner.
+  - The breadcrumb-follow companion pattern (Unity "Breadcrumb AI" asset; bugnet.io companion-stuck guide).
+  - Detour `dtPathCorridor::optimizePathVisibility` (string-pulling shortcut; recastnav.com, dev.epicgames.com).
+  - Decision: **adapt**. Breadcrumbs lead while the leader is in sight; the trail is re-entered by the shortest way to him; segments he took over obstacles above Claude's reach are skipped. The full visibility shortcut is not built (crumbs at 0.5 m with a 1.2 m advance radius already track his path).
+
+## Survival, second live window (2026-11-01 13:53-14:04Z; build 26161880, client 26162923, dev world, ClaudeDev; survival agent)
+- **The floor reflex works live.** He started at 0.5 HP, water 0/75 and food 0/75, carrying nothing.
+  - `collect_water` 6 (13:53:50-13:54:15) put Dirty Water in his bag. At 13:54:14 the reflex drank one by itself ("water 0/75 is under the 10% safety floor and Dirty Water is all I have (+20 Soulscourge, toxicity 0/100)"), +9.8. Above the floor it held the rest back ("kept for the safety floor").
+  - `craft Clean Water` x5 with Ash Logs at a Campfire made 4 (one Dirty Water was already drunk).
+  - Under the floor, the reflex left the open Processing screen (`floor_leave`) to drink Clean Water: 8.2 to 32.8, then 29.7 to 54.4 (40% policy).
+  - The bag-to-hotbar fetch under the floor is not verified live yet: every drink was already on the hotbar. It passes the Lua tests only.
+- **The 13:26 grave was recovered in 40 s.** `go_to my_grave` took him to the newest grave (BP_PlayerGravestone_C_2147228791, at the poison death site): 49 m in 21 s (14:00:30.3-14:00:51.7). Take All finished at 14:01:10.1.
+  - The reflex ate a Forager's Sandwich 1 s later (food 0 to 74.9). HP climbed +1.5/s from 0.5 to 100 (the sandwich's healing over time).
+  - Bronze Sword equipped at 14:01:21.8: 51.5 s from the order to gear on.
+  - A Goblin Runt attacked at 14:01:34 (one hit, 18 damage). The combat guard killed it in about 3 s.
+  - At 0.5 HP that hit would have killed him, so a starving or dehydrated Claude near a camp is one hit from death.
+- **No PoisonEmitterBox was loaded** 49 m from the 13:26 poison death site, nor near the 12:45 site. `FindAllOf("TrackedStatusEmitterBox")` (subclasses included) found 35 emitters: BurningEmitterBox on campfires, SlowEmitterBox on water volumes, and BP_QuickSandVolume boxes.
+  - So the poison was transient, not a fixed zone. Both poison deaths were near an enemy camp: [445,1813] is 32 m from a BP_Enemy_Campfire_InGameTime at [414.6,1802.1], and [566,1884] is 20 m from one at [578.0,1868.2].
+  - **[UNVERIFIED]** It looks like an enemy's poison attack or cloud (goblin camps). A damage row's `source.owner` will name it next time.
+- **Sleep in his own Summon Shelter refilled rest at once.**
+  - The cast's first try was refused ("ground not flat enough"); the second found a spot itself (10 Astral + 10 Earth, 8.9 s).
+  - `interact` on BP_Magic_SummonShelter_C (prompt "Sleep") at 14:02:36.6 put him in `DIM_Resting`. By 14:02:41: endurance 11.8 to 100, maxes 75 to 100, HP 100.
+  - The sleep cost 15.8 water (43.2 to 27.4) and 11.9 food (70.8 to 58.9): the cost of the skipped hours.
+  - This was a full sleep, not a +1/s nap, even though `needs` had said "sleep timeframe closed" at 13:56, so check the time of day before saying which rest applies.
+  - After waking, rest drained about 0.6/min while standing.
+- `tools/preflight.py` read READY at 14:03:58: health 100%, water 52%, food 59%, rest 99%, food 12 / drink 20 carried, Bronze Sword, Adventurer's Tunic and legs.

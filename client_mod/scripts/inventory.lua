@@ -696,7 +696,10 @@ end
 -- busy: mid-gather 07:48 UTC, hydration fell 29.8 -> 29.5) used to mark Clean Water bad for good, and he
 -- dehydrated to 0 with water on his hotbar. A success clears the count; the per-kind cooldown spaces retries.
 M.REFLEX_CFG = { period_ms = 2000, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false, bad_after = 3,
-                 floor_leaves = 6 }
+                 floor_leaves = 6, fetch_cooldown_s = 4 }
+-- Soulscourge (wiki, dragonwilds.runescape.wiki/w/Soulscourge): when the toxicity bar fills it deals 10 damage/s
+-- for 5 s. The bar's size is the game's own ToxicityEffectLevels (live read 2026-11-01: one level at 100).
+M.SOULSCOURGE_DAMAGE = 50
 
 local R = _G.DWFedReflex or {}
 _G.DWFedReflex = R
@@ -760,10 +763,15 @@ end
 M.best_consumable = best
 
 local json_mod
+local okw, walltime = pcall(require, "walltime") -- ms epoch ts (mod/scripts/walltime.lua, telemetry item 5)
 local function reflex_emit(ev)
     json_mod = json_mod or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))()
-    ev.type, ev.ts = "reflex", os.time()
-    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    ev.type = "reflex"
+    -- an older walltime in the client's require cache has no stamp (live 2026-11-01 13:3x: this error aborted every
+    -- reflex tick, so he could not drink): fall back, never lose the row or the tick
+    if okw and type(walltime) == "table" and type(walltime.stamp) == "function" then walltime.stamp(ev)
+    else ev.ts = (okw and type(walltime) == "table" and type(walltime.now) == "function") and walltime.now() or os.time()
+        ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(ev.ts)) end
     local line = U.try(function() return json_mod.encode(ev) end)
     local f = line and io.open(ROOT .. "/client_io/events/vitals.jsonl", "a")
     if f then f:write(line, "\n"); f:close() end
@@ -794,6 +802,67 @@ M._input_owner = function(kind)
     local ok, o = pcall(INPUT_MOD.owner, kind)
     return ok and type(o) == "table" and o.owner or nil
 end
+
+-- His toxicity (the Soulscourge build-up bar): pawn.BP_Components_Toxicity.CurrentToxicity, and the bar's size
+-- = the lowest ToxicityEffectLevels value (live read 2026-11-01 client_mod/commands/survival_probe.lua: current 0,
+-- levels [100]). -> {current, max} | nil (unreadable)
+function M.toxicity(p)
+    p = p or M.pawn()
+    local c = p and U.try(function() return p.BP_Components_Toxicity end)
+    if not U.valid(c) then return nil end
+    local cur = num(U.try(function() return c.CurrentToxicity end))
+    if not cur then return nil end
+    if not R.tox_max then
+        pcall(function() c.ToxicityEffectLevels:ForEach(function(_, e)
+            local v = num(U.try(function() return e:get().Value end))
+            if v and v > 0 and (not R.tox_max or v < R.tox_max) then R.tox_max = v end
+        end) end)
+    end
+    return { current = cur, max = R.tox_max or 100 }
+end
+
+-- Drag one listed row to the first free slot of a page ("hotbar" | "bag"), the inventory UI's own drag
+-- (InventoryUIAPI:HandleInternalDragAndDrop, as M.move; the row itself, so a second copy elsewhere is not picked).
+local function drag_row(log, d, to)
+    local page = M.MOVE_PAGES[to]
+    local slot = page and M.free_slot(page)
+    if not slot then return { ok = false, reason = "inventory_full" } end
+    local api = M.ui_api()
+    if not api then return { ok = false, reason = "no InventoryUIAPI" } end
+    say(log, string.format("reflex drag %s (%s %d) -> %s %d", tostring(d.item), tostring(d.slot_type), d.slot, page, slot))
+    local ok, err = pcall(function() api:HandleInternalDragAndDrop(d.slot, SLOT_TYPE[d.slot_type], slot, SLOT_TYPE[page]) end)
+    return { ok = ok, reason = (not ok) and tostring(err) or nil, to_slot = slot }
+end
+
+-- Below the safety floor with the drink/food only in the bag (live 2026-11-01 12:26-12:42: 13 Pumpkin Spice Infusions
+-- in his bag while the reflex drank 4 Dirty Waters off the hotbar, then hydration 19 -> 0 and 56 HP lost to thirst,
+-- "drink only in the bag" once a minute, no brain running): move it to the hotbar as a player drags it; the next
+-- tick drinks it. A full hotbar first gives one slot that holds no food/drink and is not in his hands to the bag.
+-- -> {ok, moved = item} | {ok, made_room = name} (the item follows on the next tick) | {ok = false, reason}
+local function fetch_to_hotbar(log, l, d)
+    local r = drag_row(log, d, "hotbar")
+    if r.ok then return { ok = true, moved = d.item } end
+    if r.reason ~= "inventory_full" then return r end
+    local held = type(l.held) == "table" and l.held or {}
+    R.swap_failed = R.swap_failed or {}
+    local prev = R.made_room -- the last slot we emptied is still full with the same item: that drag did nothing
+    for _, h in ipairs(prev and l.hotbar or {}) do
+        if (h.raw or h.slot) == prev.key and h.item == prev.item then R.swap_failed[prev.key] = true end
+    end
+    R.made_room = nil
+    local out
+    for i = #(l.hotbar or {}), 1, -1 do
+        local h = l.hotbar[i]
+        if not h.consumable and h.item ~= held.right_item and h.item ~= held.left_item and not R.swap_failed[h.raw or h.slot] then
+            out = h; break
+        end
+    end
+    if not out then return { ok = false, reason = "my hotbar is all food, drink or what I'm holding" } end
+    local r2 = drag_row(log, out, "bag")
+    if not r2.ok then R.swap_failed[out.raw or out.slot] = true else R.made_room = { key = out.raw or out.slot, item = out.item } end
+    return { ok = r2.ok, made_room = out.name or out.item, reason = r2.reason }
+end
+M._fetch_to_hotbar = fetch_to_hotbar
 
 -- One use outcome for an item: a failure is a strike, `bad_after` strikes in a row mark it bad (no more presses
 -- until the reflex restarts); a success clears its strikes.
@@ -927,22 +996,68 @@ function R.tick(log)
     if not (thirsty or hungry) then return end -- (after the verify: a successful use ends the need)
     if not pend then
         local l = carried or M.list(log)
+        -- the floor is per stat (it used to be either: a sustenance under the floor let him drink Dirty Water at 39 % water)
+        local at_floor = { drink = hyd and hyd < hyd_max * floor / 100, food = sus and sus < sus_max * floor / 100 }
+        local maxes, pcts = { drink = hyd_max, food = sus_max }, { drink = pol.drink_below_pct, food = pol.eat_below_pct }
+        local words = { drink = "water", food = "food" }
+        local function sc(x) return x and (tonumber(x.soulscourge) or 0) or nil end
         for _, need in ipairs({ { thirsty, "drink", hyd }, { hungry, "food", sus } }) do
-            if not R.pending and need[1] and (not R.last[need[2]] or t - R.last[need[2]] >= cfg.cooldown_s) then
+            local kind = need[2]
+            if not R.pending and need[1] and (not R.last[kind] or t - R.last[kind] >= cfg.cooldown_s) then
+                local why -- the reason this use was chosen, for the brain (activity reflex_use.reason)
+                local stat_s = string.format("%s %.0f/%.0f", words[kind], need[3] or 0, maxes[kind] or 0)
                 -- Hotbar only by default: the client hung right after a bag "use"
                 -- (InventoryUIAPI:HandleInternalUseItem, 18:27:40 UTC), so that path is suspect.
-                local d = best(l, need[2], R.bad, cfg.allow_bag and { "hotbar", "bag" } or { "hotbar" })
-                if not d and best(l, need[2], R.bad, { "bag" }) then
+                local d = best(l, kind, R.bad, cfg.allow_bag and { "hotbar", "bag" } or { "hotbar" })
+                local in_bag = not cfg.allow_bag and best(l, kind, R.bad, { "bag" }) or nil
+                if at_floor[kind] and in_bag and (not d or sc(in_bag) < sc(d)) then
+                    -- under the floor: what is in the bag beats nothing, and a cleaner one beats Dirty Water (a player
+                    -- opens his bag); drag it to the hotbar now, drink it next tick
+                    if not R.last["fetch_" .. kind] or t - R.last["fetch_" .. kind] >= (cfg.fetch_cooldown_s or 4) then
+                        R.last["fetch_" .. kind] = t
+                        local r = fetch_to_hotbar(log, l, in_bag)
+                        reflex_emit({ action = "fetch", kind = kind, item = in_bag.item, name = in_bag.name, stat = need[3], max = maxes[kind],
+                                      ok = r.ok, made_room = r.made_room, floor = true,
+                                      reason = r.ok and string.format("%s is under the %d%% safety floor and my %s is in my bag%s: %s",
+                                          stat_s, floor, tostring(in_bag.name), d and (" (only " .. tostring(d.name) .. " on my hotbar)") or "",
+                                          r.made_room and ("making room on my hotbar (moved " .. tostring(r.made_room) .. " to my bag)")
+                                              or "moving it to my hotbar")
+                                          or ("I couldn't get my " .. tostring(in_bag.name) .. " out of my bag: " .. tostring(r.reason)) })
+                    end
+                    d = nil
+                elseif not d and in_bag then
                     R.warned = R.warned or {}
-                    if not R.warned[need[2]] or t - R.warned[need[2]] >= 60 then
-                        R.warned[need[2]] = t
-                        reflex_emit({ action = "no_hotbar_" .. need[2], kind = need[2], stat = need[3],
-                                      reason = need[2] .. " only in the bag; move it to the hotbar" })
+                    if not R.warned[kind] or t - R.warned[kind] >= 60 then
+                        R.warned[kind] = t
+                        reflex_emit({ action = "no_hotbar_" .. kind, kind = kind, stat = need[3],
+                                      reason = kind .. " only in the bag; move it to the hotbar (I do it myself under the "
+                                          .. floor .. "% floor)" })
                     end
                 end
-                -- Soulscourge (Dirty Water +20, damage over time at 100): only below the safety floor; above it the
-                -- brain is told to purify / fetch a clean one (Luis/main 2026-10-26: clean first, dirty only to survive)
-                if d and (tonumber(d.soulscourge) or 0) > 0 and not R.floor_hit then
+                -- Soulscourge (Dirty Water +20; a full toxicity bar deals 50 damage): only below the safety floor; above it
+                -- the brain is told to purify / fetch a clean one (Luis/main 2026-10-26: clean first, dirty only to survive).
+                -- Under the floor it is drunk unless that very drink fills the bar while the 50 damage would kill him.
+                if d and sc(d) > 0 and at_floor[kind] then
+                    local tox = M.toxicity(p)
+                    local fills = tox and tox.current + sc(d) >= tox.max
+                    if fills and type(hp) == "number" and hp <= M.SOULSCOURGE_DAMAGE + 5 then
+                        R.warned = R.warned or {}
+                        if not R.warned.toxic or t - R.warned.toxic >= 60 then
+                            R.warned.toxic = t
+                            reflex_emit({ action = "held_back_toxic", kind = kind, item = d.item, name = d.name, stat = need[3], hp = hp,
+                                          toxicity = tox.current, toxicity_max = tox.max, floor = true,
+                                          reason = string.format("%s is under the floor, but one more %s fills my Soulscourge (toxicity %.0f/%.0f, +%d) "
+                                              .. "and its %d damage would kill me at %.0f HP: I need clean water (boil it at a Campfire)",
+                                              stat_s, tostring(d.name), tox.current, tox.max, sc(d), M.SOULSCOURGE_DAMAGE, hp) })
+                        end
+                        d = nil
+                    else
+                        why = string.format("%s is under the %d%% safety floor and %s is all I have (+%d Soulscourge%s)", stat_s, floor,
+                            tostring(d.name), sc(d), tox and string.format(", toxicity %.0f/%.0f%s", tox.current, tox.max,
+                                fills and string.format(": this fills it, %d damage", M.SOULSCOURGE_DAMAGE) or "") or "")
+                    end
+                end
+                if d and sc(d) > 0 and not at_floor[kind] then
                     R.warned = R.warned or {}
                     local key = "held_back_" .. need[2]
                     if not R.warned[key] or t - R.warned[key] >= 60 then
@@ -954,11 +1069,13 @@ function R.tick(log)
                     d = nil
                 end
                 if d then
-                    R.last[need[2]] = t
-                    local r = M.use(log, d.item, { require = need[2], hotbar_only = not cfg.allow_bag })
-                    reflex_emit({ action = "use", kind = need[2], item = d.item, name = d.name, stat = need[3], ok = r.ok,
-                                  via = r.via, reason = r.reason })
-                    if r.ok then R.pending = { kind = need[2], item = d.item, before = need[3], t = t }
+                    why = why or string.format("%s is under %s", stat_s, at_floor[kind] and (floor .. "% (the safety floor)")
+                        or (tostring(pcts[kind]) .. "% (my vitals policy)"))
+                    R.last[kind] = t
+                    local r = M.use(log, d.item, { require = kind, hotbar_only = not cfg.allow_bag })
+                    reflex_emit({ action = "use", kind = kind, item = d.item, name = d.name, stat = need[3], ok = r.ok,
+                                  via = r.via, reason = r.ok and why or r.reason, floor = at_floor[kind] == true })
+                    if r.ok then R.pending = { kind = kind, item = d.item, before = need[3], t = t }
                     else strike(d.item, false) end
                 end
             end

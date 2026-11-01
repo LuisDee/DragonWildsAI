@@ -451,5 +451,100 @@ do
     I.CONSUME_BUSY_S = 0; I.reflex_stop()
 end
 
+-- Survival agent 2026-11-01 (live 12:26-12:42: 13 Pumpkin Spice Infusions in the BAG while the reflex drank 4 Dirty
+-- Waters off the hotbar, then hydration 0 and 56 HP lost to thirst, no brain running): under the safety floor the
+-- reflex drags a bag drink to the hotbar itself (making room when the hotbar is full) and prefers a clean bag drink
+-- over Dirty Water on the hotbar; the floor is per stat; Dirty Water that would fill the Soulscourge bar while its
+-- 50 damage would kill him is held back; every use says why.
+do
+    -- reload: the crash fixture's second instance redefined the shared _G.DWFedReflex.tick (its ROOT, its risk data)
+    I = assert(loadfile(repo .. "/client_mod/scripts/inventory.lua", "t",
+        setmetatable({ os = setmetatable({ getenv = function(k) return k == "DW_CLIENT_ROOT" and env_root or os.getenv(k) end },
+                                         { __index = os }) }, { __index = _G })))()
+    I.CONSUME_BUSY_S = 0
+    I.reflex_start(nil, { verify_s = 0, fetch_cooldown_s = 0 })
+    R = _G.DWFedReflex
+    if _G.DWConsumeInProgress then _G.DWConsumeInProgress.until_t = nil end -- the busy test's last use
+    local g0 = I._input_gate
+    I._input_gate = function() return nil end
+    pc.CurrentInputMode = obj("DataAsset /Game/Input/DIM_Gameplay.DIM_Gameplay")
+    local drags = {}
+    api.HandleInternalDragAndDrop = function(_, fs, ft, ts, tt)
+        drags[#drags + 1] = { fs, ft, ts, tt }
+        local src = ft == 0 and hotbar_items or bag_items
+        local dst = tt == 0 and hotbar_items or bag_items
+        if dst[ts + 1] or not src[fs + 1] then return end -- the fake never swaps
+        dst[ts + 1], src[fs + 1] = src[fs + 1], nil
+        refresh()
+    end
+    S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    S.effect[DATA.dirty:GetFullName()] = { "hyd", 10 }
+    S.hp = 100
+    -- a. under the floor, the drink only in the bag: dragged to the hotbar, drunk on the next tick, with a reason
+    hotbar_items = { item(DATA.pick, 1) }; bag_items = { item(DATA.rock, 5), item(DATA.tea, 13) }; refresh()
+    S.presses, S.hyd, S.sus, R.last, R.pending, R.warned, R.bad = {}, 5, 80, {}, nil, nil, {}
+    local f0 = events("fetch")
+    R.tick_fn(nil)
+    check(#drags == 1 and drags[1][2] == 1 and drags[1][4] == 0 and #S.presses == 0, "floor, tea in the bag: one drag bag -> hotbar, no press yet")
+    check(events("fetch") == f0 + 1, "fetch event logged")
+    R.tick_fn(nil)
+    check(#S.presses == 1 and S.presses[1] == "Pumpkin Spice Infusion", "next tick: drinks the fetched tea (" .. table.concat(S.presses, ",") .. ")")
+    local _, txt = events("use")
+    check(txt:find("water 5/100 is under 10% (the safety floor)", 1, true) ~= nil, "use event says why (floor)")
+    -- b. above the floor (policy 40 %), drink only in the bag: the model's call, nothing dragged
+    drags, S.presses, R.last, R.pending, R.warned = {}, {}, {}, nil, nil
+    hotbar_items = { item(DATA.pick, 1) }; bag_items = { item(DATA.tea, 13) }; refresh()
+    S.hyd = 30
+    R.tick_fn(nil)
+    check(#drags == 0 and #S.presses == 0 and events("no_hotbar_drink") >= 1, "above the floor: no drag, no_hotbar_drink told")
+    -- c. Dirty Water on the hotbar, tea in the bag, under the floor: the tea is fetched, the Dirty Water is not drunk
+    drags, S.presses, R.last, R.pending = {}, {}, {}, nil
+    hotbar_items = { item(DATA.dirty, 4) }; bag_items = { item(DATA.tea, 13) }; refresh()
+    S.hyd = 5
+    R.tick_fn(nil)
+    check(#drags == 1 and #S.presses == 0, "floor, dirty on hotbar + tea in bag: fetches the tea first (drags " .. #drags .. ", presses " .. table.concat(S.presses, ",") .. ")")
+    R.tick_fn(nil)
+    check(S.presses[1] == "Pumpkin Spice Infusion", "then drinks the tea, not the Dirty Water (" .. table.concat(S.presses, ",") .. ")")
+    -- d. a full hotbar (8 slots): one non-consumable, not-held slot goes to the bag, then the tea comes in
+    drags, S.presses, R.last, R.pending, R.made_room, R.swap_failed = {}, {}, {}, nil, nil, nil
+    hotbar_items = {}
+    for i = 1, 8 do hotbar_items[i] = item(DATA.pick, 1) end
+    hotbar_items[8] = item(DATA.rock, 3)
+    bag_items = { item(DATA.tea, 13) }; refresh()
+    S.hyd = 5
+    R.tick_fn(nil)
+    check(#drags == 1 and drags[1][1] == 7 and drags[1][2] == 0 and drags[1][4] == 1, "full hotbar: the last slot (Stone) dragged to the bag")
+    R.tick_fn(nil)
+    check(#drags == 2 and drags[2][2] == 1 and drags[2][4] == 0, "then the tea dragged into the freed slot")
+    R.tick_fn(nil)
+    check(S.presses[1] == "Pumpkin Spice Infusion", "then drunk (" .. table.concat(S.presses, ",") .. ")")
+    -- e. the floor is per stat: food under its floor, water at 30 % with only Dirty Water -> not drunk
+    drags, S.presses, R.last, R.pending, R.warned = {}, {}, {}, nil, nil
+    hotbar_items = { item(DATA.dirty, 4) }; bag_items = {}; refresh()
+    S.hyd, S.sus = 30, 5
+    R.tick_fn(nil)
+    check(#S.presses == 0, "food under the floor does not make Dirty Water drinkable at 30 % water (" .. table.concat(S.presses, ",") .. ")")
+    -- f. toxicity: one more Dirty Water fills the bar and its 50 damage would kill him -> held back, told why;
+    --    with HP to spare -> drunk, and the reason names the toxicity
+    pawn.BP_Components_Toxicity = obj("Tox", { CurrentToxicity = 85, ToxicityEffectLevels = tarray({ { Value = 100 } }, 1) })
+    R.tox_max = nil
+    S.presses, R.last, R.pending, R.warned = {}, {}, nil, nil
+    S.hyd, S.sus, S.hp = 5, 80, 40
+    local tx0 = events("held_back_toxic")
+    R.tick_fn(nil)
+    local tx1, ttx = events("held_back_toxic")
+    check(#S.presses == 0 and tx1 == tx0 + 1, "toxicity 85/100 at 40 HP: Dirty Water held back (" .. table.concat(S.presses, ",") .. ")")
+    check(ttx:find("would kill me at 40 HP", 1, true) ~= nil, "held_back_toxic says why")
+    S.hp, R.last = 100, {}
+    R.tick_fn(nil)
+    local _, tu = events("use")
+    check(S.presses[1] == "Dirty Water" and tu:find("toxicity 85/100: this fills it, 50 damage", 1, true) ~= nil,
+          "at 100 HP: drunk, the reason names the toxicity (" .. table.concat(S.presses, ",") .. ")")
+    pawn.BP_Components_Toxicity = nil
+    api.HandleInternalDragAndDrop = nil
+    I._input_gate = g0
+    I.reflex_stop()
+end
+
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
