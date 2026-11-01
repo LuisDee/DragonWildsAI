@@ -93,3 +93,18 @@ def test_a_changed_situation_is_shown_again(tmp_path):
     obs = json.loads(next(m["content"] for m in reversed(follow) if str(m.get("content", "")).startswith("Current observation: "))
                      .split("Current observation: ", 1)[1])
     assert isinstance(obs["situation"], list) and obs["situation"] != r.model.contexts[0]["situation"]
+
+
+def test_where_he_was_asked_stays_in_the_situation_and_goes_with_a_hand_on(tmp_path):
+    """"here" names where he stood when asked (live 21:13Z: he gathered, then built 31 m away): the request's
+    context keeps that position, every turn's situation shows it, and a hand-on carries it into the fresh run."""
+    r = _grabbing(tmp_path, MAX_TURNS)
+    seen = []
+    r.model.body_reply = lambda ctx: (seen.append(ctx), LLMResponse(content=""))[1]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude keep grabbing here"})
+    r.at(0).step()
+    asked = next(line for line in r.model.contexts[0]["situation"] if line.startswith("Asked:"))
+    assert asked.startswith('Asked: "claude keep grabbing here" when you stood at (59, 1880, -36), 0 m from where you are now; Zezima was at')
+    ev = seen[0]["body_event"]
+    assert ev["asked_at"]["position"] == [58.9, 1880.0, -35.5] and ev["asked_at"]["request"] == "claude keep grabbing here"
+    assert any(line.startswith('Asked: "claude keep grabbing here"') for line in seen[0]["situation"])

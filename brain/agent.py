@@ -118,6 +118,7 @@ class Agent:
         self.check_promises = True  # L5: a talk-only first turn gets one turn to call what it promised
         self.repeats = RepeatWatch()  # the no-progress breaker (brain/progress.py)
         self.request_calls = 0  # model calls of the last _command_run (a board step's call budget)
+        self._asked: dict | None = None  # where he stood when the open request was asked (situation "Asked:")
         self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -406,13 +407,18 @@ class Agent:
         deadline = self.clock() + REQUEST_SECONDS
         state = self._fresh_state()  # unavailable: still let the Controller answer; actions will refuse
         body_ctx = (body_events[0] if len(body_events) == 1 else {"events": body_events}) if body_events else None
+        # where he stood when asked: "here" / "by me" keep that place while the request runs (live 21:13Z: he gathered
+        # 31 m away and built there). Perception only (the situation's "Asked" line); a hand-on carries it on.
+        self._asked = sit.asked_at(state, event.player, event.text) if event.text else \
+            (body_ctx or {}).get("asked_at") if isinstance(body_ctx, dict) else None
+        state = sit.with_asked(state, self._asked)
         # the model's command.addressed: only a player's line is addressed to him; a body-initiated run (no text) is
         # not (live 2026-11-01: body events came as addressed=true and he opened with "hey" when nobody spoke)
         heard = addressed and bool(event.text)
         d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=heard,
                                    body_event=body_ctx)
         if body_events:  # speak-time check of the situation itself, on fresh state
-            state = self._fresh_state()
+            state = sit.with_asked(self._fresh_state(), self._asked)
             still = self.broker.still_valid(body_events, state)
             if not still and not (d.actions or d.goal or d.skill):
                 self.log.log("situation_stale", events=body_events, why="fixed while the model was thinking",
@@ -511,7 +517,7 @@ class Agent:
                     said = bool(line) and self.controller.say(line, kind=kind) is not None
                 break
             turn += 1
-            before, state = state, self._fresh_state()
+            before, state = state, sit.with_asked(self._fresh_state(), self._asked)
             parked = self._note_progress(t, before, state, event.player)
             self.request_parked = parked or self.request_parked
             news = self._news()
@@ -585,7 +591,7 @@ class Agent:
                          "detail": str(data.get("detail") or data.get("why") or "")[:300] or None})
         request = (prev or {}).get("request") or event.text or None
         self._situations.append({
-            "type": CHAIN_BUDGET, "hand_on": n, "of": MAX_HAND_ONS, "request": request,
+            "type": CHAIN_BUDGET, "hand_on": n, "of": MAX_HAND_ONS, "request": request, "asked_at": self._asked,
             "from": (prev or {}).get("from") or (event.player if event.text else None),
             "about": (f"your work on this request stopped at the turn limit ({MAX_TURNS + 1} turns) before you had "
                       "seen how your last calls went; their results are in last_results"

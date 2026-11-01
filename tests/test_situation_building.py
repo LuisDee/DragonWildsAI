@@ -73,3 +73,18 @@ def test_house_line_says_which_frames_are_open_doorways():
     assert "E WALL WITH WINDOW FRAME BuildingPiece_96 (a window opening)" in line
     assert "S WALL WITH DOOR FRAME BuildingPiece_94 (with Door BP_T1_Door_C_1 in it)" in line
     assert "W Wall BuildingPiece_97; over it: nothing" in line
+
+
+def test_asked_here_keeps_the_place_he_was_asked():
+    """A request's "here": the situation keeps where he stood when asked (live 21:13Z: he gathered, then built 31 m
+    away), and where the player was when in sight. Perception only."""
+    from brain.situation import asked_at, with_asked
+    at_ask = {"position": [80.7, 1913.1, -30.7], "players": [{"name": "Zezima", "distance": 3, "position": [82.0, 1914.0, -30.6]}]}
+    a = asked_at(at_ask, "Zezima", "claude build yourself a small house here")
+    assert a == {"position": [80.7, 1913.1, -30.7], "request": "claude build yourself a small house here", "player": "Zezima",
+                 "player_at": [82.0, 1914.0, -30.6]}
+    later = with_asked({"position": [111.7, 1901.9, -30.5]}, a)
+    text = "\n".join(summary(later))
+    assert 'Asked: "claude build yourself a small house here" when you stood at (81, 1913, -31), 33 m from where you are now; Zezima was at (82, 1914, -31)' in text
+    assert asked_at(at_ask, "Zezima", "") is None and with_asked({"position": [0, 0, 0]}, None) == {"position": [0, 0, 0]}
+    assert "asked_at" not in "\n".join(summary({"position": [0, 0, 0]}))

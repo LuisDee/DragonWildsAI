@@ -176,7 +176,8 @@ def test_the_graves_line_always_has_the_newest_grave():
     assert line.count(" | ") == 2  # still 3 graves: the two most valuable and the newest
     rows = [{"iso": f"2026-10-0{i}T00:00:00Z", "lost_items": 1} for i in range(1, 6)]
     top = graves_for_line(rows)
-    assert len(top) == 3 and rows[4] in top and graves_for_line([]) == []
+    assert len(top) == 3 and top[0] is rows[4] and graves_for_line([]) == []  # the newest leads (live 21:52Z)
+    assert line.startswith("Graves of yours not in sight, newest first: your newest, 138 m")
 
 
 def test_a_bag_item_moved_under_the_line_is_used_by_the_reflex_and_the_digest_says_so():

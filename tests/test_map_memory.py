@@ -91,7 +91,7 @@ def test_store_is_atomic_debounced_and_readable_by_the_director(tmp_path):
     assert mm.MapMemory(m.path, clock=clock).sightings, "reloads from disk"
 
 
-def test_graves_are_ranked_most_valuable_first_and_all_listed():
+def test_graves_list_the_newest_first_then_the_most_valuable():
     gear = {"iso": "2026-10-25T21:25:56Z", "distance": 300, "go_to": "my_grave:1792963556", "lost_items": 6,
             "lost": ["Steel Logging Axe x1", "Iron Pickaxe x1", "Wooden Training Sword x1"],
             "lost_ids": [{"item": "ITEM_Logging_Axe_Steel", "count": 1}, {"item": "ITEM_Pickaxe_Iron", "count": 1},
@@ -102,5 +102,6 @@ def test_graves_are_ranked_most_valuable_first_and_all_listed():
     st = fx("state_2140_thirsty.json")
     st["graves_remembered"] = [junk, gear]
     digest = "\n".join(summary(st))
-    assert digest.index("my_grave:1792963556") < digest.index("my_grave:1792964690")  # the gear grave first
+    # the newest leads (live 2026-11-01 21:52Z: a never-closed older grave listed first sent him the wrong way 3 times)
+    assert digest.index("my_grave:1792964690") < digest.index("my_grave:1792963556")
     assert "Steel Logging Axe x1" in digest and "300 m away" in digest

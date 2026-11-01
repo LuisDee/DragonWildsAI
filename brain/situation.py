@@ -12,6 +12,7 @@ on something that is not in it ("I can't see any sticks"), in code, not only in 
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -428,6 +429,13 @@ def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
             continue
         key = str(item).rsplit("/", 1)[-1].rsplit(".", 1)[-1]
         name = name_of_item(key, names)
+        # the loadout's ammo slots are what a weapon spends, not clothes ("Wearing: Air Rune" read as nothing a
+        # staff casts with: live rung 4, 22:10Z, "no proper attack spells at Magic 1", and he clubbed the goblin)
+        sl = str(slot).lower()
+        if sl.startswith("magicammo"):
+            name += " (magic ammo: a staff or wand casts with it)"
+        elif sl in ("ammo", "crossbowbolts"):
+            name += " (ammo: a bow or crossbow shoots it)"
         if name not in out:
             out.append(name)
     return out
@@ -482,7 +490,7 @@ def _map_places():
 
 def recent_life(state: dict) -> list[str]:
     """Own gravestone(s) and the last death, from the client body's get_state: one "Recent:" line, then
-    one "Graves ..." line with up to 3 unrecovered graves not in sight, most valuable first (BUGS L19/L22)."""
+    one "Graves ..." line with up to 3 unrecovered graves not in sight, newest first (BUGS L19/L22)."""
     bits, grave_lines = [], []
     d = state.get("last_death") if isinstance(state.get("last_death"), dict) else None
     if d and isinstance(d.get("ago_s"), (int, float)):
@@ -496,12 +504,13 @@ def recent_life(state: dict) -> list[str]:
     seen_id = (state.get("my_grave") or {}).get("id") if isinstance(state.get("my_grave"), dict) else None
     shown = [g for g in (graves or []) if not (seen_id and isinstance(g, dict) and g.get("grave_id") == seen_id)]
     newest = item_stats.newest_grave(shown)
-    for gv in item_stats.graves_for_line(shown):  # most valuable first, the newest always among them (BUGS L22, D2)
+    for gv in item_stats.graves_for_line(shown):  # the newest first, then the most valuable (BUGS L22, D2)
         dist = f"{gv['distance']:.0f} m away" if isinstance(gv.get("distance"), (int, float)) else "somewhere"
         dist = ("your newest, " + dist) if gv is newest and len(shown) > 1 else dist
         lost = ", ".join(str(x) for x in (gv.get("lost") or [])[:3])
         grave_lines.append(f"{dist}, from {gv.get('iso') or '?'} (go_to target '{gv.get('go_to') or 'my_grave'}')"
-                           + (f", about {gv.get('lost_items')} items: {lost}" if lost else ""))
+                           + (f", about {gv.get('lost_items')} items: {lost}" if lost else "")
+                           + (f"; DANGER: {gv['danger']}" if gv.get("danger") else ""))  # skills.lua death-spot hazard
     g = state.get("my_grave") if isinstance(state.get("my_grave"), dict) else None
     if g:
         dist = f"{g['distance']:.0f} m away" if isinstance(g.get("distance"), (int, float)) else "nearby"
@@ -513,7 +522,9 @@ def recent_life(state: dict) -> list[str]:
     # a death's cause and bars take ~150 chars: room for them AND the gravestone after (was cut at LINE_CHARS)
     out = [("Recent: " + "; ".join(bits))[:2 * LINE_CHARS if d else LINE_CHARS]] if bits else []
     if grave_lines:  # one line for every grave not in sight (prompt diet 2026-10-31: was a line each)
-        out.append(("Graves of yours not in sight, most valuable first: " + " | ".join(grave_lines[:3]))[:2 * LINE_CHARS])
+        out.append(("Graves of yours not in sight, newest first: " + " | ".join(grave_lines[:3]))[:2 * LINE_CHARS])
+    if d or grave_lines:  # the game's rule (UItemData.bDropOnDeath; Luis 2026-11-01), so he says true things about a grave
+        out.append("On death you keep runes, ammo and worn armour; weapons and your bag/hotbar go into the grave.")
     return out
 
 
@@ -754,8 +765,39 @@ COVERED_KEYS = frozenset({
     "skills", "sleeping", "stamina", "stations_nearby", "structures", "surroundings", "survival", "sustenance",
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
-    "power_level", "fight_odds", "quests", "map_players", "near_players",
+    "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
 })
+
+
+def asked_at(state: dict, player: str | None, text: str | None) -> dict | None:
+    """Where he stood (and the player, when in sight) when a request was asked: "here" / "by me" name that place,
+    and he may walk away from it (live 2026-11-01 21:13Z: he gathered, then built 31 m from where he was asked)."""
+    pos = state.get("position") if isinstance(state, dict) else None
+    if not (text and isinstance(pos, (list, tuple)) and len(pos) >= 3 and all(num(v) is not None for v in pos[:3])):
+        return None
+    them = next((p for p in state.get("players") or [] if isinstance(p, dict) and player and p.get("name")
+                 and same_player(str(p["name"]), player) and isinstance(p.get("position"), (list, tuple))), None)
+    return {"position": [round(float(v), 1) for v in pos[:3]], "request": str(text)[:80], "player": player,
+            "player_at": [round(float(v), 1) for v in them["position"][:3]] if them else None}
+
+
+def with_asked(state: dict, asked: dict | None) -> dict:
+    """The state with the open request's asked_at (rendered by asked_line), unchanged when there is none."""
+    return {**state, "asked_at": asked} if asked and isinstance(state, dict) and not state.get("unavailable") else state
+
+
+def asked_line(state: dict) -> str | None:
+    """'Asked: "build ... here" at (121, 1809, -31), 31 m from where you are now; Zezima was at (...)'."""
+    a = state.get("asked_at")
+    pos = state.get("position")
+    if not (isinstance(a, dict) and isinstance(a.get("position"), list)):
+        return None
+    x, y, z = a["position"][:3]
+    d = math.dist(a["position"][:2], pos[:2]) if isinstance(pos, (list, tuple)) and len(pos) >= 2 else None
+    who = a.get("player_at")
+    return (f'Asked: "{a.get("request")}" when you stood at ({x:.0f}, {y:.0f}, {z:.0f})'
+            + (f", {d:.0f} m from where you are now" if d is not None else "")
+            + (f"; {a.get('player')} was at ({who[0]:.0f}, {who[1]:.0f}, {who[2]:.0f})" if isinstance(who, list) else ""))[:LINE_CHARS]
 
 
 def same_player(a: str, b: str) -> bool:
@@ -867,6 +909,50 @@ def extras_lines(state: dict) -> list[str]:
     return out
 
 
+def weapons_line(state: dict) -> str | None:
+    """'Your weapons: Stone Club (melee) ~16.8/hit, 16/s (learned) | Ash Shortbow (ranged) ~4/hit (learned), ammo slot
+    EMPTY: can't shoot' from combat's weapons_known: each weapon's real damage beside the others (live 22:05Z he took
+    the bow, ~4/hit with no arrows loaded, over a club doing ~14, with nothing showing either number)."""
+    wk = state.get("weapons_known") if isinstance(state.get("weapons_known"), dict) else {}
+    parts = []
+    for name, w in wk.items():
+        if not isinstance(w, dict):
+            continue
+        dmg = [f"~{_num(w['per_hit']):g}/hit" if _num(w.get("per_hit")) is not None else "",
+               f"{_num(w['per_s']):g}/s" if _num(w.get("per_s")) is not None else ""]
+        bit = f"{name} ({w.get('kind') or '?'}) " + ", ".join(d for d in dmg if d) + (f" ({w['from']})" if w.get("from") else "")
+        if w.get("types"):
+            bit += f", {'/'.join(str(t).rsplit('.', 1)[-1] for t in w['types'])} damage"
+        if w.get("ammo_slot"):
+            bit += (f", {w['ammo']:g} in its ammo slot" if _num(w.get("ammo")) else ", ammo slot EMPTY: can't use it")
+        parts.append(bit.strip())
+    return ("Your weapons: " + " | ".join(parts))[:LINE_CHARS] if parts else None
+
+
+def enchant_words(state: dict) -> str | None:
+    """'Fire enchant on your weapon, 212 s left' from combat's held_enchant (nil = none, so nothing is said)."""
+    e = state.get("held_enchant") if isinstance(state.get("held_enchant"), dict) else None
+    if not e or not e.get("effect"):
+        return None
+    el = str(e.get("adds") or e["effect"]).rsplit(".", 1)[-1].replace("HEED_EnchantWeapon", "")
+    left = _num(e.get("left_s"))
+    return f"{el} enchant on your weapon" + (f", {left:g} s left" if left is not None else "")
+
+
+def gear_line(state: dict) -> str | None:
+    """brain/gear_plan.py's 'Gear vs this area' as ONE line (the best option per slot), only while what he wears is
+    below the enemies here: a full block was 6 lines and pushed the stations and places off the summary."""
+    from . import gear_plan  # lazy: item and recipe data load on first use
+    try:
+        p = gear_plan.plan(state)
+        if p.get("enemy_pl") is None or p.get("pl_now", 0) >= p["enemy_pl"]:
+            return None
+        ls = gear_plan.lines(p, max_opts=1)
+    except Exception:  # perception is best effort; never block a decision on it
+        return None
+    return (ls[0] + (" Per slot: " + " | ".join(x.strip() for x in ls[1:]) if ls[1:] else ""))[:3 * LINE_CHARS] if ls else None
+
+
 def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | None = None,
             places: Iterable[str] = (), looks_supported: bool = False) -> list[str]:
     """At most 10 short lines describing the companion's situation, by in-game names."""
@@ -891,6 +977,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append(f"holding {name_of_item(item, names)}")
     elif isinstance(state.get("held_actions"), dict) and (state["held_actions"].get("item_name") or state["held_actions"].get("item")):
         me.append(f"holding {state['held_actions'].get('item_name') or state['held_actions']['item']}")
+    if ench := enchant_words(state):
+        me.append(ench)
     if state.get("following"):
         me.append(f"following {state['following']}")
     elif state.get("action"):
@@ -910,6 +998,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(carrying(state, names))
     lines.append(_line("Food/drink", consumables(state)))
     lines.append(_line("Spare gear", item_stats.describe_carried(state)))
+    lines.append(weapons_line(state))
+    lines.append(gear_line(state))
     lines.append(skills_line(state))
     lines.append(quests_line(state))
     lines.append(hands(state))
@@ -945,6 +1035,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     built = _group([t for t in things if t.group == "built"])  # building pieces with no use: foundations, walls
     lines.append(_line("Built pieces", [g.label() for g in built]))
     lines.append(house_line(state))
+    lines.append(asked_line(state))
     lines.append(_line("Stations", stations(state)))
     if not looks_supported and not state.get("surroundings") and \
             "nearby_resources" in (state.get("not_implemented") or []):
@@ -967,8 +1058,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     # never by blindly replacing the last line (which may be the active job).
     optional = ("Places:", "Reflex policy:", "Skills ", "Quests:", "Stations:",
                 "Spare gear:", "Food/drink:", "Players:", "Wearing:", "World:",
-                "On the ground:", "Around:", "Usable:", "Built pieces:")
-    for prefix in ("Creatures", "Job:"):
+                "On the ground:", "Around:", "Usable:", "Built pieces:", "Gear vs this area:")
+    for prefix in ("Creatures", "Job:", "Asked:"):
         required = next((line for line in available if line.startswith(prefix)), None)
         if required and required not in chosen:
             index = next((i for i in range(len(chosen)-1, -1, -1)

@@ -47,9 +47,27 @@ def purpose_of(spell_id: str | None) -> dict:
     out = {}
     if e.get("for"):
         out["for"] = e["for"]
+    if el := element_words(e):  # the element says more than a generic "stronger melee hits"
+        out["for"] = el
     if e.get("needs"):
         out["needs"] = e["needs"]
     return out
+
+
+def element_words(e: dict) -> str | None:
+    """What element a spell's verified effect carries (proof.effect[].damage_types), so he can match it to what an
+    enemy is weak to or resists (Luis 2026-11-01: an element enchant is worth casting before any melee fight unless
+    the enemy resists that element; the same for attack spells). None when the data names no element."""
+    for fx in ((e.get("proof") or {}).get("effect") or []):
+        types = [str(t).rsplit(".", 1)[-1] for t in (fx.get("damage_types") or []) if t]
+        if not types:
+            continue
+        el = "/".join(types)
+        if fx.get("kind") == "held_item_effect":
+            secs = f" {fx['time_limit_s']:.0f} s" if isinstance(fx.get("time_limit_s"), (int, float)) else ""
+            return f"+{el} damage on melee hits{secs}; cast before melee unless the enemy resists {el}"
+        return f"{el} damage: best on an enemy weak to {el}"
+    return None
 
 
 def compact_row(row: dict) -> dict:

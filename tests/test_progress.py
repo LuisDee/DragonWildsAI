@@ -216,12 +216,13 @@ def test_recent_life_death_cause_kill_zone_and_bars():
 def test_recent_life_says_what_killed_him_and_where():
     from brain.situation import recent_life
     assert recent_life({"last_death": {"ago_s": 200, "respawned": True, "killed_by": "Giant Rat"}}) == [
-        "Recent: you died 3 min ago (killed by Giant Rat) and respawned"]
+        "Recent: you died 3 min ago (killed by Giant Rat) and respawned",
+        "On death you keep runes, ammo and worn armour; weapons and your bag/hotbar go into the grave."]
     line = recent_life({"last_death": {"ago_s": 20, "fell_m": 12.4, "at": [99999.0, 99999.0, 0.0]}})[0]
     assert line == "Recent: you died 20 s ago (cause unknown (the game didn't say); fell 12 m; at [99999, 99999, 0])"
     assert recent_life({"last_death": {"ago_s": 20, "killed_by": {"self": False, "name": "Goblin"}}})[0].endswith(
         "(killed by Goblin)")
     # nothing said what killed him: he is told so, never left to guess (live 16:37Z "starving got me" at 12 % food)
-    assert recent_life({"last_death": {"ago_s": 20}}) == ["Recent: you died 20 s ago (cause unknown (the game didn't say))"]
+    assert recent_life({"last_death": {"ago_s": 20}})[0] == "Recent: you died 20 s ago (cause unknown (the game didn't say))"
     assert recent_life({"last_death": {"ago_s": 20, "at": [176.25, 1863.53, -30.23]}})[0].endswith(
         "; at Temple Woods)")  # the game map's region (data/places_<build>.json)

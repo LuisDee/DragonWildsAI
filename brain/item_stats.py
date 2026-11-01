@@ -61,6 +61,14 @@ def stats(item: str | None, cat: dict[str, dict] | None = None) -> dict | None:
              for a in attacks.values() if isinstance(a, dict) and a.get("name")]
     if names:
         out["actions"] = names
+    # what its attack spends (item data: the primary's kind and the weapon's ammo type): a staff's attack is a spell
+    # (DA_Spell_Primary_<element>) paid from the magic ammo slot's runes, a bow's a shot from the ammo slot
+    ammo, prim = e.get("ammo"), attacks.get("primary") if isinstance(attacks.get("primary"), dict) else {}
+    if e.get("role") == "weapon" and ammo == "Runes":
+        out["attack"] = "casts magic attack spells, paid with the runes in your magic ammo slot"
+    elif e.get("role") == "weapon" and ammo in ("Arrows", "CrossbowBolts"):
+        out["attack"] = ("shoots " + ("bolts" if ammo == "CrossbowBolts" else "arrows") + " from your ammo slot"
+                         + (" (aim, then release)" if (attacks.get("secondary") or {}).get("kind") == "aim" else ""))
     if e.get("requirements"):
         out["requirements"] = e["requirements"]
     return {k: v for k, v in out.items() if v not in (None, "", [], {})}
@@ -119,6 +127,8 @@ def describe_carried(state: dict, cat: dict | None = None) -> list[str]:
             facts.append(str(st["armour"]))
         if st.get("weight") is not None:
             facts.append(f"{st['weight']:g} kg")
+        if st.get("attack"):
+            facts.append(st["attack"])
         cur = eq.get(_slot_key(st.get("slot")) or "")
         if cur:
             delta = compare(st, cur[1]) or {}
@@ -163,14 +173,13 @@ def newest_grave(graves: list[dict]) -> dict | None:
 
 
 def graves_for_line(graves: list[dict], n: int = 3, cat: dict | None = None) -> list[dict]:
-    """The n most valuable graves (BUGS L22), always with the newest among them (the one go_to my_grave takes, his
-    last death's gear and food: at 11:19:45 the value ranking cut it and he went for berries instead)."""
+    """The newest grave first (the one go_to my_grave takes, his last death's gear and food: at 11:19:45 the value
+    ranking cut it and he went for berries instead; live 21:52Z an older, never-closed 40-item gate death listed first
+    and he walked to it three times while his newest lay by Luis), then the most valuable of the rest (BUGS L22)."""
     ranked = rank_graves(graves, cat)
     newest = newest_grave(ranked)
-    top = ranked[:n]
-    if newest is not None and not any(g is newest for g in top):
-        top = top[:max(0, n - 1)] + [newest]
-    return top
+    rest = [g for g in ranked if g is not newest]
+    return ([newest] if newest is not None else [])[:n] + rest[:max(0, n - (newest is not None))]
 
 
 def enrich_inventory(data: dict, state: dict | None = None, cat: dict | None = None) -> dict:
