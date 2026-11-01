@@ -298,7 +298,8 @@ local function result_of(J, ok, reason, data)
     data.tool = J.tool and J.tool.name or nil
     if J.sweep and J.sweep.presses > 0 then data.presses, data.presses_on_move = J.sweep.presses, J.sweep.on_move end
     if J.collect_all then data.collect_all_presses = J.collect_all end
-    -- everything else he picked up (collect-all takes every kind within 2 m): named in the result, never silent
+    -- everything else he picked up, named in the result, never silent: what a collect-all took from around the pile
+    -- (it takes every kind within 2 m), or what came with the pick itself (a cabbage gives Cabbage Seeds, live 16:14Z)
     local also = M.also_gained(J)
     if #also > 0 then
         data.also = also
@@ -306,7 +307,7 @@ local function result_of(J, ok, reason, data)
         for _, a in ipairs(also) do words[#words + 1] = string.format("%d %s", a.count, a.name) end
         local w = table.concat(words, ", ")
         if type(data.detail) == "string" then
-            data.detail = data.detail:gsub("%.%s*$", "") .. " (and " .. w .. " that were lying there)."
+            data.detail = data.detail:gsub("%.%s*$", "") .. " (and " .. w .. (J.collect_all and " that were lying there)." or " with them).")
         end
     end
     data.phase_log = J.phase_log

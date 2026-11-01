@@ -714,6 +714,19 @@ do
     res = run_job({ resource = "loose_stones", count = 4 }, 60)
     check("pile 5 m off before a spawner 9 m off", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 4 and Wd.secondary == 1,
           tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " secondary=" .. tostring(Wd.secondary))
+    -- a pick that yields a second kind (a cabbage gives seeds): named, but not as lying there
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.names = { ITEM_Resources_Cabbage = "Cabbage", ITEM_Farming_Seed_Cabbage = "Cabbage Seeds" }
+    Wd.foliage[#Wd.foliage + 1] = { id = "fol:Cab:1", class = "BP_Spawner_Cabbage_C", _pos = { X = 300, Y = 0, Z = 0 }, name = "Cabbage",
+                                    kind = "pickup", visible = true, item = "ITEM_Resources_Cabbage" }
+    local p0 = fake_inv.press_interact
+    fake_inv.press_interact = function(...) local r = p0(...); if (Wd.inv.ITEM_Resources_Cabbage or 0) > 0 then Wd.inv.ITEM_Farming_Seed_Cabbage = 2 end; return r end
+    local rc = run_job({ resource = "cabbage", count = 1 }, 60)
+    fake_inv.press_interact = p0
+    Wd.names = nil
+    check("by-product named as with them, not lying there", rc.ok == true and tostring(rc.data.detail):find("(and 2 Cabbage Seeds with them)", 1, true) ~= nil,
+          tostring(rc.data and rc.data.detail))
     -- a lone drop takes the plain press (collect-all is for a pile)
     reset({ inv = {} })
     fake_pc.Pawn = Wd.pawn

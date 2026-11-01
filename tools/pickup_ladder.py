@@ -260,6 +260,10 @@ def run_pile(dev, leg: dict) -> dict:
                body_collect_all=data.get("collect_all_presses"), also=data.get("also"), body_gained=data.get("gained"),
                also_named=(all(NAMES.get(k, k) in str(data.get("detail") or "") for k in leg["also"]) if leg.get("also") else None),
                phase_log=data.get("phase_log"), ts=round(t0, 2), **sc)
+    # a pile's bar is Luis's: the whole pile from one press (at most one miss), within the per-item time; the press may
+    # be made standing (on the move is the patch bar), and anything else it took must be named
+    row["human_ok"] = bool(sc.get("items") and sc["items"] >= n and sc["presses"] <= 2 and sc["s_item"] <= BAR_S_ITEM
+                           and row.get("also_named") is not False)
     return row
 
 

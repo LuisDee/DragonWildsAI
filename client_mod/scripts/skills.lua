@@ -862,7 +862,8 @@ local function episode_poll(api, e, t, owner_token)
             if item and (e.secondary or kinds > 1) then
                 -- the kind he aimed at leads (the thing the player meant), when it came too
                 local first, rest = gain_words(api, all, (source.item and all[source.item]) and source.item or item)
-                local also = #rest > 0 and (" (and " .. table.concat(rest, ", ") .. " that were lying there)") or ""
+                -- collect-all: the rest lay around it; a plain press: they came with it (a cabbage gives seeds)
+                local also = #rest > 0 and (" (and " .. table.concat(rest, ", ") .. (e.secondary and " that were lying there)" or " with it)")) or ""
                 if e.secondary then data.detail = "Collected all: " .. first .. also .. "."
                 else data.detail = (data.detail and (data.detail:gsub("%.%s*$", "")) or ("Picked up " .. first)) .. also .. "." end
             end
