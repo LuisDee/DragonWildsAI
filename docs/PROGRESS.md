@@ -452,3 +452,4 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
   - still there, west: foundations 19/20/21 at x 90.21 with the Crafting Table, Campfire (77 logs) and Spinning Wheel;
   - still there, SE: foundation 23 at (96.21,1847.14) with the Tannery;
   - plots at x 84-87.
+- 14:47Z OPS tools/live_lock.py: the live lock on Claude's body as one shared helper (create-if-absent; stale only when unrefreshed for 5 min AND its pid is gone; 'run <owner> -- <cmd>' holds and refreshes it every 60 s while the command runs). Live 14:46Z a chat-ladder run outlived its unrefreshed lock and a pickup window took it over mid-run.
