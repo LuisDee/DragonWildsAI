@@ -339,12 +339,12 @@ class Executor:
         # Valley, live 17:2xZ); several ("Bramble": Valley and Village) stay the model's call (map_names_like_it)
         leading = best is not None and best.get("match") == "leading" and             len({o.get("name") for o in results if o.get("match") == "leading"}) == 1
         if not best or (best.get("match") not in ("exact", "named") and not leading) or not best.get("position"):
+            best = self._quest_marker(target)
+        if best is None:
             try:  # no exact map name: say which map names share a word with it (the model decides)
                 like = self.places.similar(target, now.get("position"))
             except Exception:
                 like = []
-            best = self._quest_marker(target)
-        if best is None:
             if like:
                 return {**failed, "data": {**(failed.get("data") or {}), "map_names_like_it": like}}
             return failed
@@ -378,10 +378,6 @@ class Executor:
                         + (f" in {where}" if where else ""))                                       # looked to check)
         return {**result, "data": {**data, "resolved": took}}
 
-    def _seen_at_spot(self, name: str, radius: float = 15.0) -> str | None:
-        """After walking to a map spot: is a thing of that name in sight there? (a body read, no model call)"""
-        try:
-            r = self.game.call("look", {"about": name, "radius": radius, "max": 8})
     def _quest_marker(self, target: str) -> dict | None:
         """The map marker of an active quest that the name names, as a map place, from the body's quests read: the
         markers the game's map and compass show for the step ("Windmill Area" for "windmill": live 19:1xZ, Ratcatcher's
@@ -407,6 +403,10 @@ class Executor:
                 "distance_m": m.get("distance_m"), "you_are_inside": bool(m.get("inside")), "source": "quest_marker",
                 "basis": f"an area of {area:.0f} m radius on the quest map" if area else "its spot on the quest map"}
 
+    def _seen_at_spot(self, name: str, radius: float = 15.0) -> str | None:
+        """After walking to a map spot: is a thing of that name in sight there? (a body read, no model call)"""
+        try:
+            r = self.game.call("look", {"about": name, "radius": radius, "max": 8})
         except Exception:
             return None
         if not r.get("ok"):
