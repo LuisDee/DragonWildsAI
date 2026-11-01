@@ -100,6 +100,7 @@ M.cfg = {
     stuck_window_s = 1.0,      -- progress is measured over this window
     stuck_min_cm = 50,         -- less 2D movement than this in a window, while pushing = stuck
     give_up_s = 5.0,           -- no PROGRESS for this long (planning time excluded) -> the escape ladder (give_up)
+    detour_s = 20,             -- go_to: waypoints reached stop counting as progress after this long no closer to the goal
     progress_cm = 150,         -- progress = moved this much TOWARD the goal, or a point reached.
                                -- A jump/strafe wobble in place (live 17:52), a backtrack, or sliding
                                -- along a wall is not progress.
@@ -168,6 +169,8 @@ M.cfg = {
     progress_gain_m = 0.5,
     progress_moving_m = 3,     -- target moved this far since the best distance = it is running away (cant_catch)
     deadline_cap_s = 285,      -- go_to deadline ceiling (client_bridge GOTO_TIMEOUT_S = 290)
+    trip_progress_s = 20,      -- a go_to longer than trip_progress_min_cm writes a progress line this often (ISSUES C2:
+    trip_progress_min_cm = 4000, -- 147 s silent on a 274 m walk): client_io/events/move.jsonl {"type":"trip_progress"}
     mem_goal_reach_cm = 600,   -- a remembered route "reaches" the goal when its last point is this close (same level)
     mem_goal_factor = 12,      -- ... and may be this many times the straight distance (+20 m): the direct way failed
 }
@@ -331,6 +334,9 @@ end
 -- successful non-walk local-plan edges, one JSON line each, metres.
 local EVENTS = ROOT .. "/client_io/events/traversal.jsonl"
 local MOVE_EVENTS = ROOT .. "/client_io/events/move.jsonl"
+local okw, walltime = pcall(require, "walltime") -- ms ts (telemetry item 5)
+-- (an older walltime in the client's require cache may lack now: inventory.lua's stale-cache note, 2026-11-01 13:3x)
+local function now_ts() return okw and type(walltime) == "table" and type(walltime.now) == "function" and walltime.now() or os.time() end
 local function m3s(p) return p and string.format("[%.2f,%.2f,%.2f]", p.X / 100, p.Y / 100, p.Z / 100) or "null" end
 local function emit_move_event(kind, fields)
     local f = io.open(MOVE_EVENTS, "a")
@@ -341,7 +347,7 @@ local function emit_move_event(kind, fields)
         fields.target = st.target_name or "point"
         fields.target_kind = st.target_kind or "point"
     end
-    local parts = { string.format('"type":"%s"', kind), string.format('"ts":%d', os.time()),
+    local parts = { string.format('"type":"%s"', kind), string.format('"ts":%.3f', now_ts()),
         string.format('"iso":"%s"', os.date("!%Y-%m-%dT%H:%M:%SZ")) }
     for k, x in pairs(fields) do
         if type(x) == "table" and x.X then parts[#parts + 1] = string.format('"%s":%s', k, m3s(x))
@@ -355,9 +361,9 @@ local function emit_self_edge(st, a, b, move)
     local f = io.open(EVENTS, "a")
     if not f then return end
     local h = math.deg(math.atan(b.Y - a.Y, b.X - a.X))
-    f:write(string.format('{"type":"self_edge","move":"%s","from":[%.2f,%.2f,%.2f],"to":[%.2f,%.2f,%.2f],"heading_deg":%.1f,"runup_m":0,"sprint":false,"dz_m":%.2f,"gap_m":%.2f,"ts":%d,"iso":"%s"}\n',
+    f:write(string.format('{"type":"self_edge","move":"%s","from":[%.2f,%.2f,%.2f],"to":[%.2f,%.2f,%.2f],"heading_deg":%.1f,"runup_m":0,"sprint":false,"dz_m":%.2f,"gap_m":%.2f,"ts":%.3f,"iso":"%s"}\n',
         move, a.X / 100, a.Y / 100, a.Z / 100, b.X / 100, b.Y / 100, b.Z / 100, h, (b.Z - a.Z) / 100,
-        d2(a, b) / 100, os.time(), os.date("!%Y-%m-%dT%H:%M:%SZ")))
+        d2(a, b) / 100, now_ts(), os.date("!%Y-%m-%dT%H:%M:%SZ")))
     f:close()
     st.self_edges = (st.self_edges or 0) + 1
 end
@@ -753,16 +759,20 @@ local function record_crumb(st, p)
     if #c > M.cfg.crumb_cap then
         table.remove(c, 1)
         if st.trail_i then st.trail_i = math.max(1, st.trail_i - 1) end
+        if st.trail_above_i then st.trail_above_i = math.max(0, st.trail_above_i - 1) end
         if st.crumb_mark then st.crumb_mark = math.max(0, st.crumb_mark - 1) end
     end
 end
 
 -- Nearest crumb at OUR level (|dz| <= 1 m): a crumb on a ledge 3.3 m above is not "near"
 -- (live 18:52: the trail index jumped 2 -> 21 along crumbs all 3.3 m overhead). nil if none.
-local function nearest_crumb(c, me)
+local function nearest_crumb(c, me, from_i)
     -- after a leader super-jump gap, prefer the part of the trail beyond it when any of it is at our level
     local g = 0
     for i = #c, 1, -1 do if c[i].gap then g = i; break end end
+    -- of the crumbs at our level within 3 m of the nearest, the one with the shortest way to him (straight to it,
+    -- then his trail): the nearest alone is often one he left behind (ladder 2026-11-01: re-entering at a crumb
+    -- 2 m back walked Claude back up a drop he had just taken)
     local function search(from)
         local best, bi = math.huge, nil
         for i = from, #c do
@@ -772,8 +782,19 @@ local function nearest_crumb(c, me)
                 if d < best then best, bi = d, i end
             end
         end
-        return bi
+        if not bi then return nil end
+        local rem, score, pick = 0, math.huge, bi
+        for i = #c, from, -1 do
+            if i < #c then rem = rem + d2(c[i], c[i + 1]) end
+            local p = c[i]
+            if not p.air and not p.gap and math.abs(me.Z - p.Z) <= 100 then
+                local d = d2(me, p)
+                if d <= best + 300 and d + rem < score then score, pick = d + rem, i end
+            end
+        end
+        return pick
     end
+    if from_i and from_i > g + 1 then return search(from_i) end
     return (g > 0 and search(g + 1)) or search(1)
 end
 
@@ -1108,6 +1129,20 @@ local function height_reason(st, rise_cm, who, t)
     return who .. "_above_jump_height"
 end
 
+-- Over the carry weight (UPlayerEncumbranceComponent, read-only getters): the game's encumbered penalty slows him to
+-- 0.6 x walk (2.7 m/s), and sprint and jumps fail (live 2026-11-01 13:18Z: 446.5 of 300 after a grave pickup, the
+-- recorder read 2.70 m/s, "a double jump never left the ground"). {on, cur, max} or nil when unreadable.
+local function encumbrance(pawn)
+    local ok, ec = pcall(function() return pawn.PlayerEncumbranceComponent end)
+    if not (ok and ec and ec:IsValid()) then return nil end
+    local ok1, on = pcall(function() return ec:IsEncumbered() end)
+    if not ok1 or type(on) ~= "boolean" then return nil end
+    local ok2, cur = pcall(function() return ec:GetCurrentCarryWeight() end)
+    local ok3, mx = pcall(function() return ec:GetMaxCarryWeight() end)
+    return { on = on, cur = ok2 and tonumber(cur) or nil, max = ok3 and tonumber(mx) or nil }
+end
+local function heavy(st) return st.enc ~= nil and st.enc.on == true end
+
 local function lp_begin(st, pawn, me, far, why, log, observe)
     local LP = lp_module()
     if not LP then return false end
@@ -1127,8 +1162,14 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
     end
     local trace = observe and make_observation_trace(st,pawn,me,hh,valid) or make_trace(st,pawn)
     if not valid() then return false end
+    local penv = st.env
+    if heavy(st) then -- encumbered: jumps fail, so no jump edges (a copy: the envelope comes back once he is lighter)
+        penv = {}
+        for k, x in pairs(st.env) do penv[k] = x end
+        penv.jump, penv.djump, penv.superjump = 0, 0, nil
+    end
     local planner = LP.new({ trace = trace, center = v(me), feet_z = me.Z - hh,
-        radius_m = M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = st.env,
+        radius_m = M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = penv,
         cache = not observe and lp_cache() or nil, now = function() return now(pawn) end, self_pos = v(me),
         cell_cost = not observe and function(x, y, fz)
             local mem, NMm = nav_mem()
@@ -1256,6 +1297,7 @@ end
 -- One row per go_to/follow in client_io/events/trips.jsonl, and ONE plain sentence on the result (result.trip),
 -- computed from what the body measured: start/end, metres walked, closest approach, "moving away", where the
 -- walkable map (oracle route) ended, falls, and whether the navigation helper was there at all.
+
 local TRIPS = ROOT .. "/client_io/events/trips.jsonl"
 local function m1(x) return math.floor(x * 10 + 0.5) / 10 end
 local function trip_report(st, result)
@@ -1288,6 +1330,10 @@ local function trip_report(st, result)
     if okE and type(endu) == "number" and endu <= 0.5 then
         bits[#bits + 1] = "I'm exhausted (endurance 0): no sprinting and my jumps fail until I rest in a bed or shelter"
     end
+    if heavy(st) then
+        bits[#bits + 1] = string.format("I'm carrying too much (%.0f of %.0f weight): I can only walk slowly, and I can't sprint or jump until I drop or store some",
+            st.enc.cur or 0, st.enc.max or 0)
+    end
     local fb = st.nav_fallback
     local nav_down = fb == "oracle_unavailable" or fb == "oracle_timeout"
     if nav_down then bits[#bits + 1] = "the navigation helper was unavailable, so I steered by what I could see" end
@@ -1305,7 +1351,8 @@ local function trip_report(st, result)
     local function pm(q) return q and { m1(q.X / 100), m1(q.Y / 100), m1(q.Z / 100) } or nil end
     local src = {}
     for k, x in pairs(tr.src_t) do src[k] = m1(x) end
-    local row = { type = "trip", id = st.cmd_id, ts = os.time(), iso = os.date("!%Y-%m-%dT%H:%M:%SZ"), mode = st.mode, status = result.status,
+    local act = rawget(_G, "__dwc_act")
+    local row = { type = "trip", id = st.cmd_id or (type(act) == "table" and act.act or nil), ts = now_ts(), iso = os.date("!%Y-%m-%dT%H:%M:%SZ"), mode = st.mode, status = result.status,
         reason = result.reason, gen = st.gen, target = st.target_name, start = pm(tr.start), ["end"] = pm(tr.last), goal = pm(tr.goal),
         d0_m = m1(tr.d0 / 100), end_m = m1(endd / 100), closest_m = m1(tr.best / 100), walked_m = m1(moved), s = m1(secs),
         sprint_s = m1(tr.sprint_t), src_s = src, zmin_m = m1(tr.zmin / 100), zmax_m = m1(tr.zmax / 100),
@@ -1345,6 +1392,11 @@ finish = function(st, result, log)
         -- an outage is an outage: never "stuck"/"unreachable" (-> path_blocked) when the helper was not there
         if nav_down and result.status == "failed" and (result.reason == "stuck" or result.reason == "unreachable" or result.reason == "timeout") then
             result.why, result.reason = result.reason, "nav_unavailable"
+        end
+        -- over his carry weight is the true cause of a stalled walk (no jumps, 0.6x speed), before any route outage
+        if heavy(st) and result.status == "failed" and (result.reason == "stuck" or result.reason == "unreachable" or
+            result.reason == "timeout" or result.reason == "nav_unavailable") then
+            result.why, result.reason = result.why or result.reason, "encumbered"
         end
         -- MOVE_None for the whole failed attempt: still lying down after a rest whose bed/shelter is gone (live 21:34:
         -- teleported out of a shelter, every go_to "stuck" at 0 m). Not checked at start: right after a teleport the
@@ -1391,6 +1443,7 @@ life_check = function(st, pawn)
     if hp <= 0 then return false, "companion_down", "character has no health" end
     return true
 end
+
 
 local function ground_check(pawn)
     local ok, ground = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
@@ -1488,6 +1541,7 @@ local function progress_view(st)
         local walls = st.lp_fail == "verify_exhausted" or st.lp_fail == "unreachable_in_window" or (st.stuck_n or 0) > 0 or st.bug ~= nil
         local reach = ((st.env and st.env.jump) or 165) + 60
         if st.status == "target_not_visible" then return "target_not_visible" end
+        if heavy(st) then return "encumbered" end
         if moved > P.moving_cm then return "cant_catch" end
         -- the goal was out of jump reach from the start, and he got no closer: that height is the reason
         -- (which move would reach it and what he lacks: double jump / Windstep, height_verdict)
@@ -1528,7 +1582,8 @@ local function step_tol(st) return math.max((st.env and st.env.step or 45) + 20,
 local function jump_cm(st) return (st.env and st.env.jump) or 165 end
 local function face(pc, from, to) pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(to.Y - from.Y, to.X - from.X)), Roll = 0 }) end
 local function note(st, text) st.trip_notes = st.trip_notes or {}; st.trip_notes[#st.trip_notes + 1] = text end
-local function restart_progress(st, t, me) st.prog_t, st.prog_pos, st.move_acc, st.bt_tested = t, v(me), 0, nil end
+-- (a new escape or route also gets a fresh detour budget: st.best_t)
+local function restart_progress(st, t, me) st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.best_t, st.detour_spent = t, v(me), 0, nil, t, nil end
 -- a stuck spot: whatever gets him away from here is learned as its trap exit (trap_tick)
 local function mark_trap(st, me) _G.DW_TRAP_CAND = { at = feet_of(st, me), toward = st.aim and feet_of(st, st.aim) or nil, t = os.time() } end
 
@@ -1651,6 +1706,12 @@ local function track_goal(f)
         st.crumbs, st.crumb_mark = {}, 0
     end
     st.last_goal = v(goal)
+    -- the leader's ground speed over >= 0.3 s windows (follow sprint matching)
+    if not st.lv_t or t < st.lv_t then st.lv_t, st.lv_pos = t, v(goal)
+    elseif t - st.lv_t >= 0.3 then
+        st.leader_cms = d2(goal, st.lv_pos) / (t - st.lv_t)
+        st.lv_t, st.lv_pos = t, v(goal)
+    end
     -- a map marker is no trail (coarse samples, no ground/jump state): crumbs only from a pawn in sight
     if st.target_kind ~= "actor" and via ~= "map" then watch_leader(st, goal, t, log) end
     st.target_pos = goal
@@ -1675,6 +1736,22 @@ local function trip_tick(f)
         if st.sprinting then tr.sprint_t = tr.sprint_t + dt end
     end
     tr.last, tr.goal, tr.t1, tr.dist = v(me), v(goal), t, dist
+    -- a progress line on a long walk (every trip_progress_s): how far is left, the pace, and an honest "slowed" cause
+    if st.mode == "go_to" and tr.d0 > M.cfg.trip_progress_min_cm then
+        tr.prog_t = tr.prog_t or t
+        if t - tr.prog_t >= M.cfg.trip_progress_s then
+            local span = t - tr.prog_t
+            local pace = (tr.prog_d and span > 0) and (tr.prog_d - dist) / span / 100 or nil
+            tr.prog_t, tr.prog_d = t, dist
+            local left = math.floor(dist / 100 + 0.5)
+            local text = string.format("Walking: %d m to go of %d", left, math.floor(tr.d0 / 100 + 0.5))
+            if pace and pace > 0.5 then text = text .. string.format(", about %d s more at %.1f m/s", math.floor(left / pace + 0.5), pace)
+            elseif pace then text = text .. ", but I'm barely getting closer" end
+            if heavy(st) then text = text .. " (I'm carrying too much, so I can only walk)" end
+            pcall(emit_move_event, "trip_progress", { text = text, left_m = left, total_m = math.floor(tr.d0 / 100 + 0.5),
+                pace_ms = pace and math.floor(pace * 10 + 0.5) / 10 or nil, my_pos = me })
+        end
+    end
     local okf, falling = pcall(function() return pawn.CharacterMovement:IsFalling() end)
     if okf and falling then tr.air_top = math.max(tr.air_top or me.Z, me.Z)
     elseif okf and tr.air_top then
@@ -1817,10 +1894,40 @@ local function route_observe(f, world)
     if not st.local_authority then return true end
 end
 
+-- A follow of a leader in sight walks his own trail (breadcrumbs at our level, no Windstep gap ahead): it needs no
+-- route, so it never stands waiting for the oracle while he moves. (Movement ladder 2026-11-01, follow_church_loop:
+-- every time he passed 10 m the old rule required an oracle route, and each 3 m he moved dropped it and re-asked:
+-- Claude stood "planning" while the gap grew 9 -> 21 m.) The breadcrumb-follow companion pattern; mineflayer's
+-- GoalFollow re-paths to a moving entity instead, which is what stood still here.
+local function trail_led(st, me)
+    if st.mode ~= "follow" or st.target_via ~= "sight" or #st.crumbs < 2 then return false end
+    local from = st.trail_i or nearest_crumb(st.crumbs, me)
+    if not from then return false end
+    -- his trail from here on must be one he walked: no Windstep gap, no jump of > 5 m between two samples (a
+    -- relevancy pop-in or a hitch: no path in between), else the route decides as before
+    for k = from, #st.crumbs do
+        local c = st.crumbs[k]
+        if c.gap or (k > from and d2(st.crumbs[k - 1], c) > 500) then return false end
+    end
+    return true
+end
+
 -- Long trips (beyond oracle_primary_cm, or above jump height) ask the nav oracle first and steer by its admitted
 -- route. No route (oracle absent, no_path, a route that ends short) falls back to local planning (route_fallback).
 local function route_tick(f)
     local st, gen, pc, pawn, t, me, goal, dist, log = f.st, f.gen, f.pc, f.pawn, f.t, f.me, f.goal, f.dist, f.log
+    if trail_led(st, me) and not st.ws_exec and not st.link_exec and not st.local_authority then
+        if st.nav_required or st.nav_pending or st.nav_deferred_required or st.path then
+            -- (a route asked before he moved ends where he WAS: steering by it later walked Claude back to the
+            -- leader's start, live 15:54:57, 54 m the wrong way)
+            st.nav_required, st.nav_deferred_required, st.nav_pending, st.nav_wait_t, st.nav_goal = nil, nil, nil, nil, nil
+            st.path, st.wp, st.nav_binding = nil, nil, nil
+            if log then log("move: following his trail (he is in sight); no route needed") end
+        end
+        st.trail_led = true
+        return
+    end
+    st.trail_led = nil
     local route_far = dist > M.cfg.oracle_primary_cm or (goal.Z - me.Z) > (jump_cm(st) + 20)
     if st.use_nav ~= false and not st.nav_required and not st.nav_fallback and (route_far or st.nav_deferred_required) then
         if st.ws_exec or st.link_exec or st.jump_t then
@@ -2211,10 +2318,12 @@ local function trail_entry(f)
     if st.nav_required or not st.target or st.trail_i or #st.crumbs < 2 then return end
     local nav_bad = (path and st.path_partial and st.wp > #path) and dist > M.cfg.trail_min_dist_cm
     local above = (goal.Z - me.Z) > (jump_cm(st) + 100) and dist < 1500
-    if nav_bad or above or st.want_trail or st.stuck_n >= M.cfg.trail_enter_stuck then
+    local led = st.trail_led and dist > st.tol_cm + 100
+    if nav_bad or above or led or st.want_trail or st.stuck_n >= M.cfg.trail_enter_stuck then
         st.want_trail = false
-        st.trail_i = nearest_crumb(st.crumbs, me)
+        st.trail_i = nearest_crumb(st.crumbs, me, st.trail_above_i and st.trail_above_i + 1)
         if st.trail_i then
+            st.trail_above_i = nil
             st.trail_entries = (st.trail_entries or 0) + 1
             if log then log(string.format("move: trail ON i=%d/%d", st.trail_i, #st.crumbs)) end
         end
@@ -2512,6 +2621,39 @@ local function steer_trail(f)
         return
     end
     local cr = st.crumbs[st.trail_i]
+    -- his jump we already tried here and missed: back on the ground at the take-off, below where he landed
+    local top, missed = cr, false
+    if cr.air and st.trail_jumped[cr] and st.trail_jump_t and t - st.trail_jump_t > 0.8 and d2(me, cr) < 250 then
+        local k = st.trail_i
+        while k < #st.crumbs and st.crumbs[k].air do k = k + 1 end
+        top = st.crumbs[k]
+        missed = not top.air and top.Z - me.Z > step_tol(st) + 40
+    end
+    if (missed or (not cr.air and not cr.gap and d2(me, cr) < 250 and cr.Z - me.Z > step_tol(st) + 40 + 0.9 * d2(me, cr)))
+        and (not st.jump_t or t - st.jump_t > 0.6) and ground_check(pawn) == true then -- (a ramp or stairs is no wall)
+        cr = top
+        -- he walks on top of something we did not get onto (a jump of his we missed or lack): his trail where it
+        -- comes back down to our level, round the obstacle (the stuck ladder plans if the way is blocked); while he
+        -- is still up there, walk below him (straight at him, the local planner round what is in the way)
+        local found = false
+        for k = st.trail_i + 1, #st.crumbs do
+            local q = st.crumbs[k]
+            if q.gap then break end
+            if not q.air and math.abs(q.Z - me.Z) <= 100 and d2(me, q) > 150 then
+                if log then log(string.format("move: trail: his path goes %.1f m up here; skipping to where it comes back down (i=%d -> %d)",
+                    (cr.Z - me.Z) / 100, st.trail_i, k)) end
+                st.trail_i, st.trail_skips = k, (st.trail_skips or 0) + 1
+                cr, found = q, true
+                break
+            end
+        end
+        if not found then
+            if log then log(string.format("move: trail: his path goes %.1f m up here; walking below him until it comes down",
+                (cr.Z - me.Z) / 100)) end
+            st.trail_above_i, st.trail_i, st.trail_skips = st.trail_i, nil, (st.trail_skips or 0) + 1
+            return
+        end
+    end
     f.aim, f.src = cr, "trail"
     if cr.gap then
         local prev = st.crumbs[st.trail_i - 1]
@@ -2519,13 +2661,19 @@ local function steer_trail(f)
         if d2(me, f.aim) < 150 then st.status = "holding"; st.win_t, st.win_pos = t, v(me); st.hold_gap = true end
     end
     if cr.air and d2(me, cr) < 150 and not st.trail_jumped[cr] then
-        local jr = start_jump(st, t, pawn, false, log)
+        -- where he landed above our single jump's reach, double jump (when we have it)
+        local k = st.trail_i
+        while k < #st.crumbs and st.crumbs[k].air do k = k + 1 end
+        local land = st.crumbs[k]
+        st.env = st.env or envelope(pawn, f.pc)
+        local dbl = land and not land.air and (land.Z - me.Z) > jump_cm(st) - 20 and st.env and st.env.double_jump or false
+        local jr = start_jump(st, t, pawn, dbl, log)
         if jr == "accepted" then
             for k = st.trail_i, #st.crumbs do
                 if not st.crumbs[k].air then break end
                 st.trail_jumped[st.crumbs[k]] = true
             end
-            st.trail_jumps = (st.trail_jumps or 0) + 1
+            st.trail_jumps, st.trail_jump_t = (st.trail_jumps or 0) + 1, t
         elseif jr ~= "busy" then return true end
     end
 end
@@ -2685,14 +2833,15 @@ local function probe(f)
         local zh = me.Z - hh + jump_cm(st) - 30
         local okh, hh2 = pcall(raw_trace, pawn, { X = a.X, Y = a.Y, Z = zh }, { X = b.X, Y = b.Y, Z = zh })
         st.traces = (st.traces or 0) + 1
-        if okh and not hh2 then
+        if okh and not hh2 and not heavy(st) then
             low = true
             st.probe_t = t - M.cfg.probe_every_s + 0.05 -- watch it closely until we jump
             if 60 + (tonumber(out.Distance) or 999) < M.cfg.hop_dist_cm and not st.jump_t then
                 local jr = start_jump(st, t, pawn, false, log)
                 if jr == "accepted" then st.hops = (st.hops or 0) + 1; if log then log("move: hop over a low obstacle") end elseif jr ~= "busy" then return true end
             end
-        elseif lp_begin(st, pawn, me, far_goal(f), "wall_ahead", log) then
+        elseif src ~= "trail" and st.use_lp and lp_begin(st, pawn, me, far_goal(f), "wall_ahead", log) then
+            -- (on his trail a wall ahead is a corner he walked round: the trail turns, no standing plan)
             st.status = "planning"
             return true
         end
@@ -2790,12 +2939,34 @@ end
 -- press for up to 10 frames, then release and wait sprint_retry_s for the server's ack before pressing again.
 local function sprint_tick(f)
     local st, pawn, t = f.st, f.pawn, f.t
+    local lv = st.leader_cms or 0
     if st.sprint_force then st.sprint_want = true
+    elseif st.mode == "follow" and st.sprint then
+        -- match the leader: sprint when he runs (> 5 m/s) or the gap opens 2.5 m past the follow distance; a walk
+        -- behind a 6.8 m/s sprint loses 2.3 m/s (ladder 2026-11-01: 48 m behind at the end)
+        if f.dist > st.tol_cm + 250 or (lv > 500 and f.dist > st.tol_cm + 50) then st.sprint_want = true
+        elseif f.dist < st.tol_cm + 50 or (lv < 300 and f.dist < st.tol_cm + 150) then st.sprint_want = false end
     elseif f.dist > M.cfg.sprint_on_cm and st.sprint then st.sprint_want = true
     elseif f.dist < M.cfg.sprint_off_cm then st.sprint_want = false end
     local sprinting = is_sprinting(pawn)
+    if st.sprinting and not sprinting and f.log then
+        -- what ends a sprint (telemetry: the follow ladder saw 31 presses in 80 s)
+        local yaw = math.deg(math.atan(f.dy or 0, f.dx or 1))
+        f.log(string.format("move: sprint dropped src=%s jump=%s stuck=%d turn=%.0f want=%s air=%s", tostring(f.src),
+            tostring(st.jump_t ~= nil), st.stuck_n or 0, st.spr_yaw and ((yaw - st.spr_yaw + 540) % 360 - 180) or 0,
+            tostring(st.sprint_want), tostring(ground_check(pawn) == false)))
+    end
+    st.spr_yaw = math.deg(math.atan(f.dy or 0, f.dx or 1))
     st.sprinting, f.sprinting = sprinting, sprinting
-    if not (st.sprint_want and st.stuck_n == 0 and not st.jump_t and f.src ~= "local") then return end
+    -- a jump ends the sprint (live 14:52: 8 of 10 drops were jumps/hops, each one ~2 s at walking pace while the
+    -- jump's 1.2 s bookkeeping ran out): press again 0.15 s after landing, not after the jump bookkeeping
+    local jumping = st.jump_t ~= nil
+    if not jumping then st.spr_land_t = nil
+    elseif not st.jump_double and not st.jump_t2 and t - st.jump_t > 0.35 and ground_check(pawn) == true then
+        st.spr_land_t = st.spr_land_t or t
+        jumping = t - st.spr_land_t < 0.15
+    end
+    if not (st.sprint_want and st.stuck_n == 0 and not jumping and f.src ~= "local") or heavy(st) then return end
     if not press_to_sprint(st) then inject_sprint(st, pawn); return end
     if sprinting then st.sprint_hold = 0; return end
     st.sprint_hold = (st.sprint_hold or 0) + 1
@@ -2862,20 +3033,21 @@ local function stuck_tick(f)
             elseif jr ~= "busy" then return true end
         end
     end
-    if st.use_lp and not planned and n == 1 and may_plan(st, t) then
+    local on_trail = f.src == "trail"
+    if st.use_lp and not planned and n == (on_trail and 2 or 1) and may_plan(st, t) then
         st.lpath = nil
         planned = lp_begin(st, pawn, me, far_goal(f), "stuck", log)
     end
     if not planned then
         st.env = st.env or envelope(pawn, pc)
-        local jr = start_jump(st, t, pawn, n >= 2 and st.env.double_jump, log)
-        if jr ~= "accepted" and jr ~= "busy" then return true end
+        local jr = heavy(st) and "skipped" or start_jump(st, t, pawn, n >= 2 and st.env.double_jump, log) -- encumbered: no jumps
+        if jr ~= "accepted" and jr ~= "busy" and jr ~= "skipped" then return true end
         if n >= 3 then
             st.strafe_dir = (n % 2 == 0) and 1 or -1
             st.strafe_until = t + 0.7
             if st.trail_i then st.trail_i = nearest_crumb(st.crumbs, me) end
         end
-        if n == M.cfg.backtrack_after and not st.backtrack_until then
+        if n == M.cfg.backtrack_after and not st.backtrack_until and not on_trail then
             local back, acc = trail_back(st.self_crumbs, M.cfg.backtrack_cm)
             if back and acc >= 100 then
                 st.backtrack_pt, st.backtrack_until = back, t + M.cfg.backtrack_s
@@ -2934,7 +3106,8 @@ end
 local function report_unreachable(f, needs, at)
     local st, pawn, t, me, goal, dist, log = f.st, f.pawn, f.t, f.me, f.goal, f.dist, f.log
     local reason
-    if needs then reason = needs                                -- e.g. "needs:DoubleJump" (a known link needs a move he lacks)
+    if heavy(st) then reason = "encumbered"                     -- over his carry weight: no jumps, the true cause
+    elseif needs then reason = needs                            -- e.g. "needs:DoubleJump" (a known link needs a move he lacks)
     elseif st.leader_superjump_t and t - st.leader_superjump_t < 30 then reason = "leader_windstepped"
     elseif st.leader_dj_t and t - st.leader_dj_t < 30 and not (st.env and st.env.double_jump) then reason = "leader_double_jumped"
     else
@@ -2985,7 +3158,19 @@ local function give_up(f)
     local gx, gy = goal.X - st.prog_pos.X, goal.Y - st.prog_pos.Y
     local gl = math.max(math.sqrt(gx * gx + gy * gy), 1)
     local toward = ((me.X - st.prog_pos.X) * gx + (me.Y - st.prog_pos.Y) * gy) / gl
-    if toward >= M.cfg.progress_cm or f.idxp then
+    -- DETOUR BUDGET (go_to): a waypoint reached counts as progress only while he got progress_cm closer to the goal
+    -- within detour_s. Local plans are re-made each time, so their indices advance forever in a loop (live 2026-11-01
+    -- 14:23-14:26: memory route -> wall -> local plan away -> memory route back to the same wall, 3 min, never gave up;
+    -- co-play B5 "walking into a rock edge for over a minute"). The oracle's route is one global plan: exempt.
+    if not st.best_d or dist < st.best_d - M.cfg.progress_cm then st.best_d, st.best_t = dist, t end
+    local detour_ok = f.idxp and (st.mode ~= "go_to" or f.src == "nav" or t - st.best_t < M.cfg.detour_s)
+    if f.idxp and not detour_ok and not st.detour_spent then
+        st.detour_spent = true
+        if log then log(string.format("move: no closer to the goal in %.0f s (best %.0f m, now %.0f m; src=%s): detour budget spent",
+            t - st.best_t, st.best_d / 100, dist / 100, tostring(f.src))) end
+        note(st, string.format("I went round in circles for %.0f s without getting closer", t - st.best_t))
+    end
+    if toward >= M.cfg.progress_cm or detour_ok then
         st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.bt_pos = t, v(me), 0, nil, nil
         if toward >= M.cfg.progress_cm then st.lp_plans_np = 0 end
         return
@@ -3018,7 +3203,7 @@ local function give_up(f)
         st.bug_tried = true
         st.bug = { s = v(me), hit_d = dist, t0 = t, travel = 0, dir = 1, switched = false,
             yaw = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)) + 35 }
-        st.prog_t, st.prog_pos, st.move_acc = t, v(me), 0
+        restart_progress(st, t, me)
         st.lpath, st.trail_i, st.mpath = nil, nil, nil
         if log then log("move: bug2 wall-following from " .. fmt(me)) end
         return true
@@ -3032,7 +3217,7 @@ local function give_up(f)
         if okb and link then
             st.link_tries = (st.link_tries or 0) + 1
             st.link_exec = { link = link, phase = "approach", t0 = t }
-            st.prog_t, st.prog_pos, st.move_acc = t, v(me), 0
+            restart_progress(st, t, me)
             if log then log(string.format("move: trying learned link %s (%s, cost %.1fm)", tostring(link.id), tostring(link.move), tonumber(link.cost_m) or -1)) end
             return true
         elseif okb and type(info) == "string" and info:sub(1, 6) == "needs:" then
@@ -3055,6 +3240,7 @@ local function tick(st, gen, log)
     st.last_t = t
     local me = pawn:K2_GetActorLocation()
     st.ticks = st.ticks + 1
+    if not st.enc_t or t - st.enc_t > 2 or t < st.enc_t then st.enc_t, st.enc = t, encumbrance(pawn) end
     if st.ws_exec and (st.lpath ~= st.ws_exec.path or st.lwp ~= st.ws_exec.index
         or not st.lpath or st.lpath[st.lwp] ~= st.ws_exec.endpoint or st.lpath[st.lwp].act ~= "superjump") then
         return finish(st, { status = "failed", reason = "windstep_interrupted", detail = "planned traversal changed before landing" }, log)
@@ -3316,6 +3502,8 @@ local function start(log, mode, opts)
         st.goal = { X = g[1] * 100, Y = g[2] * 100, Z = g[3] * 100 }
     else
         st.target, st.target_kind = resolve_target(g, pawn)
+        -- a stand-in leader (the movement ladder's ghost_leader.lua) is followed like a player: crumbs, jumps
+        if opts.as_player and st.target then st.target_kind = "player" end
         local okn, n = pcall(function() return st.target and st.target:GetFullName():match("([%w_]+)$") end)
         st.target_name = type(g) == "string" and g or (okn and n) or "actor"
         st.target_spec = type(g) == "string" and g or st.target_name
@@ -3639,6 +3827,11 @@ local WHY = {
     leader_far = function(th) return be(th) .. " too far away (a teleport?); I'd need a lodestone to catch up" end,
     target_not_visible = function(th) return "I can't see " .. (th == "you" and "you" or th) .. " any more" end,
     wedged = function() return "I'm wedged and can't move" end,
+    encumbered = function()
+        local e = (rawget(_G, "DW_MOVE") or {}).enc
+        local w = (e and e.cur and e.max) and string.format(" (%.0f of %.0f weight)", e.cur, e.max) or ""
+        return "I'm carrying too much" .. w .. ", so I can only walk slowly and can't jump until I drop or store some"
+    end,
     stuck = function() return "I keep getting stuck on the way" end,
     blocked = function() return "something is in the way (I keep bumping into it)" end,
     no_progress = function() return "I'm not getting any closer" end,

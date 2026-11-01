@@ -2508,6 +2508,109 @@ do
     M.stop(log); frame_hook = nil; oracle = nil; pump_oracle()
     FindAllOf = base_find; pawn.PlayerState = nil; ps_luis.PawnPrivate = luis; _G.DWMapPlayers = nil
 end
+-- MOVEMENT LADDER (2026-11-01): a follow of a leader in sight walks his trail. A slow oracle (answers never come)
+-- must not make him stand "planning" once the leader is beyond 10 m; he sprints to match a running leader; where
+-- the leader climbs onto something out of reach, Claude takes the trail where it comes back down.
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; HOLES = nil; air = 0; sprinting = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 300, Y = 0, Z = 0 }; ps_luis.PawnPrivate = luis
+    oracle = function() return nil end; pump_oracle() -- alive, but never answers
+    frame_hook = function() luis.loc.X = luis.loc.X + 650 * DT end -- he runs east at 6.5 m/s
+    M.follow(log, "Zezima", 3)
+    local planning, far_n, near_n, n = 0, 0, 0, 0
+    for _ = 1, 150 do -- 15 s
+        run(1)
+        local st = _G.DW_MOVE
+        local d = math.sqrt((luis.loc.X - pawn.loc.X) ^ 2 + (luis.loc.Y - pawn.loc.Y) ^ 2)
+        n = n + 1
+        if d <= 600 then near_n = near_n + 1 end
+        if d > 1000 then far_n = far_n + 1 end
+        if st.status == "planning" then planning = planning + 1 end
+    end
+    local st = _G.DW_MOVE
+    check("trail follow: no oracle wait behind a running leader", planning == 0 and far_n == 0 and st.trail_led == true,
+        string.format("planning=%d far=%d led=%s nav_required=%s", planning, far_n, tostring(st.trail_led), tostring(st.nav_required)))
+    check("trail follow: sprints to match him (within 6 m 90%+)", near_n / n >= 0.9 and (st.sprint_presses or 0) >= 1,
+        string.format("near=%d/%d presses=%s", near_n, n, tostring(st.sprint_presses)))
+    -- he hops onto a 2.4 m crate (out of Claude's single-jump reach), walks along it and comes down: Claude goes
+    -- round below and picks up the trail where it comes down
+    M.stop(log); frame_hook = nil; sprinting = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 300, Y = 0, Z = 0 }
+    raised = { { 1000, 1600, -150, 150, 240, 240 } } -- crate x 10-16 m, y +-1.5 m, 2.4 m high
+    local lx = 300
+    frame_hook = function()
+        if lx < 2400 then lx = lx + 450 * DT end
+        luis.loc.X, luis.loc.Y = lx, 0
+        luis.loc.Z = (wall_top(lx, 0) or FLOOR) + 90
+    end
+    M.follow(log, "Zezima", 3, { local_plan = true })
+    run(200)
+    local s2 = M.status()
+    local d2 = math.sqrt((luis.loc.X - pawn.loc.X) ^ 2 + (luis.loc.Y - pawn.loc.Y) ^ 2)
+    local skipped = false
+    for _, l in ipairs(logs) do if l:find("trail: his path goes") then skipped = true end end
+    check("trail follow: round a crate he hopped over, to him", d2 < 450 and math.abs(pawn.loc.Z - luis.loc.Z) < 60 and skipped,
+        string.format("d=%.0f dz=%.0f status=%s skipped=%s", d2, pawn.loc.Z - luis.loc.Z, tostring(s2.status), tostring(skipped)))
+    M.stop(log); frame_hook = nil; raised = {}; oracle = nil; pump_oracle()
+end
+
+-- the same crate, but he JUMPS onto it (airborne crumbs before the top): Claude tries the jump, misses (2.4 m is out
+-- of his reach) and, back on the ground at the take-off, takes the trail where it comes down instead of pushing on
+do
+    M.stop(log); frame_hook = nil; walls = {}; air = 0; sprinting = false; HAS_DJ = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 300, Y = 0, Z = 0 }; pawn.jumps = 0
+    raised = { { 1000, 1600, -150, 150, 240, 240 } }
+    local lx, l_air = 300, false
+    luis.CharacterMovement = obj({ IsMovingOnGround = function() return not l_air end })
+    frame_hook = function()
+        if lx < 2400 then lx = lx + 450 * DT end
+        l_air = (lx > 850 and lx < 1000) or (lx > 1600 and lx < 1700)
+        luis.loc.X, luis.loc.Y = lx, 0
+        luis.loc.Z = (wall_top(lx, 0) or FLOOR) + 90 + (l_air and 120 or 0)
+    end
+    local n0 = #logs
+    M.follow(log, "Zezima", 3, { local_plan = true })
+    run(220)
+    local s = M.status()
+    local d = math.sqrt((luis.loc.X - pawn.loc.X) ^ 2 + (luis.loc.Y - pawn.loc.Y) ^ 2)
+    local skipped = false
+    for k = n0 + 1, #logs do if logs[k]:find("trail: his path goes") then skipped = true end end
+    check("trail follow: a jump of his he can't make -> round, to him", d < 450 and math.abs(pawn.loc.Z - luis.loc.Z) < 60 and skipped and pawn.jumps >= 1,
+        string.format("d=%.0f dz=%.0f status=%s skipped=%s jumps=%d", d, pawn.loc.Z - luis.loc.Z, tostring(s.status), tostring(skipped), pawn.jumps))
+    M.stop(log); frame_hook = nil; raised = {}; luis.CharacterMovement = nil; oracle = nil; pump_oracle()
+end
+
+-- ENCUMBERED (live 2026-11-01 13:2x: 446.5 of 300 weight): no jump attempts (they fail in game), and the honest reason
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; pawn.jumps = 0; luis.loc = { X = 90000, Y = 90000, Z = 0 } -- nobody near to lead
+    pawn.PlayerEncumbranceComponent = obj({ IsEncumbered = function() return true end,
+        GetCurrentCarryWeight = function() return 446.5 end, GetMaxCarryWeight = function() return 300 end })
+    walls = { { 500, 560, -3000, 3000 } } -- an 80 cm fence across the way (a jump would clear it)
+    M.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, local_plan = false })
+    run(400)
+    local s = M.status()
+    local why = s.result and (tostring(s.result.reason) .. " " .. tostring(s.result.detail)) or tostring(s.status)
+    check("encumbered: no jumps, and the reason says so", pawn.jumps == 0 and why:find("encumbered") ~= nil, "jumps=" .. pawn.jumps .. " " .. why)
+    M.stop(log); pawn.PlayerEncumbranceComponent = nil; walls = {}
+end
+
+-- ISSUES C2 (147 s silent on a 274 m walk): a long go_to writes a progress line every 20 s (move.jsonl trip_progress)
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false
+    os.execute('mkdir "' .. (dir .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
+    os.remove(dir .. "/client_io/events/move.jsonl")
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil; pump_oracle()
+    M.go_to(log, { 200, 0, 0 }, { tolerance_m = 2 })
+    run(450)
+    local f = io.open(dir .. "/client_io/events/move.jsonl")
+    local body = f and f:read("a") or ""; if f then f:close() end
+    local n = 0
+    for line in body:gmatch("[^\n]+") do if line:find('"type":"trip_progress"') then n = n + 1 end end
+    check("long go_to: a progress line every 20 s", n >= 1 and body:find("m to go of 200") ~= nil, "lines=" .. n .. " " .. body:sub(1, 200))
+    M.stop(log)
+end
+
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

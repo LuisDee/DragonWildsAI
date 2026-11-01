@@ -17,6 +17,20 @@ Refuses unless the client is on the local dev server and the live brain is not r
 Rows are appended to logs/evals/travel_ladder.jsonl (one per journey, then one summary row per run).
 Starts/goals are capsule-centre positions where Claude has stood (logs 2026-10-31) or landmark spots
 (data/places_26161880.json).
+
+MOVEMENT LADDER (2026-11-01, co-play B5/B6/B7/B15/C2), judged against a human:
+  * obstacle legs (kind "obstacle"): short go_tos past the log / rock / structure spots where co-play session 1 stuck
+    him. Human time T_h = REACT_S + human_m / V_TRAVEL (Luis's measured baselines, data/baselines/luis-2026-11-01.json:
+    reaction 1.5 s, travel 6.25 m/s); pass = reached and s <= 1.5 x T_h.
+  * follow legs (`--follow`, ids follow_*): a GHOST LEADER replays a recorded human track (the dev recorder's 5 Hz
+    positions of Luis, stored in data/ladder/ghost_tracks.json by `--extract-ghost`), capped at a sprinting player's
+    6.8 m/s (Windstep bursts stretched in time) and followed with move.follow at 3 m (client_mod/scripts/ghost_leader.lua,
+    commands move_ghost_follow / move_ghost_status). The ghost samples both positions at 10 Hz on one clock. Scores:
+    share of samples within 6 m (bar 90 %), the longest stand (< 0.5 m/s while the leader moves or is > 6 m away; bar
+    3 s), catch-up after the leader stops; the human bar is a model follower that walks the leader's own path 3 m behind
+    with a 0.5 s reaction at <= 6.8 m/s, scored the same way.
+    .venv\\Scripts\\python.exe -m tools.travel_ladder --extract-ghost follow_church_loop 13:01:23 13:02:12
+    .venv\\Scripts\\python.exe -m tools.travel_ladder --follow [--only follow_church_loop]
 """
 import argparse
 import json
@@ -56,9 +70,21 @@ PLACE = {"lodestone": "the temple lodestone", "doorway": "the temple entrance", 
          "water_vent": "the Water Anima Vent"}
 
 
-def _j(name, a, b, note):
+def _j(name, a, b, note, human_m=None):
     return {"id": name, "from": a, "to": b, "start": P[a], "goal": P[b], "place": PLACE.get(b, ""), "kind": note,
-            "tol_m": ARRIVE_M}
+            "tol_m": ARRIVE_M, "human_m": human_m}
+
+
+# the human standard (data/baselines/luis-2026-11-01.json constants and its travel family)
+REACT_S, V_TRAVEL, H_RATIO = 1.5, 6.25, 1.5
+V_SPRINT = 6.8          # a sprinting player (Luis's recorder: the steady top speed)
+FOLLOW_M, FOLLOW_SHARE, STAND_S = 6.0, 0.9, 3.0
+GHOSTS = ROOT / "data" / "ladder" / "ghost_tracks.json"
+RECORDER = ROOT / "logs" / "recorder"
+
+
+def human_s(j) -> float | None:
+    return round(REACT_S + j["human_m"] / V_TRAVEL, 1) if j.get("human_m") else None
 
 
 # journeys v2 (21:55Z): far_doorway_se, uphill_plateau and around_water end on named landmarks (were open ground
@@ -75,6 +101,19 @@ JOURNEYS = [
     _j("far_to_temple", "southeast", "lodestone", "far, into the church and down the ramp"),
     _j("around_water", "doorway", "water_vent", "straight line crosses the pond"),
 ]
+# Obstacle legs: where co-play session 1 (2026-11-01, logs/brain-live-20261101-115554-7128.jsonl) stuck him.
+P.update({
+    "log_east": [60.13, 1834.99, -30.44],    # 11:38:43 "you are walking into a log" (go_to Luis, 44 s for 59 m)
+    "log_west": [9.03, 1805.8, -29.45],      # where he reached Luis at 11:39:30 (Luis's grave spot)
+    "doric_tent": [111.19, 1842.91, -31.05], # 11:01:35 interact the Summon Shelter -> wedged 2 m short for 25 s
+    "doric_ne": [116.5, 1850.5, -31.0],      # past the Doric structures (11:04-11:05 "jumped onto the tent")
+})
+OBSTACLES = [
+    _j("obstacle_log", "log_east", "log_west", "obstacle: a log on the floor, 59 m (co-play 11:38)", human_m=62),
+    _j("obstacle_log_back", "log_west", "log_east", "obstacle: the same log, the other way", human_m=62),
+    _j("obstacle_doric", "doric_tent", "doric_ne", "obstacle: round the Doric structures (co-play 11:02/11:05)", human_m=11),
+    _j("obstacle_doric_back", "doric_ne", "doric_tent", "obstacle: the same, the other way", human_m=11),
+]  # kept out of JOURNEYS: tools/chat_ladder.py asks JOURNEYS' goals in chat (Rung 1)
 
 
 def arrived(pos, goal, tol: float = ARRIVE_M) -> bool:
@@ -149,7 +188,19 @@ def place(dev, c, start, tries=3, harness_brain=False):
             dev.brain_running = saved
     last = None
     for _ in range(tries):
-        res = dev.setup("teleport", purpose="travel ladder start", at=start)
+        try:
+            res = dev.setup("teleport", purpose="travel ladder start", at=start)
+        except Exception as x:  # the fixture refuses while another player is on the server: walk there instead
+            if "other_players_connected" not in repr(x):
+                raise
+            res = {"ok": False, "walk": repr(x)}
+        if not res.get("ok") and res.get("walk"):
+            r = c.request("go_to", {"target": start, "tolerance": 1.0}, timeout=GO_TO_WAIT_S)
+            p = position(c)
+            if not (p and d2(p, start) < 3 and abs(p[2] - start[2]) < 1.8):
+                raise RuntimeError(f"could not walk to the start {start} (teleport refused: a player is on): {r}")
+            time.sleep(1.0)
+            return position(c) or p
         if not res.get("ok"):
             raise RuntimeError(f"teleport fixture failed: {res}")
         t_end = time.monotonic() + 10
@@ -211,15 +262,223 @@ def run_journey(dev, j):
     reached = arrived(end, goal)
     ok = bool(r and r.get("ok")) and reached
     trip = trip_for(t0, t1)
+    hs = human_s(j)
     return {
+        "human_s": hs, "vs_human": round((t1 - t0) / hs, 2) if hs else None,
+        "human_ok": (ok and (t1 - t0) <= H_RATIO * hs) if hs else None,
         "journey": name, "note": note, "from": a, "to": b, "ok": ok, "body_ok": bool(r and r.get("ok")),
         "reason": (r or {}).get("reason"), "detail": data.get("detail"), "why": data.get("why"),
         "s": round(t1 - t0, 1), "straight_m": round(straight, 1), "walked_m": round(walked, 1),
         "end_dist_m": round(d2(end, goal), 1), "end_dz_m": round(end[2] - goal[2], 1), "closest_m": round(closest, 1),
         "spl": round(straight / max(straight, walked), 3) if ok else 0.0,
+        "stand_s": longest_stand([(t, p) for t, p in samples] + [(t1, end)]),
         "start": [round(x, 2) for x in s], "end": [round(x, 2) for x in end], "goal": goal,
         "trip": trip.get("sentence") if trip else None, "ts": round(t0, 1),
     }
+
+
+def longest_stand(samples, still_m: float = 0.3) -> float:
+    """Longest stretch (s) of consecutive position samples that moved less than still_m each (standing still)."""
+    best, run_t0 = 0.0, None
+    for k in range(1, len(samples)):
+        (ta, pa), (tb, pb) = samples[k - 1], samples[k]
+        if d2(pa, pb) < still_m * max(tb - ta, 0.1):
+            run_t0 = ta if run_t0 is None else run_t0
+            best = max(best, tb - run_t0)
+        else:
+            run_t0 = None
+    return round(best, 1)
+
+
+# ------------------------------------------------------------------ follow legs: a ghost leader on a human track
+def extract_ghost(name: str, t_from: str, t_to: str, who: str = "luisdeburnaybast", rec: str | None = None,
+                  claude_back_m: float = 3.5) -> dict:
+    """Cut a recorded human track (HH:MM:SS UTC window; the newest recorder file that has it) into a ghost track: seconds from
+    0, centimetres, an air flag where he was falling (mode 3), re-timed so no step is faster than V_SPRINT (Windstep /
+    dash bursts are stretched, not dropped). Claude's start is where the human stood claude_back_m before the window
+    (on his own path, so it is walkable). Stored in data/ladder/ghost_tracks.json under `name`."""
+    import datetime as dt
+    hms = lambda ts: dt.datetime.fromtimestamp(ts, dt.UTC).strftime("%H:%M:%S")  # noqa: E731
+    # the recorder rotates files (rec_<start>.jsonl): the newest file holding the window, not just the newest file
+    for path in ([Path(rec)] if rec else sorted(RECORDER.glob("rec_*.jsonl"), reverse=True)):
+        rows = []
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r.get("kind") == "pos" and r.get("who") == who:
+                rows.append(r)
+        sel = [r for r in rows if t_from <= hms(r["ts"]) <= t_to]
+        if len(sel) >= 10:
+            break
+    else:
+        raise SystemExit(f"fewer than 10 samples of {who} in {t_from}-{t_to} in any recorder file")
+    before = [r for r in rows if r["ts"] < sel[0]["ts"]]
+    start, acc = sel[0]["p"], 0.0
+    for k in range(len(before) - 1, 0, -1):
+        acc += d3(before[k]["p"], before[k - 1]["p"]) if d3(before[k]["p"], before[k - 1]["p"]) < 20 else 0
+        if acc >= claude_back_m:
+            start = before[k - 1]["p"]
+            break
+    track, t = [], 0.0
+    for k, r in enumerate(sel):
+        if k:
+            step = d3(sel[k - 1]["p"], r["p"])
+            t += max(r["ts"] - sel[k - 1]["ts"], step / V_SPRINT)
+        track.append([round(t, 2), round(r["p"][0] * 100), round(r["p"][1] * 100), round(r["p"][2] * 100),
+                      1 if r.get("mode") == 3 else 0])
+    length = sum(d3(sel[k - 1]["p"], sel[k]["p"]) for k in range(1, len(sel)))
+    g = {"name": name, "who": who, "window": [t_from, t_to], "recording": path.name, "claude_start": start,
+         "duration_s": round(t, 1), "length_m": round(length, 1), "real_s": round(sel[-1]["ts"] - sel[0]["ts"], 1),
+         "track": track}
+    GHOSTS.parent.mkdir(parents=True, exist_ok=True)
+    allg = json.loads(GHOSTS.read_text(encoding="utf-8")) if GHOSTS.exists() else {}
+    allg[name] = g
+    GHOSTS.write_text(json.dumps(allg, indent=0), encoding="utf-8")
+    return g
+
+
+def ghosts() -> dict:
+    return json.loads(GHOSTS.read_text(encoding="utf-8")) if GHOSTS.exists() else {}
+
+
+def _pts(track):
+    return [(p[0], (p[1] / 100, p[2] / 100, p[3] / 100)) for p in track]
+
+
+def human_follower(track, delay_s: float, hold_s: float, dist_m: float = 3.0, react_s: float = 0.5,
+                   dt_s: float = 0.1, start=None):
+    """A model human follower: walks the leader's own path (the track), dist_m behind along it, reacting react_s late,
+    at most V_SPRINT. Returns rows like the ghost's samples: (el_s, ghost xyz, follower xyz) in metres."""
+    pts = _pts(track)
+    cum = [0.0]
+    for k in range(1, len(pts)):
+        cum.append(cum[-1] + d3(pts[k - 1][1], pts[k][1]))
+
+    def ghost_at(tt):
+        tt = min(max(tt, 0.0), pts[-1][0])
+        k = 0
+        while k < len(pts) - 2 and pts[k + 1][0] < tt:
+            k += 1
+        (ta, a), (tb, b) = pts[k], pts[k + 1]
+        u = (tt - ta) / (tb - ta) if tb > ta else 0.0
+        return tuple(a[i] + (b[i] - a[i]) * u for i in range(3)), cum[k] + (cum[k + 1] - cum[k]) * u
+
+    def along(s):
+        k = 0
+        while k < len(cum) - 2 and cum[k + 1] < s:
+            k += 1
+        seg = cum[k + 1] - cum[k]
+        u = (s - cum[k]) / seg if seg > 0 else 0.0
+        a, b = pts[k][1], pts[k + 1][1]
+        return tuple(a[i] + (b[i] - a[i]) * u for i in range(3))
+
+    lead0 = d3(start, pts[0][1]) if start else dist_m
+    s_f, rows, el = -lead0, [], 0.0
+    while el <= delay_s + pts[-1][0] + hold_s:
+        g, _ = ghost_at(el - delay_s)
+        _, s_seen = ghost_at(el - delay_s - react_s)
+        want = s_seen - dist_m
+        if want > s_f:
+            s_f = min(want, s_f + V_SPRINT * dt_s)
+        f = along(max(s_f, 0.0)) if s_f >= 0 else (start or pts[0][1])
+        rows.append((round(el, 2), g, f))
+        el += dt_s
+    return rows
+
+
+def score_follow(rows, delay_s: float, dur_s: float, hold_s: float) -> dict:
+    """rows = (el_s, ghost (x,y,z) m, claude (x,y,z) m). Within-6 m share over the leader's walk and hold; the longest
+    stand while he should be moving (< 0.5 m/s while the leader moves > 1 m/s or is > 6 m away); catch-up after the
+    leader stopped (s until within 4 m); max gap."""
+    win = [r for r in rows if delay_s <= r[0] <= delay_s + dur_s + hold_s]
+    if len(win) < 5:
+        return {"samples": len(win)}
+    within = sum(1 for _, g, c in win if d3(g, c) <= FOLLOW_M) / len(win)
+
+    def speed(k, idx):
+        j = max(0, k - 5)  # ~0.5 s window at 10 Hz
+        dtt = win[k][0] - win[j][0]
+        return d2(win[k][idx], win[j][idx]) / dtt if dtt > 0 else 0.0
+    stand, run0 = 0.0, None
+    for k in range(len(win)):
+        el, g, c = win[k]
+        should = speed(k, 1) > 1.0 or d3(g, c) > FOLLOW_M
+        if should and speed(k, 2) < 0.5:
+            run0 = el if run0 is None else run0
+            stand = max(stand, el - run0)
+        else:
+            run0 = None
+    t_end = delay_s + dur_s
+    catch = next((el - t_end for el, g, c in win if el >= t_end and d3(g, c) <= 4.0), None)
+    return {"samples": len(win), "within_6m": round(within, 3), "longest_stand_s": round(stand, 1),
+            "catch_up_s": round(catch, 1) if catch is not None else None,
+            "max_gap_m": round(max(d3(g, c) for _, g, c in win), 1),
+            "end_gap_m": round(d3(win[-1][1], win[-1][2]), 1)}
+
+
+def within_human(rows, h_rows, delay_s: float, dur_s: float, hold_s: float) -> float | None:
+    """Share of Claude's samples (leader's walk and hold) no further behind than max(FOLLOW_M, the human model's gap at
+    that moment + 1 m): the 6 m bar where a human could keep it, the human's own gap where he could not (at equal
+    sprint speed a perfect follower's gap peaks at 6.4 m after each of the leader's starts)."""
+    win = [r for r in rows if delay_s <= r[0] <= delay_s + dur_s + hold_s]
+    if not win or not h_rows:
+        return None
+    hs, k, ok = sorted(h_rows, key=lambda r: r[0]), 0, 0
+    for el, gpos, cpos in win:
+        while k < len(hs) - 1 and abs(hs[k + 1][0] - el) <= abs(hs[k][0] - el):
+            k += 1
+        ok += d3(gpos, cpos) <= max(FOLLOW_M, d3(hs[k][1], hs[k][2]) + 1.0)
+    return round(ok / len(win), 3)
+
+
+def run_follow(dev, name: str, g: dict, delay_s: float = 2.0, hold_s: float = 10.0) -> dict:
+    from tools.scenario_run import run_client_cmd
+    cmds = ROOT / "client_mod" / "commands"
+    c = client()
+    c.request("stop", {}, timeout=10)
+    s = place(dev, c, g["claude_start"])
+    if reflex_busy(c):
+        s = place(dev, c, g["claude_start"])
+    r = run_client_cmd(cmds / "move_ghost_follow.lua", "move_ghost_follow",
+                       {"track": g["track"], "delay_s": delay_s, "hold_s": hold_s, "distance_m": 3}, timeout=20)
+    res = (r or {}).get("result") or {}
+    if not res.get("ok"):
+        raise RuntimeError(f"ghost follow did not start: {r}")
+    t0 = time.time()
+    rows, from_i, last = [], 1, {}
+    deadline = t0 + delay_s + g["duration_s"] + hold_s + 30
+    while time.time() < deadline:
+        time.sleep(2.0)
+        st = run_client_cmd(cmds / "move_ghost_status.lua", "move_ghost_status", {"from_i": from_i}, timeout=15)
+        st = (st or {}).get("result") or {}
+        if not st.get("ok"):
+            break
+        last = st
+        rows += st.get("rows") or []
+        from_i = (st.get("n") or 0) + 1
+        if st.get("phase") == "done":
+            break
+    end = run_client_cmd(cmds / "move_ghost_status.lua", "move_ghost_status", {"from_i": from_i, "stop": True}, timeout=15)
+    rows += (((end or {}).get("result") or {}).get("rows")) or []
+    m_rows = [(r[0], (r[1] / 100, r[2] / 100, r[3] / 100), (r[4] / 100, r[5] / 100, r[6] / 100)) for r in rows
+              if r[4] or r[5]]
+    me = score_follow(m_rows, delay_s, g["duration_s"], hold_s)
+    h_rows = human_follower(g["track"], delay_s, hold_s, start=s)
+    hu = score_follow(h_rows, delay_s, g["duration_s"], hold_s)
+    me["within_human"] = within_human(m_rows, h_rows, delay_s, g["duration_s"], hold_s)
+    srcs: dict[str, int] = {}
+    for r in rows:
+        srcs[r[8]] = srcs.get(r[8], 0) + 1
+    ok = bool(me.get("within_6m") is not None and me["within_6m"] >= FOLLOW_SHARE and me["longest_stand_s"] <= STAND_S)
+    return {"journey": name, "kind": "follow", "note": f"ghost {g['who']} {g['window'][0]}-{g['window'][1]}, "
+            f"{g['length_m']} m in {g['duration_s']} s", "ok": ok, "s": round(time.time() - t0, 1),
+            "claude": me, "human": hu, "sources": srcs, "stuck_total": last.get("stuck_total"),
+            "lp_runs": last.get("lp_runs"), "trail_entries": last.get("trail_entries"), "backtracks": last.get("backtracks"),
+            "sprint_presses": last.get("sprint_presses"), "trail_skips": last.get("trail_skips"),
+            "double_jumps": last.get("double_jumps"), "trail_jumps": last.get("trail_jumps"), "result": last.get("result"),
+            "start": [round(x, 2) for x in s], "ts": round(t0, 1), "rows": rows}
 
 
 def main() -> None:
@@ -228,12 +487,28 @@ def main() -> None:
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--label", default="run")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--obstacles", action="store_true", help="the obstacle legs (human-timed)")
+    ap.add_argument("--follow", action="store_true", help="the ghost-leader follow legs")
+    ap.add_argument("--extract-ghost", nargs=3, metavar=("NAME", "FROM", "TO"), help="cut a ghost track from the recorder")
+    ap.add_argument("--who", default="luisdeburnaybast")
     a = ap.parse_args()
-    js = [j for j in JOURNEYS if not a.only or j["id"] in a.only.split(",")]
+    if a.extract_ghost:
+        g = extract_ghost(*a.extract_ghost, who=a.who)
+        print(f"{g['name']}: {g['length_m']} m, {g['duration_s']} s as a ghost ({g['real_s']} s recorded), "
+              f"{len(g['track'])} points, Claude starts at {g['claude_start']}")
+        return
+    only = set(filter(None, a.only.split(",")))
+    pool = (OBSTACLES if a.obstacles else []) + ([] if (a.obstacles or a.follow) else JOURNEYS)
+    if only:
+        pool = [j for j in JOURNEYS + OBSTACLES if j["id"] in only]
+    js = [j for j in pool if not only or j["id"] in only]
+    fs = {n: g for n, g in ghosts().items() if (a.follow and not only) or n in only}
     if a.list:
         for j in js:
             print(f"{j['id']:20s} {j['from']:>11s} -> {j['to']:<11s} {d3(j['start'], j['goal']):6.0f} m  {j['kind']}"
-                  f"  ({j['place'] or 'no chat name'})")
+                  f"  ({j['place'] or 'no chat name'}){'  human ' + str(human_s(j)) + ' s' if j.get('human_m') else ''}")
+        for n, g in fs.items():
+            print(f"{n:20s} ghost {g['who']} {g['window']}: {g['length_m']} m in {g['duration_s']} s")
         return
     from evals.bench.devrun import default_dev
     dev = default_dev()
@@ -253,23 +528,49 @@ def main() -> None:
             with OUT.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row) + "\n")
             mark = "ERR " if row.get("ok") is None else ("PASS" if row["ok"] else "FAIL")
+            hum =(f" human {row['human_s']} s x{row['vs_human']} {'OK' if row['human_ok'] else 'SLOW'}"
+                   if row.get("human_s") else "")
             print(f"{mark} {n:20s} {row.get('s', 0):6.1f}s walked {row.get('walked_m', 0):6.1f}/{row.get('straight_m', 0):5.1f} m "
-                  f"end {row.get('end_dist_m', '-')} m dz {row.get('end_dz_m', '-')}  {row.get('reason') or ''} "
-                  f"{row.get('detail') or row.get('error') or ''}"[:220], flush=True)
+                  f"end {row.get('end_dist_m', '-')} m dz {row.get('end_dz_m', '-')} stand {row.get('stand_s', '-')} s{hum}  "
+                  f"{row.get('reason') or ''} {row.get('detail') or row.get('error') or ''}"[:260], flush=True)
             if row.get("trip"):
                 print(f"     trip: {row['trip']}", flush=True)
-    done = [r for r in rows if r.get("ok") is not None]
-    n_ok = sum(1 for r in done if r["ok"])
-    summary = {"summary": True, "run": run_id, "label": a.label, "head": head(), "n": len(done), "ok": n_ok,
-               "success_rate": round(n_ok / len(done), 3) if done else None,
-               "spl": round(sum(r["spl"] for r in done) / len(done), 3) if done else None,
-               "s_total": round(sum(r["s"] for r in done), 1),
-               "mean_end_dist_m": round(sum(r["end_dist_m"] for r in done) / len(done), 1) if done else None,
-               "errors": len(rows) - len(done), "ts": round(time.time(), 1)}
+        for n, g in fs.items():
+            try:
+                row = run_follow(dev, n, g)
+            except Exception as x:
+                row = {"journey": n, "kind": "follow", "ok": None, "error": repr(x), "ts": round(time.time(), 1)}
+            row.update(run=run_id, label=a.label, head=head(), rep=rep)
+            samples = row.pop("rows", None)
+            if samples:
+                fd = OUT.parent / "travel_ladder_follow"
+                fd.mkdir(exist_ok=True)
+                (fd / f"{run_id}_{n}_{rep}.json").write_text(json.dumps(samples), encoding="utf-8")
+                row["samples_file"] = f"logs/evals/travel_ladder_follow/{run_id}_{n}_{rep}.json"
+            rows.append(row)
+            with OUT.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row) + "\n")
+            mark = "ERR " if row.get("ok") is None else ("PASS" if row["ok"] else "FAIL")
+            print(f"{mark} {n:20s} claude {row.get('claude')}  human {row.get('human')}  src {row.get('sources')} "
+                  f"stuck {row.get('stuck_total')} lp {row.get('lp_runs')} trail {row.get('trail_entries')} "
+                  f"bt {row.get('backtracks')} skip {row.get('trail_skips')} tj {row.get('trail_jumps')} "
+                  f"dj {row.get('double_jumps')} {row.get('error') or ''}"[:400], flush=True)
+    walks = [r for r in rows if r.get("ok") is not None and r.get("kind") != "follow"]
+    folls = [r for r in rows if r.get("ok") is not None and r.get("kind") == "follow"]
+    n_ok = sum(1 for r in walks if r["ok"])
+    summary = {"summary": True, "run": run_id, "label": a.label, "head": head(), "n": len(walks), "ok": n_ok,
+               "success_rate": round(n_ok / len(walks), 3) if walks else None,
+               "spl": round(sum(r["spl"] for r in walks) / len(walks), 3) if walks else None,
+               "s_total": round(sum(r["s"] for r in walks), 1),
+               "mean_end_dist_m": round(sum(r["end_dist_m"] for r in walks) / len(walks), 1) if walks else None,
+               "human_ok": sum(1 for r in walks if r.get("human_ok")), "human_n": sum(1 for r in walks if r.get("human_s")),
+               "follow_ok": sum(1 for r in folls if r["ok"]), "follow_n": len(folls),
+               "errors": len(rows) - len(walks) - len(folls), "ts": round(time.time(), 1)}
     with OUT.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(summary) + "\n")
-    print(f"\n{a.label}: {n_ok}/{len(done)} reached ({summary['success_rate']}), SPL {summary['spl']}, "
-          f"{summary['s_total']} s, mean end distance {summary['mean_end_dist_m']} m, {summary['errors']} errors")
+    print(f"\n{a.label}:{n_ok}/{len(walks)} reached ({summary['success_rate']}), SPL {summary['spl']}, "
+          f"{summary['s_total']} s, within 1.5x human {summary['human_ok']}/{summary['human_n']}, "
+          f"follow {summary['follow_ok']}/{summary['follow_n']}, {summary['errors']} errors")
 
 
 if __name__ == "__main__":
