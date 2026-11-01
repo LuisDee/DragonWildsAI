@@ -255,6 +255,12 @@ local function move_failure(api, res, what, data)
     local d = copy(data)
     d.why, d.dist_m = why, res.dist_m
     d.detail = "I can't get to " .. what .. ": " .. why_words(why, what, api) .. "."
+    if res.why == "known_drop" and type(res.detail) == "string" then
+        -- move's own words: the drop that killed him there, how often, how far he stopped from it (live 22:43Z: they
+        -- were lost as "I can't find a way there")
+        d.why, d.hazard, d.deaths_here = "known_drop", res.hazard, res.deaths_here
+        d.detail = "I can't get to " .. what .. " safely: " .. res.detail .. "."
+    end
     local code = api.reason_code(why)
     if code == "body_error" or code == why and not (code == "path_blocked" or code == "timeout") then code = "path_blocked" end
     return api.fail(code, d)
@@ -753,7 +759,8 @@ local function episode_poll(api, e, t, owner_token)
         if res.status == "arrived" then return nil end -- re-check the distance next tick
         if res.status == "stopped" then return nil end -- e.g. suspended by a reflex and resumed: walk again
         e.last_move_why = res.reason or res.why or e.last_move_why
-        if next_spot(e) then return nil end -- that side is blocked: try the next standing spot (big things only)
+        -- (not past a drop that killed him: every spot round it inches him closer, live 22:43Z six tries)
+        if res.why ~= "known_drop" and next_spot(e) then return nil end -- that side is blocked: try the next standing spot (big things only)
         return move_failure(api, res, "the " .. e.label, { target = th.id })
     elseif e.phase == "face" then
         -- a small thing whose actor is gone (taken: by him as "the one beside it", or by someone else) is said at once;
@@ -1241,6 +1248,16 @@ local function start_consume(api, args, ctx)
         for _, r in ipairs(info and info.near or {}) do if not r.consumable then unlike[#unlike + 1] = r.name end end
         if #unlike > 0 then also = " (" .. table.concat(unlike, ", ") .. " isn't something I can eat or drink.)" .. also end
         local data = { item = what, carried_consumables = have }
+        -- the stay-fed reflex just used the last one (live 22:16:25.9Z: it drank his last Clean Water, the model's
+        -- consume 1.8 s later read "not carried"): say so, or the model misreads it
+        local ru = rawget(_G, "DW_REFLEX_LAST_USE")
+        local lw = string.lower(tostring(what))
+        if type(ru) == "table" and ru.t and os.time() - ru.t <= 60 and (string.lower(tostring(ru.item)) == lw
+            or (ru.name and string.lower(tostring(ru.name)):find(lw, 1, true))) then
+            data.reflex_used = { item = ru.item, name = ru.name, ago_s = os.time() - ru.t }
+            also = string.format(" My stay-fed reflex %s the last %s %d s ago.", ru.kind == "drink" and "drank" or ru.kind == "food" and "ate" or "used",
+                tostring(ru.name or ru.item), os.time() - ru.t) .. also
+        end
         local near = find_pickup(api, what, M.cfg.consume_ground_m)
         if not near then
             data.detail = "I don't have any " .. what .. " on me, and I can't see one nearby." .. also
@@ -1823,7 +1840,7 @@ end
 -- within GRAVE_MATCH_M of the grave) is emptied, or its grave is seen gone at the spot.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 M.DEATH_FILE = ROOT .. "/client_io/state/last_death.json"
-M.GRAVE_MATCH_M, M.MAX_DEATHS = 15, 12
+M.GRAVE_MATCH_M, M.MAX_DEATHS, M.FALL_MAX_SIDEWAYS_M = 15, 12, 30
 local function json_mod()
     local ok, j = pcall(require, "jsonutil")
     return ok and j or nil
@@ -1864,22 +1881,110 @@ function M.death_memory(ts)
     end
     return nil
 end
+-- Which items a death leaves on him: the item definition's own flag (UItemData.bDropOnDeath == false; live read
+-- 2026-11-01: runes, ammo, capes and the rest of 262 definitions), read once per client run. nil when it can't be
+-- read (offline): the post-respawn inventory diff (death_reconcile) is then the only source.
+function M.keep_on_death()
+    local c = rawget(_G, "DW_KEEP_ON_DEATH")
+    if c ~= nil then return c or nil end
+    local kept = false
+    if type(FindAllOf) == "function" then
+        local okf, all = pcall(FindAllOf, "ItemData")
+        if okf and type(all) == "table" and #all > 0 then
+            kept = {}
+            for _, d in ipairs(all) do
+                local okn, nm = pcall(function() return d:GetFullName() end)
+                local okv, drop = pcall(function() return d.bDropOnDeath end)
+                if okn and okv and drop == false and type(nm) == "string" and not nm:find("Default__", 1, true) then
+                    local short = nm:match("([%w_]+)$")
+                    if short then kept[short] = true end
+                end
+            end
+        end
+    end
+    _G.DW_KEEP_ON_DEATH = kept
+    return kept or nil
+end
 function M.record_death(api, ts)
     local mem = memory()
-    local lost = {}
-    for _, r in ipairs(mem.last_items or {}) do lost[#lost + 1] = r end
+    local lost, kept_rule = {}, {}
+    local keep = M.keep_on_death()
+    for _, r in ipairs(mem.last_items or {}) do
+        if keep and keep[r.item] then kept_rule[#kept_rule + 1] = r else lost[#lost + 1] = r end
+    end
     local here = api.my_position() or (mem.last_pos)
     -- the game leaves the grave where he last stood, not where a fall ends (live 2026-11-01 15:56: grave on the cliff
     -- top, body 63 m below): move.lua's last grounded spot when it is fresh and he is below it
     local body, g = nil, rawget(_G, "DW_LAST_GROUND")
     local age = g and tonumber(g.t) and (tonumber(ts) or os.time()) - g.t
-    if age and age >= -2 and age <= 15 and (not here or here[3] < g.Z / 100 - 2) then
+    -- (only a fall: the ground spot within FALL_MAX_SIDEWAYS_M; live 21:00Z a fixture teleport 145 m away read as
+    -- a "fall", the death was filed 145 m from its grave, and he walked to the empty spot)
+    if age and age >= -2 and age <= 15 and (not here or (here[3] < g.Z / 100 - 2
+        and dist2d(here, { g.X / 100, g.Y / 100 }) <= M.FALL_MAX_SIDEWAYS_M)) then
         body, here = here, { math.floor(g.X + 0.5) / 100, math.floor(g.Y + 0.5) / 100, math.floor(g.Z + 0.5) / 100 }
     end
+    -- a fall that killed him (the game's kill zone, or a body far below its last ground): the spot is a hazard in
+    -- nav memory, so walks keep back from it (move.lua cliff_guard, hazard_standoff_cm)
+    local life = rawget(_G, "DW_LIFE") or {}
+    local drop_m = (body and here) and math.floor(here[3] - body[3] + 0.5) or tonumber(life.fell_m)
+    local fall = life.killed_by_class == "KillZVolume" or (body ~= nil and (drop_m or 0) >= 8)
+    local deaths_here
+    if fall and here then
+        local mv = api.module("move")
+        if mv and type(mv.mark_hazard) == "function" then
+            local okh, h = pcall(mv.mark_hazard, here, { cause = "fall", drop_m = drop_m })
+            if okh and type(h) == "table" then deaths_here = h.n end
+        end
+    end
     local list = deaths()
-    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, body_position = body, lost = lost, recovered = false }
+    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, body_position = body,
+        lost = lost, kept_by_rule = #kept_rule > 0 and kept_rule or nil, lost_rule = keep and "bDropOnDeath" or nil, recovered = false,
+        cause = fall and "fall" or nil, drop_m = fall and drop_m or nil, deaths_here = deaths_here }
+    -- nothing on him that drops on death: no grave worth a walk (live 22:10/22:11Z, two deaths right after respawns
+    -- with runes and ammo only, listed as "newest" and pulling him back to the edge that killed him)
+    if keep and #lost == 0 then
+        local d = list[#list]
+        d.recovered, d.recovered_how, d.recovered_at = true, "nothing_lost", os.time()
+    end
     while #list > M.MAX_DEATHS do table.remove(list, 1) end
     save_deaths()
+end
+-- After the respawn: what really left him = his bag/hotbar at death minus his bag/hotbar now (the real inventory).
+-- A disagreement with the item flags (kept_by_rule) is logged: that's a finding. Older records (no lost_rule) get
+-- the flag filter once and are marked lost_unverified.
+function M.death_reconcile(api, rows)
+    local life = rawget(_G, "DW_LIFE") or {}
+    local keep = M.keep_on_death()
+    local list = deaths()
+    local changed = false
+    if keep then
+        for _, d in ipairs(list) do
+            if not d.recovered and not d.lost_rule and type(d.lost) == "table" then
+                local left = {}
+                for _, r in ipairs(d.lost) do if not keep[r.item] then left[#left + 1] = r end end
+                d.lost, d.lost_rule, d.lost_unverified, changed = left, "bDropOnDeath", true, true
+                if #left == 0 then d.recovered, d.recovered_how, d.recovered_at = true, "nothing_lost", os.time() end
+            end
+        end
+    end
+    local d = list[#list]
+    if d and not d.reconciled and tonumber(life.respawned_at) and tonumber(d.ts) and life.respawned_at > tonumber(d.ts) then
+        local now_c = {}
+        for _, r in ipairs(rows) do now_c[r.item] = (now_c[r.item] or 0) + (tonumber(r.count) or 1) end
+        local left, odd = {}, {}
+        for _, r in ipairs(d.lost or {}) do
+            local c = (tonumber(r.count) or 1) - (now_c[r.item] or 0)
+            if c > 0 then left[#left + 1] = { item = r.item, name = r.name, count = c }
+            else odd[#odd + 1] = tostring(r.name or r.item) .. " (still on me)" end
+        end
+        for _, r in ipairs(d.kept_by_rule or {}) do
+            if (now_c[r.item] or 0) < (tonumber(r.count) or 1) then odd[#odd + 1] = tostring(r.name or r.item) .. " (flagged kept, but gone)" end
+        end
+        d.lost, d.reconciled, changed = left, true, true
+        if #odd > 0 and api.log then api.log("death: what I lost at " .. tostring(d.iso) .. " disagrees with the item flags: " .. table.concat(odd, ", ")) end
+        if #left == 0 and not d.recovered then d.recovered, d.recovered_how, d.recovered_at = true, "nothing_lost", os.time() end
+    end
+    if changed then save_deaths() end
 end
 local function nearest_death(pos, grave_id)
     local best, bd
@@ -1922,6 +2027,39 @@ end
 --   last_death {ago_s, respawned}  from the vitals watcher's death/revive rows (client_bridge forward_vitals)
 --   last_held  the tool he held last (name)
 
+-- standing on a remembered death's spot with no grave of his there: that grave is gone (emptied another way,
+-- despawned, or replaced by a later death's), so the death is closed. Live 2026-11-01 21:54:33Z: the rung1 gate's
+-- 21:00 death (40 items, never closed) outranked the real newest one, he walked to its spot, found a crate, and Luis
+-- had to say "your grave is next to me". Checked twice, >= GRAVE_GONE_S apart, by a fresh census (not the capped
+-- state list), only while alive and a minute after that death (a fresh grave may not have spawned yet).
+M.GRAVE_GONE_M, M.GRAVE_GONE_S, M.GRAVE_GONE_LOOK_M = 5, 3, 15
+function M.graves_gone_check(api, data)
+    local here = data and data.position
+    if type(here) ~= "table" or data.dead == true then return end
+    local now = os.time()
+    for _, d in ipairs(M.graves_remembered()) do
+        local p = d.position
+        if type(p) == "table" and (tonumber(d.ts) or now) < now - 60 and dist2d(here, p) <= M.GRAVE_GONE_M
+            and math.abs((tonumber(here[3]) or 0) - (tonumber(p[3]) or 0)) <= 4 then
+            local things = api.census_things and api.census_things(M.GRAVE_GONE_LOOK_M, 60) or nil
+            if not things then return end
+            local rows = {}
+            for _, t in ipairs(things) do
+                local td = tonumber(t.distance) or (type(t.position) == "table" and dist2d(here, t.position)) or 0
+                if is_grave(t) and td <= M.GRAVE_GONE_LOOK_M then rows[#rows + 1] = t end
+            end
+            if grave_of(api, rows) then d.gone_seen_t = nil; return end
+            if not d.gone_seen_t then d.gone_seen_t = now; return end
+            if now - d.gone_seen_t >= M.GRAVE_GONE_S then
+                d.recovered, d.recovered_how, d.recovered_at, d.gone_seen_t = true, "gone", now, nil
+                save_deaths()
+                if api.log then api.log(string.format("grave: my death of %s at [%.1f,%.1f] has no grave of mine there any more (%d grave(s) of others in sight): closed as gone",
+                    tostring(d.iso), p[1], p[2], #rows)) end
+            end
+            return
+        end
+    end
+end
 function M.state_extras(api, data)
     local mem, out = memory(), {}
     if paused() then return out end
@@ -1943,6 +2081,7 @@ function M.state_extras(api, data)
             if r.where == "hotbar" or r.where == "bag" then rows[#rows + 1] = { item = r.item, name = r.name, count = r.count } end
         end
         mem.last_items = rows
+        if data.dead ~= true then pcall(M.death_reconcile, api, rows) end
     end
     if type(data.position) == "table" then
         mem.last_pos = data.position
@@ -2047,7 +2186,9 @@ function M.state_extras(api, data)
         end
         list[#list + 1] = { ts = dm.ts, iso = dm.iso, ago_s = dm.ts and math.max(0, math.floor(os.time() - dm.ts)) or nil,
                             position = dm.position, distance = dist and math.floor(dist + 0.5) or nil, lost_items = n,
-                            lost = names, lost_ids = dm.lost, grave_id = dm.grave_id, go_to = "my_grave:" .. tostring(dm.ts) }
+                            lost = names, lost_ids = dm.lost, grave_id = dm.grave_id, go_to = "my_grave:" .. tostring(dm.ts),
+                            danger = dm.cause == "fall" and string.format("by a drop that killed me %d time(s)%s", dm.deaths_here or 1,
+                                dm.drop_m and string.format(" (a %d m fall)", dm.drop_m) or "") or nil }
     end
     if #list > 0 then out.graves_remembered, out.death_memory = list, list[1] end
     local inv = api.module("inventory")
@@ -2079,6 +2220,7 @@ function M.state_extras(api, data)
         M.grave_seen(out.my_grave) -- bind it to its death (it ran before my_grave was set, so it never bound)
     end
     if others > 0 then out.other_graves = others end
+    if not g or (tonumber(g.distance) or 0) > M.GRAVE_GONE_LOOK_M then pcall(M.graves_gone_check, api, data) end
     -- the in-game clock and the sleep window (sense.time_of_day), and how full the bag is
     local sense = api.module("sense")
     if sense and type(sense.time_of_day) == "function" then
@@ -2675,18 +2817,22 @@ end
 local function start_collect_water(api, args, ctx)
     local want = math.max(1, math.floor(tonumber(args.count) or 1))
     local t0, src
+    local asked_for -- a named water he can't find by that name: the nearest water instead, and the result says so
     if need_str(args.target) then
         local r
         src, r = api.find_thing(args.target, M.cfg.water_search_m)
-        if not src then return api.fail("unknown_target", { target = args.target, detail = "I can't see that water anywhere near me." }) end
-        if not W.is_water(src) then
+        if src and not W.is_water(src) then
             return api.fail("not_interactable", { target = args.target, detail = "The " .. tostring(src.name or "thing") .. " isn't water I can collect." })
         end
-    else
+        if not src then asked_for = args.target end
+    end
+    if not src then
         for _, t in ipairs(api.census_things(M.cfg.water_search_m, 40) or {}) do
             if W.is_water(t) and (not src or (t.distance or 1e9) < (src.distance or 1e9)) then src = t end
         end
-        if not src then return api.fail("nothing_in_range", { radius_m = M.cfg.water_search_m, detail = "I can't see any water I could collect near me." }) end
+        if not src then return api.fail(asked_for and "unknown_target" or "nothing_in_range", { target = asked_for, radius_m = M.cfg.water_search_m,
+            detail = asked_for and ("I can't find '" .. asked_for .. "', and I can't see any water I could collect within " .. M.cfg.water_search_m .. " m.")
+                or "I can't see any water I could collect near me." }) end
     end
     local expected = W.water_item(api, src)
     if not expected then
@@ -2715,7 +2861,9 @@ local function start_collect_water(api, args, ctx)
             job.sources[res.data.target] = (job.sources[res.data.target] or 0) + res.data.count
             if job.got >= want then
                 local sources, target = sources_of()
-                return { ok = true, data = { item = job.item, count = job.got, wanted = want, target = target, sources = sources } }
+                return { ok = true, data = { item = job.item, count = job.got, wanted = want, target = target, sources = sources,
+                    asked_for = asked_for, detail = asked_for and string.format("I found no '%s' by that name, so I filled up at the nearest water (%s, %.0f m off).",
+                        asked_for, tostring(src.name or src.id), tonumber(src.distance) or 0) or nil } }
             end
             begin()
             return nil

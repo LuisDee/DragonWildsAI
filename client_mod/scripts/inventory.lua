@@ -1029,6 +1029,8 @@ local function reflex_emit(ev)
     if okw and type(walltime) == "table" and type(walltime.stamp) == "function" then walltime.stamp(ev)
     else ev.ts = (okw and type(walltime) == "table" and type(walltime.now) == "function") and walltime.now() or os.time()
         ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(ev.ts)) end
+    -- the reflex's last use, for consume's "not carried" words (skills.lua: "my reflex drank the last ... 2 s ago")
+    if ev.action == "use" and ev.ok and ev.item then _G.DW_REFLEX_LAST_USE = { item = ev.item, name = ev.name, kind = ev.kind, t = os.time() } end
     local line = U.try(function() return json_mod.encode(ev) end)
     local f = line and io.open(ROOT .. "/client_io/events/vitals.jsonl", "a")
     if f then f:write(line, "\n"); f:close() end

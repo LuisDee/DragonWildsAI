@@ -121,7 +121,7 @@ function NM.load(root, world, map)
     if s and J then local ok, t = pcall(J.decode, s); if ok and type(t) == "table" then mem = t end end
     mem = mem or NM.new_mem(world)
     mem.routes, mem.traps, mem.taboos = mem.routes or {}, mem.traps or {}, mem.taboos or {}
-    mem.water_spots = mem.water_spots or {}
+    mem.water_spots, mem.hazards = mem.water_spots or {}, mem.hazards or {}
     local wl = mem.water_cells or {}
     mem.water, mem.water_cells = {}, nil
     for _, k in ipairs(wl) do mem.water[k] = true end
@@ -146,7 +146,7 @@ function NM.save(mem)
     local J = json(mem._root)
     if not J then return false end
     local out = { v = 1, world = mem.world, next_id = mem.next_id, routes = {}, traps = {}, taboos = {}, water_cells = {},
-                  water_spots = mem.water_spots or {} }
+                  water_spots = mem.water_spots or {}, hazards = mem.hazards or {} }
     for k in pairs(mem.water or {}) do out.water_cells[#out.water_cells + 1] = k end
     for _, r in ipairs(mem.routes) do if not r.seed then out.routes[#out.routes + 1] = r end end
     for _, t in ipairs(mem.traps) do if not t.seed then out.traps[#out.traps + 1] = t end end
@@ -210,6 +210,67 @@ function NM.trap_at(mem, pos)
             local zmax = t.z_max and t.z_max * 100 or (c.Z + 150)
             local zmin = t.z_min and t.z_min * 100 or (c.Z - 300)
             if d2(pos, c) <= (t.radius_m or 8) * 100 and pos.Z <= zmax and pos.Z >= zmin then return t end
+        end
+    end
+end
+
+-- Is a trap's exit worth walking FIRST on a start inside it? Only once it shut him in more than once and was
+-- walked out of far fewer times (otherwise he walks his own way, and the exit is a stuck-ladder rung).
+-- HAZARDS: a spot that killed him (a fall with no attacker: the last ground he stood on before it), kept per world.
+-- {at={x,y,z} m, n deaths, cause, drop_m, ts}. Walks keep hazard_standoff_cm away from it (move.lua hazard_guard).
+NM.cfg.hazard_merge_cm = NM.cfg.hazard_merge_cm or 300
+function NM.mark_hazard(mem, at_cm, info)
+    info = info or {}
+    mem.hazards = mem.hazards or {}
+    for _, h in ipairs(mem.hazards) do
+        if d2(cm(h.at), at_cm) <= NM.cfg.hazard_merge_cm and math.abs(cm(h.at).Z - at_cm.Z) < 400 then
+            h.n, h.ts = (h.n or 1) + 1, os.time()
+            if info.drop_m and (not h.drop_m or info.drop_m > h.drop_m) then h.drop_m = info.drop_m end
+            return h, false
+        end
+    end
+    local h = { at = m(at_cm), n = 1, cause = info.cause or "fall", drop_m = info.drop_m, ts = os.time() }
+    mem.hazards[#mem.hazards + 1] = h
+    return h, true
+end
+-- the nearest hazard within r_cm (2D, same level) of pos (cm), and its distance in cm
+function NM.hazard_near(mem, pos, r_cm)
+    local best, bd
+    for _, h in ipairs(mem.hazards or {}) do
+        local c = cm(h.at)
+        local d = d2(c, pos)
+        if d <= r_cm and math.abs(c.Z - pos.Z) < 400 and (not bd or d < bd) then best, bd = h, d end
+    end
+    return best, bd
+end
+
+function NM.trap_trusted(t)
+    local ok = t and (t.n_ok or 1) or 0
+    return ok >= 2 and ok > 2 * (t.n_bad or 0)
+end
+
+-- Evidence against a trap: a walk that started inside it and got out (or where it was going) with no stuck and
+-- without its exit. Once such walks outnumber the times it shut him in (n_bad > n_ok), it is dropped: a
+-- tombstone (disabled, no exit) that also keeps a map seed of the same id off. Returns the trap and dropped.
+-- (t227, 2026-11-01: learned at 13:29Z between house walls that were later torn down; its exit, walked first on
+-- every start in its 8 m, had 128 uses and 1 escape, and nothing could ever count against it.)
+function NM.trap_miss(mem, id)
+    for _, row in ipairs(mem.traps) do
+        if row.id == id and not row.disabled then
+            local t = row
+            if row.seed then -- seeds are not saved: the evidence goes on a learned copy under the same id
+                t = {}
+                for k, val in pairs(row) do t[k] = val end
+                t.seed, t.src = nil, "learned"
+                row.disabled = true
+                mem.traps[#mem.traps + 1] = t
+            end
+            t.n_bad = (t.n_bad or 0) + 1
+            if t.n_bad > (t.n_ok or 1) then
+                t.disabled, t.dropped_ts, t.exit, t.status = true, os.time(), nil, "dropped"
+                return t, true
+            end
+            return t, false
         end
     end
 end

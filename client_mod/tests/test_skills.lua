@@ -1630,6 +1630,58 @@ test("emptying a grave that matches no remembered death leaves the newest death 
     assert(g and #g == 1 and g[1].position[1] == 80, "the newest death is still unrecovered: " .. json.encode(g))
 end)
 
+test("a death whose spot holds no grave of his any more is closed as gone (live 2026-11-01 21:54Z)", function()
+    reset()
+    local sk = B.module("skills")
+    local gone_s = sk.GRAVE_GONE_S
+    sk.GRAVE_GONE_S = 0
+    F.move.position = { 80, 80, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = os.time() - 120, hp = 0 }) .. string.char(10))
+    B.step()
+    -- dead a minute or more ago, standing on the spot, grave_1 is 95 m off: two looks, then closed
+    rpc("get_state"); rpc("get_state") -- (the list is built before the check: closed from the next read on)
+    local g = rpc("get_state").data.graves_remembered
+    assert(g == nil or #g == 0, "closed as gone: " .. json.encode(g))
+    -- a death by a grave of his stays open
+    sk.W.grave_owner = function() return true end
+    F.move.position = { 1, 28, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = os.time() - 120, hp = 0 }) .. string.char(10))
+    B.step()
+    F.move.position = { 1, 27, 3 }
+    rpc("get_state"); rpc("get_state")
+    g = rpc("get_state").data.graves_remembered
+    sk.GRAVE_GONE_S = gone_s
+    assert(g and #g == 1 and g[1].position[2] == 28, "his grave in sight: the death stays: " .. json.encode(g))
+end)
+
+test("death: items the game keeps (bDropOnDeath false) are not lost; a death with nothing else is no grave; the respawn bag corrects lost", function()
+    reset()
+    local sk = B.module("skills")
+    _G.DW_KEEP_ON_DEATH = { ITEM_Resources_Wood_Oak = true } -- this fixture's oak "is kept"
+    F.move.position = { 80, 80, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = os.time() - 5, hp = 0 }) .. string.char(10))
+    B.step()
+    local list = rpc("get_state").data.graves_remembered
+    assert(list == nil or #list == 0, "only kept items on him: no grave: " .. json.encode(list))
+    -- a death with something that drops, then the respawn bag still holds part of it
+    _G.DW_KEEP_ON_DEATH = {}
+    F.move.position = { 60, 60, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = os.time() - 3, hp = 0 }) .. string.char(10))
+    B.step()
+    list = rpc("get_state").data.graves_remembered
+    assert(list and #list == 1 and list[1].lost_items == 8, json.encode(list))
+    _G.DW_LIFE = _G.DW_LIFE or {}
+    _G.DW_LIFE.respawned_at = os.time()
+    rpc("get_state")
+    list = rpc("get_state").data.graves_remembered
+    _G.DW_KEEP_ON_DEATH = nil
+    assert(list == nil or #list == 0, "the respawn bag still holds all of it: nothing was lost: " .. json.encode(list))
+end)
+
 test("BUGS L21: explore walks least-visited legs and stops when something matching 'about' appears", function()
     reset()
     F.me_pos = nil
@@ -1870,6 +1922,14 @@ test("collect_water: the nearest water, 3 presses, each verified by the Dirty Wa
     local r = run(id, 120)
     restore()
     assert(r and r.ok and r.data.count == 3 and r.data.item == "ITEM_Consumable_Water_Dirty" and F.presses == 3, json.encode(r))
+end)
+
+test("collect_water: a water named as the model saw it but not found by that name: the nearest water, said so (live 22:11:39Z)", function()
+    local w, restore = water_world()
+    local _, id = rpc("collect_water", { count = 1, target = "Water Volume" })
+    local r = run(id, 60)
+    restore()
+    assert(r and r.ok and r.data.count == 1 and r.data.asked_for == "Water Volume" and r.data.detail:find("nearest water", 1, true), json.encode(r))
 end)
 
 test("collect_water: stopped by the water's edge 1.9 m from the surface still counts as there (2D reach)", function()

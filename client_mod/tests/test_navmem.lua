@@ -83,5 +83,29 @@ check("reload: learned trap active", learned and learned.src == "learned", learn
 local f = io.open(dir .. "/data/skills/w1/nav_memory.json"); local txt = f:read("a"); f:close()
 check("seed taboo not duplicated into the learned file", not txt:find('"toward":%[%s*%-6'))
 
+-- unlearning: walks out with no stuck count against a trap; it is dropped once they outnumber its escapes, and a
+-- seed's drop sticks across a reload (t227, 2026-11-01: 128 uses, 1 escape, never disproved)
+do
+    check("trap_trusted: one escape is not enough", not NM.trap_trusted({ n_ok = 1 }) and NM.trap_trusted({ n_ok = 2 })
+        and not NM.trap_trusted({ n_ok = 2, n_bad = 1 }) and NM.trap_trusted({ n_ok = 3, n_bad = 1 }))
+    local m3 = NM.new_mem("w1")
+    local t3 = NM.learn_trap(m3, P(5000, 0, 0), { P(5000, 0, 0), P(5800, 0, 0), P(6600, 0, 0) })
+    local a1, d1 = NM.trap_miss(m3, t3.id)
+    local n1 = a1 and a1.n_bad
+    local a2, d2b = NM.trap_miss(m3, t3.id)
+    check("trap_miss: 1st miss counts, 2nd drops a once-trap", a1 and not d1 and n1 == 1 and d2b and a2.disabled
+        and NM.trap_at(m3, P(5000, 0, 0)) == nil and a2.exit == nil)
+    check("trap_miss: a dropped trap is not matched again", NM.trap_miss(m3, t3.id) == nil)
+    -- a seed (loaded from the seeds file, never saved): the miss goes on a learned copy that is saved
+    local m4 = NM.load(dir, "w4", "L_World")
+    local s4 = NM.trap_at(m4, P(0, 0, 0))
+    check("seed trap present in a fresh world", s4 and s4.seed, s4 and s4.id)
+    NM.trap_miss(m4, "pit"); local _, dropped4 = NM.trap_miss(m4, "pit")
+    check("trap_miss on a seed: dropped after two misses", dropped4 and NM.trap_at(m4, P(0, 0, 0)) == nil)
+    NM.save(m4)
+    local m5 = NM.load(dir, "w4", "L_World")
+    check("a dropped seed stays off after a reload", NM.trap_at(m5, P(0, 0, 0)) == nil)
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

@@ -137,6 +137,9 @@ M.cfg = {
     probe_wall_nz = 0.7,       -- hit normal Z below this = wall (WalkableFloorAngle ~45 deg)
     follow_hysteresis_cm = 100,
     hop_dist_cm = 120,         -- a low obstacle (blocked at knee, clear at jump height) this close: jump now
+    brake_cms2 = 2000,         -- go_to: his assumed braking when he lets go of the key (coasting into the goal)
+    arrive_still_cms = 60, trap_undo_cm = 2000, hazard_standoff_cm = 200, hazard_slow_cm = 600, hazard_slow_input = 0.3, hazard_walk_cms = 250,     -- go_to "arrived" only once his ground speed is under this ...
+    arrive_settle_s = 1.5,     -- ... or after this long inside the circle (then arrived as he is)
     water_depth = 0.25,        -- EnvironmentComponent:GetNormalizedWaterDepth() above this = in water
     water_cell_cost = 8,       -- local planner: extra cost per known-water cell (prefer going round)
     bug_side_s = 12,           -- Bug2: time per side (left-hand, then right-hand)
@@ -1128,6 +1131,33 @@ local function drop_ahead(pawn, me, feet, dx, dy, walk_z)
     local nz = out.ImpactNormal and tonumber(out.ImpactNormal.Z)
     return walk_z ~= nil and nz ~= nil and nz < walk_z
 end
+-- Can Claude walk the straight line me -> c? (wall at knee height, holes/ledges, steep climbs)
+local function escape_line_clear(pawn, me, feet, c)
+    local dx, dy = c.X - me.X, c.Y - me.Y
+    local L = math.max(math.sqrt(dx * dx + dy * dy), 1)
+    local hx, hy = dx / L, dy / L
+    local knee = feet + 50
+    if L > 60 then
+        -- from 55 cm out: from his centre the ray hits his own gear (live 19:22)
+        local okp, hit, out = pcall(raw_trace, pawn, { X = me.X + hx * 55, Y = me.Y + hy * 55, Z = knee },
+            { X = c.X + hx * 30, Y = c.Y + hy * 30, Z = knee })
+        if not okp then return "trace_error" end
+        if hit and ((out.ImpactNormal and out.ImpactNormal.Z or 0) < M.cfg.probe_wall_nz) then return "wall" end
+    end
+    local n = math.max(1, math.ceil(L / 150))
+    for k = 1, n do
+        local f = k / n
+        local x, y = me.X + dx * f, me.Y + dy * f
+        local okd, hitd, outd = pcall(raw_trace, pawn, { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - 400 })
+        if not okd then return "trace_error" end
+        if not (hitd and outd.ImpactPoint) then return "drop" end
+        if tonumber(outd.Distance) == 0 then return "inside_geometry" end
+        local fz = outd.ImpactPoint.Z
+        if fz < feet - 250 then return "drop" end
+        if fz > feet + 60 + 0.7 * L * f then return "climb" end
+    end
+    return true
+end
 local function route_owned(st, gen, pawn, pc)
     local b = st.nav_binding
     if not b then return false end
@@ -1200,6 +1230,32 @@ local function nav_mem()
 end
 
 local function feet_of(st, p) return { X = p.X, Y = p.Y, Z = p.Z - (st.half_h or 90) } end
+-- a spot that killed him (skills.record_death: a fall's last ground), in nav memory; at = {x,y,z} metres
+function M.mark_hazard(at, info)
+    local mem, NMm = nav_mem()
+    if not (mem and NMm and NMm.mark_hazard and type(at) == "table") then return nil end
+    local h, new = NMm.mark_hazard(mem, { X = at[1] * 100, Y = at[2] * 100, Z = at[3] * 100 }, info)
+    pcall(NMm.save, mem)
+    return h, new
+end
+-- A walk that started inside a known trap and got out of it (or where it was going) with no stuck and without its
+-- exit counts against the trap (navmem.trap_miss), which is forgotten once such walks outnumber its escapes. t227
+-- (2026-11-01) was learned between house walls at 13:29Z; the walls changed, but its exit was walked first on
+-- every start in its 8 m (128 uses, 1 escape: cook walked 18 m to end 4 m away) and nothing counted against it.
+local function trap_evidence(st, how, log)
+    if not st.trap_start or st.trap_judged or st.trap_exit_taken then return end
+    if (st.stuck_total or 0) > (st.trap_stuck0 or 0) then return end
+    st.trap_judged = true
+    local mem, NMm = nav_mem()
+    if not (mem and NMm.trap_miss) then return end
+    local okm, t, dropped = pcall(NMm.trap_miss, mem, st.trap_start)
+    if not (okm and t) then return end
+    pcall(NMm.save, mem)
+    local cand = rawget(_G, "DW_TRAP_CAND")
+    if cand and cand.trap == st.trap_start then _G.DW_TRAP_CAND = nil end
+    if log then log(string.format("move: memory: trap %s: I %s with no stuck and without its exit (%d such walks; it shut me in %d time(s))%s",
+        tostring(t.id), how, t.n_bad or 0, t.n_ok or 1, dropped and "; not a trap any more: forgotten" or "")) end
+end
 
 -- A remembered route that really REACHES the goal: its last walked point is within goal_reach_cm of the goal on
 -- the goal's level. Used when the oracle's route ends short (the NPC navmesh misses the church ramp a player
@@ -1628,6 +1684,29 @@ finish = function(st, result, log)
     cancel_superjump(st)
     if not current() then return end
     if result and result.status == "arrived" then st.trip_ok = true end
+    if result and result.status == "arrived" and st.trip_rec and (st.trip_rec.path or 0) >= 200 then
+        pcall(trap_evidence, st, "got where I was going", log)
+    end
+    local tl = st.trap_learn
+    if tl and tl.undo and tl.undo.trap and result and result.status == "failed" and st.trip_rec and st.trip_rec.last
+        and d2(st.trip_rec.last, st.trip_rec.start) < M.cfg.trap_undo_cm then
+        -- a walk "out" of a stuck spot that failed and ended near where it began led nowhere: not an exit, and
+        -- no count for or against the trap (Luis's rule: only a clean walk out is evidence)
+        pcall(function()
+            local mem, NMm = nav_mem()
+            local u, tr = tl.undo, tl.undo.trap
+            if u.prev and u.prev == tr then
+                tr.exit, tr.n_ok, tr.n_used, tr.ts, tr.status = u.exit, u.n_ok, u.n_used, u.ts, u.status
+            else
+                for i = #mem.traps, u.n + 1, -1 do if mem.traps[i] == tr then table.remove(mem.traps, i) end end
+                if u.prev and u.prev.seed then u.prev.disabled = nil end
+            end
+            NMm.save(mem)
+            if rawget(_G, "DW_TRAP_CAND") == tl then _G.DW_TRAP_CAND = nil end
+            if log then log(string.format("move: memory: trap %s: the walk out of it failed %.0f m from where it began: exit %s",
+                tostring(tr.id), d2(st.trip_rec.last, st.trip_rec.start) / 100, u.prev == tr and "kept as it was" or "not learned")) end
+        end)
+    end
     pcall(mem_flush, st, log, result and result.status)
     if not current() then return end
     local handle=st.handle
@@ -1701,6 +1780,13 @@ end
 -- Standing for an arrival: on the ground, or in water (wading/swimming at the spot is being there). Live 21:48: the
 -- Water Anima Vent sits at the pond edge; he stood 1.2 m from it in the water, never "on ground", and the go_to
 -- ended unreachable at 0-2 m.
+-- his ground speed (cm/s): the movement component's velocity, else the speed of his own positions (trip_tick)
+local function h_speed(st, pawn)
+    local ok, x, y = pcall(function() local u = pawn.CharacterMovement.Velocity; return u.X, u.Y end)
+    if ok and type(x) == "number" and type(y) == "number" then return math.sqrt(x * x + y * y) end
+    return st.hspd
+end
+
 local function standing_check(pawn)
     local g = ground_check(pawn)
     if g ~= false then return g end
@@ -1987,6 +2073,10 @@ local function trip_tick(f)
         -- interaction, every go_to "walked 17-20 m" of his own up-and-down hops and ended where it began)
         local step = math.sqrt((me.X - tr.last.X) ^ 2 + (me.Y - tr.last.Y) ^ 2)
         if step < 1500 then tr.path = tr.path + step end -- a teleport/respawn is not walking
+        if dt and dt > 0 and step < 1500 then -- ground speed from his own positions (h_speed's fallback)
+            local inst = step / dt
+            st.hspd = st.hspd and (0.5 * st.hspd + 0.5 * inst) or inst
+        end
         if dist < tr.best then tr.best = dist end
         tr.zmin, tr.zmax = math.min(tr.zmin, me.Z), math.max(tr.zmax, me.Z)
         local src0 = st.source or "start"
@@ -2440,6 +2530,7 @@ local function arrival(f)
         end
         local at_goal = reached(st, me, goal)
         if at_goal == nil then return stop(st, { status = "failed", reason = "verification_failed", detail = "position or destination unavailable" }, log) end
+        if not at_goal then st.settle_t = nil end
         -- a jump/windstep plan holds arrival off only while it is in flight (its landing advances the plan) or just
         -- pressed; one that never left the ground is stale (it kept him "stuck" on the goal, travel uphill_plateau 02:15Z)
         local function in_flight(e) return e and (e.saw_air or t - (e.started or e.jump_t or t) < 2) end
@@ -2447,10 +2538,25 @@ local function arrival(f)
             local grounded = standing_check(pawn)
             if grounded == nil then return stop(st, { status = "failed", reason = "verification_failed", detail = "ground state unavailable" }, log) end
             if grounded then
+                -- "arrived" means stopped there: no input while he slows down, and if he slides out of the circle
+                -- he walks back in (live 20:33:51Z: "arrived" at 6.8 m/s, then a 5 m slide out of reach of the rock)
+                local spd = h_speed(st, pawn)
+                if spd and spd > M.cfg.arrive_still_cms and t - (st.settle_t or t) < M.cfg.arrive_settle_s then
+                    st.settle_t = st.settle_t or t
+                    st.status = "stopping"
+                    return true
+                end
                 st.lp_jump_exec, st.ws_exec = nil, nil
                 return stop(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log)
             end
             if t - st.t0 <= st.timeout_s then st.status = "awaiting_landing"; return true end
+        end
+        -- a goal under water (the bed of a pond he was sent to drink from): swimming or wading over it IS the arrival
+        -- (live 22:12:07Z: 1 cm from it on the surface, 3 m above it, then 21 s of circles in the water)
+        if at_goal == false and (st.in_water or st.wade) and goal.Z < me.Z and d2(me, goal) <= st.tol_cm + 100 then
+            return stop(st, { status = "arrived", in_water = true, below_m = math.floor((me.Z - goal.Z) / 10 + 0.5) / 10,
+                dist_m = dist / 100, s = t - st.t0,
+                detail = string.format("the spot is under water, %.1f m below me; I'm in the water over it", (me.Z - goal.Z) / 100) }, log)
         end
         if at_goal == false and d2(me, goal) <= st.tol_cm and not in_flight(st.ws_exec) and not in_flight(st.lp_jump_exec) then
             local r = overhead(f)
@@ -2543,6 +2649,19 @@ end
 -- growing for trap_extend_cm, until well clear), and the direction that failed is tabooed.
 local function trap_tick(f)
     local fe, log = f.fe, f.log
+    if not f.st.trap_checked then
+        -- a start inside a known trap with the goal outside it, once per move, whatever routes the walk (the
+        -- oracle's routes skip memory_once): the walk is evidence for or against the trap (trap_evidence)
+        local st = f.st
+        st.trap_checked = true
+        local mem, NMm = nav_mem()
+        local okt, trap = false, nil
+        if mem then okt, trap = pcall(NMm.trap_at, mem, fe) end
+        if okt and trap then
+            local okg, gtrap = pcall(NMm.trap_at, mem, feet_of(st, f.goal))
+            if not (okg and gtrap and gtrap.id == trap.id) then st.trap_start, st.trap_stuck0 = trap.id, st.stuck_total or 0 end
+        end
+    end
     local cand = rawget(_G, "DW_TRAP_CAND")
     if cand then
         cand.path = cand.path or {}
@@ -2572,6 +2691,14 @@ local function trap_tick(f)
         if la < 1 or lb < 1 then return 180 end
         return math.deg(math.acos(math.max(-1, math.min(1, (ax * bx + ay * by) / (la * lb)))))
     end
+    local st = f.st
+    local stuck_in = st.trap_start == cand.trap and (st.stuck_total or 0) > (st.trap_stuck0 or 0)
+    if cand.trap and not cand.learned and st.trap_start == cand.trap and not st.trap_exit_taken and not stuck_in then
+        -- started in a known trap and walked out his own way, never stuck: evidence against it, no exit refresh
+        pcall(trap_evidence, st, "walked out of it", log)
+        _G.DW_TRAP_CAND = nil
+        return
+    end
     if not cand.trap and not cand.learned and cand.toward and walked <= M.cfg.trap_straight_x * d2(cp[k0], fe)
         and heading_off(fe, cand.toward) < 45 then
         -- he walked straight out the very way that "failed": nothing shut him in there (the stuck passed); a
@@ -2580,8 +2707,18 @@ local function trap_tick(f)
         _G.DW_TRAP_CAND = nil
         return
     end
-    -- n_ok counts escapes from a fresh stuck once; walking a known trap's exit again counts as n_used
-    local okt, trap, how = pcall(NMm.learn_trap, mem, cand.at, ex, { src = "learned", used = cand.trap ~= nil, refresh = cand.learned })
+    -- n_ok counts escapes from a fresh stuck once (also a stuck on a start inside a known trap); walking a known
+    -- trap's exit again with no stuck counts as n_used
+    if not cand.undo then
+        -- what this learn replaces, so a walk out that leads nowhere can be taken back (finish: trap_undo; live
+        -- 21:51-21:53Z two bug2 excursions out of t7 and back, each overwrote its working exit, both walks no_route)
+        local okp, prev = pcall(NMm.trap_at, mem, cand.at)
+        prev = okp and prev or nil
+        cand.undo = { prev = prev, exit = prev and prev.exit, n_ok = prev and prev.n_ok, n_used = prev and prev.n_used,
+            ts = prev and prev.ts, status = prev and prev.status, n = #mem.traps }
+    end
+    local okt, trap, how = pcall(NMm.learn_trap, mem, cand.at, ex, { src = "learned", used = cand.trap ~= nil and not stuck_in, refresh = cand.learned })
+    if okt and trap then cand.undo.trap = trap; st.trap_learn = cand end
     if cand.toward and not cand.learned then pcall(NMm.taboo, mem, cand.at, cand.toward, "failed approach") end
     pcall(NMm.save, mem)
     if log and not cand.learned then log(string.format("move: memory: trap %s %s, exit %d pts", tostring(okt and trap and trap.id), tostring(how), #ex)) end
@@ -2703,8 +2840,15 @@ local function memory_once(f)
         if log then log(string.format("move: memory: remembered route reaches the goal (%d pts) after %s", #reach, st.nav_fallback)) end
     elseif in_trap and st.mode == "follow" and st.target then
         -- following a visible leader out: his live trail beats a stored (maybe provisional) exit
+    elseif in_trap and not (NMm.trap_trusted and NMm.trap_trusted(trap)) then
+        -- shut him in once: his own way first (the exit is a stuck-ladder rung, memory_retry), so a walk out with no
+        -- stuck can count against it
+        if log then log(string.format("move: memory: in trap %s (it shut me in %d time(s), I walked out of it %d): my own way first, its exit only if I get stuck",
+            tostring(trap.id), trap.n_ok or 1, trap.n_bad or 0)) end
+        st.trap_own = trap.id
     elseif in_trap then
         st.mpath, st.mwp, st.msrc = NMm.trap_exit(trap), 1, "trap:" .. tostring(trap.id)
+        st.trap_exit_taken = true
         if log then log("move: memory: in trap " .. tostring(trap.id) .. ", taking its exit first") end
     elseif dist > M.cfg.mem_min_trip_cm then
         local okp, pts = pcall(NMm.plan, mem, fe, gfe, { max_factor = 2.5 })
@@ -3084,6 +3228,24 @@ local function steer_trail(f)
         local k = st.trail_i
         while k < #st.crumbs and st.crumbs[k].air do k = k + 1 end
         local land = st.crumbs[k]
+        -- a hop or Windstep of his over open ground is not copied: each copied jump cost 1-3 s at 2-3 m/s, a gap that
+        -- never closes behind a 6.8 m/s sprint (ghost ladder 2026-11-01: Luis hops and Windsteps on the flat; church
+        -- loop 20:19:24Z, 10.5 m behind for 5 s after one). Run on when the straight line to where he lands on our
+        -- level (or to below him while he is still up) is clear at knee height with floor all the way
+        local tgt = land and not land.air and math.abs(land.Z - me.Z) <= step_tol(st) and land or f.goal
+        if tgt and d2(me, tgt) > 100 and d2(me, tgt) < 1200 and ground_check(pawn) == true then
+            local okc, clear = pcall(escape_line_clear, pawn, me, me.Z - (st.half_h or 88), tgt)
+            if okc and clear == true then
+                for j = st.trail_i, #st.crumbs do
+                    if not st.crumbs[j].air then break end
+                    st.trail_jumped[st.crumbs[j]] = true
+                end
+                st.trail_hops_run = (st.trail_hops_run or 0) + 1
+                if log then log(string.format("move: trail: his jump here %s, and the way under it is clear: running on, no jump",
+                    tgt == land and "lands back on my level" or "is over open ground")) end
+                return
+            end
+        end
         st.env = st.env or envelope(pawn, f.pc)
         local dbl = land and not land.air and (land.Z - me.Z) > jump_cm(st) - 20 and st.env and st.env.double_jump or false
         local jr = start_jump(st, t, pawn, dbl, log)
@@ -3248,6 +3410,9 @@ local function probe(f)
     local okp, hit, out = pcall(raw_trace, pawn, a, b)
     st.traces = (st.traces or 0) + 1
     local low = false
+    -- an obstacle at the goal (inside its arrival circle: the rock he walks up to mine) is no obstacle to hop or plan
+    -- round (live 20:33:51Z, rung 3 mine: a hop at 1.6 m from the goal, then a 5 m slide after "arrived")
+    if okp and hit and st.mode == "go_to" and 60 + (tonumber(out.Distance) or 0) >= dist - st.tol_cm then hit = false end
     if okp and hit and (out.ImpactNormal and out.ImpactNormal.Z or 0) < M.cfg.probe_wall_nz then
         local zh = me.Z - hh + jump_cm(st) - 30
         local okh, hh2 = pcall(raw_trace, pawn, { X = a.X, Y = a.Y, Z = zh }, { X = b.X, Y = b.Y, Z = zh })
@@ -3255,9 +3420,15 @@ local function probe(f)
         if okh and not hh2 and not heavy(st) then
             low = true
             st.probe_t = t - M.cfg.probe_every_s + 0.05 -- watch it closely until we jump
-            if 60 + (tonumber(out.Distance) or 999) < M.cfg.hop_dist_cm and not st.jump_t then
+            -- close enough to clear it, or held up at it: sliding along a low wall he never gets within hop range
+            -- of (ghost doric 21:26:57-21:27:01Z: 4 s at 1-2 m/s beside a low wall the leader had Windstepped over)
+            local close = 60 + (tonumber(out.Distance) or 999) < M.cfg.hop_dist_cm
+            local slow = (h_speed(st, pawn) or 999) < 250
+            if slow then st.low_slow_t = st.low_slow_t or t else st.low_slow_t = nil end
+            if (close or (st.low_slow_t and t - st.low_slow_t > 0.4)) and not st.jump_t then
+                st.low_slow_t = nil
                 local jr = start_jump(st, t, pawn, false, log)
-                if jr == "accepted" then st.hops = (st.hops or 0) + 1; if log then log("move: hop over a low obstacle") end elseif jr ~= "busy" then return true end
+                if jr == "accepted" then st.hops = (st.hops or 0) + 1; if log then log(close and "move: hop over a low obstacle" or "move: hop over a low obstacle I was held up at") end elseif jr ~= "busy" then return true end
             end
         elseif src ~= "trail" and st.use_lp and lp_begin(st, pawn, me, far_goal(f), "wall_ahead", log) then
             -- (on his trail a wall ahead is a corner he walked round: the trail turns, no standing plan)
@@ -3400,6 +3571,47 @@ local function cliff_guard(f)
     if st.wade or st.in_water or st.jump_t or (st.ticks or 0) % 2 ~= 0 then return end
     local okg, ground = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
     if okg and ground == false then return end -- airborne (a planned jump or drop): the landing was checked
+    -- a spot that killed him (navmem hazards, from skills.record_death: the last ground before a fatal fall): never
+    -- step toward it within hazard_standoff_cm, whatever routes the walk (live 2026-11-01 22:10/22:11Z: interact's
+    -- 2-point remembered route to his grave on a cliff lip, the look-ahead fired late or not at all, two deaths)
+    local hmem, HNM = nav_mem()
+    local hl = (dx and dy) and math.sqrt(dx * dx + dy * dy) or 0
+    if hmem and HNM.hazard_near and hl > 0 then
+        local fe = feet_of(st, me)
+        local ahead = { X = fe.X + dx / hl * 100, Y = fe.Y + dy / hl * 100, Z = fe.Z }
+        -- near one and walking at it: slow to a walk (no sprint, 0.3 input), because a stop at speed is followed by a
+        -- 2.7-3.8 m jump forward on his client (kin trace 22:55Z: 2.66 m in 0.12 s right after a stop at 6.6 m/s; the
+        -- 22:46Z lip death: 3.8 m with nothing driving him); at a walk it is a few decimetres (22:43Z)
+        local okn, hn = pcall(HNM.hazard_near, hmem, fe, M.cfg.hazard_slow_cm)
+        if okn and hn then
+            local hcn = { X = hn.at[1] * 100, Y = hn.at[2] * 100, Z = hn.at[3] * 100 }
+            if d2(ahead, hcn) < d2(fe, hcn) then
+                if not st.hz_slow_t and log then log(string.format("move: hazard: slowing to a walk %.1f m from a drop that killed me %d time(s)", d2(fe, hcn) / 100, hn.n or 1)) end
+                st.hz_slow_t = t
+            end
+        end
+        local okh, h, hd = pcall(HNM.hazard_near, hmem, ahead, M.cfg.hazard_standoff_cm)
+        if okh and h then
+            local hc = { X = h.at[1] * 100, Y = h.at[2] * 100, Z = h.at[3] * 100 }
+            if hd < d2(fe, hc) then
+                local detail = string.format("I stopped %.1f m short of a drop that killed me %d time(s) at [%.1f,%.1f]%s; I don't go closer than %.0f m to it",
+                    d2(fe, hc) / 100, h.n or 1, h.at[1], h.at[2], h.drop_m and string.format(" (a %d m fall)", h.drop_m) or "",
+                    M.cfg.hazard_standoff_cm / 100)
+                if not st.hazard_said then
+                    st.hazard_said = true
+                    if log then log("move: hazard: " .. detail) end
+                    note(st, detail)
+                end
+                st.win_t, st.win_pos = t, v(me)
+                if st.mode == "go_to" then
+                    return stop(st, { status = "failed", reason = "unreachable", why = "known_drop", detail = detail,
+                        hazard = { h.at[1], h.at[2], h.at[3] }, deaths_here = h.n or 1, dist_m = (f.dist or 0) / 100 }, log)
+                end
+                st.status = "holding"
+                return true
+            end
+        end
+    end
     local safe = fall_limits(st, pawn)
     local worst, steep, traces = fall_hazard(pawn, me, dx, dy, st.half_h, safe, st.walk_z, f.dist)
     st.traces = (st.traces or 0) + (traces or 0)
@@ -3474,7 +3686,23 @@ local function steer_input(f)
         return
     end
     if not bound() then return true end
-    pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false)
+    -- the last metres of a go_to: let go of the key once his speed carries him in, the way a player stops under
+    -- control (he reached a rock at 6.8 m/s and slid 5 m past it, live 20:33:51Z); slower, he pushes on again
+    if st.mode == "go_to" and f.dist and not st.jump_t and not st.lpath and not st.mpath then
+        local spd = h_speed(st, pawn)
+        if spd and spd > 250 and f.dist - 0.6 * st.tol_cm <= spd * spd / (2 * M.cfg.brake_cms2) and ground_check(pawn) == true then
+            st.status, st.coasts = "braking", (st.coasts or 0) + 1
+            return
+        end
+    end
+    local slow = st.hz_slow_t and t - st.hz_slow_t < 0.6
+    if slow then
+        -- a smaller input alone keeps his sprint speed (kin trace 23:01Z: 6.8 m/s held at 0.3 input): let go until he
+        -- is down to a walk, then walk on at hazard_slow_input
+        local spd = h_speed(st, pawn)
+        if spd and spd > M.cfg.hazard_walk_cms then st.status = "slowing"; return end
+    end
+    pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, slow and M.cfg.hazard_slow_input or 1.0, false)
     st.status = "moving"
 end
 
@@ -3491,6 +3719,7 @@ local function sprint_tick(f)
         elseif f.dist < st.tol_cm + 50 or (lv < 300 and f.dist < st.tol_cm + 150) then st.sprint_want = false end
     elseif f.dist > M.cfg.sprint_on_cm and st.sprint then st.sprint_want = true
     elseif f.dist < M.cfg.sprint_off_cm then st.sprint_want = false end
+    if st.hz_slow_t and t - st.hz_slow_t < 0.6 then st.sprint_want = false end -- walking up to a drop that killed him
     local sprinting = is_sprinting(pawn)
     if st.sprinting and not sprinting and f.log then
         -- what ends a sprint (telemetry: the follow ladder saw 31 presses in 80 s)
@@ -3588,6 +3817,9 @@ local function stuck_tick(f)
             end
         end
     end
+    -- his own way out of an untrusted trap got stuck: its exit at once (not after the give-up ladder)
+    -- (taken on the next frame: memory_retry is defined below)
+    if st.trap_own and not st.mem_retry then st.trap_own_stuck = true; return true end
     -- pushing against a shut door ahead (his house door, the trail through it: live 18:08:33-35 he pushed 2 s, re-planned
     -- "walls everywhere", and only then opened it): open it at the first stuck
     if n == 1 and not st.door then
@@ -3704,6 +3936,7 @@ local function memory_retry(f)
     end
     if not pts then return end
     st.mpath, st.mwp, st.msrc = pts, 1, okt and trap and ("trap:" .. tostring(trap.id)) or "memory"
+    if okt and trap then st.trap_exit_taken = true end
     restart_progress(st, t, me)
     st.lpath, st.trail_i = nil, nil
     if log then log("move: memory: retrying via " .. st.msrc) end
@@ -3817,7 +4050,7 @@ local function give_up(f)
         st.mem_retry = true
         if memory_retry(f) then return true end
     end
-    if not st.bug_tried and st.use_lp then
+    if not st.bug_tried and st.use_lp and not (st.in_water or st.wade) then -- (no wall-following in water: 22:12Z circles)
         st.bug_tried = true
         st.bug = { s = v(me), hit_d = dist, t0 = t, travel = 0, dir = 1, switched = false,
             yaw = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)) + 35 }
@@ -3928,6 +4161,12 @@ local function tick(st, gen, log)
     if st.local_authority and (st.lp_jump_exec or st.ws_exec or st.jump_t) then
         st.win_t, st.win_pos = t, v(me)
         return
+    end
+    if st.trap_own_stuck then
+        st.trap_own_stuck, st.mem_retry = nil, true
+        if log then log("move: memory: my own way out of trap " .. tostring(st.trap_own) .. " got stuck: its exit now") end
+        st.trap_own = nil
+        if memory_retry(f) then st.win_t, st.win_pos = t, v(me); return end
     end
     if stuck_tick(f) or give_up(f) then return end
     if log and t - (st.log_t or 0) > M.cfg.log_every_s then
@@ -4380,8 +4619,17 @@ function M.restore(log, snap)
         return { ok = false, reason = "companion_down", detail = st.result.detail }
     end
     opts.life_seq = nil
-    if snap.mode == "follow" then return M.follow(log, snap.goal, snap.distance_m or opts.tolerance_m or 3, opts) end
-    return M.go_to(log, snap.goal, opts)
+    local by = type(opts.resume_trip) == "table" and opts.resume_trip.by or nil
+    local r
+    if snap.mode == "follow" then r = M.follow(log, snap.goal, snap.distance_m or opts.tolerance_m or 3, opts)
+    else r = M.go_to(log, snap.goal, opts) end
+    -- tell the brain the walk goes on (live 21:57:35Z: follow resumed after a reflex fight, nobody said so, and the
+    -- model called follow again 2.7 s later)
+    if type(r) == "table" and r.ok ~= false then
+        pcall(emit_move_event, "move_resumed", { mode = snap.mode, by = by and tostring(by) or nil,
+            target = type(snap.goal) == "string" and snap.goal or nil })
+    end
+    return r
 end
 
 local function m3(p) return p and { math.floor(p.X) / 100, math.floor(p.Y) / 100, math.floor(p.Z) / 100 } or nil end
@@ -4725,34 +4973,6 @@ function M.shore_point(log, water, opts)
     if log then log(string.format("move: shore point %s (depth %dcm, face %s), %d alternatives, %d traces", fmt(best.stand), best.depth, fmt(best.edge), #alts, traces)) end
     return { ok = true, stand = m(best.stand), edge = m(best.edge), bank = m(best.bank), depth_cm = best.depth,
              dist_m = math.floor(d2(from, best.stand)) / 100, alts = alts, how = "channel", traces = traces }
-end
-
--- Can Claude walk the straight line me -> c? (wall at knee height, holes/ledges, steep climbs)
-local function escape_line_clear(pawn, me, feet, c)
-    local dx, dy = c.X - me.X, c.Y - me.Y
-    local L = math.max(math.sqrt(dx * dx + dy * dy), 1)
-    local hx, hy = dx / L, dy / L
-    local knee = feet + 50
-    if L > 60 then
-        -- from 55 cm out: from his centre the ray hits his own gear (live 19:22)
-        local okp, hit, out = pcall(raw_trace, pawn, { X = me.X + hx * 55, Y = me.Y + hy * 55, Z = knee },
-            { X = c.X + hx * 30, Y = c.Y + hy * 30, Z = knee })
-        if not okp then return "trace_error" end
-        if hit and ((out.ImpactNormal and out.ImpactNormal.Z or 0) < M.cfg.probe_wall_nz) then return "wall" end
-    end
-    local n = math.max(1, math.ceil(L / 150))
-    for k = 1, n do
-        local f = k / n
-        local x, y = me.X + dx * f, me.Y + dy * f
-        local okd, hitd, outd = pcall(raw_trace, pawn, { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - 400 })
-        if not okd then return "trace_error" end
-        if not (hitd and outd.ImpactPoint) then return "drop" end
-        if tonumber(outd.Distance) == 0 then return "inside_geometry" end
-        local fz = outd.ImpactPoint.Z
-        if fz < feet - 250 then return "drop" end
-        if fz > feet + 60 + 0.7 * L * f then return "climb" end
-    end
-    return true
 end
 
 -- "Get me out now": nearest point outside every zone (inside the bound) whose straight walk is clear;

@@ -1594,6 +1594,8 @@ local function forward_moves()
                                                      leader_pos = m.leader_pos, my_pos = m.my_pos, target = who.target,
                                                      target_kind = who.target_kind })
                 S.stats.unreachable = S.stats.unreachable + 1
+            elseif m.type == "move_resumed" then -- a walk suspended for a reflex goes on by itself (move.restore)
+                S.bridge.emit_event("activity", { kind = "move_resumed", by = m.by, mode = m.mode, target = m.target or who.target })
             elseif m.type == "led_out" then
                 S.bridge.emit_event("resumed", { reason = "led_out", helper = m.helper, target = who.target,
                                                  target_kind = who.target_kind })

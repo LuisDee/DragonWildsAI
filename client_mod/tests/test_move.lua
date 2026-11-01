@@ -1314,14 +1314,100 @@ run(500)
 s = MB2.status()
 if os.getenv("DBG15") then for i = math.max(1, #logs - 14), #logs do print("  " .. logs[i]) end; local fm2 = io.open(memf); if fm2 then print("MEM", (fm2:read("a"):gsub("%s+", " "):sub(1, 900))); fm2:close() end end
 check("memory (b3): learned exit -> unaided go_to out of the pit", s.result and s.result.status == "arrived", tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
-do -- walking the stored exit again is a use, not new evidence; the escape counted once, not once per tick
+do -- a trap that shut him in once is not walked first: his own way, stuck, then its exit (the stuck rung); that
+    -- second escape counts once (not once per tick), and makes it a trusted trap
     local fm3 = io.open(memf); local txt = fm3 and fm3:read("a") or ""; if fm3 then fm3:close() end
     local traps = txt:match('"traps"%s*:%s*(%b[])') or ""
     local n_ok, n_used = tonumber(traps:match('"n_ok"%s*:%s*(%d+)')), tonumber(traps:match('"n_used"%s*:%s*(%d+)'))
-    check("memory (b3): trap n_ok 1 (one escape), n_used 1 (its exit walked once)", n_ok == 1 and n_used == 1, tostring(n_ok) .. " " .. tostring(n_used))
+    check("memory (b3): trap n_ok 2 (stuck again, escaped by its exit), n_used none", n_ok == 2 and n_used == nil, tostring(n_ok) .. " " .. tostring(n_used))
+    local own = false
+    for _, l in ipairs(logs) do if l:find("my own way first, its exit only if I get stuck", 1, true) then own = true end end
+    check("memory (b3): the once-trap's exit was not walked first", own)
 end
 MB2.stop(log)
+do
+-- (b4) now trusted (it shut him in twice): its exit first, a use with no new evidence
+_G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
+pit_world()
+local nlog = #logs
+local MB3 = dofile(MOVE)
+MB3.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120, nav=false })
+run(500)
+s = MB3.status()
+do
+    local first = false
+    for i = nlog + 1, #logs do if logs[i]:find("taking its exit first", 1, true) then first = true end end
+    local fm4 = io.open(memf); local txt = fm4 and fm4:read("a") or ""; if fm4 then fm4:close() end
+    local traps = txt:match('"traps"%s*:%s*(%b[])') or ""
+    local n_ok, n_used = tonumber(traps:match('"n_ok"%s*:%s*(%d+)')), tonumber(traps:match('"n_used"%s*:%s*(%d+)'))
+    check("memory (b4): a trusted trap's exit first, arrived, n_ok 2 n_used 1", first and s.result and s.result.status == "arrived"
+        and n_ok == 2 and n_used == 1, tostring(first) .. " " .. tostring(s.result and s.result.status) .. " " .. tostring(n_ok) .. " " .. tostring(n_used))
+end
+MB3.stop(log)
+-- (b5) the pit's walls are gone (a house torn down: t227, 2026-11-01): walks out of the "trap" with no stuck
+-- count against it, and once they outnumber its escapes it is forgotten
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+do local f = io.open(memf, "w"); f:write([==[{"v":1,"next_id":9,"traps":[{"id":"t227","center":[0,0,-0.9],"radius_m":5,"z_max":0.5,"z_min":-3,
+  "status":"verified","src":"learned","n_ok":1,"n_used":128,"exit":[[0,8,-0.9],[0,16,-0.9],[0,18,-0.9],[12,18,-0.9]]}],"taboos":[],"routes":[]}]==]); f:close() end
+local said = {}
+for k = 1, 2 do
+    raised = {}; oracle = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
+    local n0 = #logs
+    local MT = dofile(MOVE)
+    MT.go_to(log, { 9, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60, nav=false })
+    run(300)
+    local r = MT.status().result
+    said[k] = { arrived = r and r.status == "arrived", walked = r and r.trip }
+    for i = n0 + 1, #logs do
+        if logs[i]:find("trap t227: I got where I was going with no stuck", 1, true) then said[k].against = logs[i] end
+        if logs[i]:find("taking its exit first", 1, true) then said[k].exit_first = true end
+    end
+    MT.stop(log)
+end
+check("trap unlearn: a straight walk out of a once-trap is not routed by its exit", said[1].arrived and not said[1].exit_first, said[1].walked)
+check("trap unlearn: the first clean walk counts against it", said[1].against and said[1].against:find("(1 such walks; it shut me in 1 time(s))", 1, true)
+    and not said[1].against:find("forgotten", 1, true), said[1].against)
+check("trap unlearn: the second clean walk forgets it", said[2].arrived and said[2].against and said[2].against:find("not a trap any more: forgotten", 1, true), said[2].against)
+do
+    _G.DW_NAVMEM = nil
+    local NMt = dofile(dir .. "/client_mod/scripts/navmem.lua")
+    local mem = NMt.load(dir, "test-world", "L_World")
+    check("trap unlearn: forgotten on disk (no trap at the spot after a reload)", NMt.trap_at(mem, { X = 0, Y = 0, Z = -90 }) == nil)
+end
+walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+end
+walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+
+-- (b6) a spot that killed him (a fall off the world's edge: live 22:10/22:11Z): a walk toward it stops 2 m short and
+-- says why; a walk away from it is not held
+do
+walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+do local f = io.open(memf, "w"); f:write([==[{"v":1,"next_id":9,"traps":[],"taboos":[],"routes":[],
+  "hazards":[{"at":[6,0,-0.9],"n":2,"cause":"fall","drop_m":40}]}]==]); f:close() end
+local hz = {}
+for k, gx in ipairs({ 9, -9 }) do
+    raised = {}; oracle = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil
+    local n0 = #logs
+    local MT = dofile(MOVE)
+    MT.go_to(log, { gx, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60, nav = false })
+    run(300)
+    local r = MT.status().result
+    hz[k] = { r = r, x = pawn.loc.X }
+    for i = n0 + 1, #logs do if logs[i]:find("move: hazard:", 1, true) then hz[k].said = logs[i] end end
+    MT.stop(log)
+end
+check("hazard: a walk toward a spot that killed me stops short of it, failed known_drop",
+    hz[1].r and hz[1].r.status == "failed" and hz[1].r.why == "known_drop" and hz[1].x <= 420 and hz[1].x >= 250
+    and hz[1].r.detail and hz[1].r.detail:find("killed me 2 time(s)", 1, true) and hz[1].said ~= nil, hz[1].r and hz[1].r.detail .. " x=" .. hz[1].x)
+check("hazard: a walk away from it is not held", hz[2].r and hz[2].r.status == "arrived", hz[2].r and hz[2].r.status)
+do
+    local MT = dofile(MOVE)
+    _G.DW_NAVMEM = nil
+    local h, new = MT.mark_hazard({ 6.5, 0.5, -0.9 }, { cause = "fall", drop_m = 41 })
+    check("hazard: a death 0.7 m from a known hazard merges into it (n 3)", h and not new and h.n == 3 and h.drop_m == 41, h and h.n)
+end
+walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+end
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 16. BUG2: a 34 m tall wall across the way, its north end 14 m off (outside the 9 m planner window),
@@ -2265,6 +2351,7 @@ do
     pawn.Jump=refuse; attempts=0; run(1)
     check("jump paths: local djump rejection preserves marker",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.lp_jumped[2] and not st.jump_t)
     st=setup(); local crumb={X=140,Y=0,Z=0,air=true}
+    walls={{300,320,-100,100}} -- his jump is over a low wall (a hop over open ground is not copied)
     st.crumbs={{X=0,Y=0,Z=0},crumb,{X=500,Y=0,Z=0}}; st.trail_i=2
     pawn.Jump=refuse; attempts=0; run(1)
     check("jump paths: trail rejection preserves crumbs",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.trail_jumped[crumb] and not st.trail_jumps)
@@ -2295,7 +2382,7 @@ do
     check("jump paths: oracle link rejection preserves marker",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.nav_jumped[2] and not st.link_jumps)
     local scenarios={
         {name="local",prepare=function(s) s.lpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; s.lwp=2; s.lp_jumped={}; return s.lp_jumped,2 end},
-        {name="trail",prepare=function(s) local c={X=140,Y=0,Z=0,air=true}; s.crumbs={{X=0,Y=0,Z=0},c,{X=500,Y=0,Z=0}}; s.trail_i=2; return s.trail_jumped,c end},
+        {name="trail",prepare=function(s) local c={X=140,Y=0,Z=0,air=true}; walls={{300,320,-100,100}}; s.crumbs={{X=0,Y=0,Z=0},c,{X=500,Y=0,Z=0}}; s.trail_i=2; return s.trail_jumped,c end},
         {name="memory",prepare=function(s) s.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; s.mwp=2; s.mem_jumped={}; return s.mem_jumped,2 end},
         {name="link",prepare=function(s) local e={phase="run",t0=T,link={id="t",from={0,0,-.9},to={5,0,-.9},move="jump"}}; s.link_exec=e; return e,"t_jump" end},
         {name="oracle",prepare=function(s)
@@ -3001,6 +3088,69 @@ do
     check("follow: the third failed jump of the trip is no_route", mv.unreach and mv.unreach.reason == "no_route" and mv.trav_fails == 3,
         tostring(mv.unreach and mv.unreach.reason) .. " fails=" .. tostring(mv.trav_fails))
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- ARRIVAL UNDER CONTROL (live 20:33:51Z, rung 3 mine: "arrived" at 6.8 m/s after a hop 1.6 m from the goal, then a 5 m
+-- slide out of reach of the rock): "arrived" waits until he has stopped in the circle; a rock AT the goal is not hopped
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local cm = pawn.CharacterMovement
+    cm.Velocity = { X = 0, Y = 0, Z = 0 }
+    local hops, real_jump = 0, pawn.Jump
+    pawn.Jump = function(...) hops = hops + 1; return real_jump(...) end
+    M.go_to(log, { 6, 0, 0 }, { tolerance_m = 1.5, nav = false })
+    local stopping = false
+    frame_hook = function()
+        local d = math.abs(600 - pawn.loc.X)
+        cm.Velocity = { X = (d <= 150 and not stopping) and 500 or 0, Y = 0, Z = 0 } -- still sliding on reaching the circle
+        if _G.DW_MOVE.status == "stopping" then stopping = true end
+    end
+    run(200)
+    local s = M.status()
+    check("arrival: waits in the circle while he still slides, then arrived", stopping and s.result and s.result.status == "arrived",
+        tostring(stopping) .. " " .. tostring(s.result and s.result.status))
+    frame_hook = nil; cm.Velocity = nil
+    -- a low rock that IS the goal's surroundings (inside the arrival circle): walked up to, not hopped
+    M.stop(log); pawn.loc = { X = 0, Y = 0, Z = 0 }; hops = 0
+    walls = { { 560, 700, -100, 100 } }
+    M.go_to(log, { 6.6, 0, 0 }, { tolerance_m = 1.6, nav = false })
+    run(200)
+    s = M.status()
+    check("arrival: no hop onto a rock inside the goal's circle", hops == 0 and s.result and s.result.status == "arrived",
+        "hops=" .. hops .. " " .. tostring(s.result and s.result.status))
+    pawn.Jump = real_jump; walls = {}
+    M.stop(log)
+end
+
+-- A hop of the leader's over open ground is not copied (ghost ladder 2026-11-01: Luis hops and Windsteps on the
+-- flat; every copied jump cost 1-3 s at 2-3 m/s, a gap that never closes behind a 6.8 m/s sprint); over a low wall
+-- it is
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    local jumps, real_jump = 0, pawn.Jump
+    pawn.Jump = function(...) jumps = jumps + 1; return real_jump(...) end
+    local function hop(wall)
+        M.stop(log); walls = wall or {}; air = 0; jumps = 0
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 900, Y = 0, Z = 0 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(2)
+        local mv = _G.DW_MOVE
+        mv.crumbs = { { X = 0, Y = 0, Z = 0 }, { X = 100, Y = 0, Z = 120, air = true }, { X = 300, Y = 0, Z = 150, air = true },
+                      { X = 500, Y = 0, Z = 0 }, { X = 900, Y = 0, Z = 0 } }
+        mv.trail_i, mv.trail_jumped = 2, {}
+        local n0 = #logs
+        step(3)
+        local said = false
+        for i = n0 + 1, #logs do if logs[i]:find("running on, no jump", 1, true) then said = true end end
+        return said, jumps
+    end
+    local said, n = hop()
+    check("trail: his hop over open ground is not copied", said and n == 0, tostring(said) .. " jumps=" .. n)
+    said, n = hop({ { 300, 320, -100, 100 } })
+    check("trail: his jump over a low wall is copied", not said and n >= 1, tostring(said) .. " jumps=" .. n)
+    pawn.Jump = real_jump
+    M.stop(log); walls = {}; luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
