@@ -132,6 +132,11 @@ def cmd_run(a) -> int:
             print("sender:", how)
             return 4
         cli = cl._debug_client()
+        if a.at:  # harness setup, before the line and the clock: stand him on the fresh spot "here" means
+            spot = [float(v) for v in a.at.split(",")]
+            g = cli.request("go_to", {"target": spot}, timeout=150)
+            here = ((cli.request("me", {}, timeout=10) or {}).get("data") or {}).get("position")
+            print(f"at: go_to {spot} ok={g.get('ok')} {g.get('reason') or ''}; he stands at {here}")
         before = structures(cli)
         spent0 = spend.spend_today()["spent_usd"]
         p, brain_file = cl.start_brain(a, spent0)
@@ -150,7 +155,11 @@ def cmd_run(a) -> int:
                 calls = cl.model_calls(rows)
                 busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
                 open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
-                open_tool = any(c.get("dur_s") is None for c in tl["calls"])
+                # a call still open counts only if no model reply came after it: a turn stops at its first failure,
+                # so a later call of that turn never runs and never gets a result (live 19:42Z: a `look` after a
+                # failed build stayed "open" and the run never went quiet)
+                last_llm = max((float(r.get("ts") or 0) for r in rows if r.get("kind") == "llm_response"), default=0.0)
+                open_tool = any(c.get("dur_s") is None and t0 + c["t"] >= last_llm for c in tl["calls"])
                 quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
                 if calls["haiku"] > a.max_haiku:
                     why = "haiku cap"
@@ -233,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--usd", type=float, default=1.5, help="this run's spend cap on top of today's spend")
     r.add_argument("--world", default="dev_build")
     r.add_argument("--wait", type=float, default=1800.0, help="seconds to wait for the live lock")
+    r.add_argument("--at", default="", help="x,y,z metres: walk him there first (the fresh spot the line's 'here' means)")
     sc = sub.add_parser("score")
     sc.add_argument("--since", required=True)
     sc.add_argument("--until", required=True)

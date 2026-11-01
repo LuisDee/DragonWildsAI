@@ -445,7 +445,7 @@ do
         Wb.actor_info = function(_, id) if id == anchor.id then return anchor end end
         Wb.piece_profile = function() return { snap_only = o.snap_only or false, box = o.box or FB } end
         Wb.structures = function()
-            local out = { { id = anchor.id, name = anchor.name, position = anchor.position } }
+            local out = { { id = anchor.id, name = anchor.name, position = anchor.position, edges = o.edges } }
             for _, s in ipairs(o.others or {}) do out[#out + 1] = s end
             return out
         end
@@ -484,6 +484,24 @@ do
     check("attach: green but never snapped (ghost stays where aimed) -> never pressed, says so", r and not r.ok and da.why == "not_snapped"
         and count(G.presses, "place") == 0 and tostring(da.detail):find("couldn't get the Campfire to sit flush on the E side of the Square Foundation", 1, true)
         and tostring(da.detail):find("Nothing was placed", 1, true) and type(da.ghost_off_m) == "number", r and (tostring(r.reason) .. " " .. tostring(da.detail)))
+
+    -- a roof aimed at a foundation's top (live brain run 19:42Z, twice: "the closest its preview came was 1.68 m"):
+    -- the reply says roofs snap onto wall tops and names the on that reaches over this floor from its walls
+    local RB = { origin = { 0, 0, 0.75 }, extent = { 1.5, 1.5, 0.75 } }
+    local hint = Bd.roof_hint(FB, RB, { N = "Wall BP_Wall_C_9", E = "Doorframe BuildingPiece_81", S = "beside: Square Foundation BuildingPiece_79", W = "open" })
+    check("roof_hint: the walls on the floor's edges, each from its side facing the floor", hint
+        and hint:find("snap onto the tops of walls", 1, true) and hint:find("on 'BP_Wall_C_9:S' or 'BuildingPiece_81:W'", 1, true)
+        and not hint:find("BuildingPiece_79", 1, true), hint)
+    hint = Bd.roof_hint(FB, RB, { N = "open", E = "open", S = "open", W = "open" })
+    check("roof_hint: a floor with no walls says so", hint and hint:find("no wall on any edge yet", 1, true), hint)
+    check("roof_hint: not for a small piece (a crate) or on a wall's own top",
+        Bd.roof_hint(FB, { origin = { 0, 0, 0.4 }, extent = { 0.5, 0.4, 0.4 } }, {}) == nil and Bd.roof_hint(WB, RB, {}) == nil)
+    attach_game({ snap = false, box = RB, built_at = { 10, 0, 0 }, edges = { N = "Wall BP_Wall_C_9", E = "open", S = "open", W = "open" } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:top" })
+    da = r and r.data or {}
+    check("attach: a roof that never lands on a foundation's top -> nothing placed, and the reply names the wall top to use",
+        r and not r.ok and count(G.presses, "place") == 0 and tostring(da.detail):find("Nothing was placed. Roofs and ceiling tiles snap onto the tops of walls", 1, true)
+        and tostring(da.detail):find("on 'BP_Wall_C_9:S'", 1, true), r and (tostring(r.reason) .. " " .. tostring(da.detail)))
 
     attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13.3, 0, 0 } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
@@ -603,6 +621,25 @@ do
     check("ceiling: cursor 0.8 m under the aim on the face -> aim lifted 0.8 m, then pressed, square",
         r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[3] - 3.63) < 1e-6,
         r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)) .. " aimed z " .. (G.aimed and G.aimed[3] or "-"))
+    -- a door into its frame: the reply says it sits IN the frame (live 18:57Z it said "on the in edge ... on its top")
+    attach_game({ no_preview = true, box = WB, built_at = { 10, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:in" })
+    da = r and r.data or {}
+    check("door in its frame: built, 'sits squarely in the frame of the Wall', never 'on its top'",
+        r and r.ok and da.flush == true and tostring(da.built):find("sits squarely in the frame of the Wall (BP_Foundation_C_A): in the opening", 1, true)
+        and not tostring(da.built):find("on its top", 1, true), r and (tostring(r.reason) .. " " .. tostring(da.built or da.detail)))
+    -- live 18:34Z: the cursor trembles 5-10 cm a read right on the target -> settled enough, pressed
+    attach_game({ no_preview = true, box = TB, built_at = { 11.5, 0, 3.03 } })
+    local flip = 1
+    Wb.mpc = function()
+        if not G.aimed then return nil end
+        flip = -flip
+        return { index = 2, position = { G.aimed[1] + 0.05 * flip, G.aimed[2], G.aimed[3] } }
+    end
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("ceiling: a cursor trembling 10 cm a read on the target counts as settled, pressed, square",
+        r and r.ok and da.flush == true and count(G.presses, "place") == 1, r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)))
     -- live 17:44Z: the walk to a ceiling's stand point went to the wall top's height, never arrived and kept steering
     -- the camera through the aim. The stand point is on the floor, and a walk still running is stopped first.
     attach_game({ no_preview = true, box = TB, built_at = { 11.5, 0, 3.03 } })
@@ -697,6 +734,29 @@ do
     rr = Bd.flush_report(swall, "N", RB, { position = { 93.2113, 1853.1378, -27.3092 }, yaw = 270 }, 0.06)
     check("roof report: the same spot sloping the wrong way (yaw 270) -> not square, turned 180", not rr.flush
         and math.abs(rr.facing_off_deg) == 180, rr.facing_off_deg)
+    -- find_structure: a built piece by its structures id, for find_thing (live 18:57Z: his crate 13.7 m off was
+    -- "I can't see that chest anywhere near me")
+    local bp0 = Wb.built_pieces
+    Wb.built_pieces = function() return { { id = "BP_BaseBuilding_Crate_C_7", name = "Crate", position = { 13.7, 0, 0 },
+        actor = uobj("BP_BaseBuilding_Crate_C /Game/Maps/World.World:PersistentLevel.BP_BaseBuilding_Crate_C_7") },
+        { id = "BuildingPiece_9", name = "Wall", position = { 3, 0, 0 } } } end
+    G.pos = { 0, 0, 0.88 }
+    local fs = Bd.find_structure(api, "BP_BaseBuilding_Crate_C_7")
+    local fw = Bd.find_structure(api, "BuildingPiece_9")
+    check("find_structure: the crate 13.7 m off with its class (actor_of finds it); a wall with no actor; unknown -> nil",
+        fs and fs.class == "BP_BaseBuilding_Crate_C" and fs.distance == 13.7 and fs.category == "structures" and fw and fw.class == nil
+        and fw.kind == "piece" and Bd.find_structure(api, "BP_Nope_1") == nil, fs and (tostring(fs.class) .. " " .. tostring(fs.distance)))
+    -- the game re-created the crate's actor under a new name: its old name and its BuildingPiece id still find it
+    Wb.built_pieces = function() return { { pid = 5, id = "BP_BaseBuilding_Crate_C_8", name = "Crate", position = { 13.7, 0, 0 },
+        actor = uobj("BP_BaseBuilding_Crate_C /Game/Maps/World.World:PersistentLevel.BP_BaseBuilding_Crate_C_8") } } end
+    _G.DWBuild.pid_of = _G.DWBuild.pid_of or {}
+    _G.DWBuild.pid_of["BP_BaseBuilding_Crate_C_7"] = 5
+    local fo = Bd.find_structure(api, "BP_BaseBuilding_Crate_C_7")
+    local fp = Bd.find_structure(api, "BuildingPiece_5")
+    check("find_structure: an older actor name of the same piece (live 19:40Z) and its BuildingPiece id find today's actor",
+        fo and fo.id == "BP_BaseBuilding_Crate_C_8" and fo.was == "BP_BaseBuilding_Crate_C_7" and fo.class == "BP_BaseBuilding_Crate_C"
+        and fp and fp.id == "BP_BaseBuilding_Crate_C_8", fo and (tostring(fo.id) .. " was " .. tostring(fo.was)))
+    Wb.built_pieces = bp0
     -- the house perception: each foundation's edges (open / a wall on it / the next foundation) and its ceiling
     local ed = Bd.edges({
         { id = "F1", name = "Square Foundation", position = { 0, 0, 0 }, yaw = 0, box = FB },

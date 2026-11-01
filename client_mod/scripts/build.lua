@@ -241,7 +241,7 @@ M.cfg.build = {
     preview_waits = 6, edge_aim_m = 0.3,
     -- no preview actor (instance-only pieces): the cursor must stop gliding (settle_m between reads) within
     -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s)
-    settle_m = 0.03, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, corr_max_z_m = 1.2, edge_in_m = 0.3,
+    settle_m = 0.03, tremble_m = 0.15, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, corr_max_z_m = 1.2, edge_in_m = 0.3,
     -- speed (Luis's recording: he placed 11 walls from one spot, 0-0.3 m apart, 1-3 s each; MaxPlacementDistance 7 m):
     -- stay where I am when the aim point is within stay_m, my view of it is clear and I'm not in the piece's way
     stay_m = 4.5, stay_clear_m = 0.5, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
@@ -468,6 +468,10 @@ function W.built_pieces(api, pos, r)
                 local e = by_pid[tonumber((U.try(function() return a.BuildingPieceID end))) or -1]
                 if e then
                     e.id, e.actor = U.short(a), a
+                    -- an actor's name changes when the game re-creates it (live 19:40Z: his crate was _2147144746,
+                    -- then _2147480411, then _2147480415); its piece id (pid) stays. Remember every name it had.
+                    m.pid_of = m.pid_of or {}
+                    m.pid_of[e.id] = e.pid
                     if not e.name then -- a piece I haven't unlocked: the actor's own piece data names it
                         local d = U.try(function() return a.BuildingPieceData end)
                         if U.valid(d) then e.name, e.piece = text(U, U.try(function() return d.DisplayName end)), e.piece or asset(U, d) end
@@ -750,6 +754,23 @@ function M.edges(rows)
     end
     return out
 end
+-- A cell-sized flat or sloped piece (a ceiling tile, a roof) that failed on a floor's ':top': roof pieces snap onto
+-- wall tops (Luis's house: every roof on a wall top; live 2026-11-01 a roof aimed at a foundation's top never landed
+-- there, twice; community guides: the wall-top rim is what roof pieces snap against). Names the walls on that floor's
+-- edges as the on that reaches over it (a wall on the N edge: its S side). -> text | nil (not that case)
+local OPP = { N = "S", S = "N", E = "W", W = "E" }
+function M.roof_hint(anchor_box, new_box, edges)
+    if not (anchor_box and new_box) or M.thin_axis(anchor_box) or M.thin_axis(new_box)
+        or math.max(new_box.extent[1], new_box.extent[2]) < 1.2 then return nil end
+    local ons = {}
+    for _, s in ipairs({ "N", "E", "S", "W" }) do
+        local v = edges and edges[s]
+        if type(v) == "string" and v ~= "open" and not v:find("^beside:") then ons[#ons + 1] = "'" .. v:match("(%S+)$") .. ":" .. OPP[s] .. "'" end
+    end
+    if #ons == 0 then return " Roofs and ceiling tiles snap onto the tops of walls, and this floor has no wall on any edge yet." end
+    return " Roofs and ceiling tiles snap onto the tops of walls, not onto a floor: on " .. table.concat(ons, " or ")
+        .. " puts it over this floor from the wall on that edge."
+end
 -- Place an attach from where I stand? -> true | false, why. Within stay_m of the aim point, on the anchor's floor (a wall:
 -- its top face must be in view), not in the new piece's way, and the camera's ray reaching the aim point.
 function W.stay_ok(api, job, here)
@@ -924,7 +945,10 @@ local function start_build(api, args, ctx)
         if need_str(v) then
             if v == "me" then return here end
             local t = api.find_thing(v)
-            return t and t.position or nil
+            if t and t.position then return t.position end
+            -- a built piece's id as the house line names it (rung 3, live 19:04Z: near "BuildingPiece_62" read unknown)
+            local ai = W.actor_info(api, v)
+            return ai and ai.position or nil
         end
     end
     if args.at ~= nil then
@@ -1077,10 +1101,19 @@ local function preview_reader(api, job)
                 local prev = job.on.prev_cursor
                 local moved = prev and math.sqrt((m.position[1] - prev[1]) ^ 2 + (m.position[2] - prev[2]) ^ 2) or math.huge
                 job.on.prev_cursor = m.position
-                if moved > cfg.settle_m then return { valid = false, why = "settling", position = at, fresh = fresh } end
                 -- where the cursor must sit: the flush spot for a tile; for a wall the point just inside the edge on the
                 -- anchor's top (its z too: a cursor on the side face below would snap it to the bottom edge)
                 local ct = job.on.cursor_target or tg
+                -- still moving, but this read and the last both on the target: settled enough (live 18:34Z: a wall's cursor
+                -- trembled 4-10 cm a read 0.01 m from the flush spot until the checks ran out, "kept sliding")
+                local function on_target(p)
+                    local ztol = job.on.cursor_target and (job.on.cursor_tol_z_m or cfg.cursor_tol_z_m) or 1.0
+                    return p and math.sqrt((p[1] - ct[1]) ^ 2 + (p[2] - ct[2]) ^ 2) <= (job.on.cursor_tol_m or cfg.cursor_tol_m)
+                        and math.abs(p[3] - ct[3]) <= ztol
+                end
+                if moved > cfg.settle_m and not (moved <= cfg.tremble_m and on_target(prev) and on_target(m.position)) then
+                    return { valid = false, why = "settling", position = at, fresh = fresh }
+                end
                 -- aimed away from the flush spot (a wall's top face, a wall's face for a ceiling) but the cursor sits ON
                 -- the flush spot: the game's snap moved it there (the helper follows the snapped spot) -> a seen snap
                 if green and job.on.cursor_target and math.sqrt((ct[1] - tg[1]) ^ 2 + (ct[2] - tg[2]) ^ 2) >= cfg.snap_jump_m
@@ -1168,7 +1201,9 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         local a, side = job.on.anchor, job.on.side
         local _, _, mount = M.flush_spot(a, side, job.on.box)
         local ceil = mount and mount.ceiling
-        local where_on = (side == "top" and "on top of the " or (ceil and "on top of the ")
+        -- a door in its frame is IN the frame, not on an edge or a top (live 18:57Z: "on the in edge ... on its top")
+        local inside = side == "in"
+        local where_on = (inside and "in the frame of the " or side == "top" and "on top of the " or (ceil and "on top of the ")
             or ("on the " .. side .. (mount and " edge of the " or " side of the "))) .. tostring(a.name) .. " (" .. a.id .. ")"
             .. (ceil and (", reaching " .. side) or "")
         att = s and M.flush_report(a, side, job.on.box, s, M.cfg.build.flush_tol_m)
@@ -1184,7 +1219,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             local parts = {}
             if math.abs(att.gap_m) > M.cfg.build.flush_tol_m then
                 parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.gap_m),
-                    ceil and (att.gap_m > 0 and "gap from the wall" or "over the wall")
+                    inside and "out of the frame's line" or ceil and (att.gap_m > 0 and "gap from the wall" or "over the wall")
                     or mount and (att.gap_m > 0 and "outside the edge" or "in from the edge") or (att.gap_m > 0 and "gap" or "overlap"))
             end
             if math.abs(att.offset_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m off to the side", math.abs(att.offset_m)) end
@@ -1192,6 +1227,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             if math.abs(att.facing_off_deg) > 2 then parts[#parts + 1] = string.format("turned %.0f degrees", att.facing_off_deg) end
             line = line .. (att.flush and (ceil and (" It sits squarely " .. where_on .. (mount.roof and ": its low edge on the wall's top, sloping up away from it."
                         or ": its edge on the wall's line, its top level with the wall's top, lined up with it."))
+                    or inside and (" It sits squarely " .. where_on .. ": in the opening, its bottom level with the frame's, lined up with it.")
                     or mount and (" It stands squarely " .. where_on .. ": on the edge line, on its top, lined up with it.")
                     or (" It sits flush " .. where_on .. ": no gap, level, same facing."))
                 or (" It is NOT " .. (mount and "square " or "flush ") .. where_on .. ": " .. table.concat(parts, ", ") .. "."))
@@ -1487,6 +1523,9 @@ local function step(api, job, t)
                 return out
             end,
             aim = function(p)
+                -- a go_to still running steers the camera every frame over this aim (live 17:44Z): a player stands
+                -- still to place, so it ends first
+                if (api.move_status() or {}).mode == "go_to" then api.call("move", "stop") end
                 job.aim_raw = p
                 local c = job.on and job.on.mode == "cursor" and job.on.corr
                 if c then p = { p[1] + c[1], p[2] + c[2], p[3] + (c[3] or 0) } end
@@ -1645,6 +1684,12 @@ local function step(api, job, t)
                     .. (job.on.side == "top" and " of the " or " side of the ") .. tostring(a.name) .. " (" .. a.id .. "): " .. tostring(words)
                     .. (best and string.format("; the closest its preview came was %.2f m from the flush spot", best) or "")
                     .. ". Nothing was placed."
+                if job.on.side == "top" then
+                    local edges
+                    for _, s in ipairs(W.structures(api, true) or {}) do if s.id == a.id then edges = s.edges end end
+                    local hint = M.roof_hint(a.box, job.on.box, edges)
+                    if hint then d.detail = d.detail .. hint end
+                end
             end
             if reason == "missing_materials" then d.missing = job.missing end
             return leave_then(api.fail(reason, d))
@@ -1847,6 +1892,26 @@ end
 -- refreshed at most every cfg.structures_every_s (one find_all then), never per frame, never under pause.
 -- `mine` is omitted (unverified which field carries the owner; review finding 20).
 M.cfg.structures = { radius_m = 30, max = 15, every_s = 5 }
+-- One built piece by its id, the way get_state.structures lists it (the GlobalBuildingManager census joined with
+-- the pieces' actors): a thing for find_thing when the general census doesn't list it (live 18:57Z: his own crate
+-- 13.7 m away, in structures, was "I can't see that chest anywhere near me"). class is set for a piece with an
+-- actor (crate, station, door), so actor_of finds it. -> thing | nil
+function M.find_structure(api, id, radius_m)
+    if paused() or type(id) ~= "string" then return nil end
+    local U = sense_U(api)
+    local here = api.my_position()
+    if not (U and here) then return nil end
+    -- by its id now, or by an older name of the same piece (pid_of), or by its BuildingPiece_<pid>
+    local pid = tonumber(id:match("^BuildingPiece_(%d+)$")) or (mem().pid_of or {})[id]
+    for _, e in ipairs(W.built_pieces(api, here, radius_m or M.cfg.structures.radius_m) or {}) do
+        if e.id == id or (pid and e.pid == pid) then
+            local d = math.sqrt((e.position[1] - here[1]) ^ 2 + (e.position[2] - here[2]) ^ 2)
+            return { id = e.id, name = e.name, piece = e.piece, position = e.position, distance = math.floor(d * 10 + 0.5) / 10,
+                     class = e.actor and U.class_word(e.actor) or nil, category = "structures", pid = e.pid,
+                     was = e.id ~= id and id or nil, kind = e.actor and "actor" or "piece", actions = { "go_to" } }
+        end
+    end
+end
 function W.structures(api, fresh)
     local m = mem()
     local cfg = M.cfg.structures
@@ -1940,7 +2005,7 @@ M.MANIFEST = {
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
             near = { type = "string", description = "Somewhere next to this id ('me' for beside you)." },
-            on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W' or ':top' (no side: the free side nearest you). A wall goes on a foundation's edge; ':in' puts a door into a door-frame wall; a tile or roof on a wall reaches out to that side off its top." },
+            on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W', ':top' or ':in' (no side: the free side nearest you). What holds what: a wall or door-frame wall stands on a foundation's edge (':N' = its north edge); ':in' puts a door into a door-frame wall; a ceiling tile or roof snaps onto a wall's top, and on '<wall id>:<side>' it reaches out over that side (the side the room is on); ':top' sets it on the piece's top face." },
             rotation = { type = "number", minimum = 0, maximum = 360, description = "Turn it this many degrees (15 degree steps)." },
             pieces = { type = "array", maxItems = 12, items = { type = "object" }, description = "Several in one go, the build "
                 .. "screen kept open: a list of {piece, on, rotation}. on may name an earlier item as '#k' ('#1:N' = the N edge "

@@ -611,7 +611,25 @@ function M.inventory_of(actor)
     if rawget(_G, "DW_PAUSE") or not U.valid(actor) then return nil end
     local inv = U.try(function() return actor:GetInventory() end)
     if not U.valid(inv) then inv = U.prop(actor, "InventoryComponent") end -- any container class: U.prop (R17)
+    if not U.valid(inv) then inv = M.owned_inventory(actor) end -- a BUILT crate/chest (store said not_a_container)
     return U.valid(inv) and inv or nil
+end
+-- A built container's inventory: GetInventory and the InventoryComponent property are nil on BP_BaseBuilding_Crate_C
+-- (live 2026-11-01 18:58Z: store -> not_a_container on his own crates; deconstruct.W.contents reads them the same way),
+-- so: the one InventoryComponent whose owner is this actor. A station owns several (resources, fuel, catalyst): nil,
+-- ambiguous (crafting.lua picks its own slots).
+function M.owned_inventory(actor)
+    local key = type(U.find_all) == "function" and U.short(actor)
+    if not key then return nil end
+    local found
+    for _, c in ipairs(U.find_all("InventoryComponent", { skip_defaults = true }) or {}) do
+        local ow = U.try(function() return c:GetOwner() end)
+        if ow and U.valid(ow) and U.short(ow) == key then
+            if found then return nil end
+            found = c
+        end
+    end
+    return found
 end
 -- Rows of an external inventory: {slots = n, rows = {{slot (0-based), item, name, count}}, by_item = {id = n}}
 function M.external_rows(inv)

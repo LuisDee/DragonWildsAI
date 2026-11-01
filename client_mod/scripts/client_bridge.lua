@@ -1000,6 +1000,13 @@ local function find_thing(id, radius_m)
     for _, t in ipairs(things) do if t.id == id then return t end end
     local a, ar = find_actor_by_id(id, radius_m)
     if a or ar then return a, ar end
+    -- a built piece get_state.structures lists (the building census): live 18:57Z his own crate 13.7 m away was
+    -- "I can't see that chest anywhere near me" (the census's 100 nearest were resources)
+    local bmod = M.module("build")
+    if bmod and type(bmod.find_structure) == "function" then
+        local okb, bt = pcall(bmod.find_structure, M.API, id, radius_m or M.LOOK_MAX_RADIUS_M)
+        if okb and bt then return bt end
+    end
     if radius_m == nil then -- an id that look {near = <player>} handed out: beyond my radius, but near a player in sight
         local s = M.module("sense")
         local MAP = s and type(s.mapplayers) == "function" and s.mapplayers() or nil

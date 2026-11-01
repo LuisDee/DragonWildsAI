@@ -1654,12 +1654,16 @@ test("store: walk, open, all oak in (two stacks), verified on both sides, screen
     local _, id = rpc("store", { item = "Oak Logs", container = "chest_1" })
     local r = run(id, 80)
     assert(r and r.ok and r.data.count == 8 and r.data.carried_now == 0 and r.data.inside_now == 8, json.encode(r))
+    -- the reply names what went in and the walk there (main 2026-11-01: a player walks over to a chest 14 m off)
+    assert(r.data.walked_m and r.data.walked_m >= 25 and tostring(r.data.detail):find("^Put 8 Oak Logs in the Wooden Chest %(I walked %d+ m to it%)%.$"),
+        json.encode(r.data))
     assert(F.transfers == 2, "one press per stack (hotbar 3, bag 5): " .. tostring(F.transfers))
     assert(F.closed == 1 and F.open_chest == nil, "the screen is closed after the action")
     assert(B.module("input") == nil or B.module("input").owner("container") == nil, "modal released")
     _, id = rpc("take", { item = "stone", container = "chest_1", count = 1 })
     r = run(id, 80)
     assert(r and r.ok and r.data.count == 1 and F.extra.ITEM_Resources_Stone == 1 and r.data.contents, json.encode(r))
+    assert(tostring(r.data.detail) == "Took 1 Stone out of the Wooden Chest.", json.encode(r.data)) -- already beside it: no walk words
     assert(F.closed == 2 and F.open_chest == nil)
 end)
 

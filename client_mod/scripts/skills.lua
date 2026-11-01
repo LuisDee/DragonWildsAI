@@ -2394,7 +2394,14 @@ local function start_transfer(api, args, ctx, deposit)
             return api.fail("not_enough_resources", { item = item, have = have, want = want, detail = "I only have " .. have .. " " .. tostring(iname) .. "." })
         end
     end
-    local job = { kind = kind, container = t, moved = 0, phase = "open" }
+    local job = { kind = kind, container = t, moved = 0, phase = "open", from = api.my_position() }
+    -- how far he walked to it, for a reply that says so (main 2026-11-01: a player walks over and opens it)
+    local function walked()
+        local here = api.my_position()
+        local d = job.from and here and dist2d(job.from, here)
+        return d and math.floor(d * 10 + 0.5) / 10 or nil
+    end
+    local function walk_words(w) return (w and w >= 1) and string.format(" (I walked %.0f m to it)", w) or "" end
     local IN = input_mod(api)
     if IN then IN.claim("container", kind) end
     local function close()
@@ -2417,9 +2424,11 @@ local function start_transfer(api, args, ctx, deposit)
         for _, x in ipairs(job.taken) do n = n + x.count end
         for _, r in ipairs(c.rows) do inside = inside + (tonumber(r.count) or 1) end
         local cw = W.carry(api)
+        local w = walked()
         local data = { container = t.id, container_name = label, taken = job.taken, left = job.left, count = n, inside_now = inside,
                        contents = contents_words(c.rows), carry = cw and { cur = math.floor(cw.cur * 10 + 0.5) / 10, max = cw.max } or nil,
-                       detail = took_left_words(label, job.taken, job.left, cw) }
+                       walked_m = w, detail = took_left_words(label, job.taken, job.left, cw)
+                           .. ((w and w >= 1) and string.format(" I walked %.0f m to it.", w) or "") }
         if n == 0 then
             local why = job.left[1] and job.left[1].why
             data.why = why
@@ -2545,8 +2554,11 @@ local function start_transfer(api, args, ctx, deposit)
             job.moved, job.pending = job.moved + p.n, nil
             if job.moved >= want then
                 if queue then return item_done(nil) end
+                local w = walked()
                 return finish({ ok = true, data = { item = item, name = iname, count = job.moved, container = t.id, container_name = label,
-                    carried_now = carried, inside_now = inside, contents = contents_words(contents().rows) } })
+                    carried_now = carried, inside_now = inside, contents = contents_words(contents().rows), walked_m = w,
+                    detail = string.format("%s %d %s %s the %s%s.", deposit and "Put" or "Took", job.moved, tostring(iname),
+                        deposit and "in" or "out of", label, walk_words(w)) } })
             end
             return press()
         end
