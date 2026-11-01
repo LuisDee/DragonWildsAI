@@ -61,6 +61,7 @@ ENGAGE_M = 3.0  # the runt this close, or his HP dropping = the fight is on (the
 # median 6.08 s. No human eats faster than the game's animation (coordinator decision 2026-11-01: T_h = reaction +
 # uses needed x this; Luis has no eat/drink recording to time).
 USE_S = 6.1
+BOTH_KINDS_S = 0.8  # the lock is per kind: food and drink overlap (coordinator decision 2026-11-01, strict human bar)
 FOOD_VALUES = ROOT / "data" / "food_values_26161880.json"
 LUIS_SLEEP = [101.24, 1868.4, -30.69]  # Luis said "sleep" here (recorder 1793537212); shelter at [98.1, 1858.7]
 AUDIENCE_M = 40.0  # a player this close can be told (the Tester sender has no pawn: no audience on the dev world)
@@ -88,8 +89,14 @@ def check_stat(rec: dict, rows: list[dict]):
     want, how, when, m = rec["target"]["want"], [], [], {}
     for stat, pct in want.items():
         xs = _stat_series(rec, stat)
+        # from the first sample that shows the harness's value (live 17:01Z: the first read was still the old 53 %, and
+        # 53 >= low 5 + 8 scored a rest done at 0.3 s)
+        set_pct = (rec["target"].get("set") or {}).get(stat)
+        if set_pct is not None:
+            i = next((i for i, (_, v) in enumerate(xs) if v <= set_pct + 3), None)
+            xs = xs[i:] if i is not None else []
         if not xs:
-            return False, f"no {stat} samples", None, {}
+            return False, f"no {stat} samples at the harness's value", None, {}
         lo = min(v for _, v in xs)
         m[stat] = {"start": round(xs[0][1], 1), "low": round(lo, 1), "end": round(xs[-1][1], 1)}
         hit = next((t for t, v in xs if v >= pct), None)
@@ -244,7 +251,7 @@ def slim(rows: list[dict]) -> list[dict]:
 
 
 def run_leg(ctx: Ctx, req: dict, line: str | None, target: dict, deadline_s: float, t0: float | None = None,
-            sample=("me",), creature: str | None = None) -> dict:
+            sample=("me",), creature: str | None = None, settled=None) -> dict:
     """Send `line` (None: the fixture already made the need), sample until done and quiet / the deadline, score with
     coplay_ladder.score (truth judge, calls, deaths)."""
     from tools import m1_session
@@ -295,7 +302,7 @@ def run_leg(ctx: Ctx, req: dict, line: str | None, target: dict, deadline_s: flo
             why = "never heard"
         elif ctx.haiku + calls["haiku"] > a.max_haiku:
             why = "haiku call cap"
-        elif done and quiet >= 6 and not open_prompt:
+        elif done and quiet >= 6 and not open_prompt and (settled is None or settled(rows) or now - t0 > deadline_s):
             why = "done and quiet"
         elif line and calls["calls"] and not open_prompt and not open_tools and quiet >= cl.QUIET_S \
                 and now - last_move >= cl.STILL_S and not done:
@@ -407,7 +414,11 @@ def it_fight_back(ctx: Ctx) -> dict:
             break
     row = run_leg(ctx, {"id": "fight_back", "kind": "r1_fight", "check_text": "the Goblin Runt spawned beside him reads dead "
                         "(or vanished after a kill the body reported)"}, None, target, deadline_s=90, t0=t0,
-                  creature=target.get("id"))
+                  creature=target.get("id"),
+                  # the body's combat_end (then the model's turn on it) comes a few s after the kill: what he says about
+                  # the fight is part of the item (live 17:00Z: the leg ended on the kill, before his news reached the model)
+                  settled=lambda rows: any(r.get("kind") == "event" and (r.get("event") or {}).get("kind") == "combat_end"
+                                           for r in rows))
     seen = row["rec"].get("seen") or []
     near = [(s[0], s[3]) for s in seen if s[1] == "alive" and isinstance(s[3], (int, float))]
     hp = [(s[0], s[5]) for s in row["rec"].get("me") or [] if len(s) > 5 and isinstance(s[5], (int, float))]
@@ -475,10 +486,11 @@ def it_eat_drink(ctx: Ctx) -> dict:
     mx = {k: float((surv.get(k) or [0, 100])[1] or 100) for k in ("sustenance", "hydration")}
     deficit = {k: mx[k] * (40 - 12) / 100 for k in mx}
     n = uses_needed(ctx.stacks(), deficit)
-    uses = sum(v for v in n.values() if v)
-    t_h = 1.5 + uses * USE_S
-    basis = (f"T_h = 1.5 s reaction + {uses} uses x {USE_S} s (the game's use lock per item; uses = fewest of what he "
-             f"carries for 12 -> 40 %: food {n['sustenance']}, water {n['hydration']})"
+    uses = max([v for v in n.values() if v] or [0])
+    t_h = 1.5 + uses * USE_S + (BOTH_KINDS_S if all(n.values()) else 0.0)
+    basis = (f"T_h = 1.5 s reaction + max(food {n['sustenance']}, water {n['hydration']}) uses x {USE_S} s (the game's "
+             f"use lock, per kind) + {BOTH_KINDS_S} s for the other kind's press: a player eats and drinks at once "
+             f"(Luis: steak + water 0.06-0.83 s apart, 5 times); uses = fewest of what he carries for 12 -> 40 %"
              + ("; NOT enough carried for " + ", ".join(k for k, v in n.items() if v is None) if None in n.values() else ""))
     return it_stat(ctx, "eat_drink", {"sustenance": 12, "hydration": 12}, {"sustenance": 40, "hydration": 40}, t_h, 150,
                    "his food (sustenance) and water (hydration), set to 12 % by the harness, both come back to >= 40 % "
@@ -704,7 +716,7 @@ def cmd_report(a) -> int:
 def cmd_plan(a) -> int:
     print(__doc__.split("Items (in run order")[1].split("Every request")[0])
     print(f"T_h: split {luis_task_s('split')} s (Luis), sleep {luis_task_s('sleep')} s (Luis), kill unit {unit('kill')} s, "
-          f"pickup unit {unit('pickup')} s, drop unit {unit('drop')} s, eat_drink 1.5 + uses x {USE_S} s (game use lock)")
+          f"pickup unit {unit('pickup')} s, drop unit {unit('drop')} s, eat_drink 1.5 + max(food, water uses) x {USE_S} + {BOTH_KINDS_S} s (game use lock per kind)")
     print(f"recorder writing: {recorder_ok()}; live lock: {live_lock.read() or 'free'}")
     print("cost: ~2-5 Haiku calls per item + 1 judge call per leg; a full run ~25-40 Haiku calls (< $0.10)")
     return 0
