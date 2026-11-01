@@ -160,6 +160,21 @@ local function read_file(path)
     return s
 end
 
+-- Shared libraries the modules require() from mod/scripts: Lua caches them in package.loaded for the life of the
+-- client, so an edited one stayed old while the modules calling it hot-reloaded (live 2026-11-01 13:24-13:36Z: an
+-- older walltime without stamp aborted the fed reflex and the vitals watcher). Before a module (re)loads, a shared
+-- library whose file changed is dropped from the cache, so the module's require() gets the new one. Only stateless
+-- libraries (state, if any, in _G) belong here.
+M.SHARED_HOT = { "walltime", "jsonutil" }
+local function refresh_shared()
+    S.shared_text = S.shared_text or {}
+    for _, n in ipairs(M.SHARED_HOT) do
+        local text = S.shared and read_file(S.shared .. "/" .. n .. ".lua")
+        if text and S.shared_text[n] and S.shared_text[n] ~= text then package.loaded[n] = nil end
+        if text then S.shared_text[n] = text end
+    end
+end
+
 -- The module table, or nil + why ("missing" | "load: ..." | "init: ...").
 function M.module(name)
     local c = S.mods[name]
@@ -175,6 +190,7 @@ function M.module(name)
         c.checked = t
         return c.mod, c.err
     end
+    refresh_shared()
     local mod, err
     local chunk, lerr = load(text, "@" .. path)
     if not chunk then err = "load: " .. tostring(lerr)
@@ -1214,7 +1230,7 @@ end
 -- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
 -- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
 M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub",
-               "input", "build", "fishing", "agility", "farm", "quests", "lodestone", "shoot" }
+               "input", "build", "deconstruct", "fishing", "agility", "farm", "quests", "lodestone", "shoot" }
 -- talk.lua stays OUT until its re-review passes (docs/reviews/2026-10-26-talk-primitive-review.md "Re-review (v2)":
 -- sweep_orphan recursed through the gate). Opt-in for a dev test only: _G.DW_ENABLE_TALK = true before bridge_start.
 if rawget(_G, "DW_ENABLE_TALK") == true then M.MODULES[#M.MODULES + 1] = "talk" end
@@ -1926,7 +1942,7 @@ function M.start(opts)
             jlog = dwlog
         end
     end
-    S = { root = root, scripts = scripts, dir = dir, bridge = bridge, jsonutil = jsonutil, jlog = jlog,
+    S = { root = root, scripts = scripts, shared = shared, dir = dir, bridge = bridge, jsonutil = jsonutil, jlog = jlog,
           text_log = opts.log or function() end, mods = {}, action = nil, waiters = {},
           started = os.date("!%Y-%m-%dT%H:%M:%SZ"), started_epoch = os.time(),
           stats = { chat_forwarded = 0, chat_ignored = 0, chat_rotations = 0, attacked = 0, vitals_low = 0, unreachable = 0 },
