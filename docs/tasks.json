@@ -606,6 +606,90 @@
    "id": "C.6",
    "phase": "cleanup",
    "title": "Rung 2 co-play with a real player (Luis from GFN on the dev world): coplay_ladder --target-player + free play; follow/come/give need a visible player",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "D.1",
+   "phase": "measure",
+   "title": "Per-run telemetry: tools/session_report.py (time to first word/action/complete per request, idle gaps >5 s with cause, pickup attempts/misses) + correlation id chat->episode->tool->body action->trip + 1 Hz client samples; DuckDB over JSONL (docs/research/2026-11-01-telemetry.md)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.2",
+   "phase": "measure",
+   "title": "Model-free body skill ladders timed against Luis's own baselines: pickup (clusters, overlapping hitboxes, water edge, while moving), combat (fight back when hit), build (piece where asked, verified), inventory (split, store), grave recovery",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.3",
+   "phase": "measure",
+   "title": "Luis emulator: LLM tester seeded with his 76 real lines (talks mid-task, corrects, scores from game state) + a server-side tester pawn for follow/come/near me/give (docs/research/2026-11-01-evals-human-standard.md)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.4",
+   "phase": "basics",
+   "title": "Pickups to human standard: take a same-kind item under the prompt, water is not a refusal, no alignment dance; <= 1 miss each, <= 1.5x human time (ISSUES B1-B2)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.5",
+   "phase": "basics",
+   "title": "Players from the compass registry (AGameplayObjectRegistry.PlayerCharacters) for come/follow/go_to at any distance; 'near <player>' anchor and context (ISSUES A1-A2)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.6",
+   "phase": "basics",
+   "title": "A chat line never cuts the running action: reported as running with progress; a repeat of the same go_to re-attaches (ISSUES C1)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.7",
+   "phase": "basics",
+   "title": "Combat: defend at once when hit (fight or bounded back-off), honest fight odds at full HP (ISSUES B9)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.8",
+   "phase": "basics",
+   "title": "Inventory: split stacks (drop/move N of a stack), capacity/encumbrance known, hotbar vs bag (ISSUES B3, A9, A10)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.9",
+   "phase": "basics",
+   "title": "Needs by options with costs from game data (food values, recipes, sources): cooked meat vs berries, own grave first; rest when exhausted and say so (ISSUES D1-D2, B8)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.10",
+   "phase": "building",
+   "title": "Building perception, iterate + test live: heights, own pieces + free snap points in context, build on a snap point, site/climb_to, small blueprints, then the church-roof chest (docs/research/2026-11-01-autonomous-building.md)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.11",
+   "phase": "knowledge",
+   "title": "Competence map + ladder with the quests as backbone (docs/research/2026-11-01-competence-map.md); base (own fire/table/crate/storage), flax/spinning wheel/string, farming",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "D.12",
+   "phase": "combat",
+   "title": "Ranged + magic feasibility: lock-on, projectile data, hit feedback, a dummy-target ladder",
    "status": "todo",
    "passes_test": false
   }
