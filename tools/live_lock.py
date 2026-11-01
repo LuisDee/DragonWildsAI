@@ -263,6 +263,8 @@ def main(argv=None) -> int:
     cmd = tail if tail is not None else extra
     if not cmd:
         ap.error("run needs a command after --")
+    if os.path.exists(cmd[0]):  # Windows CreateProcess can't start a relative ".venv/Scripts/python.exe" (WinError 2, live 23:1xZ)
+        cmd = [os.path.abspath(cmd[0]), *cmd[1:]]
     with held(a.owner, a.wait, clean=not a.no_clean):
         return subprocess.call(cmd)
 
