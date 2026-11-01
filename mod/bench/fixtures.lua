@@ -15,9 +15,9 @@
 -- with main's go-ahead. Unverified verbs make the case `skip: precondition`, never a fake pass.
 local M = { VERSION = 0 }
 M.VERBS = { "grant", "grant_runes", "unlock", "set_time", "spawn", "reset_skills", "teleport", "clear_area",
-            "set_health", "raise_skills", "grant_to_ground", "spawn_tester" }
+            "set_health", "raise_skills", "grant_to_ground", "spawn_tester", "set_stat" }
 M.VERIFIED = { spawn = true, grant = true, grant_runes = true, unlock = true, set_health = true, teleport = true, set_time = true,
-               raise_skills = true }  -- raise_skills: dev 2026-10-26 (Attack 2 -> 3), QUICK variants only  -- live on dev 2026-10-25 (DISCOVERIES "Benchmark referee + fixtures")
+               raise_skills = true, set_stat = true }  -- raise_skills: dev 2026-10-26 (Attack 2 -> 3), QUICK variants only  -- live on dev 2026-10-25 (DISCOVERIES "Benchmark referee + fixtures")
 
 local root = (rawget(_G, "__dw_bench_root") or os.getenv("DW_MOD_ROOT") or "."):gsub("\\", "/")
 local U = assert(loadfile(root .. "/body/util.lua"))()
@@ -380,6 +380,25 @@ function M.run(log, args)
         local ok, err = pcall(function() hc:SetHealth(v, "bench_fixture") end)
         local now = U.try(function() return hc:GetAuthoritativeHealth() end)
         return { ok = ok and now ~= nil and math.abs(now - v) < 1, error = (not ok) and tostring(err) or nil, health = now, want = v }
+    end
+    if verb == "set_stat" then
+        -- A survival stat to a value (rung 1 gate: exhausted / hungry / thirsty starts). The pawn's own component's
+        -- Add<Stat>(delta, DecayBufferToAdd 0) (dump: UEnduranceComponent.AddEndurance, USustenanceComponent.
+        -- AddSustenance, UHydrationComponent.AddHydration): reflected server-local calls with two floats, the path the
+        -- game itself uses when he eats, drinks or rests. endurance = the game's Rest bar.
+        local spec = ({ endurance = { "EnduranceComponent", "Endurance" }, sustenance = { "SustenanceComponent", "Sustenance" },
+                        hydration = { "HydrationComponent", "Hydration" } })[tostring(args.stat or "")]
+        if not spec then return { ok = false, error = "stat must be endurance, sustenance or hydration" } end
+        local c = U.try(function() return target[spec[1]] end)
+        if not U.valid(c) then return { ok = false, error = "no_" .. spec[1] } end
+        local cur = U.try(function() return c["GetCurrent" .. spec[2]](c) end)
+        local mx = U.try(function() return c["GetMax" .. spec[2]](c) end)
+        if type(cur) ~= "number" then return { ok = false, error = "stat_unreadable" } end
+        local want = tonumber(args.value) or ((tonumber(mx) or 100) * (tonumber(args.pct) or 10) / 100)
+        local ok, err = pcall(function() c["Add" .. spec[2]](c, want - cur, 0.0) end)
+        local now = U.try(function() return c["GetCurrent" .. spec[2]](c) end)
+        return { ok = ok and type(now) == "number" and math.abs(now - want) < 1.5, error = (not ok) and tostring(err) or nil,
+                 stat = args.stat, before = cur, after = now, want = want, max = mx }
     end
     if verb == "teleport" then  -- server-side K2_TeleportTo on the benchmark character (vectors, like SpawnActor)
         local at = args.at or {}

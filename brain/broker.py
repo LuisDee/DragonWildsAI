@@ -67,7 +67,8 @@ MOVING_MPS = 0.3  # slower than this between two observations = standing still
 # CHANGES only. These numbers say when something changed enough to look again, never what to do.
 REVIEW_BANDS = (50.0, 30.0, 15.0)  # a stat's band = how many of these % lines it is below
 REVIEW_MIN_GAP_S = 180.0  # between reviews, unless something got worse than at the last review
-REVIEW_SAMPLE_S = 30.0  # the Agent reads get_state this often when idle (no model call unless a change)
+REVIEW_SAMPLE_S = 10.0  # the Agent reads get_state this often when idle (no model call unless a change); 30 s made
+#   "exhausted" news 27 s late (rung 1 rest, live 16:07Z): a player sees his HUD at once
 REVIEW_QUIET_AFTER_CMD_S = 20.0  # just talked to: the conversation already covers it
 REVIEW_IDLE_S = 300.0  # no command or action this long with a player close by = an idle stretch
 REVIEW_NEAR_M = 15.0

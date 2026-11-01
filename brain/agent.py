@@ -319,6 +319,12 @@ class Agent:
             if event.kind == "death" and isinstance(where, list) and len(where) >= 3:
                 self.store.remember_place("grave", [float(c) for c in where[:3]],
                                           note=f"my gravestone (died {when}: {event.fields().get('cause') or '?'})")
+        if event.kind == "combat_end" and event.by == "reflex":
+            # A fight nobody asked for (the body's guard fought back when hit) is news to the player: the model hears
+            # how it ended and says it, or not (rung 1 "fight back when hit": he fought and told no one, 2026-11-01).
+            self._situations.append({**event.model_dump(), "about": "a fight you fought by reflex when attacked"})
+            if not self._in_pump:
+                self.flush_situations()
 
     def _run_task(self, task: Task) -> Outcome:
         """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""

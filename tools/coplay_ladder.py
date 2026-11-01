@@ -217,8 +217,15 @@ def _count_change(rec: dict, name: str, sign: int) -> float | None:
     return next((t for t, c in inv[1:] if (c.get(name, 0) - base) * sign > 0), None)
 
 
+# Checks for kinds other harnesses add (tools/rung1_gate.py): kind -> fn(rec, rows) with check()'s return shape. The
+# rec may carry "check_text" (what the check is, for the truth judge's outcome facts).
+CHECK_HOOKS: dict = {}
+
+
 def check(rec: dict, rows: list[dict]) -> tuple[bool | None, str, float | None, dict]:
     """(done, how, when it became true, metrics) from the harness's own samples. done None = can't be judged."""
+    if rec["kind"] in CHECK_HOOKS:
+        return CHECK_HOOKS[rec["kind"]](rec, rows)
     kind, tg, me, other = rec["kind"], rec.get("target") or {}, rec.get("me") or [], rec.get("other") or []
     t0 = rec["t0"]
     if kind in ("follow", "come_here", "give") and not other:
@@ -395,7 +402,7 @@ def score(rec: dict, root=None, judge: bool | None = None) -> dict:
     tg = rec.get("target") or {}
     v = tj.apply(v, {"request": rec.get("line"), "kind": rec["kind"], "place": tg.get("place") or tg.get("player"),
                      "goal": goal, "tol_m": tol, "t0": t0, "places": cl.known_places(),
-                     "outcome": {"check": CHECKS.get(rec["kind"]), "done": done, "how": how,
+                     "outcome": {"check": rec.get("check_text") or CHECKS.get(rec["kind"]), "done": done, "how": how,
                                  "target": {k: tg.get(k) for k in ("name", "player", "place") if tg.get(k)}}},
                  use=judge)
     if v["truth_source"] == "judge":  # the judge read the success claims against the check
