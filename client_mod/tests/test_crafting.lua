@@ -502,6 +502,36 @@ do -- a nearer station whose slots hold someone else's things is passed over for
     check("free station: says why", tostring((r.data or {}).why_this_station):find("Coarse Animal Fur", 1, true) ~= nil,
           tostring((r.data or {}).why_this_station))
 end
+do -- someone else's inputs in the only station: never added to, started or taken (Luis's rule; live 18:22Z the
+   -- model aimed a fur craft at Luis's Spinning Wheel holding his 2 fur). His own leftovers (ledger) are fine.
+    _G.DWCraftLoads = {}
+    local theirs = FURNACE()
+    theirs.res = { { slot = 0, item = "ITEM_Resources_IronOre", name = "Iron Ore", count = 2 } }
+    reset({ stations = { theirs }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    local r = run({ recipe = "RECIPE_Process_IronBar", station = "furnace_1" })
+    check("theirs: station_busy", r.reason == "station_busy", tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    check("theirs: says whose", tostring((r.data or {}).detail):find("someone else left", 1, true) ~= nil, tostring((r.data or {}).detail))
+    check("theirs: nothing moved, not started", (F.drags or 0) == 0 and (F.toggles or 0) == 0 and theirs.res[1].count == 2)
+    _G.DWCraftLoads = { furnace_1 = T }
+    reset({ stations = { theirs }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    theirs.res = { { slot = 0, item = "ITEM_Resources_IronOre", name = "Iron Ore", count = 2 } }
+    r = run({ recipe = "RECIPE_Process_IronBar", station = "furnace_1" })
+    check("own leftovers: not refused as someone else's", r.reason ~= "station_busy" or not tostring((r.data or {}).detail):find("someone else", 1, true),
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    _G.DWCraftLoads = {}
+end
+do -- the recipe he named is locked, another for the same item is ready: the failure says so (live 18:24Z)
+    reset({ stations = { station("Spinning Wheel", "wheel_1", { 4, 0, 0 }) },
+            unlocked = U({ "RECIPE_Process_Thread_Linen_From_Flax" }),
+            have = { ITEM_Resources_Flax = 2, ITEM_Resources_Coarse_Animal_Fur = 24 } })
+    local r = run({ recipe = "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", count = 8 })
+    check("ready instead: not_unlocked", r.reason == "not_unlocked", tostring(r.reason))
+    check("ready instead: names the Flax recipe", r.data and r.data.ready_instead
+          and r.data.ready_instead.recipe == "RECIPE_Process_Thread_Linen_From_Flax"
+          and tostring(r.data.detail):find("from 1 Flax", 1, true) ~= nil, tostring((r.data or {}).detail))
+end
 do -- burnt food (live 2026-11-01 17:07Z, rung 3 cook): the Campfire dropped Burnt Steak; he waited for Steak,
    -- timed out "made 0 of 2" and could not say why. The recipe's alt output ends the wait and is reported
     reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }, { burn = true }) },
@@ -513,6 +543,28 @@ do -- burnt food (live 2026-11-01 17:07Z, rung 3 cook): the Campfire dropped Bur
           tostring((r.data or {}).detail))
     check("burnt: picked up", inv_counts().ITEM_Consumable_Farm_Steak_Burnt == 1, inv_counts().ITEM_Consumable_Farm_Steak_Burnt)
     check("burnt: failed_output listed", r.data and r.data.failed_output and r.data.failed_output[1].count == 1)
+end
+do -- input: what a station makes from a carried item, the way a player puts raw meat on a fire (rung 3 gate
+   -- 2026-11-01 19:03Z / 20:03Z: he read recipes first to learn the output's name and stood 6-7 s in silence)
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) },
+            unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 2, ITEM_Resources_Wood_Ash = 2 } })
+    local r = run({ input = "raw farm meat" })
+    check("input: cooked what the meat makes, all of it", r.ok and (r.data or {}).crafts == 2 and (inv_counts().ITEM_Consumable_Farm_Steak or 0) >= 1,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail) .. " " .. tostring(inv_counts().ITEM_Consumable_Farm_Steak))
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) }, unlocked = U({}), have = { ITEM_Resources_Wood_Ash = 2 } })
+    local r2 = run({ input = "Ash Logs" })
+    check("input: an item no recipe takes says so", r2.ok == false and r2.reason ~= nil, tostring(r2.reason) .. " " .. tostring((r2.data or {}).detail))
+end
+do -- lying in a bed: the game blocks walking and stations, so craft says so at once (rung 3 gate 19:56Z)
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    local old = SK.W.resting_in
+    SK.W.resting_in = function() return "BP_Magic_SummonShelter_C_1" end
+    local r = run({ item = "Steak" })
+    SK.W.resting_in = old
+    check("resting: craft fails resting, naming the bed", r.ok == false and r.reason == "resting"
+          and tostring((r.data or {}).detail):find("Summon", 1, true) ~= nil, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
 end
 do -- the output lies at the station, whose interaction wins a near miss (live 2026-10-26: "the game targets
    -- BP_Station_Campfire_C, not the Clean Water"): he stands where the station is not behind the item

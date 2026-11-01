@@ -113,7 +113,7 @@ end
 local function idx()
     local d = M.data()
     if M._idx and M._idx.data == d then return M._idx end
-    local I = { data = d, id_of = {}, name_of = {}, path_of = {}, by_output = {}, by_station = {}, class_sid = {} }
+    local I = { data = d, id_of = {}, name_of = {}, path_of = {}, by_output = {}, by_input = {}, by_station = {}, class_sid = {} }
     for p, it in pairs(d.items or {}) do
         local id = it.id or asset(p)
         I.id_of[p], I.name_of[p], I.path_of[id] = id, it.name, p
@@ -125,12 +125,16 @@ local function idx()
             I.path_of[id] = I.path_of[id] or o[1]
             local l = I.by_output[id] or {}; I.by_output[id] = l; l[#l + 1] = rid
         end
-        for _, c in ipairs(r.inputs or {}) do local id = id_of(c[1]); I.path_of[id] = I.path_of[id] or c[1] end
+        for _, c in ipairs(r.inputs or {}) do
+            local id = id_of(c[1]); I.path_of[id] = I.path_of[id] or c[1]
+            local l = I.by_input[id] or {}; I.by_input[id] = l; l[#l + 1] = rid
+        end
         for _, sid in ipairs(r.stations or {}) do
             local l = I.by_station[sid] or {}; I.by_station[sid] = l; l[#l + 1] = rid
         end
     end
     for _, l in pairs(I.by_output) do table.sort(l) end
+    for _, l in pairs(I.by_input) do table.sort(l) end
     for _, l in pairs(I.by_station) do table.sort(l) end
     for sid, st in pairs(d.stations or {}) do
         for _, cw in ipairs(st.classes or {}) do I.class_sid[cw] = I.class_sid[cw] or sid end
@@ -380,6 +384,24 @@ function M.assess(rid, crafts, ctx)
     a.viable = a.status == "ready"
     a.rank = RANK[a.status] or 0
     return a
+end
+
+-- Every recipe that takes item_id as an input, assessed, best first: what a station turns a carried item into (a
+-- player puts raw meat on a fire). crafts nil = as many as the carried stack makes (at least 1).
+function M.uses(item_id_, crafts, ctx)
+    local out = {}
+    local have = (ctx.native and ctx.native(item_id_)) or (ctx.have or {})[item_id_] or 0
+    for _, rid in ipairs(idx().by_input[item_id_] or {}) do
+        local need = 1
+        for _, c in ipairs(recipe_of(rid).inputs or {}) do if item_id(c[1]) == item_id_ then need = math.max(1, c[2] or 1) end end
+        out[#out + 1] = M.assess(rid, crafts or math.max(1, math.min(M.cfg.max_count, math.floor(have / need))), ctx)
+    end
+    table.sort(out, function(x, y)
+        if x.rank ~= y.rank then return x.rank > y.rank end
+        if #x.missing ~= #y.missing then return #x.missing < #y.missing end
+        return x.recipe < y.recipe
+    end)
+    return out
 end
 
 -- Every recipe that makes item_id, assessed, best first (ranked as INFORMATION; the model chooses).
@@ -659,6 +681,41 @@ function W.unlocked(api)
     end)
     if not ok or n == 0 then return nil end
     return set, n
+end
+
+-- A station's shelter rule (UBuildingShelterComponent "BuildingShelter" on BP_Station_Spinning_Wheel_C, dump
+-- 26161880): InteractionRequirements 0 InteractInShelterOnly / 1 InteractExternallyOnly / 2 InteractAnywhere, and the
+-- game's own words. Over it: a trace from 2.2 m to 10 m above the station (anything there = a roof, maybe a tree).
+-- -> {rule = "shelter_only" | "outside_only", says = text, covered = true | false | nil} | nil (no rule)
+local SHELTER_RULES = { [0] = "shelter_only", [1] = "outside_only" }
+function W.shelter(api, actor, pos)
+    local U = sense_U(api)
+    local c = U and U.try(function() return actor.BuildingShelter end)
+    if not (U and U.valid(c)) then return nil end
+    local req = tonumber(U.try(function() return c.InteractionRequirements end))
+    local rule = req and SHELTER_RULES[req]
+    if not rule then return nil end
+    local says = U.str(U.try(function() return rule == "shelter_only" and c.RequiresShelterText or c.RequiresNoShelterText end))
+    local out = { rule = rule, says = (says and says ~= "" and says ~= "None") and says or nil }
+    local b = api.module("build")
+    if pos and b and b.W and type(b.W.trace) == "function" then
+        local ok, hit = pcall(b.W.trace, api, { X = pos[1] * 100, Y = pos[2] * 100, Z = (pos[3] + 2.2) * 100 },
+            { X = pos[1] * 100, Y = pos[2] * 100, Z = (pos[3] + 10) * 100 })
+        if ok then out.covered = hit == true end
+    end
+    return out
+end
+function M.shelter_words(sh, name)
+    if not sh then return nil end
+    -- the game's text is a tail after the station's name (live 19:0xZ: " needs more surrounding shelter.")
+    local says = sh.says and sh.says:match("^%s*(.-)%s*$")
+    if says and says:match("^%l") then says = tostring(name) .. " " .. says end
+    local quote = says and (" (the game says: \"" .. says .. "\")") or ""
+    if sh.rule == "shelter_only" then
+        return "the " .. tostring(name) .. " only works in a shelter, walls and a roof round it" .. quote
+            .. (sh.covered == false and ", and there is open sky over this one" or sh.covered and ", and something is over this one" or "")
+    end
+    return "the " .. tostring(name) .. " only works outside, not under a roof" .. quote
 end
 
 -- What his unlock rules count (UProgressComponent, dump 26161880): ItemsPickedUp (TSet<UItemData*>, "ITEMS[...]")
@@ -1108,8 +1165,12 @@ local function open_poll(api, job, t)
         end
         if t >= e.open_until then
             if e.presses < M.cfg.presses then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
-            return api.fail("verification_failed", { station = row.id,
-                detail = "I pressed use on the " .. tostring(row.name) .. " but its menu didn't open." })
+            local actor = api.actor_of({ id = row.id, class = row.class })
+            local sh = actor and W.shelter(api, actor, row.position)
+            local why = M.shelter_words(sh, row.name)
+            return api.fail("verification_failed", { station = row.id, shelter = sh,
+                detail = "I pressed use on the " .. tostring(row.name) .. " but its menu didn't open"
+                    .. (why and ("; " .. why) or "") .. "." })
         end
         return nil
     end
@@ -1135,7 +1196,16 @@ local function resolve_candidates(api, args, ctx)
         if not rid then return nil, api.fail("unknown_recipe", { recipe = args.recipe, detail = "I don't know a recipe called " .. tostring(args.recipe) .. "." }) end
         return { M.assess(rid, count, ctx) }, nil, nil
     end
-    if not need_str(args.item) then return nil, api.fail("invalid_args", { detail = "item or recipe is required" }) end
+    if not need_str(args.item) and need_str(args.input) then -- what a station makes from this carried item
+        local id, hits, kind = M.resolve_item(args.input)
+        if not id then return nil, item_resolution_failure(api, args.input, hits, kind, 10) end
+        local list = M.uses(id, args.count ~= nil and count or nil, ctx)
+        if #list == 0 then
+            return nil, api.fail("unknown_recipe", { input = id, detail = "Nothing in the game is made from " .. name_of_id(id) .. "." })
+        end
+        return list, nil, id
+    end
+    if not need_str(args.item) then return nil, api.fail("invalid_args", { detail = "item, input or recipe is required" }) end
     local id, hits, kind = M.resolve_item(args.item)
     if not id then
         return nil, item_resolution_failure(api, args.item, hits, kind, 10)
@@ -1164,6 +1234,23 @@ local function pick_station(api, a, args, ctx)
     return nil, api.fail("unknown_target", { station = args.station, detail = "I can't see that station (" .. args.station .. ") near here." })
 end
 
+-- Stations he loaded himself (id -> when), kept across hot reloads: what sits in any other station's input slots is
+-- someone else's, and he never adds to it, spins it or cooks it (Luis's rule: never take from his stations or
+-- containers; live 18:22Z the model aimed a fur craft at Luis's Spinning Wheel, which holds Luis's 2 fur).
+local function loads_ledger()
+    local l = rawget(_G, "DWCraftLoads")
+    if not l then l = {}; _G.DWCraftLoads = l end
+    return l
+end
+local LEDGER_S = 3600
+local function foreign_inputs(api, station_id, rows)
+    local mine = loads_ledger()[station_id]
+    if mine and api.now() - mine < LEDGER_S then return nil end
+    local held = {}
+    for _, r in ipairs(rows or {}) do held[#held + 1] = tostring(r.count) .. " " .. tostring(r.name or name_of_id(r.item)) end
+    return (#held > 0) and table.concat(held, ", ") or nil
+end
+
 -- A processing station that can take this recipe's inputs now: not running another recipe, and every input has a
 -- slot (its own stack or a free one). nil + what blocks it otherwise (rung 3: Luis's Spinning Wheel holds his
 -- fur in its only slot; the nearest wheel must not win over Claude's own empty one).
@@ -1172,6 +1259,10 @@ local function station_takes(api, row, a)
     local s = actor and W.station_state(api, actor, "processing")
     if not s then return true end -- unreadable: the load step reports the truth
     if s.running and s.recipe and s.recipe ~= a.recipe then return false, "it is making " .. tostring(s.recipe) end
+    local theirs = foreign_inputs(api, row.id, s.resources.rows)
+    if theirs then return false, "it holds " .. theirs .. " that someone else left" end
+    local sh = W.shelter(api, actor, row.position)
+    if sh and sh.rule == "shelter_only" and sh.covered == false then return false, "it only works in a shelter and has open sky over it" end
     local want, have, used = {}, {}, 0
     for _, c in ipairs(a.inputs or {}) do want[c.item] = true end
     local foreign = {}
@@ -1187,6 +1278,14 @@ local function station_takes(api, row, a)
 end
 
 local function start_craft(api, args, ctx0)
+    -- lying in a bed or shelter, the game lets him neither walk nor use a station (rung 3 gate 19:56Z: "I can't get
+    -- the game to let me use the Crafting Table", 6 sides tried, while he lay in the Summon Shelter)
+    local sk = api.module and api.module("skills")
+    local bed = sk and sk.W and type(sk.W.resting_in) == "function" and select(2, pcall(sk.W.resting_in, api)) or nil
+    if type(bed) == "string" then
+        return api.fail("resting", { resting_in = bed, detail = "I'm lying in " .. bed .. ", so I can't walk to a "
+            .. "station or use one until I get up (interact on that bed)." })
+    end
     local ctx, bad = context(api)
     if not ctx then return bad end
     if ctx.unlocked == nil then
@@ -1199,17 +1298,36 @@ local function start_craft(api, args, ctx0)
     if args.recipe == nil and #viable > 1 then
         local names = {}
         for _, a in ipairs(viable) do names[#names + 1] = a.recipe end
+        local from = not need_str(args.item) and need_str(args.input)
         return api.fail("ambiguous_target", { item = item, candidates = cand_wire(viable),
-            detail = "I can make " .. name_of_id(item) .. " " .. #viable .. " ways; which recipe should I use?" })
+            detail = from and ("I can make " .. #viable .. " things from " .. name_of_id(item) .. " here; which recipe should I use?")
+                or ("I can make " .. name_of_id(item) .. " " .. #viable .. " ways; which recipe should I use?") })
     end
     local a = viable[1]
     if not a then
         local best = list[1]
         local reason = ({ not_unlocked = "not_unlocked", unlock_unknown = "state_unavailable", missing_input = "missing_materials",
                           no_station = "nothing_in_range", vendor = "not_implemented", no_station_type = "unknown_recipe" })[best.status] or "unknown_recipe"
+        -- a recipe he named can't be made, but another recipe for the same item can right now: say so (live 18:24Z:
+        -- he asked for thread from fur, locked, while thread from his Flax was ready, and gave up)
+        local instead
+        if args.recipe ~= nil and best.item then
+            for _, o in ipairs(M.candidates(best.item, 1, ctx)) do -- one craft: what he could start with
+                if o.viable and o.recipe ~= best.recipe then instead = o; break end
+            end
+        end
+        local detail = (best.detail or "I can't make that.")
+        if instead then
+            local ins = {}
+            for _, c in ipairs(instead.inputs or {}) do ins[#ins + 1] = c.need .. " " .. tostring(c.name) end
+            detail = detail .. "; but I can make " .. tostring(instead.name) .. " now from " .. table.concat(ins, " + ")
+                .. " each (recipe " .. instead.recipe .. ")"
+        end
         return api.fail(reason, { recipe = best.recipe, item = best.item, missing = (#best.missing > 0) and best.missing or nil,
-            unlock = best.unlock, station = best.station_name, candidates = (#list > 1) and cand_wire(list) or nil,
-            detail = (best.detail or "I can't make that.") .. "." })
+            unlock = best.unlock, unlock_status = best.unlock_status, station = best.station_name,
+            candidates = (#list > 1) and cand_wire(list) or nil,
+            ready_instead = instead and { recipe = instead.recipe, name = instead.name, inputs = instead.inputs } or nil,
+            detail = detail .. "." })
     end
     local row, perr = pick_station(api, a, args, ctx)
     if not row then return perr end
@@ -1227,6 +1345,16 @@ local function start_craft(api, args, ctx0)
         end
         row = free or row
         if not free then passed = {} end -- none free: the nearest one's load step says what fills it
+    end
+    if a.kind == "processing" then -- never walk to and open a station holding someone else's inputs (Luis's rule)
+        local actor = api.actor_of({ id = row.id, class = row.class })
+        local st = actor and W.station_state(api, actor, "processing")
+        local theirs = st and foreign_inputs(api, row.id, st.resources.rows)
+        if theirs then
+            return api.fail("station_busy", { station = row.name, station_id = row.id, someone_elses = theirs,
+                detail = "The " .. tostring(row.name) .. " " .. tostring(row.id) .. " holds " .. theirs
+                    .. " that someone else left, so I won't use it: those aren't mine." })
+        end
     end
     local plan = M.plan(a.recipe, a.crafts, row.station)
     local job = { kind = "craft", a = a, plan = plan, station = row, alternatives = {}, ctx = ctx, args = args,
@@ -1336,6 +1464,14 @@ local function proc_setup(api, job)
     job.actor, job.st0 = actor, s
     job.station_before = { resources = s.resources.rows, fuel = s.fuel.rows, output = s.output.rows, running = s.running,
                            recipe = s.recipe }
+    local theirs = foreign_inputs(api, job.station.id, s.resources.rows)
+    if theirs then
+        local d = base_data(job)
+        d.station_before, d.someone_elses = job.station_before, theirs
+        d.detail = "The " .. tostring(job.station.name) .. " holds " .. theirs .. " that someone else left, so I won't use it: "
+            .. "those aren't mine."
+        return api.fail("station_busy", d)
+    end
     local fuel_by_item = s.fuel.by_item
     local f, why, fd = M.choose_fuel(job.plan, job.args.fuel, job.ctx.have, fuel_by_item)
     if not f then
@@ -1367,6 +1503,7 @@ local function load_step(api, job, t)
     local now_in = inv.by_item[q.item] or 0
     if job.moving then
         if now_in >= job.moving.expect then
+            loads_ledger()[job.station.id] = api.now()
             job.loaded[q.item] = (job.loaded[q.item] or 0) + job.moving.amount
             q.count = q.count - job.moving.amount
             job.moving = nil
@@ -1663,7 +1800,11 @@ local function stations_tool(api, args)
             local function names(c) local o = {}; for _, r in ipairs(c.rows) do o[#o + 1] = tostring(r.name or r.item) .. " x" .. r.count end; return o end
             w.state = { running = st.running, recipe = st.recipe, remaining_s = r1(st.remaining_s), fuel_s = r1(st.fuel_s),
                         resources = names(st.resources), fuel = names(st.fuel), output = names(st.output) }
+            local theirs = foreign_inputs(api, s.id, st.resources.rows)
+            if theirs then w.someone_elses = theirs .. " (not mine to use)" end
         end
+        local sh = actor and W.shelter(api, actor, s.position)
+        if sh then w.shelter = M.shelter_words(sh, s.name) end
         out[#out + 1] = w
     end
     return { ok = true, data = { stations = out, unlocked_recipes = ctx.unlocked_n or api.null } }
@@ -1798,15 +1939,16 @@ M.MANIFEST = {
             .. "and says which. It does not gather or craft ingredients (craft_plan plans those).",
         args = { type = "object", properties = obj({
             item = str("Item to make (name or id)."),
+            input = str("Or a carried item to put in the station instead of naming what comes out (e.g. raw food at a fire): the recipe that takes it."),
             recipe = str("Recipe id, to pick one of several."),
-            count = { type = "integer", minimum = 1, maximum = M.cfg.max_count, default = 1, description = "Items (crafts with recipe)." },
+            count = { type = "integer", minimum = 1, maximum = M.cfg.max_count, description = "Items, default 1 (crafts with recipe or input; input without count: all of it)." },
             station = str("Station id (default nearest)."),
             fuel = str("Fuel to burn (processing).") }) },
         preconditions = { "the recipe is unlocked", "you carry all inputs", "a station of its type is within 60 m" },
         ground = obj({ item = "item", station = "thing" }),
         reasons = { "missing_materials", "not_unlocked", "nothing_in_range", "ambiguous_target", "unknown_recipe", "station_busy",
                     "inventory_full", "not_interactable", "path_blocked", "too_far", "verification_failed", "timeout",
-                    "craft_failed", "not_implemented", "interrupted" } },
+                    "craft_failed", "not_implemented", "interrupted", "resting" } },
     recipes = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
         description = "List recipes: craftable now (default), every recipe for an item with its status and missing "
             .. "inputs, or what a station makes.",
