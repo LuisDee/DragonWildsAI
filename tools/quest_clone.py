@@ -185,6 +185,33 @@ def _obj_end(text: str, start: int) -> int:
         j += 1
 
 
+def dangling(src: dict, out: dict) -> list[str]:
+    """Load check: every reference in the clone into his bag must still find its item, or the server refuses the
+    character (live ClaudeQ6: CharCantLoad). A reference is an `...InventoryItemIndex` (a bag slot number; negative =
+    none) anywhere outside the bag, or any value outside the bag equal to the GUID of a bag item the clone lost.
+    -> the paths of the ones that point at nothing ([] = safe to write)."""
+    inv0, inv = src["GameProgress"].get("Inventory") or {}, out["GameProgress"].get("Inventory") or {}
+    lost = {v.get("GUID") for k, v in inv0.items() if k not in inv and isinstance(v, dict) and v.get("GUID")}
+    bad: list[str] = []
+
+    def walk(v, path: str) -> None:
+        if path == "GameProgress.Inventory":
+            return
+        if isinstance(v, dict):
+            for k, x in v.items():
+                p = f"{path}.{k}" if path else k
+                if k.endswith("InventoryItemIndex") and isinstance(x, int) and x >= 0 and str(x) not in inv:
+                    bad.append(f"{p} = {x} (no bag slot {x})")
+                walk(x, p)
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                walk(x, f"{path}[{i}]")
+        elif isinstance(v, str) and v in lost:
+            bad.append(f"{path} = {v} (the GUID of a stripped bag item)")
+    walk(out, "")
+    return bad
+
+
 def render(text: str, out: dict) -> str:
     """The source file's text with only meta_data's guid and name and the QuestProgress block replaced, and the
     stripped bag slots cut out; every other byte (floats, position, order) stays as the game wrote it."""
@@ -220,6 +247,10 @@ def cmd_make(a) -> int:
     ids, names, suffixes = removal(tuple(a.quests))
     strip = deliverables(tuple(a.quests))
     out = clear(src, ids, names, suffixes, a.name, strip)
+    bad = dangling(src, out)
+    if bad:  # never hand the server a character it cannot load
+        raise SystemExit("refusing to write the clone, it has references into the bag that find nothing:\n  "
+                         + "\n  ".join(bad))
     text = render(raw, out).encode("utf-8")
     inv0, inv1 = src["GameProgress"].get("Inventory") or {}, out["GameProgress"].get("Inventory") or {}
     stripped = [{"slot": k, "item": strip[v["ItemData"]], "count": v.get("Count", 1)} for k, v in inv0.items()

@@ -69,3 +69,30 @@ def test_the_cleared_quests_deliverables_leave_the_bag_and_every_other_slot_keep
 def test_the_deliverables_of_the_chain_have_persistence_ids():
     d = json.loads(qc.DELIVERABLES.read_text(encoding="utf-8"))
     assert all(i in d["persistence_ids"] for items in d["quests"].values() for i in items)
+
+
+def test_the_load_check_finds_every_reference_into_the_bag_that_points_at_nothing():
+    src = save()
+    src["GameProgress"]["Inventory"] = {"4": {"GUID": "keep", "ItemData": "a"}, "40": {"GUID": "gone", "ItemData": "b"},
+                                        "MaxSlotIndex": 45}
+    src["GameProgress"]["Loadout"] = {"6": {"PlayerInventoryItemIndex": 40}, "7": {"PlayerInventoryItemIndex": 4},
+                                      "MaxSlotIndex": 8}
+    src["GameProgress"]["Hotbar"] = {"Pinned": ["gone", "keep"], "SomeInventoryItemIndex": -1}
+    out = json.loads(json.dumps(src))
+    del out["GameProgress"]["Inventory"]["40"]
+    assert qc.dangling(src, out) == ["GameProgress.Loadout.6.PlayerInventoryItemIndex = 40 (no bag slot 40)",
+                                     "GameProgress.Hotbar.Pinned[0] = gone (the GUID of a stripped bag item)"]
+    del out["GameProgress"]["Loadout"]["6"]
+    out["GameProgress"]["Hotbar"]["Pinned"] = ["keep"]
+    assert qc.dangling(src, out) == []
+
+
+def test_clear_leaves_nothing_dangling_on_the_shape_of_claudedevs_save():
+    src = save()
+    roast = "0aufkk55nHU1TlSAXZ0o3g"
+    src["GameProgress"]["Inventory"] = {"4": {"GUID": "p", "ItemData": "pick"}, "40": {"GUID": "r", "ItemData": roast},
+                                        "MaxSlotIndex": 45}
+    src["GameProgress"]["Loadout"] = {"6": {"PlayerInventoryItemIndex": 40}, "7": {"PlayerInventoryItemIndex": 4},
+                                      "8": {"PlayerInventoryItemIndex": 4}, "MaxSlotIndex": 8}
+    out = qc.clear(src, IDS, set(), set(), "ClaudeQ7", {roast: "ITEM_Consumable_Meat_Rat_Roast"})
+    assert qc.dangling(src, out) == [] and list(out["GameProgress"]["Loadout"]) == ["7", "8", "MaxSlotIndex"]
