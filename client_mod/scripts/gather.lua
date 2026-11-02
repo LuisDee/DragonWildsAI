@@ -62,6 +62,12 @@ M.cfg = {
     sides = 2,                  -- stand points tried around a target (each with every aim)
     unverified_presses = 6,     -- presses with no stamina spent and no damage in a row: input broken
     approach_timeout_s = 40,
+    -- a player walks by sight when no route comes: the move standing in "planning" (waiting for the nav helper) this
+    -- long with no step taken restarts without it (live 2026-11-02 01:45Z: flax 55.6 m away, "Moved 0 m in 40 s")
+    route_wait_s = 6,
+    -- an approach that timed out this much closer than it began is progress, not "unreachable": go on (01:47Z: 147 m
+    -- walked, 5 m left, given up)
+    progress_cm = 1000, progress_retries = 2,
     near_enough_cm = 90,        -- a failed approach that ended this close beyond reach still swings
     bad_ttl_s = 600, bad_streak = 3,
     equip_wait_s = 4, equip_repress_s = 1.5,
@@ -598,15 +604,29 @@ local function tap(J, action, frames)
     return true
 end
 
-local function start_move(J, goal_cm, tol_m, timeout_s, local_plan)
+local function start_move(J, goal_cm, tol_m, timeout_s, local_plan, nav)
     J.drove_move = true
     local me = J.me
     local far = me and U.dist2d(me, goal_cm) > 1200
     local r = mcall("move", "go_to", J.log, { goal_cm.X / 100, goal_cm.Y / 100, goal_cm.Z / 100 },
         { tolerance_m = tol_m, timeout_s = timeout_s or M.cfg.approach_timeout_s, sprint = far, owner_token = J.token,
-          local_plan = local_plan })
-    J.move_started = J.t
+          local_plan = local_plan, nav = nav })
+    J.move_started, J.move_from, J.move_args = J.t, me and { X = me.X, Y = me.Y, Z = me.Z }, { goal_cm, tol_m, timeout_s, local_plan }
+    J.move_d0 = me and U.dist2d(me, goal_cm) or nil
+    J.nav_off = (nav == false) or nil -- a fresh move may wait for a route again
     return r and r.ok ~= false
+end
+
+-- Still waiting for a route with no step taken (move status "planning") after route_wait_s: walk by sight instead
+-- (move's own nav=false: local planner on real collision, drop-guarded), once per move. -> true when restarted
+local function route_wait_over(J, st)
+    if J.nav_off or not (st and st.status == "planning") or J.t - (J.move_started or J.t) < M.cfg.route_wait_s then return false end
+    if J.me and J.move_from and U.dist2d(J.me, J.move_from) > 100 then return false end
+    local a = J.move_args
+    if not a then return false end
+    say(J.log, string.format("no route after %.0f s standing; walking by sight", J.t - (J.move_started or J.t)))
+    mcall("move", "stop", J.log)
+    return start_move(J, a[1], a[2], a[3], a[4], false)
 end
 
 local function move_state()
@@ -804,6 +824,7 @@ local function step_approach(J, pawn, me)
         return
     end
     local ms, st = move_state()
+    if ms == "moving" and route_wait_over(J, st) then return end
     if ms == "moving" and J.t - (J.move_started or J.t) <= M.cfg.approach_timeout_s + 5 then return end
     J.moving = false
     local res = st and st.result or {}
@@ -972,6 +993,7 @@ local function step_sweep(J, pawn, me)
         return
     end
     local ms, st = move_state()
+    if ms == "moving" and route_wait_over(J, st) then return end
     if ms == "moving" and J.t - (J.move_started or J.t) <= cfg.approach_timeout_s + 5 then return end
     J.moving = false
     local res = st and st.result or {}
@@ -985,6 +1007,14 @@ end
 -- could not get there: move's own reason, or (a bare timeout, or our own wait ran out) the shared
 -- approach-progress verdict, which says WHY it was not getting closer (e.g. target_above_jump_height)
 approach_failed = function(J, T, st, res)
+    J.nav_off = nil
+    local d_now = J.me and T.pos and U.dist2d(J.me, T.pos)
+    if J.move_d0 and d_now and J.move_d0 - d_now >= M.cfg.progress_cm and (T.progress_tries or 0) < M.cfg.progress_retries then
+        T.progress_tries = (T.progress_tries or 0) + 1
+        say(J.log, string.format("approach ran out of time %.0f m closer (%.0f m left); going on", (J.move_d0 - d_now) / 100, d_now / 100))
+        J.moving = false
+        return
+    end
     local pv = st and type(st.progress) == "table" and st.progress or nil
     local why = res.why or res.reason
     if (why == nil or why == "timeout") and pv and pv.why then why = pv.why end

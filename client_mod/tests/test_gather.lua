@@ -149,11 +149,13 @@ function fake_move.go_to(log, goal, opts)
     Wd.moves = Wd.moves + 1
     MV.mode, MV.goal, MV.tol, MV.t0, MV.result = "go_to", { X = goal[1] * 100, Y = goal[2] * 100, Z = goal[3] * 100 }, (opts.tolerance_m or 1.5) * 100, T, nil
     MV.straight = (MV.straight or 0) + (opts.local_plan == false and 1 or 0)
+    MV.nav, MV.status = opts.nav, nil
+    if opts.nav == false then Wd.nav_off_moves = (Wd.nav_off_moves or 0) + 1 end
     return { ok = true }
 end
 function fake_move.follow() return { ok = true } end
 function fake_move.stop() MV.mode = "idle"; MV.result = MV.result or { status = "stopped" }; return { ok = true } end
-function fake_move.status() return { mode = MV.mode, result = MV.result, progress = MV.progress } end
+function fake_move.status() return { mode = MV.mode, status = MV.status, result = MV.result, progress = MV.progress } end
 -- the real words table (move.lua's why_words is pure)
 local REAL_MOVE = dofile(here .. "/../scripts/move.lua")
 fake_move.why_words = REAL_MOVE.why_words
@@ -164,6 +166,14 @@ local function step_move(dt)
         if T - MV.t0 > 1.0 then MV.mode, MV.result = "idle", { status = "failed", reason = "stuck" } end
         return
     end
+    -- the nav helper never answers (live 2026-11-02 01:45Z): a routed move stands "planning" until its own timeout
+    if Wd.route_wait and MV.nav ~= false then
+        MV.status = "planning"
+        if T - MV.t0 > 40 then MV.mode, MV.result = "idle", { status = "failed", reason = "timeout" } end
+        return
+    end
+    -- a long detour: the move's own timeout ends it short of the goal, after real progress (live 01:47Z)
+    if Wd.move_cap_s and T - MV.t0 > Wd.move_cap_s then MV.mode, MV.result = "idle", { status = "failed", reason = "timeout" }; return end
     -- a goal on a ledge above jump height: no progress; the caller's timeout ends it (like live 16:05),
     -- and move's progress tracker says why
     if MV.goal.Z - me.Z > 200 then
@@ -465,6 +475,30 @@ do
     local res = run_job({ resource = "oak", count = 2 }, 120)
     check("unreachable -> path_blocked", res.ok == false and res.reason == "path_blocked" and res.data.why == "unreachable", tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
     check("unreachable detail", res.data and tostring(res.data.detail):find("can't get to"), res.data and res.data.detail)
+end
+
+
+-- ================================================================ 4b. no route from the nav helper / a detour that times out
+do
+    reset({})
+    Wd.route_wait = true
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 2 do add_foliage_tree("Oak", { X = 3000 + 300 * i, Y = 0, Z = 0 }) end
+    local t0 = T
+    local res = run_job({ resource = "oak", count = 1 }, 200)
+    check("no route: walks by sight after the wait", (Wd.nav_off_moves or 0) >= 1, Wd.nav_off_moves)
+    check("no route: still gets the log", res.ok == true, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    check("no route: no 40 s stand", T - t0 < 60, T - t0)
+    Wd.route_wait = nil
+end
+do
+    reset({})
+    Wd.move_cap_s = 4 -- 4 s of walking (18 m) per move, the target 30 m away
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Oak", { X = 3000, Y = 0, Z = 0 })
+    local res = run_job({ resource = "oak", count = 1 }, 200)
+    check("timed-out approach with progress goes on", res.ok == true, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    Wd.move_cap_s = nil
 end
 
 -- ================================================================ 5. swings that do nothing

@@ -35,7 +35,7 @@ from typing import Any, Iterable
 from .fileio import read_json
 from .paths import REPO_ROOT, _env_path
 
-SCHEMA = 12  # bump when the doc format changes (forces a rebuild)
+SCHEMA = 14  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
 POOL = 200  # BM25 candidates per tier for the title re-rank
 WALK_CHARS = 1600  # a quest walkthrough's length in a lookup result
@@ -267,6 +267,10 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
                 parts.append(f"Description: {flav.rstrip('.')}")
         recs = made_by.get(iid) or []
         crafted = [(rid, r) for rid, r in recs if not all(is_vendor(x) for x in r.get("stations") or [])]
+        if not crafted:  # first: a player's way to a raw material is the world; a trader is the alternative (long-jobs
+            # 2026-11-02 02:12Z: the Flax card led with "buy from Domri" and he asked for chits instead of picking flax)
+            parts.append("No crafting recipe makes it (gathered, dropped or found in the world)"
+                         + ("; a trader also sells it (below)" if recs else ""))
         if recs:
             represented = (crafted + [pair for pair in recs if pair not in crafted])[:4]
             parts.append(HOW + OR.join(recipe_line(r) for _, r in represented))
@@ -284,8 +288,6 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
             if has_unlock:
                 parts.append(UNLOCK_CONTEXT + "progress records item first pickups and actor-class interactions separately; "
                              "the relationship between separate condition queries is not established")
-        if not crafted:
-            parts.append("No crafting recipe makes it (gathered, dropped or found in the world)")
         stats = [f"{s.get('name')} {s.get('value')}" for s in it.get("custom_stats") or [] if s.get("name")]
         if stats:
             parts.append("Stats: " + "; ".join(stats))
@@ -365,6 +367,10 @@ def merge_farming(docs: list[dict], farm: list[dict]) -> list[dict]:
     """A crop's growing facts go on its seed's own item card (what a player plants), so the index gains no
     near-duplicate "<Crop>" cards that crowd item lookups; a crop whose seed has no card keeps its own."""
     by_ref = {d.get("ref"): d for d in docs if d.get("kind") == "item"}
+    for f in farm:  # the crop's harvest item says it can be farmed (a player asks "where do I get flax?")
+        crop = by_ref.get(f.get("harvest_ref")) if f.get("kind") == "crop" else None
+        if crop is not None and f.get("grow_line"):
+            crop["body"] = crop["body"] + NL + f["grow_line"]
     for f in farm:
         seed = by_ref.get(f.get("seed_ref")) if f.get("kind") == "crop" else None
         if seed is None:
@@ -427,7 +433,10 @@ def farming_docs(data: Path) -> list[dict]:
             parts.append(cyc.capitalize())
         docs.append({"tier": 0, "kind": "crop", "title": f"{name} (crop)", "aliases": " | ".join(x for x in (seed,) if x),
                      "tags": "farming crop plant grow growth seed harvest plot", "body": NL.join(parts), "ref": c.get("id") or "",
-                     "seed_ref": (c.get("seed") or {}).get("id")})
+                     "seed_ref": (c.get("seed") or {}).get("id"), "harvest_ref": c.get("harvest_item"),
+                     "grow_line": (f"Can be farmed: plant {seed} in a farm plot ({', '.join(c.get('plots') or []) or 'any'}); "
+                                   f"base yield {_fmt(c.get('base_yield'))} per harvest after {_fmt(c.get('cycles_to_harvest'))} "
+                                   f"growth cycles (about {_fmt(c.get('minutes_to_harvest'))} min real time)") if seed else None})
     if st:
         labels = (("CyclePeriod", "Real seconds per growth cycle"), ("WaterNeededForWatering", "Water units to fully water a plot"),
                   ("CompostNeededForFertilizing", "Compost units to fully fertilize a plot"),
