@@ -167,7 +167,8 @@ def test_t3_farm_a_mob_drop_prepares_counts_body_verified_kills_and_finishes(tmp
     run = rig.runs()[0]
     assert run["step"]["escape"] == "walk back to the player and eat"
     me = json.loads(rig.director_llm.calls[1]["messages"][1]["content"])["me"]
-    assert me["power_level"] == 3 and me["creatures_near"][0]["power_level"] == 2  # readiness facts
+    # readiness facts: his PL as the game counts it (worn armour mean, gear_plan), not the sum over a held weapon
+    assert me["power_level"] == 0 and me["creatures_near"][0]["power_level"] == 2
 
 
 # ------------------------------------------------------------------ T3: a quest (perception gap, never faked)

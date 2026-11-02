@@ -114,7 +114,8 @@ BOARD_TOOLS = [
         "interruptions. Use it when the end he asked for is several steps off: gathering, crafting chains (anything "
         "you'd need to make or get first), travel, repeated trips, research, minutes to hours of work, or he leaves it "
         "to you. Calling the job's first tool yourself instead does only that step, and the job is lost at the first "
-        "blocker. Describe the job in plain words as the player meant it, with its end state.",
+        "blocker. Describe the job as the player meant it and what done means (his goal, not your route: the planner "
+        "researches the route and picks round blockers).",
         {"text": {"type": "string", "description": "The job, in plain words."},
          "when": {"type": "string", "enum": ["now", "next", "later"],
                   "description": "now = start it now (the current job waits), next = after the current job, "
@@ -195,6 +196,10 @@ Rules:
   and use a damage type it is weak to when he can (his weapons, an enchant spell, an attack spell), as prep steps
   before the fight; say in facts which you chose and why.
 - me.resources_near lists what he can gather where he stands now; prefer those over guesses.
+- The job's text is his controller's paraphrase of what the player asked. A route it names (which recipe, set,
+  station or source) is a suggestion, not the goal: check it against what he carries, me.gear_vs_area and your
+  research, and take the route that reaches the same end soonest and safest (fewest missing inputs, no blocked
+  station, no long trip through enemies above his power level); say why in explanation.
 - A step that needs something no body tool can do: name it in capability_gaps (with a workaround if there is
   one) instead of pretending, with its kind: "action" (his body can't do it), "perception" (he can't see or
   sense it in the game), or "knowledge" (a fact you couldn't find or confirm: also list it in facts as unknown).
@@ -457,7 +462,18 @@ def _compact_state(state: dict) -> dict:
     names = {r.get("item"): r.get("name") for r in state.get("inventory_items") or [] if isinstance(r, dict)}
     out["carried"] = [{"item": i, "name": names.get(i) or (item_stats.stats(i, cat) or {}).get("name"), "count": n}
                       for i, n in (state.get("inventory") or {}).items() if n]
-    out["power_level"] = sum((item_stats.stats(i, cat) or {}).get("power_level") or 0 for i in gear.values() if i)
+    # his power level as the game counts it (mean of worn head, body, legs, rounded down; gear_plan.py), and the gear he
+    # can reach for this area as whole sets per style (live gear_up 2026-11-02: the sum over every worn item said PL 8
+    # at PL 0, and the plan made two leather pieces, which leave him at PL 1)
+    try:
+        from . import gear_plan
+        p = gear_plan.plan(state, stash=state.get("containers_remembered") or None)
+        out["power_level"] = p["pl_now"]
+        if line := gear_plan.set_line(p, state):  # every time, not only with stronger enemies in sight
+            out["gear_vs_area"] = (f"enemies here: {', '.join(p['enemies']) or 'none seen'}; best armour you can reach "
+                                   f"makes you PL {p['pl_full_set']}. " + line)
+    except Exception:  # perception is best effort
+        out["power_level"] = None
     out["players_near"] = [{"name": p.get("name"), "distance": p.get("distance")} for p in state.get("players") or []
                            if isinstance(p, dict)]
     out["creatures_near"] = [{"id": e.get("id"), "kind": e.get("kind") or e.get("name"), "power_level": e.get("power_level"),
