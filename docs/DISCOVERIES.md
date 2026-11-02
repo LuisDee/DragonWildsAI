@@ -3336,3 +3336,9 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 - **The hawker's flax is a "crafting" recipe in the data.** `DA_Recipe_Vendor_UmS_Buy_Plant_Flax` at station `UmS_Merchant_Hawker` (name Domri) has `vendor=false`, kind crafting, and no classes. craft_plan ranked it missing_input (12 Garou Chits) above gathering flax, so farm chain 10 sent him for chits.
   - Now a gatherable raw material is gathered unless a recipe for it is ready now, and the vendor buy stays as an alternative.
   - The flax, cabbage and redberry gather profiles now carry their item ids (ITEM_Resources_Flax, ITEM_Resources_Cabbage, ITEM_Consumable_Fruit_Redberry, as his inventory counted them). With item=nil, craft_plan could not plan a flax gather.
+- **Grave markers: AGameplayObjectRegistry.Gravestones (live 2026-11-02 08:5xZ, build 26161880).** Read with client_mod/commands/grave_registry_probe.lua.
+  - FGravestoneData {Location, OwningCharGuid, OwningCharDisplayName (empty), Identifier} replicates to his client at any distance. It listed 7 graves: 6 his, 1 someone else's.
+  - The match `OwningCharGuid` (InnerGuid A:B:C:D) == `pc:GetCharacterGuid()` works.
+  - The grave is not always where he died. A fixture death about 6 s after a teleport (07:47:10Z) put BP_PlayerGravestone_C at (108.4, 1857.2), where he had stood before the teleport (server log `SpawnActor failed to find teleport spot` at that spot; the warning appears on every grave spawn, including ones at the right place). The death spot was 160 m away.
+  - The body closed that death as gone. Its 271 items sat in the marker's grave by the crates.
+  - So the markers are the truth for where a grave lies (a player reads them on his compass). The body does not use them yet.

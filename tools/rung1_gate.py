@@ -67,7 +67,9 @@ BOTH_KINDS_S = 0.8  # the lock is per kind: food and drink overlap (coordinator 
 FOOD_VALUES = ROOT / "data" / "food_values_26161880.json"
 LUIS_SLEEP = [101.24, 1868.4, -30.69]  # Luis said "sleep" here (recorder 1793537212); shelter at [98.1, 1858.7]
 AUDIENCE_M = 40.0  # a player this close can be told (the Tester sender has no pawn: no audience on the dev world)
-GRAVE_SPOTS = [[249.91, 1790.78, -39.79], [181.73, 1815.94, -28.99]]  # travel_ladder P southeast / east_stone
+GRAVE_SPOTS = [[249.91, 1790.78, -39.79], [181.73, 1815.94, -28.99],  # travel_ladder P southeast / east_stone,
+               [151.83, 1788.53, -26.34], [155.18, 1914.83, -30.47]]  # vannaka / pond_south (spares: a spot with debris is skipped)
+GRAVE_CLEAN_M, GRAVE_SETTLE_S, GRAVE_MAP_WAIT_S = 15.0, 3.0, 12.0
 ITEMS = ["split_drop", "pickup", "fight_back", "eat_drink", "rest", "come_follow", "grave"]
 NOUNS = {"sticks": ("sticks", r"ash|log|branch|wood"), "loose_stones": ("stones", r"stone"), "cabbage": ("cabbages", r"cabbage"),
          "flax": ("flax", r"flax"), "redberries": ("berries", r"berr")}
@@ -907,16 +909,57 @@ def come_follow_proxy(a) -> dict:
     return {"ghost": name, "ok": r.get("ok"), "claude": r.get("claude"), "human": r.get("human"), "s": r.get("s")}
 
 
+def spot_debris(ctx: Ctx) -> list[str]:
+    """What lies within GRAVE_CLEAN_M of him that an earlier run left: any gravestone, loose items. A fixture death
+    there is no fair test (r1-20261102T074119Z read run 1's leftover logs, stone and sword as "the big grave, empty
+    already" and went to an older grave)."""
+    lk = (ctx.cli.request("look", {"radius": GRAVE_CLEAN_M, "max": 30}, timeout=15) or {}).get("data") or {}
+    out = []
+    for t in lk.get("things") or []:
+        if (t.get("distance") or 0) > GRAVE_CLEAN_M:
+            continue
+        if "Gravestone" in str(t.get("class")):
+            out.append(f"a gravestone {t.get('distance', 0):.0f} m off")
+        elif t.get("category") == "items":
+            out.append(f"{t.get('count') or 1} {t.get('name')} on the ground")
+    return out
+
+
+def grave_cleanup(ctx: Ctx, ts) -> str:
+    """The fixture's own grave, left by a failed leg, is test debris: he takes it back by direct tool calls (no
+    model), so the next run's grave list and death spot are clean."""
+    st = (ctx.cli.request("get_state", {}, timeout=15) or {}).get("data") or {}
+    left = [g for g in st.get("graves_remembered") or [] if str(g.get("ts")) == str(ts)]
+    if not left:
+        return "his fixture grave is recovered"
+    r = ctx.cli.request("go_to", {"target": f"my_grave:{ts}"}, timeout=240) or {}
+    g = ctx.cli.request("recover_grave", {}, timeout=120) or {}
+    return (f"cleanup: walked to the fixture grave ({'ok' if r.get('ok') else r.get('reason')}), "
+            f"recover_grave {'ok' if g.get('ok') else g.get('reason')}: {((g.get('data') or {}).get('detail') or '')[:160]}")
+
+
 def it_grave(ctx: Ctx) -> dict:
     from tools import travel_ladder as tl
     dev = cl._dev()
-    spot = GRAVE_SPOTS[ctx.a.run_index % len(GRAVE_SPOTS)]
     tl.place(dev, ctx.cli, LUIS_SLEEP, harness_brain=True)  # by his crates: room for what comes back
     room = make_room(ctx)
-    tl.place(dev, ctx.cli, spot, harness_brain=True)
+    debris = {}
+    for k in range(len(GRAVE_SPOTS)):  # the first clean spot from this run's turn on
+        spot = GRAVE_SPOTS[(ctx.a.run_index + k) % len(GRAVE_SPOTS)]
+        tl.place(dev, ctx.cli, spot, harness_brain=True)
+        debris[str(spot)] = spot_debris(ctx)
+        if not debris[str(spot)]:
+            break
+    else:
+        return {"item": "grave", "pass": False, "fails": ["setup"],
+                "why": "every grave spot holds an earlier run's debris: " + json.dumps(debris)}
     carried = cp.counts({"bag": ctx.stacks()})
     if sum(carried.values()) < 3:
         return {"item": "grave", "pass": False, "fails": ["setup"], "why": "he carries almost nothing: no grave worth recovering"}
+    # the game files the grave where it last saw him stand: a death right after a teleport can leave it back where
+    # he was before (server log 07:47:16Z: the grave at the crates, 160 m from this spot). A few steps here first.
+    ctx.cli.request("go_to", {"target": [spot[0] + 2.0, spot[1], spot[2]], "tolerance": 0.8}, timeout=30)
+    time.sleep(GRAVE_SETTLE_S)
     grave_at = ctx.me().get("position")
     dev.setup("set_health", purpose="rung1 gate grave: die here", value=0.0)
     t_dead = time.time()
@@ -927,15 +970,31 @@ def it_grave(ctx: Ctx) -> dict:
         time.sleep(2.0)
     else:
         return {"item": "grave", "pass": False, "fails": ["setup"], "why": "no respawn within 120 s of the fixture death"}
-    time.sleep(4.0)
+    # where the game put the grave: his newest grave on the map (skills.bind_graves), else where he died
+    newest, t_map = None, time.time()
+    while time.time() - t_map < GRAVE_MAP_WAIT_S:
+        st = (ctx.cli.request("get_state", {}, timeout=15) or {}).get("data") or {}
+        newest = (st.get("graves_remembered") or [None])[0]
+        if newest and newest.get("on_map"):
+            break
+        time.sleep(2.0)
+    died_at = grave_at
+    if newest and newest.get("on_map") and obs._xyz(newest.get("position")):
+        grave_at = newest["position"]
+    off = obs.hdist(died_at, grave_at)
     d = obs.hdist(ctx.me()["position"], grave_at)
     row = run_leg(ctx, {"id": "grave", "kind": "r1_grave", "check_text": f"the items he carried when he died ({sum(carried.values())}) "
                         f"are >= 90 % back in his bag (his newest grave is {d:.0f} m away)"},
-                  "claude go get your stuff from your grave", {"carried": carried, "grave_at": grave_at, "dist_m": round(d, 1)},
+                  "claude go get your stuff from your grave", {"carried": carried, "grave_at": grave_at, "died_at": died_at,
+                                                               "dist_m": round(d, 1)},
                   deadline_s=300, sample=("me", "inv"))
     t_h = 1.5 + d / (ss.latest_baselines().get("travel_speed_mps") or 6.25) + 1.0
-    g = finish(ctx, "grave", [row], t_h, allowed=1, note=f"grave {d:.0f} m from the respawn; {room_words(room)}")
+    where = ("on his map" if newest and newest.get("on_map") else "not on his map: the death spot") + \
+        (f", {off:.0f} m from where he died" if off > 5 else "")
+    g = finish(ctx, "grave", [row], t_h, allowed=1, note=f"grave {d:.0f} m from the respawn ({where}); {room_words(room)}")
     g["room"] = room
+    if not g.get("pass") and newest and newest.get("ts"):
+        g["cleanup"] = grave_cleanup(ctx, newest["ts"])
     return g
 
 

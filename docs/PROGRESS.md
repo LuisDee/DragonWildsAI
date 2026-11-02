@@ -920,3 +920,13 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - 2026-11-02 08:2x-08:49Z movement:
   - Door: the doorway line-up uses only the frame's through-axis (-sin yaw, cos yaw); from east of the house the along-the-wall axis had lined him up against the wall. The opener starts only within 3 m and never presses from out of reach (not counted as a try). The door test now starts dry, east of the pond. W28: 3/3 in 19.9, 45.2 and 9.0 s.
   - Follow: church 99.3 / 100 / 100 % = 3 in a row PASS. Doric 93.4 % PASS, then 87.9 % and 80.1 % (ladder FAIL), so not yet 3 in a row.
+- 2026-11-02 08:2x-09:1xZ rung1:
+  - Deployed store-by-name, consume-from-bag and VITALS_CHECK_S 0.5 (e03f637). eat_drink --no-supply: x0.74, x0.73, x0.67, all PASS, 4 in a row (was x1.13-x3.08 before).
+  - Grave run 3 (T074119Z) root cause: the server spawned the grave at (108.4, 1857.2), by the crates where make_room had left him, not at the death spot 160 m away (server log 07:47:16Z). His look at the death spot saw only debris from earlier runs.
+  - rung1_gate it_grave (not yet run live):
+    - picks the first grave spot with no gravestone or loose items within 15 m; there are 4 spots now;
+    - takes a 2 m step and settles 3 s before the death;
+    - grades against the grave on his map;
+    - recovers its own grave after a failed leg.
+  - Probe cost: the probe teleported onto the KillZ ledge and he died 3 times (08:55:40-08:56:00Z). Afterwards I recovered the grave, closed those deaths, picked up the spot-0 debris and recovered the crates grave.
+  - Open (offline only, not deployed): his graves from the registry, in the mirror (scratchpad grave_patch.py / grave_patch2.py, test_skills 101/101). Also open: the say-then-stop controller item from rung4.
