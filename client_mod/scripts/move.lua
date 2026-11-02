@@ -142,6 +142,7 @@ M.cfg = {
     arrive_settle_s = 1.5,     -- ... or after this long inside the circle (then arrived as he is)
     water_depth = 0.25,        -- EnvironmentComponent:GetNormalizedWaterDepth() above this = in water
     water_cell_cost = 8,       -- local planner: extra cost per known-water cell (prefer going round)
+    felt_cell_cost = 40,       -- ... and per cell where he was stopped pushing this move (a thin obstacle it cannot see)
     wet_lookahead_cm = 4000,   -- dry routing (scripts/wetroute.lua): water this far ahead on the way is weighed
     wet_run_cms = 650,         -- ... dry ground at his run (sprint ~680, walk 450) against water at MaxSwimSpeed (300)
     wet_heavy_cms = 270,       -- ... encumbered (403/400 live 00:24Z: walking only, 2.7 m/s)
@@ -964,15 +965,19 @@ local function shut_door_near(me, goal, r_cm)
     end
     return best
 end
-local function door_begin(st, t, log)
+local function door_begin(st, t, log, door)
     if st.door or not st.pawn then return false end
     local okm, me = pcall(function() return st.pawn:K2_GetActorLocation() end)
     if not (okm and me) then return false end
-    local d = shut_door_near(me, st.lp_far or st.goal, M.cfg.door_find_cm)
+    local d = door or shut_door_near(me, st.lp_far or st.goal, M.cfg.door_find_cm)
     st.door_tried = st.door_tried or {}
     if not d or (st.door_tried[d.name] or 0) >= 2 then return false end
     st.door_tried[d.name] = (st.door_tried[d.name] or 0) + 1
     d.t0, d.phase, d.presses = t, "approach", 0
+    -- aimed at the middle of the door: the actor's origin is its hinge post at the floor, and a ray there missed it
+    -- (live 03:25:38-52Z, his house door: "nothing targeted" twice from 1.7 m)
+    local okb, o = pcall(function() local o2, e2 = {}, {}; d.actor:GetActorBounds(true, o2, e2, false); return o2 end)
+    d.mid = (okb and type(o) == "table" and tonumber(o.X) and tonumber(o.Y) and tonumber(o.Z)) and { X = o.X, Y = o.Y, Z = o.Z } or nil
     st.door = d
     if log then log(string.format("move: a shut door at (%.0f,%.0f) is in the way (%s); opening it", d.at.X / 100, d.at.Y / 100, tostring(d.prompt))) end
     return true
@@ -1016,6 +1021,13 @@ local function camera_taken_by_owner(st)
     return ok and holds == true
 end
 
+-- the shut door nearest the goal (within door_find_cm of it) that is nearer the goal than he is: open it (door_begin)
+function M._door_to_goal(st, t, me, goal, dist, log)
+    if not goal then return false end
+    local okd, d = pcall(shut_door_near, goal, me, M.cfg.door_find_cm)
+    if not (okd and d) or d2(d.at, goal) >= dist then return false end
+    return door_begin(st, t, log, d)
+end
 local function door_end(st, t, ok, why, log)
     local d = st.door
     st.door = nil
@@ -1056,7 +1068,8 @@ local function door_step(f)
     if d.phase == "aim" then
         local okc, cam = pcall(function() return pc.PlayerCameraManager:GetCameraLocation() end)
         local o = (okc and type(cam) == "table" and tonumber(cam.X)) and cam or me
-        local dx, dy, dz = d.at.X - o.X, d.at.Y - o.Y, d.at.Z - o.Z
+        local tgt = d.mid or d.at
+        local dx, dy, dz = tgt.X - o.X, tgt.Y - o.Y, tgt.Z - o.Z
         cam_write(st, pc, { Pitch = math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy))), Yaw = math.deg(math.atan(dy, dx)), Roll = 0 }, t)
         local inv = inv_mod()
         if not inv then door_end(st, t, false, "no interact key (inventory module)", log); return false end
@@ -1491,6 +1504,9 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
             local c = (mem and not st.wade and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0 -- opts.wade: water is no detour
             local zs, AZm = avoid().zones, az_module()
             if AZm and #zs > 0 then c = c + AZm.cost(zs, x, y, fz, st.lp_clock, M.cfg.avoid_margin_cm) end
+            for _, q in ipairs(st.felt or {}) do -- (stuck_tick: where he was stopped)
+                if math.abs(q.X - x) < 70 and math.abs(q.Y - y) < 70 then c = c + M.cfg.felt_cell_cost end
+            end
             return c
         end,
         -- a goal IN water (a pond to drink from, a ford) is aimed at as it is: no swap for dry ground
@@ -2910,37 +2926,8 @@ local function trail_entry(f)
     local above = (goal.Z - me.Z) > (jump_cm(st) + 100) and dist < 1500
     local led = st.trail_led and dist > st.tol_cm + 100
     if nav_bad or above or led or st.want_trail or st.stuck_n >= M.cfg.trail_enter_stuck then
-        if st.trail_block_t and f.t - st.trail_block_t < 0.5 then return end
         st.want_trail = false
         st.trail_i = nearest_crumb(st.crumbs, me, st.trail_above_i and st.trail_above_i + 1)
-        -- rejoin his trail where the straight way to it is open: the nearest crumb is often across a wall whose end
-        -- he walked round (live church loop 02:15:54Z: rejoined 1.3 m away through a wall, 14 s pushing into it);
-        -- the crumbs on toward him first, then back toward that wall end; none open = keep walking (the planner)
-        local i0 = st.trail_i
-        if i0 and f.pawn and d2(me, st.crumbs[i0]) > 100 then
-            local feet = me.Z - (st.half_h or 88)
-            local tests, last = 0, nil
-            local function open(i) -- (at most 12 line tests, crumbs 1 m apart or more)
-                local c = st.crumbs[i]
-                if tests >= 12 or not c or c.air or c.gap or math.abs(c.Z - me.Z) > 100 or d2(me, c) > 1500 then return false end
-                if last and d2(last, c) < 100 then return false end
-                tests, last = tests + 1, c
-                local okc, clear = pcall(escape_line_clear, f.pawn, me, feet, c)
-                return not (okc and clear == "wall") -- (a wall between; a dip or a rise is his own way on)
-            end
-            local pick
-            if open(i0) then pick = i0 end
-            for i = i0 + 1, math.min(#st.crumbs, i0 + 40) do if pick or tests >= 7 then break end; if open(i) then pick = i end end
-            last = st.crumbs[i0]
-            for i = i0 - 1, math.max(1, i0 - 40), -1 do if pick then break end; if open(i) then pick = i end end
-            if pick ~= i0 and log and (pick or f.t - (st.trail_block_log_t or -100) > 3) then
-                if not pick then st.trail_block_log_t = f.t end
-                log(string.format("move: trail: the way to his nearest trail point (i=%d) is blocked; %s", i0,
-                    pick and string.format("rejoining at i=%d, in the open", pick) or "walking on until it is in the open"))
-            end
-            st.trail_i = pick
-            if not pick then st.trail_block_t = f.t; return end
-        end
         if st.trail_i then
             st.trail_above_i = nil
             st.trail_entries = (st.trail_entries or 0) + 1
@@ -3668,6 +3655,11 @@ local function probe(f)
                 local jr = start_jump(st, t, pawn, false, log)
                 if jr == "accepted" then st.hops = (st.hops or 0) + 1; if log then log(close and "move: hop over a low obstacle" or "move: hop over a low obstacle I was held up at") end elseif jr ~= "busy" then return true end
             end
+        elseif src ~= "trail" and st.mode == "go_to" and not st.door and dist < 1500 and M._door_to_goal(st, t, me, f.goal, dist, log) then
+            -- a wall ahead, and the goal is behind a shut door close to it (inside a room): open that door first, as
+            -- a player does, instead of planning over the roof or giving up (build, 2026-11-02: a go_to into his own
+            -- covered house ended on its roof 4.7 m up, or "unreachable")
+            return true
         elseif src ~= "trail" and st.use_lp and lp_begin(st, pawn, me, far_goal(f), "wall_ahead", log) then
             -- (on his trail a wall ahead is a corner he walked round: the trail turns, no standing plan)
             st.status = "planning"
@@ -4040,6 +4032,14 @@ local function stuck_tick(f)
         tostring(st.trail_i), #st.crumbs)
     st.last_stuck = ev
     if log then log(ev) end
+    -- what stopped him is in the cell ahead, whatever the planner's 1 m floor samples say (a tree and a felled log
+    -- 0.8 m apart, live doric 03:45:52Z: three plans through the same pinch): the next plans pay to cross it
+    if f.aim and d2(me, f.aim) > 30 then
+        local L = d2(me, f.aim)
+        st.felt = st.felt or {}
+        if #st.felt >= 12 then table.remove(st.felt, 1) end
+        st.felt[#st.felt + 1] = { X = me.X + (f.aim.X - me.X) / L * 80, Y = me.Y + (f.aim.Y - me.Y) / L * 80 }
+    end
     -- held by a hold interaction (a vent's siphon roots him): let go at the first stuck, not after the give-up ladder
     -- (live 20:39Z: a hold pressed without bookkeeping was found and let go only by wedged(), 8 s in)
     if n == 1 and not st.held_let_go then

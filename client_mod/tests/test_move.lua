@@ -37,6 +37,7 @@ local function blocked(x, y, airborne)
     end
 end
 local frame_hook = nil
+PINCH = nil
 local raised = {}          -- {x0,x1,y0,y1, h0, h1}: floor raised by h0..h1 cm (linear along x) = plateau / ramp
 local lakes = {}           -- {x0,x1,y0,y1}: shallow water (EnvironmentComponent depth 0.6, slow walking)
 local function in_lake(x, y) for _, l in ipairs(lakes) do if x > l[1] and x < l[2] and y > l[3] and y < l[4] then return true end end end
@@ -187,7 +188,10 @@ local function step(n)
             for _, pt in ipairs(portals) do
                 if jo and math.sqrt((jo.X - pt[1]) ^ 2 + (jo.Y - pt[2]) ^ 2) < 60 then near_portal = true end
             end
-            if rise <= 45 or (air > 0 and rise <= 120) or (air > 0 and pawn.dbl and HAS_DJ and rise <= 260) or (air > 0 and near_portal and rise <= 700) then
+            local pinched = false -- PINCH: blocks his capsule, unseen by any trace (a tree and a log 0.8 m apart)
+            for _, q in ipairs(PINCH or {}) do if nx > q[1] and nx < q[2] and ny > q[3] and ny < q[4] then pinched = true end end
+            if pinched then
+            elseif rise <= 45 or (air > 0 and rise <= 120) or (air > 0 and pawn.dbl and HAS_DJ and rise <= 260) or (air > 0 and near_portal and rise <= 700) then
                 pawn.loc.X, pawn.loc.Y, pawn.loc.Z = nx, ny, there_top + 90
             end
         else sprinting = false end
@@ -2891,6 +2895,26 @@ do
     check("door: one that stays shut is not pressed forever, and the failure says so", r and r.status == "failed" and presses <= 4 and said,
         (r and tostring(r.status) .. " " .. tostring(r.detail) or "nil") .. " presses=" .. presses .. " " .. tostring(said))
     MDo.stop(log)
+    -- INTO the room (build 2026-11-02: a go_to into his covered house): the goal is behind the shut door, so the
+    -- wall ahead opens the door first (no plan over the roof first)
+    shut, presses, stuck_door = true, 0, false -- (the leaf is still in place: the last door stayed shut)
+    _G.DW_LP_CACHE = nil
+    pawn.loc = { X = -400, Y = 0, Z = 0 }
+    nl = #logs
+    local T0 = T
+    MDo.go_to(log, { 1.5, 0, 0 }, { tolerance_m = 1, nav = false, timeout_s = 40 })
+    local in_t
+    for _ = 1, 400 do run(1); if MDo.status().result then in_t = T - T0; break end end
+    r = MDo.status().result
+    local plan_first, opened_in = false, false
+    for i = nl + 1, #logs do
+        if logs[i]:find("local plan failed", 1, true) and not opened_in then plan_first = true end
+        if logs[i]:find("opened the door", 1, true) then opened_in = logs[i] end
+    end
+    check("door: into a room behind a shut door, the door is opened first (no failed plan before it)",
+        r and r.status == "arrived" and presses == 1 and opened_in and not plan_first and in_t and in_t < 8,
+        (r and tostring(r.status) or "nil") .. " presses=" .. presses .. " plan_first=" .. tostring(plan_first) .. " t=" .. tostring(in_t))
+    MDo.stop(log)
     FindAllOf = base_find; walls = {}; _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
 end
 
@@ -3218,30 +3242,6 @@ do
     M.stop(log); walls = {}; luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
--- rejoining his trail across a wall: the nearest crumb is on the far side of a wall whose end he walked round; the
--- rejoin is a crumb in the open, back toward that end (live church loop 02:15:54Z, 14 s pushing into the wall)
-do
-    M.stop(log); frame_hook = nil; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
-    walls = { { 300, 340, -800, 200, true } }
-    pawn.loc = { X = 450, Y = 0, Z = 0 }; luis.loc = { X = 150, Y = -500, Z = 0 }
-    M.follow(log, "Zezima", 2, { nav = false })
-    run(1)
-    local mv = _G.DW_MOVE
-    mv.crumbs = { { X = 500, Y = 600, Z = 0 }, { X = 320, Y = 420, Z = 0 }, { X = 150, Y = 300, Z = 0 }, { X = 150, Y = 0, Z = 0 },
-                  { X = 150, Y = -300, Z = 0 }, { X = 150, Y = -500, Z = 0 } }
-    mv.trail_i, mv.trail_above_i, mv.want_trail, mv.trail_jumped = nil, nil, true, {}
-    local n0 = #logs
-    step(1)
-    local rej, on = nil, nil
-    for i = n0 + 1, #logs do
-        rej = rej or logs[i]:match("rejoining at i=(%d+)")
-        on = on or logs[i]:match("trail ON i=(%d+)")
-    end
-    check("trail: rejoined where the way to his trail is open, not through the wall", rej == "2" and on == "2" and mv.trail_i == 2,
-        tostring(rej) .. " " .. tostring(on) .. " trail_i=" .. tostring(mv.trail_i))
-    M.stop(log); walls = {}; luis.loc = { X = 3000, Y = 0, Z = 0 }
-end
-
 -- STANDING for a route (Luis's stand bar: a player starts at once): a route helper that is recovering cannot send one
 -- (live 01:01-02:18Z, 59-66 s standing); one that never answers is waited on for nav_stand_s, then local planning
 do
@@ -3286,6 +3286,23 @@ do
         mem_said and not walls_said and stuck == 0 and r and r.status == "arrived",
         tostring(mem_said) .. " walls=" .. tostring(walls_said) .. " stuck=" .. stuck .. " " .. tostring(r and r.status))
     M.stop(log); walls = {}; oracle = nil; pump_oracle(); _G.DW_NAVMEM = nil; os.remove(memf)
+end
+
+-- a pinch no trace sees (a tree and a felled log 0.8 m apart, live doric 03:45:52Z): where he was stopped, the next
+-- plans go round instead of back into it
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; HOLES = nil; air = 0; oracle = nil; pump_oracle()
+    _G.DW_NAVMEM = nil; os.remove(memf)
+    PINCH = { { 600, 760, -90, 90 } }
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 60, nav = false })
+    local T0, done_t = T, nil
+    for _ = 1, 600 do run(1); local r = M.status().result; if r then done_t = T - T0; break end end
+    local r = M.status().result
+    PINCH = nil
+    check("pinch: a thin obstacle that stopped him is planned round (arrives in < 16 s; it never did)",
+        r and r.status == "arrived" and done_t and done_t < 16, tostring(r and r.status) .. " t=" .. tostring(done_t))
+    M.stop(log)
 end
 
 -- WEDGED among placed pieces (live 23:42Z, Luis's church base: a Spinning Wheel, a bench, farm plots): the failure

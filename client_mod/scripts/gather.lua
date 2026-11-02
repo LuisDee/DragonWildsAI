@@ -74,6 +74,7 @@ M.cfg = {
     collected_ttl_s = 10,       -- a drop the bag already counted is skipped this long (its client copy lingers ~5 s)
     collect_wait_s = 2.0, collect_presses = 3, collect_press_gap_s = 0.7, collect_tol_m = 0.8, collect_max_s = 12,
     collect_all_cm = 200, -- if the game's CollectAllRadius is unreadable (it read 200, live 15:33Z)
+    pile_cm = 150,        -- drops this close to one the game would not hand over count as the same pile
     collect_aim_cm = 200, -- aim the camera at a drop from this close (the detector ray starts at the camera)
     drop_wait_s = 1.2,          -- after a piece breaks, let its drops land before scanning
     settle_max_s = 10, step_back_m = 2.5,
@@ -560,14 +561,15 @@ local function choose(J, me)
         local d = drops_near(J, me, 400, me)[1]
         if d then return d end
     end
-    -- 2. pieces of our felled trees (current site first)
+    -- 2. pieces of our felled trees (current site first), and of the piece named in args.target
     for i = #J.sites, 1, -1 do
         local s = J.sites[i]
-        if U.dist2d(me, s) <= cfg.leftover_m * 100 then
-            local ch = children_near(J, s, J.profile.site_radius_cm or 1200, me)[1]
+        if s.named or U.dist2d(me, s) <= cfg.leftover_m * 100 then
+            local ch = children_near(J, s, s.named and 400 or J.profile.site_radius_cm or 1200, me)[1]
             if ch then ch.at_site = s; return ch end
         end
     end
+    if J.named then return nil, "named_done" end -- args.target: that piece and what it split into are done
     -- 3. a new root (around the player named in args.near when given: "the stones near me", said by him)
     local roots = roots_near(J, J.anchor and J.anchor.pos or me, J.radius_cm)
     if J.sweep_on and J.profile.mode == "pickup" then
@@ -772,6 +774,10 @@ local function step_scan(J, me)
         J.radius_tries = 0
         if T.kind == "drop" then return set_phase(J, "collect", T.key) end
         return set_phase(J, "approach", string.format("%s %s %.1f m", T.stage, tostring(T.name), (T.d or 0) / 100))
+    end
+    if why == "named_done" then
+        return finish(J, result_of(J, true, nil, { why = "target_done", detail = string.format(
+            "The %s is chopped up and I picked up the pieces: %d %s.", J.named, J.gained or 0, tostring(J.key)) }))
     end
     if why == "tool_tier_too_low" then
         return fail(J, "wrong_tool", "tool_tier_too_low",
@@ -1311,6 +1317,13 @@ local function step_collect(J, pawn, me)
     local d = U.dist2d(me, T.pos)
     if J.t - J.phase_t > cfg.collect_max_s then
         mark_bad(J, T, "could not collect")
+        -- the rest of a pile the game kept offering other things in (other items lying on it) is skipped with it:
+        -- one try per pile, not one per stack (live 2026-11-02 04:07Z: 9 stacks x 12 s on a mixed pile)
+        local n = 0
+        for _, x in ipairs(T.other and W.drops(T.pos, cfg.pile_cm, J.item) or {}) do
+            if not is_bad(x.key, J.t) then C().bad[x.key] = J.t + M.cfg.bad_ttl_s; n = n + 1 end
+        end
+        if n > 0 then say(J.log, string.format("skipping %d more stacks in that pile (the game kept offering %s)", n, tostring(T.other))) end
         J.T = nil
         refresh_count(J, true)
         if J.empty_slots == 0 then
@@ -1330,15 +1343,22 @@ local function step_collect(J, pawn, me)
         if type(tg) == "table" and (tg.actor == T.key or (J.item and tg.item == J.item)) then
             local item = tg.item or T.item
             local r = W.collect_all_cm() or cfg.collect_all_cm
-            local pile = (tg.secondary and item) and #W.drops(T.pos, r, item) or 0
+            local mine = (tg.secondary and item) and W.drops(T.pos, r, item) or {}
+            local pile, units = #mine, 0
+            for _, x in ipairs(mine) do units = units + (tonumber(x.count) or 1) end
             T.press_t, T.presses = J.t, T.presses + 1
-            local all = pile >= 2
+            -- collect-all takes EVERYTHING within its radius, every kind: only when the pile is all ours and no more
+            -- than the count still wanted (live 2026-11-02 04:09Z: count 4 -> 97 stones + 153 Ash Logs + 18 Cabbage ...)
+            local need = J.want and math.max(0, J.want - (J.gained or 0)) or 0
+            local all = pile >= 2 and units <= need and #W.drops(T.pos, r, nil) == pile
             mcall("inventory", "press_interact", J.log, all and { secondary = true } or nil)
             J.count_t = nil
             if all then J.collect_all = (J.collect_all or 0) + 1 end
             say(J.log, all and string.format("collect all (%s): %d stacks of %s within %.1f m", tostring(tg.secondary), pile, tostring(item), r / 100)
                 or ("interact to collect " .. tostring(T.key)))
             return
+        elseif type(tg) == "table" and tg.item and tg.item ~= J.item then
+            T.other = tg.item -- another kind lying on it is what the game offers
         end
     end
     if d > cfg.collect_tol_m * 100 + 40 then
@@ -1638,6 +1658,20 @@ function M.start(log, args, ctx)
             key, profile, tool = ak, ap, nil
         end
     end
+    -- args.target: a perceived piece (a log or stump lying there: its census id) to chop up and collect, as a player
+    -- finishes a log he finds; only that piece, what it splits into within 4 m, and its drops
+    local named
+    if type(args.target) == "string" and args.target ~= "" then
+        for _, ch in ipairs(profile.children or {}) do
+            for _, a in ipairs(W.actors(ch.class)) do
+                if W.id(a) == args.target and matches(W.class(a), ch.match, ch.exclude) then named = a end
+            end
+        end
+        if not (named and W.loc(named)) then
+            return { ok = false, reason = "unknown_target", data = { why = "target_not_found", target = args.target,
+                     detail = string.format("I can't see a %s piece called %s (a log or stump lying here).", key, args.target) } }
+        end
+    end
     if list.empty_slots == 0 and M.count_in(list, profile.item) == 0 then
         return { ok = false, reason = "inventory_full", data = { why = "inventory_full", detail = "My bags are full; I need to drop something first." } }
     end
@@ -1679,6 +1713,10 @@ function M.start(log, args, ctx)
           sweep = { pressed = {}, pending = {}, seen = {}, presses = 0, on_move = 0 }, sweep_on = M.cfg.sweep and args.sweep ~= false,
           style = (args.style ~= nil and args.style ~= "" and args.style ~= "auto") and tostring(args.style) or nil,
           timeout_s = math.min(M.cfg.timeout_base_s + M.cfg.timeout_per_unit_s * want, M.cfg.timeout_max_s) }
+    if named then
+        local at = W.loc(named)
+        J.named, J.sites[1] = W.class(named), { X = at.X, Y = at.Y, Z = at.Z, named = true }
+    end
     c.job = J
     set_phase(J, tool and "equip" or "scan", "start " .. key .. " x" .. want)
     mcall("move", "stop", log)
@@ -1762,6 +1800,7 @@ do
                 radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30; 15 with near)." },
                 near = { type = "string", description = "A player's name: search around HIM instead of you (he must be in sight)." },
                 stumps = { type = "boolean", description = "Also chop stumps." },
+                target = { type = "string", description = "The id of one log or stump lying here (from what you see) to chop up and collect; ends when it and its pieces are done." },
                 style = { type = "string", description = "One of the tool's actions (see held_actions), e.g. Overhead Chop." } }) },
             preconditions = { "a tool of the right kind in your inventory (axe for trees, pickaxe for rocks)" },
             reasons = { "nothing_in_range", "wrong_tool", "path_blocked", "inventory_full", "interrupted", "timeout", "unknown_target",
@@ -1778,7 +1817,7 @@ M.HANDLERS = {
             return { ok = false, reason = "invalid_args", data = { detail = "count must be 1 or more" } }
         end
         local r = M.start(log, { resource = args.resource, count = args.count or 1, radius = args.radius, stumps = args.stumps,
-                                 style = args.style, mode = args.mode, near = args.near,
+                                 style = args.style, mode = args.mode, near = args.near, target = args.target,
                                  sweep = args.sweep }, ctx) -- sweep = false: the stop-and-press pickup (debug A/B only)
         if not r.ok then return r end
         local J = C().job

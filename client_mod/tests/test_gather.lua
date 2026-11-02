@@ -242,7 +242,7 @@ function fake_inv.press_interact(log, opts)
             for _, w in ipairs(Wd.drops) do
                 -- every kind, as the game's (bCollectAllCollectsOnlySameType = false, read live 15:41Z)
                 if w._alive and d2(t.w.pos, w.pos) <= Wd.collect_all then
-                    w._alive = false; Wd.inv[w.item] = (Wd.inv[w.item] or 0) + 1
+                    w._alive = false; Wd.inv[w.item] = (Wd.inv[w.item] or 0) + (w.count or 1)
                 end
             end
         end
@@ -254,7 +254,7 @@ function fake_inv.press_interact(log, opts)
             w.taken = true
             Wd.pending[#Wd.pending + 1] = { t = T + Wd.drop_linger, fn = function() w._alive = false end }
         else w._alive = false end
-        Wd.inv[w.item] = (Wd.inv[w.item] or 0) + 1
+        Wd.inv[w.item] = (Wd.inv[w.item] or 0) + (w.count or 1)
     end
     if t.a then
         t.a.available = false
@@ -313,7 +313,7 @@ W.aim = function(a) return W.loc(a) end
 W.drops = function(origin, r, item)
     local out = {}
     for _, w in ipairs(Wd.drops) do
-        if w._alive and d2(origin, w.pos) <= r and (not item or w.item == item) then out[#out + 1] = { actor = w, key = w.id, pos = w.pos, item = w.item } end
+        if w._alive and d2(origin, w.pos) <= r and (not item or w.item == item) then out[#out + 1] = { actor = w, key = w.id, pos = w.pos, item = w.item, count = w.count } end
     end
     return out
 end
@@ -798,11 +798,26 @@ do
                                         item = i <= 8 and "ITEM_Resources_Stone" or "ITEM_Resources_Wood_Ash", born = T })
     end
     res = run_job({ resource = "loose_stones", count = 8 }, 60)
-    local also = res.data and res.data.also or {}
-    check("mixed pile: the 2 Ash Logs that came with it are named", res.ok == true and also[1] and also[1].item == "ITEM_Resources_Wood_Ash"
-          and also[1].count == 2 and tostring(res.data.detail):find("(and 2 Ash Logs that were lying there)", 1, true) ~= nil,
-          tostring(res.data and res.data.detail))
+    -- collect-all takes every kind: on a pile with other things in it he presses stone by stone (live 2026-11-02 04:09Z:
+    -- count 4 took 97 stones + 153 Ash Logs + 18 Cabbage ... with two collect-all presses); a stack the game never
+    -- offers (it offers an Ash Log lying on it) skips the rest of that pile
+    check("mixed pile: stone by stone, the Ash Logs stay", (Wd.inv.ITEM_Resources_Stone or 0) >= 6
+          and (Wd.inv.ITEM_Resources_Wood_Ash or 0) == 0 and (Wd.secondary or 0) == 0,
+          tostring(res.reason) .. " stone=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " ash=" .. tostring(Wd.inv.ITEM_Resources_Wood_Ash)
+          .. " secondary=" .. tostring(Wd.secondary) .. " " .. tostring(res.data and res.data.detail))
     Wd.names = nil
+    -- a count stops at the count: rung 2 run 1 (04:07:46Z) asked for 4 stones beside a 97-stone pile of 10 stacks
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed = true, 200, true
+    for i = 1, 10 do
+        Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_B" .. i, pos = { X = 250 + (i % 3) * 15, Y = math.floor(i / 3) * 15, Z = 0 },
+                                        item = "ITEM_Resources_Stone", count = (i <= 2) and 1 or 10, born = T })
+    end
+    res = run_job({ resource = "loose_stones", count = 2 }, 60)
+    check("count 2 by a big pile: no collect-all, about 2 taken", res.ok == true and (Wd.secondary or 0) == 0
+          and (Wd.inv.ITEM_Resources_Stone or 0) >= 2 and (Wd.inv.ITEM_Resources_Stone or 0) <= 11,
+          tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " secondary=" .. tostring(Wd.secondary))
     -- a pile 5 m off and a stone spawner 9 m off: the nearer, the pile, first (live 15:52Z it walked to a 13.6 m spawner)
     reset({ inv = {} })
     fake_pc.Pawn = Wd.pawn
@@ -1020,6 +1035,22 @@ do
     rows = S.foliage(me, 4000, { match = "Tree_Ash", exclude = { "Bare" } })
     check("foliage: exclude bare ash", #rows == 0, #rows)
     FindAllOf = old
+end
+
+-- args.target: a log lying there that is not from his own tree is chopped up and its pieces collected, then the job ends
+-- (live 2026-11-02: an old ash log pinched the doric follow path; gather only finished pieces of trees HE felled)
+do
+    reset({ held = nil })
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Ash", { X = 900, Y = 300, Z = 0 }) -- a standing tree nearby: must NOT be felled
+    local lg = new_actor("BP_SplittableLog_Ash_C", { "SplittableTreeLog" }, { X = 500, Y = -200, Z = 0 }, 105, { species = "Ash" })
+    local miss = run_job({ resource = "ash", count = 20, target = "BP_SplittableLog_Ash_C_nope" }, 5)
+    check("target: unknown id -> unknown_target", miss.ok == false and miss.reason == "unknown_target", miss.reason)
+    local res = run_job({ resource = "ash", count = 20, target = lg.id }, 300)
+    local log = table.concat(res.data and res.data.phase_log or {}, " | ")
+    check("target: ok, ends when the log is done", res.ok == true and res.data.why == "target_done", tostring(res.reason) .. " " .. tostring(res.data and res.data.detail) .. " " .. log)
+    check("target: collected its 6 pieces", (Wd.inv.ITEM_Resources_Wood_Ash or 0) >= 6, Wd.inv.ITEM_Resources_Wood_Ash)
+    check("target: the standing tree was left alone", Wd.foliage[1].visible == true)
 end
 
 -- a facing nudge is a step: never toward a lethal edge (move.unsafe_ahead; live 2026-11-01 16:37 cliff death)
