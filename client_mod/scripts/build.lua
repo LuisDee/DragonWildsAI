@@ -1108,6 +1108,19 @@ local function start_build(api, args, ctx)
     for k, v in pairs(api.counts() or {}) do counts[k] = v end -- a snapshot (the spend check compares against it)
     for k, v in pairs((W.storage_counts(api, 15))) do storage[k] = v end
     local missing = M.missing(piece, counts, storage)
+    -- short, with none of what's short carried or in storage near me: say so now rather than walk, open the menu and
+    -- preview it first (live 07:4xZ: a Campfire with no Stone took 11.5 s to get the game's "You require more materials")
+    do
+        local none, w = #missing > 0, {}
+        for _, x in ipairs(missing) do
+            if x.have + (x.in_storage or 0) >= x.need or (x.in_storage or 0) > 0 then none = false end
+            w[#w + 1] = string.format("%d %s (I carry %d)", x.need, tostring(x.name), x.have)
+        end
+        if none then
+            return api.fail("missing_materials", { piece = piece.id, missing = missing,
+                detail = "The " .. piece.name .. " needs " .. table.concat(w, ", ") .. ", and I see none of it in storage within 15 m, so I didn't try to place it." })
+        end
+    end
     -- target
     local here = api.my_position()
     if not here then return api.fail("companion_down", { detail = "no position" }) end

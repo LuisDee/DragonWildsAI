@@ -332,6 +332,8 @@ reset_game({ no_hook = true, state = function() return 6 end })
 CARRIED.ITEM_Resources_Stone = 0
 r = build({ piece = "campfire" })
 check("MPC 1 + short of stone: missing_materials with what's missing", r and r.reason == "missing_materials" and r.data.missing and r.data.missing[1].need == 6, r and r.reason)
+check("short with none carried or stored near: said at once, nothing pressed (live 07:4xZ: 11.5 s to the game's refusal)",
+    r and #G.presses == 0 and tostring(r.data.detail):find("needs 6 Stone (I carry 0), and I see none of it in storage within 15 m", 1, true), r and r.data.detail)
 
 -- 7. NeedsSnapping is green in the MPC (P1b) but not Valid: never pressed
 reset_game({ state = function() return 4 end })

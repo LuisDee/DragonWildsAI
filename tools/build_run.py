@@ -370,6 +370,50 @@ def judge(t0: float, t1: float, line: str, outcome: dict) -> dict:
             "unverified": len(v.get("unverified") or []), "usd": j.get("usd"), "error": v.get("judge_error")}
 
 
+BUCKETS = {"deconstruct": "teardown", "gather": "gather", "fetch": "gather", "collect_water": "gather",
+           "build": "build", "build_blueprint": "build", "go_to": "walk", "come_to": "walk", "follow": "walk",
+           "store": "store", "take": "store"}
+
+
+def buckets(calls: list[dict], wall_s: float, t0: float, t1: float, who: str = "ClaudeDev") -> dict:
+    """Where the run's wall time went (main 2026-11-02: split it so we see which bucket to cut): each body tool's
+    time by bucket, the gaps between tools (model calls, replans, a step that returned and nothing followed), and
+    the recorder's unexplained still runs over 5 s, each with what was running then."""
+    out: dict = {"wall_s": round(wall_s, 1)}
+    busy = 0.0
+    for c in calls:
+        d = float(c.get("dur_s") or 0)
+        b = BUCKETS.get(c.get("tool"), "other" if d >= 0.5 else None)
+        if b:
+            out[b] = round(out.get(b, 0.0) + d, 1)
+        busy += d
+    out["between_tools_s"] = round(max(0.0, wall_s - busy), 1)
+    gaps, end = [], 0.0
+    for c in sorted(calls, key=lambda c: c["t"]):
+        if c["t"] - end >= 5.0:
+            gaps.append({"t": round(end, 1), "s": round(c["t"] - end, 1), "before": c.get("tool")})
+        end = max(end, c["t"] + float(c.get("dur_s") or 0))
+    out["gaps_over_5s"] = gaps
+    try:
+        from tools import recorder_io as rio
+        rec = rio.load(since=t0 - 5, until=t1 + 5)
+        w = rec.canon(who)
+        runs = []
+        for x in rec.still_segments(w, t0, t1) if w else []:
+            if x["explained"]:
+                continue
+            t = x["start"] - t0
+            during = next((c.get("tool") for c in calls if c["t"] <= t <= c["t"] + float(c.get("dur_s") or 0)), "between tools")
+            runs.append({"t": round(t, 1), "s": round(x["s"], 1), "during": during})
+        out["idle_by_tool"] = {}
+        for r in runs:
+            out["idle_by_tool"][r["during"]] = round(out["idle_by_tool"].get(r["during"], 0.0) + r["s"], 1)
+        out["idle_runs_top"] = sorted(runs, key=lambda r: -r["s"])[:6]
+    except Exception as exc:  # the split is a note; the run's verdict never rests on it
+        out["idle_error"] = repr(exc)[:120]
+    return out
+
+
 def score(t0: float, t1: float, who: str = "ClaudeDev") -> dict:
     from tools import recorder_io as rio
     from tools import standard_score as ss
@@ -571,6 +615,7 @@ def cmd_run(a) -> int:
            "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name}
+    rec["buckets"] = buckets(tl["calls"], ended - t0, t0, ended)
     if before and not after:
         rec["unmeasured"] = "get_state read no structures after the run (4 tries)"
     if fx is not None and fx.get("pieces") and not census_after:
@@ -594,7 +639,7 @@ def cmd_run(a) -> int:
 
 def show(rec: dict) -> None:
     print(json.dumps({k: rec.get(k) for k in ("line", "ended", "wall_s", "haiku", "sonnet", "usd", "idle_total_s", "score",
-                                              "items", "teardown", "judge", "unmeasured") if k in rec}, indent=1))
+                                              "items", "teardown", "judge", "unmeasured", "buckets") if k in rec}, indent=1))
     print("new pieces:", json.dumps(rec.get("pieces_new"))[:1500])
     for v in rec.get("truth") or []:
         print("  truth", v)
