@@ -54,7 +54,9 @@ M.cfg = {
     approach_m = 1.0,       -- move.go_to tolerance for the approach
     close_m = 0.6,          -- second, tighter approach when facing alone did not get the detector onto it
     approaches = 3,
-    face_s = 3.0,           -- face + nudge until the detector targets the thing
+    face_s = 2.0,           -- face until the detector targets the thing (aim only for aim_s, then aim + nudge)
+    aim_s = 0.8,            -- a big thing in reach: camera aim alone first; a nudge only when the detector still
+                            -- doesn't target it (live 2026-11-02 03:41: 3 x 3 s faces before a grave's press)
     nudge_scale = 0.3,
     verify_s = 4.0,         -- after a press: wait this long for the inventory to grow / the thing to go
     no_progress_s = 25,     -- approach watchdog: no 0.5 m closer to the thing for this long ends the episode (live
@@ -526,7 +528,22 @@ function W.press_signals(api)
     local tod = s and type(s.time_of_day) == "function" and select(2, pcall(s.time_of_day)) or nil
     local wi = W.open_container(api)
     return { sleeping = type(tod) == "table" and tod.sleeping or nil, container = wi and wi.owner or nil,
-             conversation = W.conversation_npc(api) }
+             conversation = W.conversation_npc(api), station = W.open_station(api) }
+end
+
+-- The station whose crafting / processing screen the game has open for him (crafting.W.open_station), or nil.
+-- A press on a station opens its screen; without this read the verify saw "nothing changed" and pressed again,
+-- which shut the screen (live 2026-11-02 04:22: Crafting Table, presses at +0.1 s and +4.5 s, verification_failed).
+function W.open_station(api)
+    if paused() then return nil end
+    local C = api.module("crafting")
+    local f = C and type(C.W) == "table" and C.W.open_station
+    if type(f) ~= "function" then return nil end
+    for _, kind in ipairs({ "crafting", "processing" }) do
+        local ok, o = pcall(f, api, kind)
+        if ok and o then return o end
+    end
+    return nil
 end
 
 -- The NPC he is in a conversation with (PC.ConversationComponent: DomConversationParticipant.ConversationsActive > 0,
@@ -589,6 +606,11 @@ local function next_spot(e, api)
     end
     if not e.spots or e.spot_i >= #e.spots then return false end
     e.spot_i, e.phase, e.moving, e.approaches = e.spot_i + 1, "approach", false, 0
+    -- a spot he already stands within reach of is the same view as the face that just failed (spots 1.5 m out at
+    -- 50 deg steps lie 1.3 m apart = "near"): skip to one he has to walk to (live 2026-11-02 03:41:06-03:41:15, a grave:
+    -- three faces in place, 9 s, then one 1 m step and the press)
+    local here = api and api.my_position()
+    while here and e.spot_i < #e.spots and dist2d(here, e.spots[e.spot_i]) <= e.tol + 0.3 do e.spot_i = e.spot_i + 1 end
     return true
 end
 
@@ -800,9 +822,16 @@ local function episode_poll(api, e, t, owner_token)
             e.phase, e.verify_until = "verify", t + M.cfg.verify_s
             return nil
         end
-        -- a small thing: aim only while the camera settles, then aim + nudge
-        W.face(api, e.ipoint, not (e.small and t < e.face_until - face_s(e) + M.cfg.small_aim_s))
+        -- aim only while the camera settles (a small thing small_aim_s, a big one aim_s), then aim + nudge
+        W.face(api, e.ipoint, t >= e.face_until - face_s(e) + (e.small and M.cfg.small_aim_s or M.cfg.aim_s))
         if t >= e.face_until then
+            if api.log then
+                local here = api.my_position()
+                api.log(string.format("interact: no target from spot %s/%s after %.1f s (%.1f m from its point): the game targets %s",
+                    tostring(e.spot_i or "-"), tostring(e.spots and #e.spots or "-"), face_s(e),
+                    here and e.ipoint and dist2d(here, e.ipoint) or -1,
+                    det and not det.none and tostring(det.actor or det.name) or "nothing"))
+            end
             -- water (live 2026-10-26 19:2x): from the bank 3 m above the pond the game's detector targets nothing (or
             -- a branch on the bank); one step nearer the water's edge and it reads the volume ("Collect Water").
             -- Step toward the surface point, 1 m at a time, at most cfg.water_wades times, then try the next spot.
@@ -864,7 +893,8 @@ local function episode_poll(api, e, t, owner_token)
             local sig = W.press_signals(api)
             if sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
             -- a chest / storage: the game opened ITS screen (deposit and withdraw: move_item with the container)
-            if not changed and sig.container == th.id and not (e.sig_before and e.sig_before.container == th.id) then
+            if not changed and (sig.container == th.id and not (e.sig_before and e.sig_before.container == th.id)
+                or sig.station == th.id and not (e.sig_before and e.sig_before.station == th.id)) then
                 changed = "opened"
             end
             -- an NPC: the press started a conversation with it (talk.lua builds on this; never pressed twice)

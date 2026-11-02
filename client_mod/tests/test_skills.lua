@@ -650,6 +650,61 @@ test("recover_grave: an \"Open\" grave: its storage screen, gear first, then mer
     assert(d and not d.recovered and #d.lost == 1 and d.lost[1].item == "ITEM_Resources_VaultCore" and d.partial_how == "recover_grave", json.encode(d))
 end)
 
+-- live 2026-11-02 03:41: at his grave the detector targeted nothing from where he stopped; the next standing spots lay
+-- 1.3 m from him ("near"), so he faced 3 s at each without moving (9 s) before one 1 m step and the press. A failed
+-- face now goes to a spot he has to walk to, and the face is short (aim first, a nudge only after aim_s).
+test("interact on a big thing: a failed face walks to a new spot, never re-faces from where he stands", function()
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    F.world.interactables = { { id = "grave_5", class = "BP_PlayerGravestone_C", name = "", prompt = "Take All", position = { 1, 30, 3 },
+                                contents = { { item = "ITEM_Bronze_Sword", count = 1 } } } }
+    local inv = B.module("inventory")
+    local it0 = inv.interact_target
+    local first, faced_at = nil, {}
+    inv.interact_target = function(pawn)
+        local p = F.move.position or F.me_pos or { 1, 2, 3 }
+        first = first or (math.abs(p[2] - 30) < 3 and { p[1], p[2] }) or nil
+        if not first or math.sqrt((p[1] - first[1]) ^ 2 + (p[2] - first[2]) ^ 2) < 1.4 then
+            faced_at[#faced_at + 1] = { p[1], p[2] }
+            return { none = true }
+        end
+        return it0(pawn)
+    end
+    local t0 = T
+    local _, id = rpc("interact", { target = "grave_5" })
+    local r = run(id, 60)
+    inv.interact_target = it0
+    assert(r and r.ok and (F.extra.ITEM_Bronze_Sword or 0) == 1, json.encode(r))
+    -- one failed face (<= face_s 2 s) at the first stand, then a walk: well under the old 3 x 3 s in place
+    assert(T - t0 <= 8, "arrive-to-press took " .. tostring(T - t0) .. " s")
+end)
+
+-- live 2026-11-02 04:22: a press on a Crafting Table opens its crafting screen; the verify read only containers, sleep,
+-- conversations and the prompt, so it saw "nothing changed", pressed again (which shut the screen) and failed.
+test("interact on a station: its screen opening is the change; one press, never a second that shuts it", function()
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    F.world.interactables = { { id = "bench_1", class = "BP_Crafting_StartingBench_C", name = "Crafting Table",
+                                kind = "crafting_station", prompt = "Use", position = { 1, 30, 3 } } }
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    inv.press_interact = function(log, opts)
+        local det = inv.interact_target()
+        if det and det.actor == "bench_1" then
+            F.presses = (F.presses or 0) + 1
+            if F.screen_owner == "bench_1" then F.screen_kind, F.screen_owner = nil, nil -- E again shuts it
+            else F.screen_kind, F.screen_owner = "crafting", "bench_1" end
+            return { ok = true, action = "IA_Interact" }
+        end
+        return p0(log, opts)
+    end
+    local _, id = rpc("interact", { target = "bench_1" })
+    local r = run(id, 40)
+    inv.press_interact = p0
+    assert(r and r.ok and r.data.changed == "opened", json.encode(r))
+    assert(F.presses == 1 and F.screen_owner == "bench_1", "one press, the screen left open: " .. tostring(F.presses))
+end)
+
 test("recover_grave / interact: a full bag leaves the rest (said, from the game's free slots); an emptied grave is recovered", function()
     local sk = open_grave(2, { ITEM_Resources_Stone = 10, ITEM_Consumable_GoblinPack = 2 })
     local _, id = rpc("recover_grave")
