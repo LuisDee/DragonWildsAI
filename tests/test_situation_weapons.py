@@ -47,3 +47,14 @@ def test_overloaded_is_in_the_you_line_with_the_weights():
     assert "OVERLOADED 403/400 carry weight: walk only, no sprint or jumps" in situation.summary(st)[0]
     assert situation.load_words({"bag": {"encumbered": False, "weight": 10, "max_weight": 400}}) is None
     assert situation.load_words({}) is None
+
+
+def test_dead_says_so_and_offers_no_need():
+    """Chat ladder 2026-11-02 01:17:08Z: the read at his death offered "Need health (dying [0%]) -> Fillet heals 20" and
+    he ate his last Fillet into the respawn."""
+    from brain import needs
+    st = {"dead": True, "health": 0.0, "max_health": 100.0, "sustenance": 98, "sustenance_max": 100,
+          "inventory_items": [{"item": "ITEM_Fillet", "name": "Fillet", "count": 1}]}
+    assert situation.summary(st)[0].startswith("You: DEAD: respawning")
+    assert needs.lines(st) == []
+    assert not any(ln.startswith("Need ") for ln in situation.summary(st))

@@ -980,7 +980,10 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     things = perceived(state)
     lines: list[str | None] = []
 
-    me = [b for b in (_health(state),) if b]
+    # dead: the respawn comes by itself, so nothing he eats or drinks now helps (chat ladder 2026-11-02 01:17:08Z: a
+    # read at the moment of death offered "Need health (dying [0%]) -> Fillet heals 20" and he ate into the respawn)
+    me = ["DEAD: respawning, nothing to do until you're back"] if state.get("dead") is True else \
+        [b for b in (_health(state),) if b]
     if _num(state.get("power_level")) is not None:  # his own power level (combat state_extras), beside the creatures' PL
         me.append(f"PL {_num(state.get('power_level')):g}")
     for stat, word in (("hydration", "water"), ("sustenance", "food"), ("endurance", "rest")):  # survival (client body)

@@ -288,7 +288,7 @@ def _tool(state: dict, need: dict, cat: dict) -> list[str]:
 
 def lines(state: dict, cat: dict | None = None) -> list[str]:
     """One line per pressing need, with its options (empty when nothing is pressing)."""
-    if not state or state.get("unavailable"):
+    if not state or state.get("unavailable") or state.get("dead") is True:  # dead: no need can be met until respawn
         return []
     cat = cat if cat is not None else catalog()
     people = _people(state)
