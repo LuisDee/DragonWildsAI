@@ -526,10 +526,11 @@ end
 -- never keeps him from water at the floor while he eats. Never refuses the model: only the reflex reads this.
 local HOLD = _G.DWReflexHold or {}
 _G.DWReflexHold = HOLD
--- move = 15 s: he moved it to use it, and his consume can be a model turn or two away (live r1-20261102T051035Z: a
--- 6 s hold ran out 6.5 s after his move, the reflex drank the water he had just put on the hotbar and his own drink
--- then waited out its lock). Under the floor a kind's hold counts only its first FLOOR_HOLD_S.
-M.REFLEX_HOLD_S = { use = 4, move = 15 }
+-- move = 6 s, not longer: moving food to the hotbar and leaving it to the reflex is a real choice (its policy line
+-- says so), and a 15 s hold made that wait (live r1-20261102T061730Z: moved, no consume, the reflex ate at 24 s).
+-- When the reflex does go first, his own consume answers by_reflex at once (skills.lua) instead of waiting its lock
+-- (r1-20261102T051035Z: 6.5 s). Under the floor a kind's hold counts only its first FLOOR_HOLD_S.
+M.REFLEX_HOLD_S = { use = 4, move = 6 }
 M.FLOOR_HOLD_S = 6
 function M.hold_reflex(kind, secs, why)
     local key = kind or "all"
