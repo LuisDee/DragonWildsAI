@@ -1,4 +1,4 @@
-"""rung1_gate.make_room puts away only what the gate's own fixtures added (main 2026-11-02: don't touch his own things)."""
+"""rung1_gate.make_room puts away only what harness fixtures added (main 2026-11-02: don't touch his own things)."""
 import json
 
 from tools import rung1_gate as g
@@ -22,6 +22,6 @@ def test_fixture_surplus_counts_only_rung1_grants_less_what_was_put_away_and_wha
     _log(cleanup, [{"item": "ITEM_Resources_Stone", "count": 25, "ok": True}])
     carried = {"ITEM_Sword_Bronze": 3, "ITEM_Resources_Stone": 40, "ITEM_Consumable_Meat_Fillet": 8, "ITEM_Club_Stone": 1}
     s = g.fixture_surplus(carried, setup_log=setup, cleanup_log=cleanup)
-    # 2 swords granted, he keeps one: 2 go, the one left is the one he keeps; 30 - 25 put away = 5 stone (rung3's 50
-    # are not the gate's); fillets: 8 carried - 6 kept = 2; his club was never granted
-    assert s == {"ITEM_Sword_Bronze": 2, "ITEM_Resources_Stone": 5, "ITEM_Consumable_Meat_Fillet": 2}
+    # 2 swords granted, he keeps one: 2 go, the one left is the one he keeps; stone 30 + rung3's 50 granted, 25 put
+    # away, 40 carried: all 40; fillets: 8 carried - 6 kept = 2; his club was never granted (his own: stays)
+    assert s == {"ITEM_Sword_Bronze": 2, "ITEM_Resources_Stone": 40, "ITEM_Consumable_Meat_Fillet": 2}

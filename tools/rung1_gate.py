@@ -516,11 +516,13 @@ KEEP = {**{it: 1 for it in KIT}, "ITEM_Consumable_Meat_Fillet": 6, "ITEM_Consuma
         "ITEM_Consumable_Water_Dirty": 3, "ITEM_Resources_Raw_Stringy_Meat": 2, "ITEM_Consumable_Fruit_Redberry": 4}
 
 
-def fixture_surplus(carried: dict[str, int], setup_log=None, cleanup_log=None) -> dict[str, int]:
-    """What the gate's own fixtures added that he still carries beyond what the next item needs: every rung1 grant in
-    the fixture setup log (his kit after a grave death, the split/drop stone, the food top-ups, the eat/drink options),
+def fixture_surplus(carried: dict[str, int], setup_log=None, cleanup_log=None, gear=()) -> dict[str, int]:
+    """What the harness fixtures added that he still carries beyond what the next item needs: every grant in the
+    fixture setup log (this gate's: his kit after a grave death, the split/drop stone, the food top-ups, the eat/drink
+    options; and the other gates' stock on the same dev character, which they grant again when they need it),
     less what make_room already put away (CLEANUP_LOG), capped by what he carries now less KEEP. His own things
-    (crafted, gathered, looted) are never in it. -> {item: count}"""
+    (crafted, gathered, looted) are never in it, nor the last copy of a piece of gear (`gear`: his only axe or bow
+    stays on him whoever granted it). -> {item: count}"""
     if setup_log is None:
         from evals.bench.devtarget import SETUP_LOG as setup_log
     granted: dict[str, int] = {}
@@ -534,14 +536,14 @@ def fixture_surplus(carried: dict[str, int], setup_log=None, cleanup_log=None) -
                 r = json.loads(ln)
             except ValueError:
                 continue
-            if not r.get("ok") or (sign > 0 and not (r.get("verb") == "grant" and str(r.get("purpose") or "").startswith("rung1 gate"))):
+            if not r.get("ok") or (sign > 0 and r.get("verb") != "grant"):
                 continue
             a = r.get("args") or r
             it = str(a.get("item") or "")
             granted[it] = granted.get(it, 0) + sign * int(a.get("count") or 1)
     out = {}
     for it, g in granted.items():
-        n = min(g, carried.get(it, 0) - KEEP.get(it, 0))
+        n = min(g, carried.get(it, 0) - KEEP.get(it, 1 if it in gear else 0))
         if n > 0:
             out[it] = n
     return out
@@ -562,14 +564,17 @@ def make_room(ctx: Ctx, need: int = ROOM_SLOTS) -> dict:
         return out
     carried: dict[str, int] = {}
     rows_of: dict[str, int] = {}
+    stack: set[str] = set()
     for x in [x for w in ("hotbar", "bag") for x in d.get(w) or [] if isinstance(x, dict)
               and (w == "hotbar" or x.get("slot_type") == "InventoryItems")]:
         it = str(x.get("item"))
         carried[it] = carried.get(it, 0) + int(x.get("count") or 1)
         rows_of[it] = rows_of.get(it, 0) + 1
-    surplus = fixture_surplus(carried)
+        if int(x.get("count") or 1) > 1:
+            stack.add(it)
+    surplus = fixture_surplus(carried, gear={it for it in carried if it not in stack})
     if not surplus:
-        out["why"] = "bag short of room and none of it is the gate's own fixture grants"
+        out["why"] = "bag short of room and none of it is fixture grants"
         return out
     crates = my_crates(ctx.cli)
     if not crates:
@@ -603,7 +608,7 @@ def make_room(ctx: Ctx, need: int = ROOM_SLOTS) -> dict:
         kg = float(d2.get("carry") or d2.get("weight") or 0) or kg
     out["free"], out["kg"] = free, kg
     if short():
-        out["why"] = f"only {free} free bag slots, {kg} kg after storing the gate's own grants"
+        out["why"] = f"only {free} free bag slots, {kg} kg after storing fixture grants"
     return out
 
 
@@ -739,10 +744,13 @@ def it_eat_drink(ctx: Ctx) -> dict:
     from tools import travel_ladder as tl
     dev = cl._dev()
     tl.place(dev, ctx.cli, LUIS_SLEEP, harness_brain=True)  # by the base: a campfire 3 m off, his crates 11-16 m
-    room = make_room(ctx)  # the hotbar food has to fit in the bag (18:28Z: bag 32/32, every move inventory_full)
     have = {}
     for r in ctx.stacks():
         have[r.get("item")] = have.get(r.get("item"), 0) + int(r.get("count") or 1)
+    # the hotbar food has to fit in the bag (18:28Z: bag 32/32, every move inventory_full), and so do the options
+    # granted below that he has none of: each is a new row (r1-20261102T043153Z: room made, then 2 grants took it)
+    hot = [r for r in (cp.inventory(ctx.cli) or {}).get("hotbar") or [] if isinstance(r, dict) and r.get("use") in ("food", "drink")]
+    room = make_room(ctx, len(hot) + sum(1 for it in {**EAT_OPTIONS, **EAT_BEST} if not have.get(it)) + 1)
     no_grant = []
     for it, n in {**EAT_OPTIONS, **EAT_BEST}.items():
         if have.get(it, 0) < n:
@@ -773,7 +781,9 @@ def it_eat_drink(ctx: Ctx) -> dict:
              + (f"; not granted: {no_grant}" if no_grant else "") + "; " + room_words(room))
 
     def judged(row):
-        brain = cl.brain_rows([ctx.brain_file], row["rec"]["t0"] - 1, row["rec"]["t1"] + 1)
+        # from 10 s before the set: the harness's own bag moves can wake him, and the prompt he chose from is then
+        # just before t0 (r1-20261102T042630Z: prompt at -0.5 s, "Need food" in it, "no options digest" read)
+        brain = cl.brain_rows([ctx.brain_file], row["rec"]["t0"] - 10, row["rec"]["t1"] + 1)
         ch = choice_judge(brain, row.get("says") or [])
         ch["his_tools"] = [r.get("tool") for r in brain if r.get("kind") == "tool_call"][:12]
         t_set = min([float(v[0]) for v in (row["rec"]["target"].get("set_at") or {}).values()] or [row["rec"]["t0"]])

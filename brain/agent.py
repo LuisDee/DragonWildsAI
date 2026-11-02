@@ -18,6 +18,7 @@ import time
 from typing import Literal
 
 from . import situation as sit
+from .consume_order import interleave
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
@@ -666,7 +667,10 @@ class Agent:
         spoken, ran = False, []
         body: list[tuple[str, str, dict]] = []  # (result key, tool, args) of the body actions run
         self.broker.learn_names(looks=d.looks)  # body_status then names the things this turn's looks found
-        for call in ([] if failure else d.actions):
+        acts = interleave(d.actions, state)  # food and drink locks are separate: a drink never waits behind food
+        if [id(c) for c in acts] != [id(c) for c in d.actions]:
+            self.log.log("consume_interleaved", order=[(c.arguments or {}).get("item") for c in acts if c.name == "consume"])
+        for call in ([] if failure else acts):
             if call.name in ("remember", "forget_skill"):
                 res = self._remember(call.arguments, state, event.player) if call.name == "remember" \
                     else self._forget_skill(call.arguments)
