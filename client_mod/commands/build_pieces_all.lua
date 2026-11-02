@@ -14,13 +14,17 @@ return function(log)
     local gbm
     for _, a in ipairs(FindAllOf("GlobalBuildingManager") or {}) do if U.valid(a) then gbm = a end end
     if not gbm then return { ok = false, reason = "no GlobalBuildingManager", me = me } end
-    local pts = {}
+    local pts, ids = {}, {} -- ids[i]: pts[i]'s "BuildingPiece_<key>" (the id get_state and build replies use)
     local ok, err = pcall(function()
-        gbm.BuildingPieces:ForEach(function(_, e)
+        gbm.BuildingPieces:ForEach(function(k, e)
             local v = U.try(function() return e:get() end) or e
             local okp, x, y, z = pcall(function() local p = v.ClientVisible.Location; return p.X, p.Y, p.Z end)
-            if okp and type(x) == "number" then pts[#pts + 1] = { r1(x / 100), r1(y / 100), r1(z / 100) } end
+            if okp and type(x) == "number" then
+                pts[#pts + 1] = { r1(x / 100), r1(y / 100), r1(z / 100) }
+                local pid = tonumber((U.try(function() return k:get() end)))
+                ids[#pts] = pid and ("BuildingPiece_" .. pid) or ""
+            end
         end)
     end)
-    return { ok = ok, error = (not ok) and tostring(err) or nil, me = me, n = #pts, pts = pts }
+    return { ok = ok, error = (not ok) and tostring(err) or nil, me = me, n = #pts, pts = pts, ids = ids }
 end

@@ -215,7 +215,8 @@ FIXTURE_BLUEPRINT = "small_house"  # live 01:57Z: the 29-piece luis_house walled
 #                                    everywhere", go_to timeout); the 2-cell house went up whole in run 6 (+ its door 23:5xZ)
 # the ground under the stand-in (and his own house's spot) may rise at most this much over 8 x 8 m (live 04:2xZ, the
 # body's ground_check: the good spot 0.9 m, the slopes that failed 2.9-3.9 m)
-FLAT_M = 1.5
+FLAT_M = 1.0  # 06:3xZ: a stand-in on 1.1 m got 5 of 11 pieces up (the second foundation's ground 0.7 m lower);
+#              the spots that went up whole read 0.7-0.9
 
 
 HOUSE_SIDES = ((-8.0, 0.0), (8.0, 0.0), (0.0, -8.0), (0.0, 8.0))  # where he stands (and builds) off the stand-in
@@ -314,16 +315,24 @@ def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str
             "detail": str((r.get("data") or {}).get("detail") or (r.get("data") or {}).get("built") or "")[:300]}
 
 
-def standing(fx: list[dict], census: list[list[float]], after: dict[str, dict]) -> list[dict]:
-    """Which stand-in pieces still stand: the same piece type within 0.3 m in get_state's structures, else no census
-    point there at all = gone; a census point but no typed read = unknown (out of get_state's reach, or a new piece
-    of his on the same spot)."""
+def standing(fx: list[dict], census: list[list[float]], after: dict[str, dict], ids: list[str] | None = None) -> list[dict]:
+    """Which stand-in pieces still stand, by their own ids: in get_state's structures = standing; not there (he is
+    back on the site, so they are in its reach) = gone, whether the spot is empty or a new piece of another id stands
+    on it (live 07:4xZ: he built his own house on the stand-in's ground, the same blueprint, and the old type+position
+    match read 8 of 10 torn-down pieces "standing"); no typed read of the site at all = unknown. ``ids``: the
+    global census' own ids (build_pieces_all.lua), which settle a BuildingPiece_<n> however many pieces stand near."""
+    have = set(ids or [])
     out = []
     for q in fx:
-        same = any(v.get("piece") == q["piece"] and v.get("position") and math.dist(v["position"], q["position"]) <= 0.3
-                   for v in after.values())
-        pt = any(math.dist(c, q["position"]) <= 0.3 for c in census)
-        out.append({**q, "state": "standing" if same else ("gone" if not pt else "unknown")})
+        if q["id"] in after:
+            st = "standing"
+        elif have and str(q["id"]).startswith("BuildingPiece_"):
+            st = "standing" if q["id"] in have else "gone"
+        elif after or not any(math.dist(c, q["position"]) <= 0.3 for c in census):
+            st = "gone"
+        else:
+            st = "unknown"
+        out.append({**q, "state": st})
     return out
 
 
@@ -478,6 +487,18 @@ def cmd_run(a) -> int:
                 print(f"the stand-in got no piece up at {site['spot']}; trying another fresh spot")
                 tried.append(site["spot"])
                 continue
+            if fx["n"] < 9 and a.fresh and not last and fx.get("pieces"):
+                # part of it went up (live 06:3xZ: 5 of 11, the second foundation's preview drifting red at 0.27 m on
+                # ground 0.7 m lower): take that part down whole (the body's own deconstruct; the guard put it 27+ m
+                # from his and 30+ m from anything else, so the flood reaches nothing else), then another spot
+                d = cli.request("deconstruct", {"target": fx["pieces"][0]["id"], "whole": True}, timeout=600) or {}
+                print(f"the stand-in got {fx['n']} pieces up at {site['spot']}; took them down: ok={d.get('ok')} "
+                      f"{str((d.get('data') or {}).get('detail') or d.get('reason'))[:200]}; trying another fresh spot")
+                tried.append(site["spot"])
+                if not d.get("ok"):
+                    print("the partial stand-in is still standing; not sending the line")
+                    return 8
+                continue
             if fx["n"] < 9:
                 print("the stand-in house did not go up; not sending the line")
                 return 8
@@ -527,10 +548,11 @@ def cmd_run(a) -> int:
         if site:
             cli.request("go_to", {"target": [site["spot"][0] + off[0], site["spot"][1] + off[1], site["spot"][2]]
                                   if a.rung2 else site["spot"]}, timeout=120)
-        after, census_after = {}, []
+        after, census_after, census_ids = {}, [], []
         for _ in range(4):
             after = structures(cli)
-            census_after = (all_pieces().get("pts") or []) if fx else []
+            ca = all_pieces() if fx else {}
+            census_after, census_ids = ca.get("pts") or [], ca.get("ids") or []
             if (after or not before) and (census_after or not fx):
                 break
             time.sleep(5.0)
@@ -554,7 +576,7 @@ def cmd_run(a) -> int:
     if fx is not None and fx.get("pieces") and not census_after:
         rec["unmeasured"] = "the census of built pieces failed after the run (4 tries)"
     if fx is not None:
-        fx_state = standing(fx["pieces"], census_after, after)
+        fx_state = standing(fx["pieces"], census_after, after, census_ids)
         decon = [c for c in tl["calls"] if c.get("tool") == "deconstruct"]
         rec["fixture"] = {k: v for k, v in fx.items() if k != "pieces"} | {"state": fx_state}
         rec["items"] = items(new, tl, fx_state)

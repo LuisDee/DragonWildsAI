@@ -1420,6 +1420,21 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     if s and s.position and not job.on then
         local okf, fl = pcall(W.floor_under, api, s.position, s.id)
         if okf and fl then floor_words, line = fl.words, line .. " " .. fl.words end
+        -- off the floor: how far from his own house (live 07:4xZ: a campfire and crate "near me" went up 60 m E of the
+        -- house he had just built, where a stone gather had taken him, and he said the house was done with them)
+        if not (okf and fl) then
+            local dm = api.module("deconstruct")
+            local okb, bases = pcall(function() return dm and dm.bases(dm.ledger(nil), s.position) end)
+            local house
+            for _, b in ipairs(okb and type(bases) == "table" and bases or {}) do
+                if b.covered and b.distance_m and (not house or b.distance_m < house.distance_m) then house = b end
+            end
+            if house and house.distance_m > (cfg.house_far_m or 12) then
+                local hx, hy = house.centre[1] - s.position[1], house.centre[2] - s.position[2]
+                line = line .. string.format(" It is %d m from my house (my roofed building of %d pieces at (%.0f, %.0f), %s of it), not by it.",
+                    house.distance_m, house.pieces or 0, house.centre[1], house.centre[2], compass(-hx, -hy) or "away")
+            end
+        end
         if job.shelter then
             local okc, cov = pcall(W.covered_at, api, s.position)
             line = line .. (okc and cov and (" It has a roof over it" .. (job.shelter.on_mine and ", in my own building" or "") .. " (it needs shelter).")
@@ -2559,7 +2574,7 @@ M.MANIFEST = {
         args = { type = "object", properties = obj({
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
-            near = { type = "string", description = "Somewhere next to this id ('me' for beside you)." },
+            near = { type = "string", description = "Somewhere next to this id: 'me' is beside you wherever this step finds you (a gather or walk before it may have taken you away from your house); a built piece's id (your house's foundation) puts it by that piece." },
             on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W', ':top' or ':in' (no side: the free side nearest you). What holds what: a wall or door-frame wall stands on a foundation's edge (':N' = its north edge); ':in' puts a door into a door-frame wall; a ceiling tile or roof snaps onto a wall's top, and on '<wall id>:<side>' it reaches out over that side (the side the room is on); ':top' sets it on the piece's top face." },
             rotation = { type = "number", minimum = 0, maximum = 360, description = "Turn it this many degrees (15 degree steps)." },
             pieces = { type = "array", maxItems = 12, items = { type = "object" }, description = "Several in one go, the build "
