@@ -1587,6 +1587,9 @@ local function set_phase(F, ph, why)
     if F.phase == ph then return end
     F.phase = ph
     F.phase_t = F.t
+    -- the fight is over: the bow stops aiming at the corpse (live 07:35Z bow gate: the aim kept the camera, so the
+    -- loot walk stopped twice on "another skill took the camera" and 17 s passed with nothing picked up)
+    if F.rg and (ph == "loot" or ph == "restore") then F.rg.aiming, F.rg.aim_t0, F.hold = false, nil, nil end
     F.phase_log[#F.phase_log + 1] = string.format("%.1f %s%s", F.t - F.t0, ph, why and (" " .. why) or "")
     if #F.phase_log > 30 then table.remove(F.phase_log, 1) end
     say(F.log, "phase " .. ph .. (why and (" (" .. why .. ")") or "") .. " target=" .. tostring(F.target_name))

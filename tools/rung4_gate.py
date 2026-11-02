@@ -337,9 +337,25 @@ def stock(ctx, item: str, want: dict[str, int]) -> list[str]:
     return out
 
 
+STASH_AT = (112.6, 1850.5)  # his own Crate by the tannery (built 2026-11-02, room left); ids renumber after a reload
+STASH_STAND = [STASH_AT[0] - 1.6, STASH_AT[1] + 0.5, -31.2]  # where he stands to reach it
+
+
+def own_stash(ctx) -> str | None:
+    """His crate at STASH_AT (matched by position: ids renumber after a client reload), or None."""
+    r3.place(ctx, STASH_STAND)
+    lk = ctx.cli.request("look", {"about": "crate", "radius": 8, "max": 20}, timeout=15) or {}
+    for x in ((lk.get("data") or {}).get("things") or []):
+        p = x.get("position") or [1e9, 1e9]
+        if x.get("kind") == "storage" and abs(p[0] - STASH_AT[0]) < 0.8 and abs(p[1] - STASH_AT[1]) < 0.8:
+            return x.get("id")
+    return None
+
+
 def shed(ctx, item: str, name_rx: str) -> list[str]:
-    """Copies of the item under test he carries or wears (name_rx on display names) go off him and are dropped at
-    DUMP (fixture), so he starts without one, as Luis did."""
+    """Copies of the item under test he carries or wears (name_rx on display names) go off him into his own crate
+    (STASH_AT), so he starts without one, as Luis did, and nothing of his is lost or left on the ground (main
+    2026-11-02: gates never litter or drop his own gear). A store that fails stops the item (nothing dropped)."""
     rx = re.compile(name_rx, re.I)
     inv = cp.inventory(ctx.cli)
     worn = [(s, n) for s, n in (inv.get("worn") or {}).items() if n and rx.search(str(n))]
@@ -348,15 +364,29 @@ def shed(ctx, item: str, name_rx: str) -> list[str]:
     rows = [r for r in cp.inv_rows(cp.inventory(ctx.cli)) if rx.search(str(r.get("name") or ""))]
     if not rows:
         return [f"took off {[n for _, n in worn]}"] if worn else []
-    r3.place(ctx, DUMP)
-    out = []
+    out, crate = [], own_stash(ctx)
+    if not crate:
+        raise RuntimeError(f"his crate at {STASH_AT} was not found: {[r.get('name') for r in rows]} stay on him, item not run")
     for r in rows:
-        res = ctx.cli.request("drop", {"item": r.get("item"), "count": int(r.get("count") or 1)}, timeout=30)
-        out.append(f"dropped {r.get('count') or 1} {r.get('name')} at the respawn point"
-                   + ("" if (res or {}).get("ok") else f" (failed: {(res or {}).get('reason')})"))
+        n = int(r.get("count") or 1)
+        res = {}
+        # the brain is already live: its own start-up review can take the body mid-store (07:33:40Z: the arrows'
+        # store came back "cancelled" when he went to drink), so a pre-empted store is tried again
+        for _ in range(4):
+            res = ctx.cli.request("store", {"item": r.get("name") or r.get("item"), "container": crate, "count": n}, timeout=120) or {}
+            if res.get("ok") or res.get("reason") not in ("interrupted", "cancelled", "busy", "still_running"):
+                break
+            time.sleep(4.0)
+            r3.place(ctx, STASH_STAND)
+        if res.get("ok"):
+            out.append(f"stored {n} {r.get('name')} in his crate at {STASH_AT}")
+            continue
+        # never dropped (main 2026-11-02: gates don't litter): the item is not run with them on him
+        raise RuntimeError(f"could not store his {n} {r.get('name')} in his crate ({res.get('reason')}: "
+                           f"{(res.get('data') or {}).get('detail')}); item not run")
     left = [r.get("name") for r in cp.inv_rows(cp.inventory(ctx.cli)) if rx.search(str(r.get("name") or ""))]
     if left:
-        raise RuntimeError(f"could not drop his {left} before the item")
+        raise RuntimeError(f"could not put away his {left} before the item")
     return out
 
 
@@ -384,13 +414,23 @@ def spawn_near(ctx, cls: str, off: list[float], name_rx: str, purpose: str) -> t
     dev = r3.cl_dev()
     cen = lambda: cp.census(ctx.cli, radius_m=40, max=40, kinds={"creatures": True}, foliage=False).get("creatures") or []  # noqa: E731
     before = {x.get("id") for x in cen()}
+    here = (ctx.me().get("position") or [0, 0, 0])[:2]
     res = dev.setup("spawn", purpose=purpose, **{"class": cls, "offset_m": off})
+    # the spawn lands off him on world axes (fixtures.lua domSpawnAi); the census row nearest that point is it, not
+    # the first new one: a wild kebbit walking into the 40 m census was taken for it (bow run 1, 07:34Z: the gate
+    # tracked _239939 while he shot _240842 at 14 m, the spawn)
+    at = [here[0] + off[0], here[1] + off[1]]
     tgt = {"server_id": res.get("id"), "spawn_m": round((off[0] ** 2 + off[1] ** 2) ** 0.5, 1)}
     for _ in range(10):
         time.sleep(0.5)
         new = [x for x in cen() if x.get("id") not in before and re.search(name_rx, str(x.get("name")), re.I)]
         if new:
-            tgt.update(id=new[0]["id"], name=new[0].get("name"))
+            def far(x):
+                q = x.get("position") or [1e9, 1e9]
+                return ((q[0] - at[0]) ** 2 + (q[1] - at[1]) ** 2) ** 0.5
+            new.sort(key=far)
+            tgt.update(id=new[0]["id"], name=new[0].get("name"), from_spawn_m=round(far(new[0]), 1),
+                       other_new=[(x["id"], round(far(x), 1)) for x in new[1:4]])
             return res, tgt
     raise RuntimeError(f"the spawned {cls} never showed in his census (spawn {res})")
 
@@ -470,6 +510,9 @@ def it_bow(ctx) -> dict:
     # his dev-granted Wooden Arrows go too: the wiki calls them an unused prototype (no recipe, no base damage) and
     # live they hit a kebbit for ~3 of its 30 HP (probe 2026-11-01 20:21Z: 14 arrows, 89 s); Luis shot Stone ones
     shed_note += shed(ctx, "bow", r"^wooden arrows?$")
+    # and any arrows: Luis started without (his "make bow" made them), and 63 Fang Arrows left from rung4's bow
+    # measurements made the arrow leg moot (run 1, 07:2xZ: "I already had 63 Fang Arrows")
+    shed_note += shed(ctx, "bow", r"arrows?$")
     r3.place(ctx, SPOT["bow"])
     # a shortbow (12 Ash, 3 Thread) or Luis's longbow (16 Ash, 6 Thread) + an arrow batch (1 Stone, 2 Ash, 1 Feathers)
     fixtures = shed_note + stock(ctx, "bow", {ASH: 20, THREAD: 6, STONE: 2, FEATHER: 2})
