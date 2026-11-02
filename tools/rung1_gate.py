@@ -16,7 +16,9 @@ Every request goes in chat from the dev sender "Tester" (tools/chat_ladder) to a
           own recorded time for the task (evals/baselines/luis_20261101_tasks.json) or his per-unit family time
           (data/baselines/luis-2026-11-01.json) + reaction 1.5 s
   misses  <= 1 per item (pickups: <= 1 per item picked; presses with no gain, from the server recorder); elsewhere the
-          body's failed actions that were not interruptions
+          body's failed actions that were not interruptions; a read-only lookup (craft_plan, recipes, inventory, look,
+          stations, buildables, ...) that answers ambiguous_target or not-found is no miss (it changes nothing and its
+          time is in the time bar); a still_running collision and any failed world action are
   stand   no stand > 5 s (server recorder, v < 0.3 m/s) without work (an rpc or inventory change, the item's own work:
           a fight on, rest rising, a stat rising) or a line he said in it
   truth   every report true (tools/truth_judge.py: LLM judge against the check's facts and the recordings), and he
@@ -342,11 +344,31 @@ def run_leg(ctx: Ctx, req: dict, line: str | None, target: dict, deadline_s: flo
     says = [r["ts"] for r in brain if r.get("kind") == "say"]
     row.update(done_s=round(done_at - t0, 1) if done_at else None, told=bool(says), say_ts=says,
                says=[obs.short(r.get("text"), 160) for r in brain if r.get("kind") == "say"][:6],
-               fumbles=sum(1 for r in brain if r.get("kind") == "tool_result" and (r.get("result") or {}).get("ok") is False
-                           and (r.get("result") or {}).get("reason") not in ("interrupted",)),
+               fumbles=count_fumbles(brain),
                tools=[f"{r.get('tool')}{'' if (r.get('result') or {}).get('ok') else ':' + str((r.get('result') or {}).get('reason'))}"
                       for r in brain if r.get("kind") == "tool_result"][:12])
     return row
+
+
+# Read-only lookups change nothing in the world and their time is already in the time bar: an ambiguous or not-found
+# answer from one is no miss (main 2026-11-02). World actions that failed, and action collisions (still_running), are.
+READ_ONLY_TOOLS = frozenset({"craft_plan", "recipes", "inventory", "look", "inspect", "stations", "buildables", "where",
+                             "world_info", "quests", "lodestones", "spells", "get_state", "my_places", "recall"})
+NO_MISS_REASONS = frozenset({"interrupted"})
+
+
+def count_fumbles(brain: list[dict]) -> int:
+    """The misses of a leg from its brain-log tool results: failed calls, less interruptions (the player spoke or
+    another command took over) and read-only lookups (READ_ONLY_TOOLS)."""
+    n = 0
+    for r in brain:
+        res = r.get("result") or {}
+        if r.get("kind") != "tool_result" or res.get("ok") is not False:
+            continue
+        if res.get("reason") in NO_MISS_REASONS or r.get("tool") in READ_ONLY_TOOLS:
+            continue
+        n += 1
+    return n
 
 
 def audience(ctx: Ctx) -> list[str]:

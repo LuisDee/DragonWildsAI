@@ -25,3 +25,16 @@ def test_fixture_surplus_counts_only_rung1_grants_less_what_was_put_away_and_wha
     # 2 swords granted, he keeps one: 2 go, the one left is the one he keeps; stone 30 + rung3's 50 granted, 25 put
     # away, 40 carried: all 40; fillets: 8 carried - 6 kept = 2; his club was never granted (his own: stays)
     assert s == {"ITEM_Sword_Bronze": 2, "ITEM_Resources_Stone": 40, "ITEM_Consumable_Meat_Fillet": 2}
+
+
+def test_a_read_only_lookup_that_finds_nothing_is_no_miss_but_world_actions_and_collisions_are():
+    # main 2026-11-02: craft_plan / recipes / inventory / look / stations / buildables answering ambiguous_target or
+    # not-found change nothing and their time is in the time bar; a still_running collision and a failed action count
+    def res(tool, reason):
+        return {"kind": "tool_result", "tool": tool, "result": {"ok": False, "reason": reason}}
+    brain = [res("craft_plan", "ambiguous_target"), res("recipes", "unknown_recipe"), res("look", "not_perceived"),
+             res("stations", "unknown_target"), res("buildables", "ambiguous_target"), res("inventory", "not_in_inventory"),
+             res("go_to", "interrupted"),
+             res("consume", "in_bag"), res("store", "still_running"), res("craft", "missing_materials"),
+             {"kind": "tool_result", "tool": "consume", "result": {"ok": True}}]
+    assert g.count_fumbles(brain) == 3

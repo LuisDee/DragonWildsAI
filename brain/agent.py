@@ -94,6 +94,8 @@ LONG_JOB_TOOLS = ("add_task", "start_goal")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
+FRESH_REUSE_S = 0.75  # get_state reuse window between body reads with no action in between (see _fresh_state)
+
 
 
 def _task_label(t: Task) -> str:
@@ -266,9 +268,18 @@ class Agent:
 
     # ---------------------------------------------------------------- body situations (broker)
 
-    def _fresh_state(self) -> dict:
+    def _fresh_state(self, reuse: bool = False) -> dict:
         try:
-            state = self.executor.state()  # fresh; the executor reuses it within the turn (L6)
+            # reuse = a read before a model call on the wake path (each event's triage, still_valid, flush, the
+            # controller's first read: back to back, 0.3-0.5 s each; live r1-20261102T065157Z: 1.9 s of get_state
+            # before the first prompt): the last read if it is FRESH_REUSE_S old on the broker clock and no action ran
+            # since (executor.run_task clears its cache). Reads after a model call stay fresh (facts changed while thinking).
+            now, c = self.broker.clock(), getattr(self, "_wake_state", None)
+            ex_cache = getattr(self.executor, "_cache", None)
+            if reuse and c is not None and now - c[0] <= FRESH_REUSE_S and c[1] is ex_cache and ex_cache is not None:
+                return c[2]
+            state = self.executor.state()
+            self._wake_state = (now, getattr(self.executor, "_cache", None), state)
         except StateUnavailable as exc:
             return {"unavailable": str(exc)}
         self.broker.observe(state)  # where am I, am I moving, who is in sight (body_status "Where:")
@@ -276,7 +287,7 @@ class Agent:
         return state
 
     def _body_situation(self, event: Event) -> None:
-        v = self.broker.assess(event, self._fresh_state())
+        v = self.broker.assess(event, self._fresh_state(reuse=True))
         if v.action == "decide":
             self._situations.append(v.event)
 
@@ -301,7 +312,7 @@ class Agent:
             events = [e for e in events if e.get("type") != "situation_review"]
         if not events:
             return []
-        still = self.broker.still_valid(events, state if state is not None else self._fresh_state())
+        still = self.broker.still_valid(events, state if state is not None else self._fresh_state(reuse=True))
         for e in events:
             if e not in still:
                 self.log.log("situation_stale", event=e, why="fixed before it was voiced")
@@ -310,7 +321,7 @@ class Agent:
     def flush_situations(self) -> None:
         if not self._situations or self._chat_waiting() or self._chat_stashed():
             return  # the chat run takes the situations along (M1 17:53:42: a review ran first, the line waited 140 s)
-        state = self._fresh_state()
+        state = self._fresh_state(reuse=True)
         events = self.take_situations(state)
         if not events:
             return
@@ -423,7 +434,8 @@ class Agent:
         if event.text:
             self.broker.note_busy()  # he is talking with the player: no proactive review on top
         deadline = self.clock() + REQUEST_SECONDS
-        state = self._fresh_state()  # unavailable: still let the Controller answer; actions will refuse
+        # a body-only run (no chat line) reuses the wake's read; a chat line reads fresh (his words may follow a change)
+        state = self._fresh_state(reuse=not event.text)  # unavailable: still let the Controller answer; actions will refuse
         body_ctx = (body_events[0] if len(body_events) == 1 else {"events": body_events}) if body_events else None
         # where he stood when asked: "here" / "by me" keep that place while the request runs (live 21:13Z: he gathered
         # 31 m away and built there). Perception only (the situation's "Asked" line); a hand-on carries it on.
