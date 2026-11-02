@@ -39,6 +39,18 @@ def test_values_come_from_game_data_with_a_source():
     assert fv["cooks"]["ITEM_Resources_Meat_Bird"][0]["output"] == "ITEM_Consumable_Meat_Fillet"
 
 
+def test_burn_odds_the_games_own_attribute_wins_over_the_wiki_curve():
+    """Rung 3 cook 2026-11-02 04:20Z: Cooking 8 burnt 2 of 3 Raw Farm Meat; the game's own ChanceToBurnFoodLevelN
+    (get_state burn_odds, crafting.lua) is his real chance, so the option shows it; 0 % shows no burn risk at all."""
+    st = case("hunt_cook")
+    st["burn_odds"] = {"level1": 0.1, "level2": 0.4615}
+    hunt = next(line for line in block(st, "food").splitlines() if "] hunt Chicken" in line)
+    assert "burn ~10% each at your Cooking 5, safe from 12" in hunt
+    st["burn_odds"] = {"level1": 0.0}
+    hunt = next(line for line in block(st, "food").splitlines() if "] hunt Chicken" in line)
+    assert "burn" not in hunt.split("| risk:")[-1] if "| risk:" in hunt else "burn" not in hunt
+
+
 def test_grave_food_the_newest_grave_with_its_sandwiches_is_an_option():
     """D2: after the 11:18:46 death he went for berries; his newest grave held 16 Forager's Sandwiches."""
     food = block(case("grave_food"), "food")
@@ -172,7 +184,7 @@ def test_the_graves_line_always_has_the_newest_grave():
     from brain import situation
     from brain.item_stats import graves_for_line
     line = next(ln for ln in situation.recent_life(case("grave_food")) if ln.startswith("Graves of yours"))
-    assert "your newest, 138 m away, from 2026-11-01T11:18:46Z (go_to target 'my_grave:1793531926')" in line
+    assert "your newest, 138 m away, from 2026-11-01T11:18:46Z, a death " in line and "(go_to target 'my_grave:1793531926')" in line
     assert line.count(" | ") == 2  # still 3 graves: the two most valuable and the newest
     rows = [{"iso": f"2026-10-0{i}T00:00:00Z", "lost_items": 1} for i in range(1, 6)]
     top = graves_for_line(rows)

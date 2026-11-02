@@ -469,15 +469,32 @@ end
 -- 100 % at the second; https://dragonwilds.runescape.wiki/w/Culinary_Confidence, read 2026-11-01). Live 17:07 and
 -- 17:40Z: ClaudeDev at Cooking 7-8 burnt 5 of 5 Raw Farm Meat (power level 2, below its first level 12).
 M.BURN_LEVELS = { { 1, 12 }, { 12, 27 }, { 27, 41 }, { 41, 50 }, { 50, 75 }, { 75, 99 } }
+-- The game's OWN odds come first (2026-11-02): his ChanceToBurnFoodLevelN attributes (W.burn_odds, cached by context())
+-- are the chance at his Cooking right now; the wiki levels above only say from when it stops ("none from N").
+-- Perception only: every cook is listed with its odds and he chooses (no recipe is skipped or vetoed here).
+M.cfg.burn_ttl_s = 30
 local function burn_note(rid)
     local r = recipe_of(rid) or {}
     local n = tonumber(tostring(r.alt_chance or ""):match("ChanceToBurnFoodLevel(%d+)"))
     if not n or not r.alt or not r.alt[1] then return nil end
     local lv = M.BURN_LEVELS[n] or {}
-    return { into = item_name(r.alt[1][1]) or item_id(r.alt[1][1]), food_power_level = n,
-             text = "can come out as " .. tostring(item_name(r.alt[1][1])) .. ": power level " .. n .. " food; "
-                 .. ((tonumber(lv[1]) or 1) > 1 and ("below Cooking " .. lv[1] .. " most burn, ") or "")
-                 .. "at Cooking " .. tostring(lv[1]) .. " about half, from " .. tostring(lv[2]) .. " none" }
+    local into = item_name(r.alt[1][1]) or item_id(r.alt[1][1])
+    local raw = r.inputs and r.inputs[1] and (item_name(r.inputs[1][1]) or item_id(r.inputs[1][1])) or "it"
+    local odds = (state().burn_odds or {})[n]
+    local text
+    if type(odds) == "number" then
+        local pct = math.floor(odds * 100 + 0.5)
+        text = raw .. (pct <= 0 and ": never burns at your Cooking now"
+                       or pct >= 100 and (": always burns at your Cooking now (comes out as " .. tostring(into) .. ")")
+                       or (": burns about " .. pct .. "% of the time at your Cooking now (comes out as " .. tostring(into) .. ")"))
+            .. " (the game's own odds, power level " .. n .. " food)"
+            .. ((pct > 0 and lv[2]) and ("; none from Cooking " .. lv[2] .. " (wiki)") or "")
+    else
+        text = "can come out as " .. tostring(into) .. ": power level " .. n .. " food; "
+            .. ((tonumber(lv[1]) or 1) > 1 and ("below Cooking " .. lv[1] .. " most burn, ") or "")
+            .. "at Cooking " .. tostring(lv[1]) .. " about half, from " .. tostring(lv[2]) .. " none"
+    end
+    return { into = into, food_power_level = n, chance = odds, source = odds and "game" or "wiki", text = text }
 end
 M.burn_note = burn_note
 
@@ -699,6 +716,29 @@ end
 local function sense_U(api)
     local s = api.module("sense")
     return s and s.U, s
+end
+
+-- The game's own chance to burn food of each power level for HIS character: Dominion float attributes
+-- ChanceToBurnFoodLevel1..6 (the Cooking perks GE_PerkV2_Cooking_ChanceToBurn_LevelN move them), read with
+-- UAttributeFunctionLibrary.BP_TryGetFloatAttributeValue (out params filled as tables OutAttributeValue / OutbFound;
+-- live 2026-11-02 ClaudeDev: L1 0.0, L2 0.4615, L3-6 1.0). Read-only. -> {[n] = chance 0..1} | nil
+function W.burn_odds(api)
+    local U, s = sense_U(api)
+    local pawn = U and s and type(s.local_pawn) == "function" and s.local_pawn() or nil
+    local lib = U and U.try(StaticFindObject, "/Script/Dominion.Default__AttributeFunctionLibrary")
+    if not (U and U.valid(pawn) and U.valid(lib)) then return nil end
+    local out, any = {}, false
+    for n = 1, 6 do
+        local cls = U.try(StaticFindObject, "/Script/Dominion.ChanceToBurnFoodLevel" .. n)
+        if U.valid(cls) then
+            local v, f = {}, {}
+            local ok = pcall(function() lib:BP_TryGetFloatAttributeValue(pawn, cls, -1.0, v, f) end)
+            if ok and f.OutbFound == true and type(v.OutAttributeValue) == "number" and v.OutAttributeValue >= 0 then
+                out[n], any = v.OutAttributeValue, true
+            end
+        end
+    end
+    return any and out or nil
 end
 
 local function local_pc(api)
@@ -1051,9 +1091,18 @@ local function near_map(rows)
     return near
 end
 
+local function refresh_burn(api)
+    local st, t = state(), api.now()
+    if st.burn_at and t - st.burn_at >= 0 and t - st.burn_at < M.cfg.burn_ttl_s then return st.burn_odds end
+    local ok, odds = pcall(W.burn_odds, api)
+    st.burn_odds, st.burn_at = (ok and odds) or st.burn_odds, t
+    return st.burn_odds
+end
+
 local function context(api, radius_m)
     local have = api.counts()
     if not have then return nil, api.fail("state_unavailable", { detail = "I can't read my inventory right now." }) end
+    refresh_burn(api)
     local rows = M.stations(api, radius_m)
     local unl, n = unlocked(api)
     -- the game's own total for an item (GetNumItemsByData) when it can be read; else the slot count stands.
@@ -1901,15 +1950,20 @@ local function stations_tool(api, args)
     for _, s in ipairs(ctx.stations) do
         local w = { id = s.id, station = s.station, name = s.name, kind = s.kind, distance = s.distance, position = s.position }
         local all = idx().by_station[s.station] or {}
-        local unl, ready = 0, {}
+        local unl, ready, burns = 0, {}, {}
         for _, rid in ipairs(all) do
             if ctx.unlocked and ctx.unlocked[rid] then
                 unl = unl + 1
                 local a = M.assess(rid, 1, ctx)
-                if a.status == "ready" and #ready < 12 then ready[#ready + 1] = a.name or rid end
+                if a.status == "ready" and #ready < 12 then
+                    ready[#ready + 1] = a.name or rid
+                    local b = burn_note(rid)
+                    if b and #burns < 6 then burns[#burns + 1] = (a.name or rid) .. " from " .. b.text end
+                end
             end
         end
         w.recipes, w.recipes_unlocked, w.can_make_now = #all, ctx.unlocked and unl or api.null, ready
+        if #burns > 0 then w.burn_odds = burns end
         local actor = api.actor_of({ id = s.id, class = s.class })
         local st = actor and W.station_state(api, actor, s.kind)
         if st and s.kind == "processing" then
@@ -2012,6 +2066,13 @@ function M.state_extras(api, data)
     end
     table.sort(rows, function(x, y) return (x.distance or 0) < (y.distance or 0) end)
     st.extras, st.extras_at = (#rows > 0) and { stations_nearby = rows } or {}, now
+    -- his burn chance per food power level (the game's own attribute), for the brain's food options
+    local odds = refresh_burn(api)
+    if odds then
+        local o = {}
+        for n = 1, 6 do if odds[n] then o["level" .. n] = odds[n] end end
+        st.extras.burn_odds = o
+    end
     return st.extras
 end
 

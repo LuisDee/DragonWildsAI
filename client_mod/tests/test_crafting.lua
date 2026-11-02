@@ -927,5 +927,38 @@ do -- A malformed successful movement response must not release its parent or pr
     MOVE.go_to=original;ARB.owner=nil;F.goal=nil
 end
 
+do -- burn odds as a player sees them (rung 3 cook 2026-11-02 04:20Z: he cooked his Raw Farm Meat first, 2 of 3 burnt;
+   -- the card said "below Cooking 12 most burn" with no word of his own odds). The game's own attribute per power level
+   -- is on every cook he can make (recipes, stations) and in get_state; nothing is skipped or ranked
+    local old = C.W.burn_odds
+    C.W.burn_odds = function() return { [1] = 0.0, [2] = 0.4615 } end
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) },
+            unlocked = U({ "RECIPE_Consumable_Steak_From_Farm", "RECIPE_Consumable_Rat_Roast_From_Rat" }),
+            have = { ITEM_Resources_Meat_Farm = 3, ITEM_Resources_Raw_Stringy_Meat = 3, ITEM_Resources_Wood_Ash = 2 } })
+    local r = C.HANDLERS.recipes(nil, { near_only = true }, { api = api })
+    local by = {}
+    for _, c in ipairs((r.data or {}).recipes or {}) do by[c.recipe] = c end
+    local steak = (by.RECIPE_Consumable_Steak_From_Farm or {}).may_burn or {}
+    local rat = (by.RECIPE_Consumable_Rat_Roast_From_Rat or {}).may_burn or {}
+    check("burn odds: steak names the raw input and the game's 46 %", tostring(steak.text):find("Raw Farm Meat: burns about 46%", 1, true) ~= nil
+          and steak.source == "game", tostring(steak.text))
+    check("burn odds: steak says from when it stops (wiki)", tostring(steak.text):find("none from Cooking 27", 1, true) ~= nil, tostring(steak.text))
+    check("burn odds: rat never burns now", tostring(rat.text):find("Raw Rat Meat: never burns", 1, true) ~= nil, tostring(rat.text))
+    check("burn odds: both cooks still listed (no veto)", by.RECIPE_Consumable_Steak_From_Farm ~= nil and by.RECIPE_Consumable_Rat_Roast_From_Rat ~= nil)
+    local s = C.HANDLERS.stations(nil, { radius = 40 }, { api = api })
+    local st = (((s.data or {}).stations) or {})[1] or {}
+    local joined = table.concat(st.burn_odds or {}, " | ")
+    check("burn odds: the station lists each cook's odds", joined:find("Steak from Raw Farm Meat: burns about 46%", 1, true) ~= nil
+          and joined:find("Rat Roast from Raw Rat Meat: never burns", 1, true) ~= nil, joined)
+    C.W.burn_odds = function() return nil end
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    local r2 = C.HANDLERS.recipes(nil, { near_only = true }, { api = api })
+    local c2 = (((r2.data or {}).recipes) or {})[1] or {}
+    check("burn odds: unread -> the wiki levels, marked wiki", (c2.may_burn or {}).source == "wiki"
+          and tostring((c2.may_burn or {}).text):find("below Cooking 12 most burn", 1, true) ~= nil, tostring((c2.may_burn or {}).text))
+    C.W.burn_odds = old
+end
+
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -488,6 +489,21 @@ def _map_places():
     return Places()
 
 
+def _grave_age(gv: dict, now: float | None = None) -> str | None:
+    """'a death 41 min ago' from a remembered grave's time (its ts, or the my_grave:<ts> target), so an older death in the
+    grave list is not read as the one just now (live gear_up 2026-11-02: "died twice" after one death in the window)."""
+    ts = gv.get("ts") if isinstance(gv.get("ts"), (int, float)) else None
+    if ts is None:
+        m = re.search(r"my_grave:(\d+(?:\.\d+)?)", str(gv.get("go_to") or ""))
+        ts = float(m.group(1)) if m else None
+    if ts is None:
+        return None
+    ago = max(0, int((now if now is not None else time.time()) - ts))
+    words = (f"{ago} s" if ago < 120 else f"{ago // 60} min" if ago < 7200 else f"{ago // 3600} h" if ago < 172800
+             else f"{ago // 86400} days")
+    return f"a death {words} ago"
+
+
 def recent_life(state: dict) -> list[str]:
     """Own gravestone(s) and the last death, from the client body's get_state: one "Recent:" line, then
     one "Graves ..." line with up to 3 unrecovered graves not in sight, newest first (BUGS L19/L22)."""
@@ -508,7 +524,8 @@ def recent_life(state: dict) -> list[str]:
         dist = f"{gv['distance']:.0f} m away" if isinstance(gv.get("distance"), (int, float)) else "somewhere"
         dist = ("your newest, " + dist) if gv is newest and len(shown) > 1 else dist
         lost = ", ".join(str(x) for x in (gv.get("lost") or [])[:3])
-        grave_lines.append(f"{dist}, from {gv.get('iso') or '?'} (go_to target '{gv.get('go_to') or 'my_grave'}')"
+        age = _grave_age(gv)
+        grave_lines.append(f"{dist}, from {gv.get('iso') or '?'}{', ' + age if age else ''} (go_to target '{gv.get('go_to') or 'my_grave'}')"
                            + (f", about {gv.get('lost_items')} items: {lost}" if lost else "")
                            + (f"; DANGER: {gv['danger']}" if gv.get("danger") else ""))  # skills.lua death-spot hazard
     g = state.get("my_grave") if isinstance(state.get("my_grave"), dict) else None

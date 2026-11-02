@@ -181,6 +181,14 @@ class _Ctx:
             return None
         pl = int(m.group(1))
         start, per = CULINARY.get(pl, (None, None))
+        odds = (self.state.get("burn_odds") or {}).get(f"level{pl}")  # the game's own attribute (crafting.lua W.burn_odds)
+        if isinstance(odds, (int, float)) and not isinstance(odds, bool):
+            pct = round(odds * 100)
+            if pct <= 0:
+                return None
+            at = f" at your Cooking {self.cooking}" if self.cooking is not None else ""
+            safe = (CULINARY.get(pl + 1) or (None,))[0]
+            return f"burn ~{pct}% each{at}" + (f", safe from {safe}" if safe and pct < 100 else "")  # the game's odds
         if start is None or self.cooking is None:
             return f"may burn (a power level {pl} ingredient)"
         if self.cooking < start:
@@ -351,6 +359,8 @@ def _graves(c: _Ctx, need: str, gap: float | None) -> list[str]:
             ago = int(ld["ago_s"])
             risk = f"you died there {ago // 60} min ago" if ago >= 120 else f"you died there {ago} s ago"
             risk += f" ({why})" if why else ""
+        elif gv.get("danger"):  # an older grave: what the body remembers of that spot (a drop, a creature)
+            risk = f"you died there: {gv['danger']}"
         out.append((gv.get("distance"), f"your grave (go_to '{gv.get('go_to') or 'my_grave'}')", rows, risk))
     lines = []
     for dist, label, rows, risk in sorted(out, key=lambda x: x[0] if isinstance(x[0], (int, float)) else 1e9)[:MAX_PER_GROUP]:
