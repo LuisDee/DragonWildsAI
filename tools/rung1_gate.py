@@ -1018,7 +1018,7 @@ def run_item(a, item: str, run_id: str) -> dict:
     up = get_up()  # never start an item lying in a bed someone else left him in
     if up.get("presses"):
         print(f"  {item}: he was lying in {up.get('was_in')}: got up {up}", flush=True)
-    if item != "eat_drink":  # the coordinator's harness top-up (food/water, HP < 30); the eat/drink item runs without it
+    if item != "eat_drink" and getattr(a, "supply", True):  # the coordinator's harness top-up (food/water, HP < 30); the eat/drink item runs without it
         from tools import supply
         try:
             sup = supply.top_up(cl._dev(), 6, 6, heal=True, purpose=f"rung1 gate {item}")
@@ -1117,6 +1117,8 @@ def main(argv=None) -> int:
     r.add_argument("--one-window", action="store_true", help="hold the lock once for all the items (keep it short: <= ~8 min)")
     r.add_argument("--groups", default="", help='items per lock window, ";"-separated (e.g. "split_drop,pickup,fight_back;'
                    'eat_drink,rest;come_follow,grave"): fewer waits in the queue, each window still short')
+    r.add_argument("--supply", action=argparse.BooleanOptionalAction, default=True,
+                   help="the harness food/water/HP top-up before each item (eat_drink never gets it)")
     r.add_argument("--judge", action=argparse.BooleanOptionalAction, default=None)
     a = ap.parse_args(argv)
     a.run_index = getattr(a, "first_index", 0)

@@ -107,7 +107,11 @@ QUIET_FAILS = ("interrupted", "attacked", "still_running")  # a newer command or
 # A leg's start teleport must never drop him onto anyone's pieces (main/movement 2026-11-02: near_doric's start
 # [88.77, 1852.10] is inside Luis's base, wedged in his Spinning Wheel's collision: 0 cm moved, no jump got airborne).
 CLEAR_M = 1.5
-START_OVERRIDES = {"near_doric": [86.0, 1842.0, -31.4]}  # south of Luis's plots (y 1847-1853), >= 5 m from every piece
+# Every leg that started at the doorway [88.77, 1852.10] starts here instead: south of Luis's plots (y 1847-1853),
+# >= 5 m from every piece; near_doric reached from it (cl-20261102T003725Z, 29.0 s). The 01:46Z run measured the
+# doorway itself 0.9-1.28 m from an Ash Farming Plot (far_doorway_se, ramp_down).
+OFF_DOORWAY = [86.0, 1842.0, -31.4]
+START_OVERRIDES = {k: OFF_DOORWAY for k in ("near_doric", "far_doorway_se", "ramp_down", "around_water")}
 
 
 def clearance(cli) -> dict:
@@ -115,16 +119,19 @@ def clearance(cli) -> dict:
     near = []
     try:
         st = (cli.request("get_state", {}, timeout=15) or {}).get("data") or {}
-        near += [(float(x["distance"]), str(x.get("name") or x.get("id"))) for x in st.get("structures") or []
+        me = st.get("position") or st.get("pos")
+        near += [(float(x["distance"]), str(x.get("name") or x.get("id")), x.get("position")) for x in st.get("structures") or []
                  if isinstance(x, dict) and isinstance(x.get("distance"), (int, float))]
         c = (cli.request("census", {"radius_m": 6, "max": 40, "foliage": False}, timeout=20) or {}).get("data") or {}
-        near += [(float(x["distance"]), str(x.get("name"))) for x in c.get("interactables") or []
+        near += [(float(x["distance"]), str(x.get("name")), x.get("position") or x.get("pos")) for x in c.get("interactables") or []
                  if isinstance(x, dict) and isinstance(x.get("distance"), (int, float))
                  and "Gravestone" not in str(x.get("name"))]
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "why": f"clearance not read: {exc}"}
-    d, name = min(near, default=(None, None))
-    return {"ok": d is None or d >= CLEAR_M, "nearest_m": round(d, 2) if d is not None else None, "nearest": name}
+    d, name, pos = min(near, key=lambda n: n[0], default=(None, None, None))
+    # where he stood and where the piece is: a measure taken before the teleport landed would show it
+    return {"ok": d is None or d >= CLEAR_M, "nearest_m": round(d, 2) if d is not None else None, "nearest": name,
+            "nearest_at": pos, "me_at": me}
 
 
 def action_check(rows: list[dict], expect=(), forbid=(), tell_fails: bool = False) -> dict | None:
