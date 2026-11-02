@@ -337,53 +337,87 @@ def stock(ctx, item: str, want: dict[str, int]) -> list[str]:
     return out
 
 
-STASH_AT = (112.6, 1850.5)  # his own Crate by the tannery (built 2026-11-02, room left); ids renumber after a reload
-STASH_STAND = [STASH_AT[0] - 1.6, STASH_AT[1] + 0.5, -31.2]  # where he stands to reach it
+STASH_AT = (112.6, 1850.5)  # by the tannery: his crates on his ledger within STASH_M of here take what a gate sheds
+STASH_M = 12.0
+PIECES = g.ROOT / "data" / "skills" / "dev" / "my_pieces.json"
+RETRY = ("interrupted", "cancelled", "busy", "still_running")
 
 
-def own_stash(ctx) -> str | None:
-    """His crate at STASH_AT (matched by position: ids renumber after a client reload), or None."""
-    r3.place(ctx, STASH_STAND)
-    lk = ctx.cli.request("look", {"about": "crate", "radius": 8, "max": 20}, timeout=15) or {}
-    for x in ((lk.get("data") or {}).get("things") or []):
-        p = x.get("position") or [1e9, 1e9]
-        if x.get("kind") == "storage" and abs(p[0] - STASH_AT[0]) < 0.8 and abs(p[1] - STASH_AT[1]) < 0.8:
-            return x.get("id")
-    return None
+def own_storage(ctx) -> list[tuple[str, list]]:
+    """His crates and chests by the base (his piece ledger, within STASH_M of STASH_AT; matched in look by position,
+    ids renumber after a client reload), nearest first: [(id, at)]. One alone fills (07:50Z: all 16 slots taken)."""
+    try:
+        led = json.loads(PIECES.read_text(encoding="utf-8")).get("pieces") or []
+    except (OSError, ValueError):
+        led = []
+    spots = [r["at"] for r in led if isinstance(r, dict) and r.get("name") in ("Crate", "Ash Chest") and r.get("at")
+             and ((r["at"][0] - STASH_AT[0]) ** 2 + (r["at"][1] - STASH_AT[1]) ** 2) ** 0.5 <= STASH_M]
+    spots.sort(key=lambda a: (a[0] - STASH_AT[0]) ** 2 + (a[1] - STASH_AT[1]) ** 2)
+    r3.place(ctx, [STASH_AT[0] - 1.6, STASH_AT[1] + 0.5, -31.2])
+    lk = ctx.cli.request("look", {"radius": STASH_M + 8, "max": 60}, timeout=15) or {}
+    things = [x for x in ((lk.get("data") or {}).get("things") or []) if x.get("kind") == "storage"]
+    out = []
+    for a in spots:
+        x = next((x for x in things if abs((x.get("position") or [1e9])[0] - a[0]) < 0.8
+                  and abs((x.get("position") or [0, 1e9])[1] - a[1]) < 0.8), None)
+        if x:
+            out.append((x.get("id"), a))
+    return out
+
+
+def store_his(ctx, name: str, n: int, stores: list[tuple[str, list]]) -> tuple[bool, str]:
+    """n of `name` into the first of his storages that takes them (store walks there itself); a pre-empted store is
+    tried again (the brain is live: its start-up review took the body mid-store at 07:33:40Z, "cancelled")."""
+    why = "none of his storage found by the base"
+    for cid, at in stores:
+        res = {}
+        for _ in range(4):
+            res = ctx.cli.request("store", {"item": name, "container": cid, "count": n}, timeout=120) or {}
+            if res.get("ok") or res.get("reason") not in RETRY:
+                break
+            time.sleep(4.0)
+        if res.get("ok"):
+            return True, f"stored {n} {name} in his storage at ({at[0]:.1f}, {at[1]:.1f})"
+        why = f"{res.get('reason')}: {(res.get('data') or {}).get('detail')}"
+    return False, why
+
+
+def put_back(ctx, granted: dict[str, int]) -> str:
+    """Up to the granted count of each fixture item (id -> n) he still carries goes into his storage; the note says."""
+    rows = cp.inv_rows(cp.inventory(ctx.cli))
+    stores, done = own_storage(ctx), []
+    for it, n in granted.items():
+        have = sum(int(r.get("count") or 1) for r in rows if r.get("item") == it)
+        name = next((r.get("name") for r in rows if r.get("item") == it), it)
+        if min(n, have) > 0:
+            ok, msg = store_his(ctx, name, min(n, have), stores)
+            done.append(msg if ok else f"{min(n, have)} {name} NOT stored ({msg})")
+    return "put back: " + (", ".join(done) or "nothing left")
 
 
 def shed(ctx, item: str, name_rx: str) -> list[str]:
-    """Copies of the item under test he carries or wears (name_rx on display names) go off him into his own crate
-    (STASH_AT), so he starts without one, as Luis did, and nothing of his is lost or left on the ground (main
+    """Copies of the item under test he carries or wears (name_rx on display names) go off him into his own storage
+    by the base, so he starts without one, as Luis did, and nothing of his is lost or left on the ground (main
     2026-11-02: gates never litter or drop his own gear). A store that fails stops the item (nothing dropped)."""
     rx = re.compile(name_rx, re.I)
     inv = cp.inventory(ctx.cli)
     worn = [(s, n) for s, n in (inv.get("worn") or {}).items() if n and rx.search(str(n))]
     for slot, _ in worn:
         ctx.cli.request("unequip", {"slot": slot}, timeout=20)
+    # one in his hand comes off first (store: "the one in my hand has to come off before it can go in a chest");
+    # unequip by item answers {already: true} when it isn't held or slotted
+    for name in {r.get("name") for r in cp.inv_rows(cp.inventory(ctx.cli)) if rx.search(str(r.get("name") or ""))}:
+        ctx.cli.request("unequip", {"item": name}, timeout=20)
     rows = [r for r in cp.inv_rows(cp.inventory(ctx.cli)) if rx.search(str(r.get("name") or ""))]
     if not rows:
         return [f"took off {[n for _, n in worn]}"] if worn else []
-    out, crate = [], own_stash(ctx)
-    if not crate:
-        raise RuntimeError(f"his crate at {STASH_AT} was not found: {[r.get('name') for r in rows]} stay on him, item not run")
+    out, stores = [], own_storage(ctx)
     for r in rows:
         n = int(r.get("count") or 1)
-        res = {}
-        # the brain is already live: its own start-up review can take the body mid-store (07:33:40Z: the arrows'
-        # store came back "cancelled" when he went to drink), so a pre-empted store is tried again
-        for _ in range(4):
-            res = ctx.cli.request("store", {"item": r.get("name") or r.get("item"), "container": crate, "count": n}, timeout=120) or {}
-            if res.get("ok") or res.get("reason") not in ("interrupted", "cancelled", "busy", "still_running"):
-                break
-            time.sleep(4.0)
-            r3.place(ctx, STASH_STAND)
-        if res.get("ok"):
-            out.append(f"stored {n} {r.get('name')} in his crate at {STASH_AT}")
-            continue
-        # never dropped (main 2026-11-02: gates don't litter): the item is not run with them on him
-        raise RuntimeError(f"could not store his {n} {r.get('name')} in his crate ({res.get('reason')}: "
-                           f"{(res.get('data') or {}).get('detail')}); item not run")
+        ok, msg = store_his(ctx, r.get("name") or r.get("item"), n, stores)
+        if not ok:  # never dropped: the item is not run with them on him
+            raise RuntimeError(f"could not store his {n} {r.get('name')} ({msg}); item not run")
+        out.append(msg)
     left = [r.get("name") for r in cp.inv_rows(cp.inventory(ctx.cli)) if rx.search(str(r.get("name") or ""))]
     if left:
         raise RuntimeError(f"could not put away his {left} before the item")
@@ -560,6 +594,14 @@ def it_spells(ctx) -> dict:
                     settled=lambda rows: any(r.get("kind") == "event" and (r.get("event") or {}).get("kind") == "combat_end"
                                              for r in rows))
     remove_spawn(row, res)
+    # the granted staff and what is left of the granted runes go into his crate (gates leave no fixtures on him)
+    granted = {"ITEM_Staff_Ash": 1} if any(f.startswith("ITEM_Staff_Ash") for f in fixtures) else {}
+    for f in fixtures:
+        m = re.match(r"(ITEM_Rune_Air) x(\d+)$", f)
+        if m:
+            granted[m.group(1)] = int(m.group(2))
+    if granted:
+        fixtures.append(put_back(ctx, granted))
     t_h = T_H["spells"]()
     return g.finish(ctx, "spells", [row], t_h, allowed=1, work=fight_work(row),
                     note=f"T_h = 1.5 + Luis's kill unit {g.unit('kill')} s (no Luis staff fight recorded); "
