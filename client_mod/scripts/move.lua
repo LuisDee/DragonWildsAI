@@ -161,6 +161,8 @@ M.cfg = {
     prov_walk = true,          -- while a long route streams in on the dev server (~10 s), walk toward the goal
                                -- drop-guarded instead of standing; re-anchored on the route when it comes
     prov_min_cm = 4000,        -- ... only for trips longer than this (short routes come back in < 1 s)
+    nav_stand_s = 4.0,         -- a trip that does not walk provisionally stands at most this long for its route
+                               -- (a short trip's comes in < 1 s), then plans locally: a player starts at once
     oracle_primary_cm = 1000,  -- beyond this (or above jump height) the oracle route leads; the local
                                -- planner only handles the obstacle in front of the next waypoint
     unreachable_check_s = 1.5, -- while unreachable: re-check this often
@@ -1994,7 +1996,9 @@ local function lost_target(f)
     st.lost_t = st.lost_t or f.t
     -- a go_to gives up 10 s into the move once the target has been gone 2 s in a row (a pawn handing over to its map
     -- marker, or back, may miss a frame); the reason says who IS on the map
-    if st.mode == "go_to" and f.t - st.t0 > 10 and f.t - st.lost_t >= 2 then
+    -- (a target never seen in this move fails after those 2 s: nothing to hand over; live rung1, 10 s to fail
+    -- before the brain's map fallback)
+    if st.mode == "go_to" and (f.t - st.t0 > 10 or not st.target_ever) and f.t - st.lost_t >= 2 then
         local names = st.target_kind ~= "actor" and map_names(f.pawn) or nil
         local detail = names and string.format("%s is not in sight, and no player of that name is on the game map (on the map: %s)",
             tostring(st.target_spec or st.target_name), #names > 0 and table.concat(names, ", ") or "nobody else") or nil
@@ -2056,7 +2060,7 @@ local function track_goal(f)
             .. (via == "map" and "his marker on the game map (out of sight)" or "sight (his pawn replicated)")) end
         st.target_via = via
     end
-    st.lost_t = nil
+    st.lost_t, st.target_ever = nil, true
     if st.last_goal and d2(goal, st.last_goal) > M.cfg.target_jump_cm then -- teleport: drop the old route and trail
         if log then log(string.format("move: target jumped %.0f m (teleport?); resetting route and trail", d2(goal, st.last_goal) / 100)) end
         st.path, st.lpath, st.mpath, st.trail_i, st.bug = nil, nil, nil, nil, nil
@@ -2408,10 +2412,18 @@ local function route_tick(f)
         and route_observe(f, world) then return true end
     if not st.path and st.nav_required and not st.local_authority then
         st.nav_wait_t = st.nav_wait_t or t
-        if st.nav_fail or (not st.nav_pending and not st.nav_live) or t - st.nav_wait_t > M.cfg.nav_timeout_s then
+        local prov_ok = M.cfg.prov_walk and st.nav_pending and not st.prov_stalled and not st.unreach and dist > M.cfg.prov_min_cm
+            and not (st.mode == "go_to" and t - st.t0 > st.timeout_s)
+        -- a player starts walking at once: no route can come while the helper recovers or is unresolved (live
+        -- 01:01-02:18Z "recovering: server_identity_changed": 59-66 s standing, explore legs "Moved 0 m in 40 s"),
+        -- and a short trip's route comes in < 1 s, so standing longer than nav_stand_s is waiting on nothing;
+        -- a long trip walks provisionally meanwhile (prov_ok) and keeps waiting for its route
+        local dead = not st.nav_pending and (not st.nav_live or st.nav_wait_reason == "oracle_recovering"
+            or st.nav_wait_reason == "oracle_unresolved")
+        local stand_s = math.min(M.cfg.nav_timeout_s, M.cfg.nav_stand_s, math.max(1, (st.timeout_s or 40) * 0.25))
+        if st.nav_fail or dead or t - st.nav_wait_t > M.cfg.nav_timeout_s or (not prov_ok and t - st.nav_wait_t > stand_s) then
             route_fallback(st, st.nav_fail or (st.nav_pending and "oracle_timeout") or st.nav_wait_reason or "oracle_unavailable", log)
-        elseif M.cfg.prov_walk and st.nav_pending and not st.prov_stalled and not st.unreach and dist > M.cfg.prov_min_cm
-            and not (st.mode == "go_to" and t - st.t0 > st.timeout_s) then
+        elseif prov_ok then
             -- waiting for a long route (the dev server streams the corridor in: 9.8-11.9 s standing at the start of
             -- every 150+ m trip, live 2026-11-01): walk toward the goal meanwhile, drop-guarded like the fallback
             -- (killz); when the route comes it is re-anchored where he is now (nav_response). Stalled -> stand as before.
@@ -2882,8 +2894,36 @@ local function trail_entry(f)
     local above = (goal.Z - me.Z) > (jump_cm(st) + 100) and dist < 1500
     local led = st.trail_led and dist > st.tol_cm + 100
     if nav_bad or above or led or st.want_trail or st.stuck_n >= M.cfg.trail_enter_stuck then
+        if st.trail_block_t and f.t - st.trail_block_t < 0.5 then return end
         st.want_trail = false
         st.trail_i = nearest_crumb(st.crumbs, me, st.trail_above_i and st.trail_above_i + 1)
+        -- rejoin his trail where the straight way to it is open: the nearest crumb is often across a wall whose end
+        -- he walked round (live church loop 02:15:54Z: rejoined 1.3 m away through a wall, 14 s pushing into it);
+        -- the crumbs on toward him first, then back toward that wall end; none open = keep walking (the planner)
+        local i0 = st.trail_i
+        if i0 and f.pawn and d2(me, st.crumbs[i0]) > 100 then
+            local feet = me.Z - (st.half_h or 88)
+            local tests, last = 0, nil
+            local function open(i) -- (at most 12 line tests, crumbs 1 m apart or more)
+                local c = st.crumbs[i]
+                if tests >= 12 or not c or c.air or c.gap or math.abs(c.Z - me.Z) > 100 or d2(me, c) > 1500 then return false end
+                if last and d2(last, c) < 100 then return false end
+                tests, last = tests + 1, c
+                local okc, clear = pcall(escape_line_clear, f.pawn, me, feet, c)
+                return okc and clear == true
+            end
+            local pick
+            if open(i0) then pick = i0 end
+            for i = i0 + 1, math.min(#st.crumbs, i0 + 40) do if pick or tests >= 7 then break end; if open(i) then pick = i end end
+            last = st.crumbs[i0]
+            for i = i0 - 1, math.max(1, i0 - 40), -1 do if pick then break end; if open(i) then pick = i end end
+            if pick ~= i0 and log then
+                log(string.format("move: trail: the way to his nearest trail point (i=%d) is blocked; %s", i0,
+                    pick and string.format("rejoining at i=%d, in the open", pick) or "walking on until it is in the open"))
+            end
+            st.trail_i = pick
+            if not pick then st.trail_block_t = f.t; return end
+        end
         if st.trail_i then
             st.trail_above_i = nil
             st.trail_entries = (st.trail_entries or 0) + 1
@@ -3251,6 +3291,32 @@ local function steer_trail(f)
         -- doric 23:31:40Z, "running on" toward him on a 1.8 m ledge, then 4 s pushing into its face at 1 m/s)
         local up = land and not land.air and land.Z - me.Z > step_tol(st)
         local tgt = not up and (land and not land.air and math.abs(land.Z - me.Z) <= step_tol(st) and land or f.goal)
+        if up then
+            -- what he "landed" on must be there: no floor under him at his height = he was still in the air (hops and
+            -- Windsteps in a row, a sample between two of them reads as ground). Then it is open ground: run on below
+            -- him (live doric 01:24:35Z: Luis 1.5-2.4 m over flat ground for 5 s; a copied double jump at 3 m/s)
+            local hh = st.half_h or 90
+            local okf, hitf, outf = pcall(raw_trace, pawn, { X = land.X, Y = land.Y, Z = land.Z }, { X = land.X, Y = land.Y, Z = land.Z - hh - 400 })
+            local fz = okf and hitf and type(outf) == "table" and outf.ImpactPoint and tonumber(outf.ImpactPoint.Z)
+            if fz and land.Z - hh - fz > step_tol(st) and math.abs(fz + hh - me.Z) <= step_tol(st) then
+                up, tgt = false, { X = land.X, Y = land.Y, Z = fz + hh }
+            end
+        end
+        if up then
+            -- (but where his trail already comes back down to our level close by, the way on may go round what he
+            -- hopped onto: run there when the line is clear; and a landing out of our jump's reach is not copied,
+            -- live church loop 00:39:15Z, a copied 2.8 m jump missed and cost 11 s)
+            for j = k + 1, #st.crumbs do
+                local q = st.crumbs[j]
+                if q.gap or d2(me, q) > 1200 then break end
+                if not q.air and math.abs(q.Z - me.Z) <= step_tol(st) then tgt = q; break end
+            end
+            if not tgt then
+                st.env = st.env or envelope(pawn, f.pc)
+                local reach = math.max(jump_cm(st), (st.env and st.env.double_jump and st.env.dj_measured and st.env.djump) or 0)
+                if land.Z - me.Z > reach then tgt = f.goal end
+            end
+        end
         if tgt and d2(me, tgt) > 100 and d2(me, tgt) < 1200 and ground_check(pawn) == true then
             local okc, clear = pcall(escape_line_clear, pawn, me, me.Z - (st.half_h or 88), tgt)
             if okc and clear == true then
@@ -4751,26 +4817,25 @@ function M.unstuck(log)
         return { ok = false, error = "NavigateToScreen: " .. tostring(err) }
     end
     if set_pause then
-        ExecuteWithDelay(4000, function() ExecuteInGameThread(function() if rawget(_G, "DW_UNSTUCK_PAUSE") then _G.DW_PAUSE = nil; _G.DW_UNSTUCK_PAUSE = nil end end) end)
+        ExecuteInGameThreadWithDelay(4000, function() if rawget(_G, "DW_UNSTUCK_PAUSE") then _G.DW_PAUSE = nil; _G.DW_UNSTUCK_PAUSE = nil end end)
         _G.DW_UNSTUCK_PAUSE = true
     end
     _G.DW_UNSTUCK = { state = "menu_requested" }
     if log then log("move: unstuck requested (pause menu)") end
-    ExecuteWithDelay(700, function()
-        ExecuteInGameThread(function()
-            if paused() and not rawget(_G, "DW_UNSTUCK_PAUSE") then return end
-            local r = _G.DW_UNSTUCK
-            local scr
-            for _, w in ipairs(FindAllOf("PauseMenuScreen") or {}) do
-                local n = w:GetFullName()
-                if w:IsValid() and not n:find("Default__") then scr = w end
-            end
-            if not scr then r.state = "no_pause_screen"; if log then log("move: unstuck failed: no pause screen") end; return end
-            local okb, eb = pcall(function() scr.ProgressButton_Unstuck:HandleHeldActionCompleted() end)
-            r.state = okb and "completed" or ("button_error " .. tostring(eb))
-            pcall(function() scr:Resume() end)
-            if log then log("move: unstuck " .. r.state) end
-        end)
+    -- game-thread delays only (UE4SS async-thread race; DISCOVERIES "Dev server crash 2026-11-02")
+    ExecuteInGameThreadWithDelay(700, function()
+        if paused() and not rawget(_G, "DW_UNSTUCK_PAUSE") then return end
+        local r = _G.DW_UNSTUCK
+        local scr
+        for _, w in ipairs(FindAllOf("PauseMenuScreen") or {}) do
+            local n = w:GetFullName()
+            if w:IsValid() and not n:find("Default__") then scr = w end
+        end
+        if not scr then r.state = "no_pause_screen"; if log then log("move: unstuck failed: no pause screen") end; return end
+        local okb, eb = pcall(function() scr.ProgressButton_Unstuck:HandleHeldActionCompleted() end)
+        r.state = okb and "completed" or ("button_error " .. tostring(eb))
+        pcall(function() scr:Resume() end)
+        if log then log("move: unstuck " .. r.state) end
     end)
     return { ok = true }
 end

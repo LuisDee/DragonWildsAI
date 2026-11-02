@@ -2348,6 +2348,7 @@ do
     local function setup()
         pawn.Jump=original_jump; M.stop(log)
         walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
+        M.cfg.prov_walk = false -- (jump-rejection units: no provisional walk before the route)
         pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{20,0,0},{nav=false,local_plan=false})
         return _G.DW_MOVE
     end
@@ -2420,7 +2421,7 @@ do
         check("jump preemption: "..scenario.name.." preserves successor and marker",attempts==1 and st.gen>before and st.mode=="go_to" and st.owner_token==created_token and st.handle==created_handle and loops[created_handle] and marker[key]==nil)
         if scenario.cleanup then scenario.cleanup() end
     end
-    pawn.Jump=original_jump; M.stop(log)
+    pawn.Jump=original_jump; M.stop(log); M.cfg.prov_walk = true
 end
 do
     walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
@@ -2583,7 +2584,9 @@ do
     _G.DWMapPlayers = nil
     local r1 = M.go_to(log, "ClaudeDev", { nav = false, local_plan = false })
     check("far player: my own map row is no target", r1.ok and r1.target_via == nil, tostring(r1.target_via))
-    run(130)
+    local T0, fail_t = T, nil
+    for _ = 1, 130 do run(1); if M.status().result and not fail_t then fail_t = T - T0 end end
+    check("far player: a name never seen fails in ~2 s (not 10 s)", fail_t and fail_t < 3, tostring(fail_t))
     local s3 = M.status()
     local on_map = s3.result and tostring(s3.result.detail):match("on the map: ([^)]*)") or ""
     check("far player: unknown name fails truthfully, naming who is on the map", s3.result and s3.result.reason == "target_not_visible" and
@@ -3173,8 +3176,89 @@ do
         check("trail: his jump up onto a ledge is copied, not run on", not said and jumps >= 1, tostring(said) .. " jumps=" .. jumps)
         raised = {}
     end
+    -- he hops onto a box beside the way and down again: where his trail comes back down is in clear sight, so run
+    -- on there, no jump (live church loop 00:39:15Z: copying such hops cost 4-11 s)
+    do
+        M.stop(log); walls = {}; air = 0; jumps = 0
+        raised = { { 350, 550, 150, 300, 160, 160 } }
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 900, Y = 0, Z = 0 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(2)
+        local mv = _G.DW_MOVE
+        local bx = pawn.loc.X
+        mv.crumbs = { { X = bx, Y = 0, Z = 0 }, { X = bx + 130, Y = 0, Z = 120, air = true }, { X = 300, Y = 180, Z = 250, air = true },
+                      { X = 450, Y = 220, Z = 160 }, { X = 650, Y = 60, Z = 120, air = true }, { X = 750, Y = 0, Z = 0 }, { X = 900, Y = 0, Z = 0 } }
+        mv.trail_i, mv.trail_jumped = 2, {}
+        local n0 = #logs
+        step(3)
+        said = false
+        for i = n0 + 1, #logs do if logs[i]:find("running on, no jump", 1, true) then said = true end end
+        check("trail: his hop onto a box beside the way, with the way down in sight, is not copied", said and jumps == 0, tostring(said) .. " jumps=" .. jumps)
+        raised = {}
+    end
+    -- hops and Windsteps in a row over flat ground: a sample between two reads as ground ~1 m up (in our jump's reach), with no floor under
+    -- it at that height: no ledge, so run on below him (live doric 01:24:35Z, a copied double jump at 3 m/s)
+    do
+        M.stop(log); walls = {}; raised = {}; air = 0; jumps = 0
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 900, Y = 0, Z = 0 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(2)
+        local mv = _G.DW_MOVE
+        local bx = pawn.loc.X
+        mv.crumbs = { { X = bx, Y = 0, Z = 0 }, { X = bx + 130, Y = 0, Z = 150, air = true }, { X = bx + 300, Y = 0, Z = 220, air = true },
+                      { X = bx + 450, Y = 0, Z = 90 }, { X = bx + 600, Y = 0, Z = 200, air = true }, { X = bx + 750, Y = 0, Z = 90 }, { X = 2200, Y = 0, Z = 0 } }
+        mv.trail_i, mv.trail_jumped = 2, {}
+        local n0 = #logs
+        step(3)
+        said = false
+        for i = n0 + 1, #logs do if logs[i]:find("running on, no jump", 1, true) then said = true end end
+        check("trail: his hops in a row over flat ground (no floor under where he 'landed') are not copied", said and jumps == 0, tostring(said) .. " jumps=" .. jumps)
+    end
     pawn.Jump = real_jump
     M.stop(log); walls = {}; luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- rejoining his trail across a wall: the nearest crumb is on the far side of a wall whose end he walked round; the
+-- rejoin is a crumb in the open, back toward that end (live church loop 02:15:54Z, 14 s pushing into the wall)
+do
+    M.stop(log); frame_hook = nil; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    walls = { { 300, 340, -800, 200, true } }
+    pawn.loc = { X = 450, Y = 0, Z = 0 }; luis.loc = { X = 150, Y = -500, Z = 0 }
+    M.follow(log, "Zezima", 2, { nav = false })
+    run(1)
+    local mv = _G.DW_MOVE
+    mv.crumbs = { { X = 500, Y = 600, Z = 0 }, { X = 320, Y = 420, Z = 0 }, { X = 150, Y = 300, Z = 0 }, { X = 150, Y = 0, Z = 0 },
+                  { X = 150, Y = -300, Z = 0 }, { X = 150, Y = -500, Z = 0 } }
+    mv.trail_i, mv.trail_above_i, mv.want_trail, mv.trail_jumped = nil, nil, true, {}
+    local n0 = #logs
+    step(1)
+    local rej, on = nil, nil
+    for i = n0 + 1, #logs do
+        rej = rej or logs[i]:match("rejoining at i=(%d+)")
+        on = on or logs[i]:match("trail ON i=(%d+)")
+    end
+    check("trail: rejoined where the way to his trail is open, not through the wall", rej == "2" and on == "2" and mv.trail_i == 2,
+        tostring(rej) .. " " .. tostring(on) .. " trail_i=" .. tostring(mv.trail_i))
+    M.stop(log); walls = {}; luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- STANDING for a route (Luis's stand bar: a player starts at once): a route helper that is recovering cannot send one
+-- (live 01:01-02:18Z, 59-66 s standing); one that never answers is waited on for nav_stand_s, then local planning
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; HOLES = nil; air = 0
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil; pump_oracle()
+    local hb = io.open(dir .. "/client_io/nav/alive.lua", "w")
+    hb:write(('return {version=2,epoch="33333333-3333-4333-8333-333333333333",state="recovering",updated=%d}'):format(os.time())); hb:close()
+    M.go_to(log, { 20, 0, 0 }, { local_plan = false })
+    local T0, moved_t = T, nil
+    for _ = 1, 300 do step(1); if pawn.loc.X > 10 then moved_t = T - T0; break end end
+    check("stand: a recovering route helper -> walking at once", moved_t and moved_t < 1, tostring(moved_t))
+    M.stop(log); pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = function() return nil end; pump_oracle()
+    M.go_to(log, { 20, 0, 0 }, { local_plan = false })
+    T0, moved_t = T, nil
+    for _ = 1, 600 do step(1); pump_oracle(); if pawn.loc.X > 10 then moved_t = T - T0; break end end
+    check("stand: a route that never comes -> walking within 5 s", moved_t and moved_t > 2 and moved_t < 5, tostring(moved_t))
+    M.stop(log); oracle = nil; pump_oracle()
 end
 
 -- WEDGED among placed pieces (live 23:42Z, Luis's church base: a Spinning Wheel, a bench, farm plots): the failure
