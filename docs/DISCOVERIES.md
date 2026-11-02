@@ -2887,6 +2887,10 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 
 ## Graves as storage, the temple-pit route, raised NPC platforms and the shared camera (2026-11-01 18:00-19:10Z; game build 26161880, client 26162923, dev world, ClaudeDev; movement agent)
 - **A grave whose contents won't all fit is storage.** Its prompt reads "Open" (not "Take All"). The press opens the game's container screen for it (`W.open_container(api).owner == grave id`), and the rows move with the same `UInventoryUIAPI::HandleSplitToSlotFromExternal(from_slot, inv, amount, to_slot, slot_type)` as a chest. `HandleTakeAllFromWorldInventory` also exists on the same API (unused).
+- **A press on a crafting or processing station opens its screen, and a second press shuts it** (build 26161880, live 2026-11-02 04:22-04:33 local, Crafting Table BP_Crafting_StartingBench_C).
+  - The open screen reads as `CraftingUIAPI.CurrentStation:GetOwner()` (processing: `ProcessingStationUIAPI.ProcessingStationComponent`) = the station actor, the same read as `crafting.W.open_station`.
+  - interact's verify now counts it as `changed = "opened"`.
+  - The take-all handlers for world containers are `UWorldActorInventoryUIAPI::HandleTakeAllByPlayer()` (the screen's Take All button; also HandleFillStacksByPlayer, HandleSortByPlayer, CloseCurrentInventory) and `UInventoryUIAPI::HandleTakeAllFromWorldInventory()` (CXXHeaderDump/Dominion.hpp). They are unused: the grave's ordered take keeps gear first (Luis).
   - Row data read from each `UItemData` (dump Dominion.hpp:25279): `Category` (FGameplayTag, `.TagName`), `MaxStackSize`, `Weight`, `PowerLevel`. Gear: `Item.Equipment.*` (minus `*Ammo*`) and the Torch's `ItemFilter.Type.Equipment.Tool`; seeds `ItemFilter.Material.Seed`.
   - The carry limit: `PlayerEncumbranceComponent` `GetCurrentCarryWeight` / `GetMaxCarryWeight` read 309.4 of **400** at 18:08Z (250 earlier in the day).
   - Live 18:08:04-11Z: 142 of 145 items in 6.6 s over 31 moves; the bag filled and Animal Bone, Feathers and Vault Core stayed in the grave.
@@ -3257,3 +3261,16 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 - `buildables {about:"bed"}`: **Bedroll** `BUILDPIECE_Interior_BedRoll` (3 Ash Logs + 3 Coarse Animal Fur, "sleep in and skip the night") is unlocked and buildable now; **Bed** `BUILDPIECE_Interior_Bed` (8 Ash Plank + 4 Rough Cloth) is unlocked but missing materials. Both have shelter_text "Requries Shelter" (sic): they must go under a roof, like the Spinning Wheel.
 - Wild flax (`BP_Spawner_Flax_C`, gather profile `flax`) near (313,1787): three roots within 60 m; once picked they stay gone for at least an hour (02:44Z hunt found 1 left within 90 m after the 01:47Z run picked one). gather says so in seconds: "I got 1 but there's no more flax within 90 m of me."
 - The 01:44-01:47Z 40 s stands (explore legs, flax approaches) were move.lua's oracle wait with the nav helper unresolved (01:01Z server restart until main re-armed it at 02:18Z); a 40 m leg is not > prov_min_cm 4000, so no provisional walk. With the helper up the route comes in 0.2 s.
+
+## Processing-station output when overloaded; the station menu blocks pickups (2026-11-02 03:09-03:41Z; build 26161880, client 26162923, dev world, ClaudeDev; rung4 agent; scratchpad leather_repro.py)
+- **Over the carry weight, a station's output does not come to his bag.** It stays on the ground by the station as `BP_RuntimeSpawnedWorldItem_ProcessingStation_C` (prompt "Collect"), one actor per item.
+  - Under the limit (277/400) the Tannery's Leather arrived in his bag by itself.
+  - At 424/400 (bag full) and at 447.5/400 (a free bag slot), all of them stayed on the ground. So weight is the blocker, not slots.
+- **A manual pickup works while overloaded:** `interact` on one of them at 424/400 and at 447.5/400 took it (+1 Leather).
+- **With the station's Processing menu open, the game offers no pickup at all.**
+  - The craft's collect walked 4 spots round the Tannery with the menu still open: the detector showed nothing ("no use from where I can stand").
+  - After the fix (crafting.lua closes the menu first, `InputManagerUIAPI:CloseWidgetIfOpen`), at 417.9/400 it collected both Leather. Menu closed 03:40:52, presses 03:40:53 and 03:40:57, done 03:41:05.
+- **`processing_rate` (5.0 on most stations) does not divide `processing_time`.**
+  - The Tannery takes ~10 s a Leather ([8, 12]).
+  - Dividing by the rate gave a 29 s wait for 3, which timed out at "2 of 3" with both left on the ground.
+- **The old collect failure ("couldn't pick up what it made") was half true.** It never said the items were still lying there, or why they never reached his bag.
