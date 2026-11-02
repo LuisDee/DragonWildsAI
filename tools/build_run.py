@@ -414,6 +414,12 @@ def buckets(calls: list[dict], wall_s: float, t0: float, t1: float, who: str = "
     return out
 
 
+# main 2026-11-02: his roofed house by the farm plots stays (farming's Spinning Wheel under its roof, movement's
+# shut-door test): clean-up never floods within PROTECT_M of it, and touches nothing there the run didn't build
+PROTECT = ([171.2, 1915.32], [174.6, 1919.4])
+PROTECT_M = 10.0
+
+
 def cleanup(cli, rows: list[dict]) -> list[dict]:
     """Harness clean-up after a scored rung 2 run (dev world fixture, not play): take down what he built in the run
     by the body's own deconstruct, so the same flat spot near his base is free for the next run (live 08:2xZ: 45
@@ -431,10 +437,25 @@ def cleanup(cli, rows: list[dict]) -> list[dict]:
         pos = r["position"]
         if any(math.dist(pos, g) <= 0.5 for g in gone_at):
             continue
-        if others and min(math.dist(pos[:2], c[:2]) for c in others) < GUARD_M:
+        # (the piece itself is no neighbour: an orphan stand-in is off his ledger too)
+        if any(0.6 < math.dist(pos[:2], c[:2]) < GUARD_M for c in others):
             out.append({"name": r.get("name"), "ok": False, "detail": "within 30 m of a piece not his; left standing"})
             continue
-        cli.request("go_to", {"target": pos}, timeout=90)
+        near_kept = min(math.dist(pos[:2], k) for k in PROTECT)
+        def hostiles_near() -> list:
+            cr = cli.request("census", {"radius_m": 160, "max": 40, "kinds": {"creatures": True}}, timeout=20) or {}
+            return [c.get("name") for c in ((cr.get("data") or {}).get("creatures") or []) if c.get("attitude") == "hostile"
+                    and not c.get("dead") and isinstance(c.get("position"), list)
+                    and math.dist(c["position"][:2], pos[:2]) <= HOSTILE_M]
+        # no fight for a clean-up (live 04:49Z: he died to a third rat at a nest, mid-fixture): from here (those in
+        # sight), then again once there (a far nest is out of sight from here)
+        rats = hostiles_near()
+        if not rats:
+            cli.request("go_to", {"target": pos}, timeout=150)
+            rats = hostiles_near()
+        if rats:
+            out.append({"name": r.get("name"), "ok": False, "detail": f"hostiles within {HOSTILE_M:.0f} m ({', '.join(rats[:3])}); left standing"})
+            continue
         st = structures(cli)
         cur = next((k for k, v in st.items() if v.get("name") == r.get("name") and v.get("position")
                     and math.dist(v["position"], pos) <= 0.6), None)
@@ -444,7 +465,8 @@ def cleanup(cli, rows: list[dict]) -> list[dict]:
         if "Crate" in str(r.get("name")) or "Chest" in str(r.get("name")):
             t = cli.request("take", {"container": cur, "item": "Ash Logs"}, timeout=110) or {}  # what the rung 2 line stores
             out.append({"name": r.get("name"), "id": cur, "emptied": t.get("ok"), "detail": str((t.get("data") or {}).get("detail") or t.get("reason"))[:160]})
-        d = cli.request("deconstruct", {"target": cur, "whole": True}, timeout=600) or {}
+        # whole (the flood) only well clear of the kept house; near it, just this piece of the run's
+        d = cli.request("deconstruct", {"target": cur, "whole": near_kept > PROTECT_M + 15.0}, timeout=600) or {}
         dd = d.get("data") or {}
         for q in (dd.get("removed") or []) + (dd.get("collapsed") or []):
             if isinstance(q, dict) and isinstance(q.get("position"), list):
