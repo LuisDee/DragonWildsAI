@@ -218,6 +218,7 @@ FIXTURE_BLUEPRINT = "small_house"  # live 01:57Z: the 29-piece luis_house walled
 FLAT_M = 1.5
 
 
+HOUSE_SIDES = ((-8.0, 0.0), (8.0, 0.0), (0.0, -8.0), (0.0, 8.0))  # where he stands (and builds) off the stand-in
 HOSTILE_M = 45.0  # a fresh spot: no live hostile creature this near it (live 04:4xZ, the rat nest)
 
 
@@ -226,10 +227,18 @@ def site_check(cli, spot: list[float], there: bool = False) -> dict:
     (build.lua ground_check; None = no trace hit, e.g. not loaded yet) and the hostile creatures in his census within
     HOSTILE_M of the spot (from afar only those in sight). -> {flat, hostiles, why, avoid_m}: why is "not_flat",
     "hostiles" or, ``there`` only, "ground_unread"; avoid_m keeps the next pick off it (a nest: further)."""
-    flat = {}
-    for name, c in (("stand_in", spot), ("his_house", [spot[0] - FIXTURE_AT[0], spot[1] - FIXTURE_AT[1], spot[2]])):
+    def spread(c):
         g = cli.request("ground_check", {"at": c, "half_m": [4, 4], "step_m": 1.5}, timeout=20) or {}
-        flat[name] = (g.get("data") or {}).get("spread_m") if g.get("ok") else None
+        return (g.get("data") or {}).get("spread_m") if g.get("ok") else None
+    # his house goes on the flattest side of the stand-in (live 05:0xZ: 8 spots in a row failed on one side only)
+    flat, off = {"stand_in": spread(spot)}, HOUSE_SIDES[0]
+    if flat["stand_in"] is None or flat["stand_in"] <= FLAT_M:
+        sides = [(spread([spot[0] + o[0], spot[1] + o[1], spot[2]]), o) for o in HOUSE_SIDES]
+        known = [t for t in sides if t[0] is not None]
+        flat["his_house"], off = min(known, key=lambda t: t[0]) if known else (None, HOUSE_SIDES[0])
+        flat["sides"] = [t[0] for t in sides]
+    else:
+        flat["his_house"] = None
     cr = cli.request("census", {"radius_m": HOSTILE_M + 20 if there else 160, "max": 40, "kinds": {"creatures": True}},
                      timeout=20) or {}
     hostiles = []
@@ -239,17 +248,18 @@ def site_check(cli, spot: list[float], there: bool = False) -> dict:
                 and math.dist(at[:2], spot[:2]) <= HOSTILE_M):
             hostiles.append(f"{c.get('name')} {math.dist(at[:2], spot[:2]):.0f} m")
     why = None
-    if any(v is not None and v > FLAT_M for v in flat.values()):
+    if any(v is not None and v > FLAT_M for v in (flat["stand_in"], flat["his_house"])):
         why = "not_flat"
     elif hostiles:
         why = "hostiles"
-    elif there and any(v is None for v in flat.values()):
+    elif there and (flat["stand_in"] is None or flat["his_house"] is None):
         why = "ground_unread"
-    return {"flat": flat, "hostiles": hostiles, "census_ok": bool(cr.get("ok")), "why": why,
+    return {"flat": flat, "off": list(off), "hostiles": hostiles, "census_ok": bool(cr.get("ok")), "why": why,
             "avoid_m": 60.0 if why == "hostiles" else 12.0}
 
 
-def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str = FIXTURE_BLUEPRINT) -> dict:
+def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str = FIXTURE_BLUEPRINT,
+                  off: tuple[float, float] = (-FIXTURE_AT[0], -FIXTURE_AT[1])) -> dict:
     """Harness fixture, not play (Rung 2 streak): a stand-in for Luis's house. His real one was torn down live once
     (2026-11-01 14:38Z, d36a500) and is gone, so each run rebuilds it from his house's recorded layout
     (data/blueprints/luis_house.json, his census pids 15-45) with the body's own build_blueprint over the debug channel
@@ -263,7 +273,7 @@ def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str
     at = [round(spot[0], 2), round(spot[1], 2), spot[2]]
     # the guard, before anything is built: the stand-in's whole footprint (centre + its half diagonal) and the spot
     mine = mine_pts(pts)
-    pre = guard([spot, at, [spot[0] - FIXTURE_AT[0], spot[1] - FIXTURE_AT[1], spot[2]]], pts, mine)
+    pre = guard([spot, at, [spot[0] + off[0], spot[1] + off[1], spot[2]]], pts, mine)
     if pre["ok"] and pre["nearest_m"] is not None and pre["nearest_m"] - FIXTURE_HALF_M < GUARD_M:
         pre = {**pre, "ok": False, "why": f"footprint edge {pre['nearest_m'] - FIXTURE_HALF_M:.1f} m < {GUARD_M:.0f} m"}
     if not pre["ok"]:
@@ -392,7 +402,8 @@ def cmd_run(a) -> int:
         site = None
         fx = None
         tried: list[list[float]] = []  # rung 2: fresh spots whose stand-in got no piece up (the ground there refused it)
-        tries = 16 if (a.rung2 and a.fresh) else 1
+        tries = 40 if (a.rung2 and a.fresh) else 1
+        off = (-FIXTURE_AT[0], -FIXTURE_AT[1])
         for attempt in range(tries):
             last = attempt == tries - 1
             if a.at or a.fresh:  # harness setup, before the line and the clock: stand him on the fresh spot "here" means
@@ -412,8 +423,10 @@ def cmd_run(a) -> int:
                     clear = GUARD_M + reach if a.rung2 else CLEAR_M
                     # rung 2: level within 1.0 m over 8 m (the stand-in on a slope never settled, 02:3xZ), a wider ring (the
                     # dev world near his base is built up: "no fresh spot" at 45 m clear within 110 m, 02:4xZ)
-                    spot = (fresh_spot(pts, base, nav, clear, ring=(40.0, 320.0), level_m=1.0, stand=(-FIXTURE_AT[0], -FIXTURE_AT[1]),
-                                       avoid=tried, mine=mine_pts(pts, ledger), mine_clear_m=MINE_GUARD_M + reach)
+                    # (05:0xZ: walked points level within 1 m on one side ran out after 8 spots; the body's own
+                    # ground_check decides flat now, so the walked-points filter only says he has been there)
+                    spot = (fresh_spot(pts, base, nav, clear, ring=(40.0, 320.0), level_m=3.0, avoid=tried,
+                                       mine=mine_pts(pts, ledger), mine_clear_m=MINE_GUARD_M + reach)
                             if a.rung2 else fresh_spot(pts, base, nav, clear))
                     how = f"census ({len(pts)} pieces), {clear:.0f}+ m clear ({MINE_GUARD_M + reach:.0f}+ of his own), near his base {base}"
                     if spot is None:
@@ -446,6 +459,7 @@ def cmd_run(a) -> int:
                 spot = site["spot"]
                 chk = site_check(cli, spot, there=True)
                 print(f"there: {json.dumps(chk)}")
+                off = tuple(chk["off"])
                 if chk["why"]:
                     if not last:
                         print(f"{chk['why']} at {spot}; trying another fresh spot (nothing built)")
@@ -453,7 +467,7 @@ def cmd_run(a) -> int:
                         continue
                     print(f"no fresh spot passed ({chk['why']}); not building")
                     return 6
-            fx = fixture_house(cli, site["spot"], pts)
+            fx = fixture_house(cli, site["spot"], pts, off=off)
             print(f"fixture: {json.dumps({k: v for k, v in fx.items() if k != 'pieces'})}")
             if fx.get("reason") == "guard":
                 print(f"guard: the stand-in is not {GUARD_M:.0f} m clear of every built piece; not sending the line")
@@ -467,7 +481,7 @@ def cmd_run(a) -> int:
             if fx["n"] < 9:
                 print("the stand-in house did not go up; not sending the line")
                 return 8
-            cli.request("go_to", {"target": [site["spot"][0] - FIXTURE_AT[0], site["spot"][1] - FIXTURE_AT[1], site["spot"][2]]}, timeout=60)
+            cli.request("go_to", {"target": [site["spot"][0] + off[0], site["spot"][1] + off[1], site["spot"][2]]}, timeout=60)
             break
         before = structures(cli)
         spent0 = spend.spend_today()["spent_usd"]
@@ -506,8 +520,20 @@ def cmd_run(a) -> int:
         finally:
             time.sleep(2.0)
             cl.stop_brain(p)
-        after = structures(cli)
-        census_after = (all_pieces().get("pts") or []) if fx else []
+        # the reads the score rests on, again until they answer (live 06:00Z: get_state came back without structures
+        # right after the brain stopped, so his 5 new pieces and the 9 torn down all read "gone")
+        # ... and get_state lists only what stands within 30 m of him (06:00Z he ended 63 m off, gathering sticks), so
+        # first back to the site, after the clock stopped
+        if site:
+            cli.request("go_to", {"target": [site["spot"][0] + off[0], site["spot"][1] + off[1], site["spot"][2]]
+                                  if a.rung2 else site["spot"]}, timeout=120)
+        after, census_after = {}, []
+        for _ in range(4):
+            after = structures(cli)
+            census_after = (all_pieces().get("pts") or []) if fx else []
+            if (after or not before) and (census_after or not fx):
+                break
+            time.sleep(5.0)
     rows = cl.brain_rows([brain_file], t0 - 1, ended + 3)
     tl = timeline(rows, t0)
     calls = cl.model_calls(rows)
@@ -523,6 +549,10 @@ def cmd_run(a) -> int:
            "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name}
+    if before and not after:
+        rec["unmeasured"] = "get_state read no structures after the run (4 tries)"
+    if fx is not None and fx.get("pieces") and not census_after:
+        rec["unmeasured"] = "the census of built pieces failed after the run (4 tries)"
     if fx is not None:
         fx_state = standing(fx["pieces"], census_after, after)
         decon = [c for c in tl["calls"] if c.get("tool") == "deconstruct"]
@@ -542,7 +572,7 @@ def cmd_run(a) -> int:
 
 def show(rec: dict) -> None:
     print(json.dumps({k: rec.get(k) for k in ("line", "ended", "wall_s", "haiku", "sonnet", "usd", "idle_total_s", "score",
-                                              "items", "teardown", "judge") if k in rec}, indent=1))
+                                              "items", "teardown", "judge", "unmeasured") if k in rec}, indent=1))
     print("new pieces:", json.dumps(rec.get("pieces_new"))[:1500])
     for v in rec.get("truth") or []:
         print("  truth", v)

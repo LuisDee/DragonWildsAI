@@ -584,6 +584,24 @@ do
         and tostring(da.built):find("on 'BP_Wall_C_9:S'", 1, true) and tostring(da.fit):find("doesn't cover the room", 1, true),
         r and (tostring(r.reason) .. " " .. tostring(da.built or da.detail)))
 
+    -- a roof on a wall's ':top' (live 05:57Z, a Hip Roof aimed at the wall's own top line: red 1.7 m off, nothing
+    -- placed): it reaches over the side its floor is on, and the reply says so
+    do
+        local saved = { id = anchor.id, name = anchor.name, position = anchor.position, box = anchor.box, piece = anchor.piece }
+        anchor.id, anchor.name, anchor.position, anchor.box, anchor.piece = "BP_Wall_C_9", "Wall", { 10, -1.5, 0 }, WB, "DA_T1_Wall_Large"
+        attach_game({ no_preview = true, box = RB, built_at = { 10, 0, 3.4 },
+                      others = { { id = "BP_Foundation_C_A", piece = "DA_T1_Foundation_Large", name = "Square Foundation", position = { 10, 0, 0 } } } })
+        r = build({ piece = "campfire", on = "BP_Wall_C_9:top" })
+        da = r and r.data or {}
+        check("attach: a roof on a wall's top reaches over its floor's side (S here), and the reply says so",
+            r and r.ok and da.side == "S" and tostring(da.built):find("the side the room is on", 1, true),
+            r and (tostring(r.reason) .. " " .. tostring(da.side) .. " " .. tostring(da.built or da.detail)))
+        attach_game({ no_preview = true, box = RB, built_at = { 10, -1.5, 3.4 } })
+        r = build({ piece = "campfire", on = "BP_Wall_C_9:top" })
+        check("attach: no floor by the wall -> its top, as asked", r and (r.data or {}).side == "top", r and tostring((r.data or {}).side))
+        for k, v in pairs(saved) do anchor[k] = v end
+    end
+
     attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13.3, 0, 0 } })
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
     da = r and r.data or {}

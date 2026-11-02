@@ -1149,6 +1149,25 @@ local function start_build(api, args, ctx)
         local provisional = not (anchor.box and box0)
         anchor.box = anchor.box or box0 or { origin = { 0, 0, 0 }, extent = { cfg.footprint_m / 2, cfg.footprint_m / 2, 0.5 } }
         box0 = box0 or anchor.box
+        -- a roof or ceiling tile on a wall's ':top' reaches out over the room: the side of the wall its floor is on
+        -- (live 05:57Z: a 30 deg Hip Roof aimed at the wall's own top line sat red 1.7 m off and nothing was placed)
+        local top_as
+        if side == "top" and not provisional and M.thin_axis(anchor.box) and not M.thin_axis(box0)
+            and math.max(box0.extent[1], box0.extent[2]) >= 1.2 then
+            local bd
+            for _, st in ipairs(W.structures(api, true) or {}) do
+                local pid = tostring(st.piece or "")
+                if st.id ~= anchor.id and st.position and (pid:find("Foundation", 1, true) or pid:find("_Floor_", 1, true))
+                    and math.abs(st.position[3] - anchor.position[3]) <= 1.0 then
+                    for _, s in ipairs({ "N", "E", "S", "W" }) do
+                        local p = M.flush_spot(anchor, s, box0)
+                        local d = p and math.sqrt((p[1] - st.position[1]) ^ 2 + (p[2] - st.position[2]) ^ 2)
+                        if d and d <= 4.0 and (not bd or d < bd) then top_as, bd = s, d end
+                    end
+                end
+            end
+            if top_as then side = top_as end
+        end
         local function taken(s)
             local p = M.flush_spot(anchor, s, box0)
             for _, st in ipairs(W.structures(api, true) or {}) do
@@ -1174,7 +1193,7 @@ local function start_build(api, args, ctx)
             end
             side = best
         end
-        on = { anchor = anchor, side = side, box = box0, provisional = provisional }
+        on = { anchor = anchor, side = side, box = box0, provisional = provisional, top_as = top_as }
         -- a wall on an edge must run along it. Live 15:26Z: the ghost takes my view's yaw, squared to the anchor's
         -- 90 degree grid (aimed east from the W side -> yaw 0, across the edge), so turn it by the difference (mod
         -- 180), in the game's 15 degree steps. I look at the spot from outside, against the side's direction.
@@ -1430,7 +1449,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         local inside = side == "in"
         local where_on = (inside and "in the frame of the " or side == "top" and "on top of the " or (ceil and "on top of the ")
             or ("on the " .. side .. (mount and " edge of the " or " side of the "))) .. tostring(a.name) .. " (" .. a.id .. ")"
-            .. (ceil and (", reaching " .. side) or "")
+            .. (ceil and (", reaching " .. side) or "") .. (job.on.top_as and " (over its floor: the side the room is on)" or "")
         att = s and M.flush_report(a, side, job.on.box, s, M.cfg.build.flush_tol_m)
         if mount and mount.edge and not mount.inside and s and type(s.yaw) == "number" then mem().ghost_yaw = s.yaw % 360 end -- re-sync
         local pp = job.preview and job.preview.position

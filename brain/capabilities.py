@@ -153,8 +153,11 @@ class Capabilities:
             schema = e.get("args", {"type": "object"})
             # an optional arg sent as null means "not given" (farm_gate 2026-11-02 01:3xZ: gather with mode/radius
             # null failed invalid_args 5 times in one window, as the legacy path below already drops them)
+            # (a property whose own schema takes null, or that is undeclared or forbidden, keeps it for the validator)
             req = set(schema.get("required") or []) if isinstance(schema, dict) else set()
-            clean = {k: v for k, v in clean.items() if v is not None or k in req}
+            props = (schema.get("properties") or {}) if isinstance(schema, dict) else {}
+            clean = {k: v for k, v in clean.items()
+                     if v is not None or k in req or not isinstance(props.get(k), dict) or _takes_null(props[k])}
             try:
                 jsonschema.validate(clean, schema)
                 if isinstance(schema, dict):
@@ -169,6 +172,14 @@ class Capabilities:
         if name in TOOLS:
             return {k: v for k, v in validate_args(name, clean).items() if v is not None}
         return clean
+
+
+def _takes_null(prop: Any) -> bool:
+    try:
+        jsonschema.validate(None, prop)
+        return True
+    except (jsonschema.ValidationError, jsonschema.SchemaError):
+        return False
 
 
 def _parse_manifest(raw: Any) -> dict[str, dict]:

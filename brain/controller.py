@@ -125,8 +125,10 @@ SKILL_PHRASES = {"fetch": "pick that up", "consume": "eat or drink that", "come_
                  "clear_rule": "forget orders", "sleep": "sleep", "wake": "get up",
                  "interact": "use things like that", "look": "look around", "inspect": "inspect things",
                  "run_skill": "run that skill"}
-# Actions that leave the current job running (a spell or a standing order is not a new job).
-NON_INTERRUPTING = {"remember", "cast", *RULE_TOOLS}
+# Actions that leave the current job running (a spell or a standing order is not a new job, nor is eating or
+# drinking: live 2026-11-02 05:59Z a Fillet eaten for low sustenance between a gather and the roof cancelled the
+# 8-step plan, and the house, table, firepit, crate and store never ran).
+NON_INTERRUPTING = {"remember", "cast", "consume", *RULE_TOOLS}
 
 # Speech is an explicit channel (single voice, design principle 6): only the text of a ``say`` call is ever
 # heard; the model's free text is a private note (logged as controller_note, never spoken). A/B 2026-10-26:
