@@ -126,9 +126,9 @@ def _my_crate(ctx, near, max_m=60.0):
 
 
 def reset(ctx, leg: str) -> list[str]:
-    """Fixture: what the leg must not start with is dropped at the respawn point (rung3_gate's DUMP, 70 m from the old
-    base), out of his bag AND out of his own crate by the house (main 2026-11-02: a crate stash turns the making test
-    into a fetch). Returns the note. Pick the dump up when the farm work is done."""
+    """Fixture: what the leg must not start with goes out of his bag AND out of his own crate by the house (main
+    2026-11-02: a crate stash turns the making test into a fetch) into his own storage by the tannery, 93 m off
+    (rung3_gate.stash; never dropped: the respawn dump was litter). Returns the note."""
     want = RESET.get(leg)
     if not want:
         return []
@@ -142,11 +142,7 @@ def reset(ctx, leg: str) -> list[str]:
             if r.get("ok"):
                 out.append(f"took {d.get('count') or d.get('moved') or 'all'} {it} out of his crate {crate}")
     have = {k: v for k, v in r3._bag(ctx).items() if k in want and v > 0}
-    if have:
-        r3.place(ctx, r3.DUMP)
-        for it, n in have.items():
-            ctx.cli.request("drop", {"item": it, "count": n}, timeout=30)
-            out.append(f"dropped his {n} {it} at the respawn point {r3.DUMP}")
+    out += r3.stash(ctx, have, f"the {leg} leg")
     left = {k: v for k, v in r3._bag(ctx).items() if k in want and v > 0}
     if left:
         raise RuntimeError(f"could not put away {left} before the {leg} leg")

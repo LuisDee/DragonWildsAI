@@ -602,8 +602,10 @@ function M.plan_tree(goal, count, ctx)
             return x.recipe < y.recipe
         end)
         local res = ctx.gather_for and ctx.gather_for(item) or nil
-        -- a gatherable raw material is gathered unless an unlocked, station-ready recipe exists
-        if res and not (cands[1] and (cands[1].status == "ready" or cands[1].status == "missing_input")) then
+        -- a gatherable raw material is gathered unless a recipe for it is ready now; a recipe still short of its own
+        -- inputs (Domri's flax for 12 Garou Chits he doesn't have) stays listed as an alternative (farm chain run 10:
+        -- the plan sent him for chits instead of the flax he had picked 300 m away)
+        if res and not (cands[1] and cands[1].status == "ready") then
             n.status, n.gather = "gather", res
             steps[#steps + 1] = { ["do"] = "gather", resource = res, item = item, name = n.name, count = short }
         elseif #cands == 0 then
@@ -619,7 +621,8 @@ function M.plan_tree(goal, count, ctx)
             n.alternatives = {}
             for i = (n.recipe and 2 or 1), #cands do
                 local c = cands[i]
-                n.alternatives[#n.alternatives + 1] = { recipe = c.recipe, status = c.status, station = c.station_name, detail = c.detail }
+                n.alternatives[#n.alternatives + 1] = { recipe = c.recipe, status = c.status, station = c.station_name, detail = c.detail,
+                                                        short_of = (c.status == "missing_input" and #(c.missing or {}) > 0) and c.missing or nil }
             end
         end
         return n
@@ -1407,6 +1410,27 @@ local function station_takes(api, row, a)
     return false, "it already holds " .. (#foreign > 0 and table.concat(foreign, ", ") or "other things")
 end
 
+-- Where he has gathered an item before (navmem's gather spots, written by gather.lua), one sentence or nil: a plan step
+-- that needs him to get a raw material says where he found it (farm chain run 9: no flax near the house, 10 picked
+-- 300 m NE that night, and he explored the other way). Tests replace W.gather_memory.
+local NM_MOD
+function W.gather_memory()
+    if NM_MOD == nil then
+        local okc, chunk = pcall(loadfile, ROOT .. "/client_mod/scripts/navmem.lua")
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        NM_MOD = (okm and type(mod) == "table" and mod.known_text) and mod or false
+    end
+    return NM_MOD or nil
+end
+local function known_spots(api, item)
+    local NM = W.gather_memory()
+    if not (NM and item) then return nil end
+    local ok, t = pcall(NM.known_text, item, api.my_position())
+    return ok and t or nil
+end
+M._known_spots = known_spots
+
 local function start_craft(api, args, ctx0)
     -- lying in a bed or shelter, the game lets him neither walk nor use a station (rung 3 gate 19:56Z: "I can't get
     -- the game to let me use the Crafting Table", 6 sides tried, while he lay in the Summon Shelter)
@@ -1452,6 +1476,10 @@ local function start_craft(api, args, ctx0)
             for _, c in ipairs(instead.inputs or {}) do ins[#ins + 1] = c.need .. " " .. tostring(c.name) end
             detail = detail .. "; but I can make " .. tostring(instead.name) .. " now from " .. table.concat(ins, " + ")
                 .. " each (recipe " .. instead.recipe .. ")"
+        end
+        for _, mrow in ipairs(best.missing or {}) do -- where he has gathered what he is short of (navmem)
+            mrow.gathered_before = known_spots(api, mrow.item)
+            if mrow.gathered_before and not instead then detail = detail .. ". " .. mrow.gathered_before:gsub("%.%s*$", "") end
         end
         return api.fail(reason, { recipe = best.recipe, item = best.item, missing = (#best.missing > 0) and best.missing or nil,
             unlock = best.unlock, unlock_status = best.unlock_status, station = best.station_name,
@@ -2039,6 +2067,26 @@ local function plan_tool(api, args)
     else return api.fail("invalid_args", { detail = "item or recipe is required" }) end
     local tree, why = M.plan_tree(goal, tonumber(args.count) or 1, ctx)
     if not tree then return api.fail(why, { recipe = args.recipe, detail = "I don't know that recipe." }) end
+    for _, st in ipairs(tree.steps or {}) do
+        if st["do"] == "gather" or st["do"] == "obtain" then st.gathered_before = known_spots(api, st.item) end
+    end
+    -- an alternative short of something he has gathered before says where (farm chain 11: thread from fur, 1 fur short,
+    -- sent him 300 m after a deer; the flax alternative's "I need 1 Flax" said nothing of the flax he had picked)
+    local function walk(n, depth)
+        if type(n) ~= "table" or depth > 8 then return end
+        for _, alt in ipairs(n.alternatives or {}) do
+            for _, m in ipairs(alt.short_of or {}) do
+                local k = known_spots(api, m.item)
+                if k then
+                    alt.gathered_before = k
+                    alt.detail = tostring(alt.detail or ""):gsub("%.%s*$", "") .. ". " .. k:gsub("%.%s*$", "")
+                    break
+                end
+            end
+        end
+        for _, c in ipairs(n.inputs or {}) do walk(c, depth + 1) end
+    end
+    walk(tree.root, 0)
     return { ok = true, data = tree }
 end
 

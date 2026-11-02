@@ -94,18 +94,20 @@ M.RESOURCES = {
     coal = rock("OreNode_Coal", "ITEM_Resources_Coal", { "coal" }, false),
     clay = rock("OreNode_Clay", "ITEM_Resources_Clay", { "clay" }, false),
     -- Ground pickups and bushes (foliage "PickUps" components; the interact key collects them).
+    -- Item ids as his own inventory counted them live (client_io/events/gather.jsonl gather_progress, 2026-11-01/02): flax,
+    -- cabbage and redberries; the rest are learned on the first pick. A known item lets craft_plan plan a gather of it.
     loose_stones = pickup("Spawner_Stone", "ITEM_Resources_Stone", { "loose stone", "loose stones", "ground stone", "ground stones",
                                                                      "pebble", "pebbles" }, { foliage = true, no_mining_xp = true },
                           { trains = false }),
     -- fallen ash branches: ItemData ITEM_Resources_Wood_Ash ("Ash Logs"), "Collect", no tool (DISCOVERIES ground
     -- gatherables, interact_probe 15:58 UTC): the first logs before any axe (gather falls back here from `ash`)
     sticks = pickup("Spawner_AshBranch", WOOD .. "Ash", { "stick", "sticks", "branch", "branches", "twig", "twigs" }, { foliage = true }),
-    flax = pickup("Spawner_Flax", nil, { "flax" }, { foliage = true }),
+    flax = pickup("Spawner_Flax", "ITEM_Resources_Flax", { "flax" }, { foliage = true }),
     mushroom = pickup("Spawner_Mushroom", nil, { "mushroom", "mushrooms", "bittercap" }, { foliage = true }),
-    redberries = pickup("RedberryBush", nil, { "redberry", "redberries", "berries", "berry bush" }, { foliage = true }),
+    redberries = pickup("RedberryBush", "ITEM_Consumable_Fruit_Redberry", { "redberry", "redberries", "berries", "berry bush" }, { foliage = true }),
     cadava = pickup("CadavaBush", nil, { "cadava", "cadava berries", "cadavaberries" }, { foliage = true }),
     pumpkin = pickup("Spawner_Pumpkin", nil, { "pumpkin", "pumpkins" }, { foliage = true }),
-    cabbage = pickup("Spawner_Cabbage", nil, { "cabbage", "cabbages" }, { foliage = true }),
+    cabbage = pickup("Spawner_Cabbage", "ITEM_Resources_Cabbage", { "cabbage", "cabbages" }, { foliage = true }),
     onion = pickup("Spawner_Onion", nil, { "onion", "onions" }, { foliage = true }),
     marrentill = pickup("Spawner_Marrentil", nil, { "marrentill", "marrentil" }, { foliage = true }),
 }

@@ -366,9 +366,53 @@ local function set_phase(J, ph, why)
     end
 end
 
+-- ------------------------------------------------------------------ gather spots (navmem: where it WORKED)
+-- The live client's one navigation memory (_G.DW_NAVMEM, loaded by move.lua) holds them per world; the module code is
+-- navmem.lua's own (pure). Tests replace W.navmem.
+local NM_MOD
+function W.navmem()
+    if NM_MOD == nil then
+        local okc, chunk = pcall(loadfile, ROOT .. "/client_mod/scripts/navmem.lua")
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        NM_MOD = (okm and type(mod) == "table" and mod.add_gather_spot) and mod or false
+    end
+    local mem = NM_MOD and NM_MOD.shared()
+    if not mem then return nil end
+    return NM_MOD, mem
+end
+local function remember_spots(J)
+    local g = J.spot_gain
+    J.spot_gain = nil
+    if not (J.item and g and #g > 0) then return end
+    local NM, mem = W.navmem()
+    if not NM then return end
+    local name = (J.names or {})[J.item] or J.key
+    for _, x in ipairs(g) do NM.add_gather_spot(mem, J.item, name, x.at, x.n) end
+    NM.save(mem)
+    say(J.log, string.format("remembered %d pick spot(s) of %s", #g, tostring(name)))
+end
+-- What he remembers of gathering this resource elsewhere (navmem), as one sentence for a "found none" result, or nil.
+-- Matched by the job's item when known, else by the resource word (the profile key) against the remembered names.
+local function known_spots(J)
+    local NM, mem = W.navmem()
+    if not NM then return nil end
+    local key = tostring(J.key or ""):lower()
+    local function match(g)
+        if J.item then return g.item == J.item end
+        return key ~= "" and (tostring(g.name or ""):lower():find(key, 1, true) ~= nil
+            or tostring(g.item or ""):lower():find(key, 1, true) ~= nil)
+    end
+    local here = J.me and { J.me.X / 100, J.me.Y / 100 }
+    local spots = NM.gather_spots(mem, match, here)
+    return NM.gather_spot_text(spots, here, os.time(), { beyond_m = J.radius_cm and J.radius_cm / 100 })
+end
+M._known_spots = known_spots
+
 local function finish(J, res)
     if J.done then return end
     J.done = true
+    pcall(remember_spots, J)
     local c = C()
     if J.handle then pcall(CancelDelayedAction, J.handle) end
     J.handle = nil
@@ -390,6 +434,13 @@ local function fail(J, reason, why, detail, extra)
 end
 
 local function is_bad(key, t) local e = key and C().bad[key]; return e ~= nil and e > t end
+-- a spot where another thing's prompt took the game's offer (water round a stone in a stream): its neighbours wait too
+local function contested(pos, t)
+    for _, x in ipairs(C().contested or {}) do
+        if x.until_t > t and pos and math.sqrt((x.pos.X - pos.X) ^ 2 + (x.pos.Y - pos.Y) ^ 2) <= M.cfg.contested_cm then return x end
+    end
+end
+M._contested = contested
 local function mark_bad(J, T, why)
     local until_t = J.t + M.cfg.bad_ttl_s
     for _, k in ipairs({ T.key, T.alias }) do if k then C().bad[k] = until_t end end
@@ -424,6 +475,10 @@ local function refresh_count(J, force)
     if gained ~= J.gained then
         local sw = J.sweep -- presses this gain answers are no longer pending
         if sw then for _ = 1, math.max(0, gained - (J.gained or 0)) do table.remove(sw.pending, 1) end end
+        if gained > (J.gained or 0) and J.me then -- where it worked: navmem's gather spots (saved when the job ends)
+            J.spot_gain = J.spot_gain or {}
+            J.spot_gain[#J.spot_gain + 1] = { at = { X = J.me.X, Y = J.me.Y, Z = J.me.Z }, n = gained - (J.gained or 0) }
+        end
         J.gained, J.have = gained, have
         J.bad_streak = 0
         pcall(W.emit, { type = "gather_progress", task_id = J.task_id, resource = J.key, item = J.item, have = math.max(gained, 0), want = J.want })
@@ -505,7 +560,7 @@ local function roots_near(J, me, radius_cm)
             local usable
             if J.profile.mode == "pickup" then usable = W.available(a)
             else usable = (hp == nil or hp > 0) and not W.stump(a) and not W.depleted(a) end
-            if usable and not is_bad(W.id(a), J.t) then
+            if usable and not is_bad(W.id(a), J.t) and not contested(p, J.t) then
                 local T = actor_target(J, a, "root", root)
                 if T then
                     if J.profile.mode == "pickup" then T.item = W.item_of(a) end
@@ -519,7 +574,7 @@ local function roots_near(J, me, radius_cm)
         for _, r in ipairs(W.foliage(me, radius_cm, { match = root.match, exclude = root.exclude, kinds = kinds })) do
             local dup = false
             for _, p in ipairs(actors_at) do if U.dist2d(p, r._pos) < M.cfg.adopt_cm then dup = true end end
-            if not dup and not is_bad(r.id, J.t) then
+            if not dup and not is_bad(r.id, J.t) and not contested(r._pos, J.t) then
                 out[#out + 1] = { key = r.id, kind = "foliage", stage = "root", pos = r._pos, attack = root.attack or "primary",
                                   reach_cm = root.reach_cm or 130, name = r.name, tier = r.tool_tier, tool = r.tool,
                                   d = U.dist2d(me, r._pos), max_hp = r.max_health, class = r.class, item = r.item }
@@ -807,12 +862,19 @@ local function step_scan(J, me)
         return
     end
     local of = J.anchor and J.anchor.name or "me"
+    local okk, known = pcall(known_spots, J)
+    known = okk and known or nil
+    local tail = known and (" " .. known) or ""
+    if (J.contested or 0) > 0 then
+        tail = string.format(" Some lie where the game offers %s instead, so I can't pick those (%d spot%s).", tostring(J.contested_what),
+            J.contested, J.contested == 1 and "" or "s") .. tail
+    end
     if (J.gained or 0) > 0 then
         return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I got %d but there's no more %s within %d m of %s.",
-            J.gained, J.key, math.floor(J.radius_cm / 100), of))
+            J.gained, J.key, math.floor(J.radius_cm / 100), of) .. tail, { known_spots = known })
     end
     return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I can't find any %s within %d m of %s.", J.key,
-        math.floor(J.radius_cm / 100), of))
+        math.floor(J.radius_cm / 100), of) .. tail, { known_spots = known })
 end
 
 local approach_failed -- (J, T, st, res): below, shared with step_sweep
@@ -870,6 +932,9 @@ M.cfg.creep_m = 1.3           -- closer than this: face it and creep (movement i
 M.cfg.creep_scale = 0.5
 M.cfg.creep_s = 1.5           -- creeping this long without an offer: stop and face it (pick)
 M.cfg.pick_budget_s = 4       -- pick (stopped, facing it) this long without an offer: give it up (was 8 s)
+M.cfg.other_prompt_s = 1.2    -- another thing's prompt this long beside the target: the game won't offer it there
+M.cfg.other_prompt_cm = 200
+M.cfg.contested_cm = 300      -- a target this close to such a spot is skipped while it is remembered
 M.cfg.path_k = 8              -- the nearest this many are ordered as one path
 
 -- Shortest open path from `me` through the first k of pts (each with .pos; fixed start, open end), exact by Held-Karp
@@ -1400,7 +1465,9 @@ local function step_pick(J, pawn, me)
         if (J.gained or 0) > (T.g0 or 0) then return on_done(J, T, "picked") end
     end
     if J.t - J.phase_t > M.cfg.pick_budget_s then
-        mark_bad(J, T, "detector never targeted it")
+        local dz = (T.pos and T.pos.Z and me.Z) and ((T.pos.Z + 90) - me.Z) / 100 or 0
+        mark_bad(J, T, string.format("detector never targeted it (%.1f m away, %.1f m %s my feet)", U.dist2d(me, T.pos) / 100,
+            math.abs(dz), dz < 0 and "below" or "above"))
         J.T = nil
         return set_phase(J, "scan", "not targeted")
     end
@@ -1414,7 +1481,29 @@ local function step_pick(J, pawn, me)
         -- nothing, or something else holds the prompt: aim the camera at it (pitch too: the detector's ray starts at the
         -- camera) and lean in; the swept one had a sweep job: aim only once it is within half a metre
         local r = math.rad(bearing(me, T.pos))
-        if U.dist2d(me, T.pos) > 45 then
+        local dd = U.dist2d(me, T.pos)
+        -- another thing holds the prompt right beside it (a stone lying in a stream: the game offers the water's
+        -- "Collect Water", live probe 2026-11-02 08:0xZ at 1.1 m from an available, interactable stone; rung 2
+        -- 06:44Z stood 4 s on each of ~25 such stones): give it up after other_prompt_s and skip that spot's others
+        local other = type(tg) == "table" and not tg.none and tg.actor ~= nil and tg.actor ~= T.key
+        if other and dd <= M.cfg.other_prompt_cm then
+            T.other_t = T.other_t or J.t
+            if J.t - T.other_t >= M.cfg.other_prompt_s then
+                local what = tostring(tg.prompt or tg.class or tg.actor)
+                mark_bad(J, T, "the game offers " .. what .. " there instead (" .. tostring(tg.class) .. ")")
+                local c = C()
+                c.contested = c.contested or {}
+                c.contested[#c.contested + 1] = { pos = { X = T.pos.X, Y = T.pos.Y, Z = T.pos.Z }, until_t = J.t + M.cfg.bad_ttl_s,
+                                                  what = what, class = tg.class }
+                J.contested = (J.contested or 0) + 1
+                J.contested_what = what
+                J.T = nil
+                return set_phase(J, "scan", "another prompt there")
+            end
+        else
+            T.other_t = nil
+        end
+        if dd > 45 then
             J.nudge, J.nudge_until, J.nudge_scale = { X = math.cos(r), Y = math.sin(r), Z = 0 }, J.t + 0.1, nil
         end
         if J.sweep_on then W.aim_cam(J.pc, T.pos) else W.face(J.pc, math.deg(r)) end

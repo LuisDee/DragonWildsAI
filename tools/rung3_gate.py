@@ -84,7 +84,7 @@ LIKE = {"boil": " (Luis: 2 Clean Water from carried dirty water at a fire 11 m o
         "cook": " (Luis: 1 Farm Steak from carried raw meat at a fire 16 m off; Claude: same, the inputs granted, raw"
                 " rat meat since Cooking 8 burns farm meat)"}
 # the item under test he must not already carry (Luis had none; live 17:36Z: "make a stone pickaxe" with 2 in his bag
-# read as "give him one"): dropped at DUMP, away from the base, before the item (fixture, in the row's note)
+# read as "give him one"): stored in his own storage by the tannery before the item (fixture, in the row's note)
 MADE = {"axe": "ITEM_Logging_Axe_Stone", "pickaxe": "ITEM_Pickaxe_Stone", "spade": "ITEM_Spade_T1_Wood"}
 DUMP = [51.2, 1905.9, -33.9]  # the Temple Woods respawn point, 70 m from the base
 
@@ -222,18 +222,39 @@ def place(ctx, spot) -> None:
             ctx.cli.request("stop", {}, timeout=10)
 
 
+def stash(ctx, have: dict[str, int], why: str) -> list[str]:
+    """{item id: n} he carries go into his own storage by the tannery (rung4_gate.own_storage: his ledger crates near
+    STASH_AT, nearest first; 93 m from the house, so a leg run from the house doesn't fetch them back). Never dropped
+    (main 2026-11-02: the respawn dump had ~10 pickaxes, 7 axes, 4 spades of his: litter, counted "on the ground" in
+    his digest). A store that fails stops the leg."""
+    if not have:
+        return []
+    from tools import coplay_ladder as cp
+    from tools import rung4_gate as r4  # lazy: rung4_gate imports this module
+    names = {r.get("item"): r.get("name") for r in cp.inv_rows(cp.inventory(ctx.cli))}
+    stores, out = r4.own_storage(ctx), []
+    for it, n in have.items():
+        name = names.get(it) or it
+        ctx.cli.request("unequip", {"item": name}, timeout=20)  # one in his hand has to come off first
+        ok, msg = r4.store_his(ctx, name, n, stores)
+        if not ok:
+            raise RuntimeError(f"could not store his {n} {name} ({msg}); {why} not run")
+        out.append(msg)
+    return out
+
+
 def shed(ctx, item: str) -> list[str]:
-    """Drop the carried copies of the item under test at DUMP (fixture), so he starts as Luis did: without one."""
+    """The carried copies of the item under test go into his own storage by the tannery (fixture), so he starts as Luis
+    did: without one."""
     it = MADE.get(item)
     n = _bag(ctx).get(it, 0) if it else 0
     if n <= 0:
         return []
-    place(ctx, DUMP)
-    r = ctx.cli.request("drop", {"item": it, "count": n}, timeout=30)
+    out = stash(ctx, {it: n}, item)
     left = _bag(ctx).get(it, 0)
     if left:
-        raise RuntimeError(f"could not drop his {n} {it} before the item: {r}")
-    return [f"dropped his {n} {it} at the respawn point"]
+        raise RuntimeError(f"could not put away his {n} {it} before the item ({left} left)")
+    return out
 
 
 def run3(ctx, item: str) -> dict:

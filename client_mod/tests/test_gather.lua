@@ -224,6 +224,10 @@ local function near_interactable()
                      secondary = Wd.collect_all and "Collect All" or nil }
         end
     end
+    -- Wd.water = {pos, r}: standing in it the game offers the water's "Collect Water", not a stone lying in it (probe 08:0xZ)
+    if Wd.water and d2(me, Wd.water.pos) <= Wd.water.r then
+        return { actor = "BP_WaterVolume_C_1", class = "BP_WaterVolume_C", prompt = "Collect Water" }
+    end
     for _, a in ipairs(Wd.actors) do
         if a._alive and a.fams[1] == "BaseInteractableResource" and a.available and d2(me, a.pos) <= (Wd.offer_m or 1.5) * 100 then
             return { actor = a.id, item = a.item, class = a.cls, a = a }
@@ -465,6 +469,42 @@ do
     local st = G.status().job
     check("widened radius finds the 50 m tree", st and st.target and st.target.kind == "foliage", st and st.phase)
     G.stop(nil, "test")
+end
+
+-- ================================================================ 3b. gather spots: where it worked is remembered (navmem),
+-- and told back when none is found (a player remembers where flax grows: farm chain run 9 explored 170 m the wrong way)
+do
+    local NMr = dofile(root .. "/client_mod/scripts/navmem.lua")
+    local mem, saved = { gather_spots = {} }, 0
+    local NMt = setmetatable({ save = function() saved = saved + 1 end }, { __index = NMr })
+    local W0 = G.W.navmem
+    G.W.navmem = function() return NMt, mem end
+    reset({ held = nil })
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Oak", { X = 1500, Y = 400, Z = 0 })
+    local res = run_job({ resource = "oak", count = 6 }, 300)
+    local sp = mem.gather_spots[1]
+    check("spots: an ok gather remembers where his count rose, saved once", res.ok and sp and sp.item == "ITEM_Resources_Wood_Oak"
+        and sp.n >= 6 and saved == 1, sp and (sp.item .. " " .. sp.n .. " saved " .. saved))
+    check("spots: at the logs (within 20 m of the tree)", sp and math.abs(sp.at[1] - 15) < 20 and math.abs(sp.at[2] - 4) < 20,
+        sp and (sp.at[1] .. "," .. sp.at[2]))
+    sp.at, sp.ts = { 200, 0, 0 }, os.time() - 7200
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Oak", { X = 20000, Y = 0, Z = 0 })
+    local r2 = run_job({ resource = "oak", count = 2 }, 60)
+    local d = tostring(r2.data and r2.data.detail)
+    check("spots: none found names the remembered spot, distance, compass and age",
+        r2.reason == "nothing_in_range" and d:find("I can't find any oak within", 1, true) ~= nil
+        and d:find("you've gathered before: %d+ about 200 m E at %(200, 0%), last %d%d:%d%dZ %(2.0 h ago%)") ~= nil
+        and r2.data.known_spots ~= nil, d)
+    mem.gather_spots = {}
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    local r3 = run_job({ resource = "oak", count = 2 }, 60)
+    check("spots: nothing remembered adds nothing", r3.reason == "nothing_in_range"
+        and not tostring(r3.data.detail):find("before", 1, true), r3.data and r3.data.detail)
+    G.W.navmem = W0
 end
 
 -- ================================================================ 4. unreachable targets
@@ -712,6 +752,27 @@ do
     end
     res = run_job({ resource = "flax", count = 2 }, 120)
     check("pickup flax (item learned)", res.ok == true and res.data.item == "ITEM_Resources_Flax", tostring(res.reason) .. " item=" .. tostring(res.data and res.data.item))
+end
+
+-- ================================================================ 12b. stones lying in a stream: the game offers the water
+do -- rung 2 06:44Z: ~25 stones in a stream stood on 4 s each (the detector offered "Collect Water"), 124 s idle
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    Wd.water = { pos = { X = 700, Y = 100, Z = 0 }, r = 520 }
+    for i, x in ipairs({ 500, 600, 700, 800, 900 }) do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Wet:" .. i, class = "BP_Spawner_Stone_C", _pos = { X = x, Y = 100, Z = 0 }, name = "Stone",
+                                        kind = "pickup", visible = true, item = "ITEM_Resources_Stone" }
+    end
+    Wd.foliage[#Wd.foliage + 1] = { id = "fol:Dry:1", class = "BP_Spawner_Stone_C", _pos = { X = -1500, Y = 0, Z = 0 }, name = "Stone",
+                                    kind = "pickup", visible = true, item = "ITEM_Resources_Stone" }
+    local t0 = T
+    local res = run_job({ resource = "loose stones", count = 1 }, 120)
+    local log = table.concat(res.data and res.data.phase_log or {}, " | ")
+    local gave = select(2, log:gsub("another prompt there", ""))
+    check("stream: the dry stone is picked", res.ok == true, tostring(res.reason) .. " " .. log)
+    check("stream: wet stones given up per 3 m spot, neighbours skipped (not one 4 s stand each)", gave >= 1 and gave <= 2, gave .. " | " .. log)
+    check("stream: under 25 s", T - t0 < 25, T - t0)
+    Wd.water = nil
 end
 
 -- ================================================================ 12a. pick up on the move (sweep; Luis's baseline 2026-11-01)

@@ -282,6 +282,20 @@ do
     local g = has_step(t.steps, "gather", "item", "ITEM_Resources_Wood_Ash")
     check("tree: pool counts carried once", g and g.count == 6, g and g.count)
 end
+do -- a gatherable short of everything: gather it, the vendor buy (short of its currency) only as an alternative
+    local ctx = { have = {}, unlocked = U({ "RECIPE_Process_Thread_Linen_From_Flax", "DA_Recipe_Vendor_UmS_Buy_Plant_Flax" }),
+                  near = near("Spinning Wheel"), gather_for = C.W.gather_for(api) }
+    local t = C.plan_tree({ item = "ITEM_Resources_Thread_Coarse" }, 1, ctx)
+    local g = has_step(t.steps, "gather", "item", "ITEM_Resources_Flax")
+    local domri = has_step(t.steps, "craft", "recipe", "DA_Recipe_Vendor_UmS_Buy_Plant_Flax")
+    check("tree: flax is gathered, not bought for chits he lacks", g ~= nil and domri == nil, g and g.resource)
+    local fl
+    local function walk(n) if n.item == "ITEM_Resources_Flax" then fl = n end; for _, c in ipairs(n.inputs or {}) do walk(c) end end
+    walk(t.root)
+    local alt = false
+    for _, a in ipairs(fl and fl.alternatives or {}) do if a.recipe == "DA_Recipe_Vendor_UmS_Buy_Plant_Flax" then alt = true end end
+    check("tree: the vendor buy stays listed as an alternative", alt, fl and #(fl.alternatives or {}))
+end
 do -- alternatives listed; locked recipes carry their unlock text with station names
     local ctx = { have = {}, unlocked = U({ "RECIPE_Process_BronzeBar" }), near = near("Furnace"), gather_for = C.W.gather_for(api) }
     local t = C.plan_tree({ item = "ITEM_Resources_BronzeBar" }, 2, ctx)
@@ -969,6 +983,48 @@ do -- no wheel near: the plan names the Spinning Wheel (a real station in this b
     for _, st in ipairs((r.data or {}).steps or {}) do if st["do"] == "find_station" then fs = st end end
     check("plan: find the Spinning Wheel", fs and fs.station == "Spinning Wheel" and fs.name == "Spinning Wheel",
           fs and (tostring(fs.station) .. " / " .. tostring(fs.name)))
+end
+
+do -- a step or a craft short of a raw material says where he has gathered it before (navmem's gather spots)
+    local old = C.W.gather_memory
+    local asked = {}
+    C.W.gather_memory = function() return { known_text = function(item, here)
+        asked[#asked + 1] = item
+        if item == "ITEM_Resources_Coarse_Animal_Fur" or item == "ITEM_Resources_Thread_Coarse" then
+            return "Stuff you've gathered before: 3 about 50 m E at (60, 0), last 02:00Z (1.0 h ago)."
+        end
+    end } end
+    reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", "RECIPE_Tool_T1_Spade_Wood" }),
+            have = { ITEM_Resources_Wood_Ash = 10 } })
+    local r = C.HANDLERS.craft_plan(nil, { item = "Wooden Spade" }, { api = api })
+    local ob
+    for _, st in ipairs((r.data or {}).steps or {}) do if st["do"] == "obtain" or st["do"] == "gather" then ob = ob or st end end
+    check("plan: a get-it step carries where he gathered it before", ob and tostring(ob.gathered_before):find("50 m E", 1, true) ~= nil,
+          ob and (tostring(ob.item) .. " " .. tostring(ob.gathered_before)))
+    local c = C.HANDLERS.craft(nil, { item = "Wooden Spade" }, { api = api })
+    local m = ((c.data or {}).missing or {})[1] or {}
+    check("craft short: the missing row and the sentence say where he gathered it", c.ok == false and m.gathered_before ~= nil
+          and tostring(c.data.detail):find("you've gathered before: 3 about 50 m E", 1, true) ~= nil, tostring(c.data and c.data.detail))
+    -- the flax alternative of thread-from-fur (2 fur carried, 1 short) says where he picked flax
+    C.W.gather_memory = function() return { known_text = function(item)
+        if item == "ITEM_Resources_Flax" then return "Flax you've gathered before: 10 about 301 m NE at (394, 1713), last 02:25Z (5.0 h ago)." end
+    end } end
+    reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", "RECIPE_Process_Thread_Linen_From_Flax",
+                                                   "RECIPE_Tool_T1_Spade_Wood" }),
+            have = { ITEM_Resources_Coarse_Animal_Fur = 2, ITEM_Resources_Wood_Ash = 10 } })
+    local ra = C.HANDLERS.craft_plan(nil, { item = "Wooden Spade" }, { api = api })
+    local found
+    local function walk(n) for _, a in ipairs(n.alternatives or {}) do if a.gathered_before then found = a end end
+        for _, c in ipairs(n.inputs or {}) do walk(c) end end
+    walk((ra.data or {}).root or {})
+    check("plan: an alternative short of flax says where he picked flax", found and tostring(found.detail):find("301 m NE", 1, true) ~= nil,
+          found and found.detail)
+    C.W.gather_memory = function() return nil end
+    local r2 = C.HANDLERS.craft_plan(nil, { item = "Wooden Spade" }, { api = api })
+    local any
+    for _, st in ipairs((r2.data or {}).steps or {}) do if st.gathered_before then any = true end end
+    check("plan: no memory, no line", r2.ok and not any)
+    C.W.gather_memory = old
 end
 
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
