@@ -896,6 +896,17 @@ reset_game({ state = function() return 11 end })
 r = build({ piece = "campfire" })
 check("ShelterCheckFailed: the piece's own text (Must Be Exposed)", r and r.data.detail:find("Must Be Exposed"), r and r.data and r.data.detail)
 
+-- 10b. red everywhere and no exact state (the validity hooks never fire live): one press to hear the game's reason
+reset_game({ state = function() return 1 end, no_hook = true, refuse = 1 })
+r = build({ piece = "campfire" })
+check("all red, no state: one press, the game's own reason in the detail",
+    r and not r.ok and count(G.presses, "place") == 1 and r.data.game_says == "Blocked"
+    and r.data.detail:find('the game said: "Blocked"', 1, true) and not r.data.detail:find("something in the way", 1, true), r and r.data and r.data.detail)
+reset_game({ state = function() return 1 end, no_hook = true, no_spend = true })
+r = build({ piece = "campfire" })
+check("all red, the press gets no message: says so, still not placed",
+    r and not r.ok and count(G.presses, "place") == 1 and r.data.detail:find("gave no message", 1, true), r and r.data and r.data.detail)
+
 -- 11. the server refuses after the press -> the reason it sent
 reset_game({ refuse = 6 })
 r = build({ piece = "campfire" })
@@ -1091,6 +1102,23 @@ do
     check("batch (blueprint): built 2 of 4, #2 failed with why, #3 (on the failed one) not tried",
         br and not br.ok and tostring(br.data.detail):find("Built 2 of 4", 1, true) and tostring(br.data.detail):find("#2 (w1 on #1:N) failed: the preview was red there", 1, true)
         and tostring(br.data.detail):find("Not tried (they go on a piece that failed or the run stopped): #3", 1, true), br and br.data.detail)
+end
+-- shelter-only pieces: a covered spot (my house first), a covered place to stand, never open sky
+do
+    -- a roof over x 10..14, y -2..2 (my house, its floor at z 0); open sky elsewhere
+    local function env(floors, here)
+        return { ground_at = function(x, y, z) return 0 end,
+                 covered = function(p) return p[1] >= 10 and p[1] <= 14 and math.abs(p[2]) <= 2 end,
+                 mine_floors = floors, reach_m = 25, standoff_m = 1.5, here = here or { 0, 0, 0 } }
+    end
+    local plan = Bd.shelter_plan(env({ { 12, 0, -0.2 } }), { 2, 0, 0 })
+    check("shelter: open sky round the asked spot -> my covered floor 10 m off", plan and plan.center[1] == 12 and plan.on_mine, plan and plan.center[1])
+    check("shelter: stands under the same roof, 2 m off", plan and plan.stand_at and plan.stand_at[1] >= 10 and plan.stand_at[1] <= 14,
+        plan and plan.stand_at and plan.stand_at[1])
+    check("shelter: no roof in reach -> nothing", Bd.shelter_plan(env({}), { 2, 0, 0 }) == nil)
+    check("shelter: a far house (30 m) is out of reach", Bd.shelter_plan(env({ { 12, 0, 0 } }), { -20, 0, 0 }) == nil)
+    local p2 = Bd.shelter_plan(env({}), { 11, 1, 0 })
+    check("shelter: asked under a roof that isn't mine -> there, not on_mine", p2 and p2.center[1] == 11 and not p2.on_mine, p2 and p2.center[1])
 end
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

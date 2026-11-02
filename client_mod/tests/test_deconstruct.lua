@@ -346,6 +346,43 @@ local job4 = { kind = "deconstruct", phase = "next", presses = {}, removed = {},
 local res4 = run(job4)
 check("left on ground: reported", res4 and res4.data.on_ground and #res4.data.on_ground == 1, res4 and res4.data.detail)
 check("left on ground: the sentence says so", res4 and res4.data.detail:find("still lie on the ground", 1, true), res4 and res4.data.detail)
+-- the pickup itself is skills.lua's fetch (window 2: walking over the drops left 40 logs lying): it takes the drop
+local mod0 = api.module
+local fetched, weight = nil, { cur = 100, max = 400 }
+api.module = function(n)
+    if n == "skills" then
+        return { STARTERS = { fetch = function(_, args) fetched = args
+            return { step = function() G.ground = {}; G.counts.ITEM_Resources_Wood_Ash = G.counts.ITEM_Resources_Wood_Ash + 8
+                return { ok = true, data = { count = 8 } } end } end } }
+    end
+    if n == "move" then return { encumbrance = function() return weight end } end
+    return mod0(n)
+end
+_G.DWDecon = nil
+G.mode, G.presses, G.cross, aims, G.ground = "None", {}, nil, 0, {}
+G.alive[14] = true
+CRATE.done = nil
+local job6 = { kind = "deconstruct", phase = "next", presses = {}, removed = {}, collapsed = {}, refund = {}, dropped = {}, expected = {},
+               t0 = G.t, queue = { CRATE }, left = {}, target = CRATE, planned = { [14] = CRATE }, world = "dev", rows = { CRATE },
+               counts_start = { ITEM_Resources_Wood_Ash = G.counts.ITEM_Resources_Wood_Ash } }
+local res6 = run(job6)
+check("collect (fetch): the drop is fetched by its id, all 8", fetched and fetched.target == DROP.id and fetched.count == 8, fetched and fetched.count)
+check("collect (fetch): in the bag, all it cost, nothing on the ground", res6 and res6.data.on_ground == nil and res6.data.detail:find("(all it cost)", 1, true), res6 and res6.data.detail)
+-- over the carry weight: no pickup; says what and where and why, and the ledger remembers it
+weight, fetched = { cur = 412, max = 400 }, nil
+_G.DWDecon = nil
+G.mode, G.presses, G.cross, aims, G.ground = "None", {}, nil, 0, {}
+G.alive[14] = true
+CRATE.done = nil
+local job7 = { kind = "deconstruct", phase = "next", presses = {}, removed = {}, collapsed = {}, refund = {}, dropped = {}, expected = {},
+               t0 = G.t, queue = { CRATE }, left = {}, target = CRATE, planned = { [14] = CRATE }, world = "dev", rows = { CRATE },
+               counts_start = { ITEM_Resources_Wood_Ash = G.counts.ITEM_Resources_Wood_Ash } }
+local res7 = run(job7)
+check("collect (over weight): nothing fetched", fetched == nil)
+check("collect (over weight): says what, where and why", res7 and res7.data.detail:find("8 Ash Logs still lie on the ground at (116, 1851) (I'm carrying too much, 412 of 400)", 1, true), res7 and res7.data.detail)
+local Lt = D.ledger("dev", true)
+check("collect (over weight): the ledger's left has it", Lt.left and Lt.left[#Lt.left] and Lt.left[#Lt.left].items[1].count == 8, Lt.left and #Lt.left)
+api.module = mod0
 -- nothing came back and nothing dropped: the cost is named with the game's display name from my inventory listing
 -- (live 16:11Z: "it cost 4 Resources Wood Ash")
 _G.DWDecon = nil
@@ -395,6 +432,22 @@ check("collateral: names the piece", res5 and res5.data.detail and res5.data.det
 check("collateral: listed in data", res5 and res5.data.collateral and res5.data.collateral[1] and res5.data.collateral[1].pid == 12)
 G.alive[12] = true
 D.W.press = real_press
+
+-- my bases: the ledger in clusters, nearest first, roofed or not, stations named; game +Y is south
+do
+    local L = { pieces = {
+        { piece = "DA_T1_Foundation_Large", name = "Square Foundation", at = { 100, 100, 0 } },
+        { piece = "DA_T1_Wall_Large", name = "Wall", at = { 102, 100, 1.5 } },
+        { piece = "DA_T1_Roof_Large_Diagonal", name = "45° Roof", at = { 101, 100, 4.5 } },
+        { piece = "BUILDPIECE_ProcessingStation_Spinning_Wheel", name = "Spinning Wheel", at = { 100, 101, 0.2 } },
+        { piece = "BUILDPIECE_Campfire", name = "Campfire", at = { 0, 300, 0 } },
+    } }
+    local b = D.bases(L, { 0, 200, 0 })
+    check("bases: two clusters", #b == 2, #b)
+    check("bases: nearest first (the campfire 100 m S)", b[1].pieces == 1 and b[1].direction == "S" and b[1].distance_m == 100, b[1].direction)
+    check("bases: the house roofed, NE, its wheel named", b[2].covered == true and b[2].direction == "NE" and b[2].stations[1] == "Spinning Wheel", b[2].direction)
+    check("bases: the campfire alone is not roofed", b[1].covered == false)
+end
 
 print(string.format("deconstruct: %d passed, %d failed", pass, failn))
 if failn > 0 then os.exit(1) end

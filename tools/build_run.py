@@ -74,12 +74,21 @@ def home(ledger: list[dict]) -> list[float] | None:
 
 
 def fresh_spot(pts: list[list[float]], base: list[float], nav: dict, clear_m: float = CLEAR_M,
-               ring: tuple[float, float] = (40.0, 110.0), step: float = 4.0) -> list[float] | None:
+               ring: tuple[float, float] = (40.0, 110.0), step: float = 4.0, level_m: float = 1.5,
+               stand: tuple[float, float] | None = None) -> list[float] | None:
     """A spot near the base (ring metres from it) at least clear_m from every built piece, on ground he has walked
     (nav memory routes: >= 6 points within 8 m, level within 1.5 m), 20+ m from learned water. Nearest the base."""
     walk = [q for r in nav.get("routes") or [] for q in r.get("pts") or [] if len(q) >= 3]
     wc = 2.0
     water = [((int(a) + 0.5) * wc, (int(b) + 0.5) * wc) for a, b in (str(k).split(":") for k in nav.get("water_cells") or [])]
+    grid: dict[tuple[int, int], list] = {}  # walked points by 8 m cell (a 220 m ring scans ~12k spots)
+    for q in walk:
+        grid.setdefault((int(q[0] // 8), int(q[1] // 8)), []).append(q)
+
+    def walked(x: float, y: float, r: float) -> list:
+        cx, cy = int(x // 8), int(y // 8)
+        return [q for i in (-1, 0, 1) for j in (-1, 0, 1) for q in grid.get((cx + i, cy + j), ())
+                if math.dist((x, y), q[:2]) <= r]
     best = None
     n = int(ring[1] // step)
     for i in range(-n, n + 1):
@@ -90,10 +99,12 @@ def fresh_spot(pts: list[list[float]], base: list[float], nav: dict, clear_m: fl
                 continue
             if any(math.dist(c, q[:2]) < clear_m for q in pts) or any(math.dist(c, w) < 20.0 for w in water):
                 continue
-            near = [q for q in walk if math.dist(c, q[:2]) <= 8.0]
+            near = walked(c[0], c[1], 8.0)
             zs = [q[2] for q in near]
-            if len(near) < 6 or max(zs) - min(zs) > 1.5:
+            if len(near) < 6 or max(zs) - min(zs) > level_m:
                 continue
+            if stand and len(walked(c[0] + stand[0], c[1] + stand[1], 4.0)) < 3:
+                continue  # rung 2: he stands there beside the stand-in, on ground he has walked
             best = (d, [round(c[0], 1), round(c[1], 1), round(sum(zs) / len(zs) + 0.9, 1)])
     return best[1] if best else None
 
@@ -147,6 +158,135 @@ def truth(results: list[dict], after: dict[str, dict]) -> list[dict]:
     return out
 
 
+RUNG2_LINE = ("claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, "
+              "plus a crafting table, firepit and crate, and put your spare logs in the crate")
+FIXTURE_AT = (8.0, 0.0)  # the stand-in's centre foundation from the spot he stands on (its 3 x 3 cells span +-4.5 m)
+LEDGER = ROOT / "data" / "skills" / "dev" / "my_pieces.json"
+GUARD_M = 30.0  # main 2026-11-02: the stand-in and all he tears down stay this far from anything already built
+FIXTURE_HALF_M = 6.4  # half the 3 x 3 house's diagonal (9 m square)
+
+
+def guard(points: list[list[float]], pts: list[list[float]]) -> dict:
+    """The nearest already-built piece (Luis's remaining foundations, stations, containers, plots, anyone's) to any of
+    ``points`` (2D) -> {ok, nearest_m, at, piece}: ok only when every point is GUARD_M or more from all of them."""
+    if not pts:  # no census read: nothing is known to be clear
+        return {"ok": False, "nearest_m": None, "why": "no census of built pieces"}
+    best = None
+    for q in points:
+        for c in pts:
+            d = math.dist(q[:2], c[:2])
+            if best is None or d < best[0]:
+                best = (d, q, c)
+    if best is None:
+        return {"ok": True, "nearest_m": None}
+    return {"ok": best[0] >= GUARD_M, "nearest_m": round(best[0], 1), "at": best[1], "piece": best[2]}
+
+
+FIXTURE_BLUEPRINT = "small_house"  # live 01:57Z: the 29-piece luis_house walled him in mid-build (9 of 29, "walls
+#                                    everywhere", go_to timeout); the 2-cell house went up whole in run 6 (+ its door 23:5xZ)
+
+
+def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str = FIXTURE_BLUEPRINT) -> dict:
+    """Harness fixture, not play (Rung 2 streak): a stand-in for Luis's house. His real one was torn down live once
+    (2026-11-01 14:38Z, d36a500) and is gone, so each run rebuilds it from his house's recorded layout
+    (data/blueprints/luis_house.json, his census pids 15-45) with the body's own build_blueprint over the debug channel
+    (no model), its materials granted by the dev fixture, and then strikes it from Claude's placement ledger so his
+    census reads it as "not placed by you", like Luis's. -> {ok, pieces: [{id, piece, name, position}], s, granted}"""
+    from evals.bench.devrun import default_dev
+    dev = default_dev()
+    dev.brain_running = lambda: False
+    # the stand-in on the spot itself (fresh_spot checked that ground: flat, walked), Claude FIXTURE_AT west of it
+    # (live 02:3xZ: 8 m off the spot it stood on a slope and 3 walls never settled)
+    at = [round(spot[0], 2), round(spot[1], 2), spot[2]]
+    # the guard, before anything is built: the stand-in's whole footprint (centre + its half diagonal) and the spot
+    pre = guard([spot, at, [spot[0] - FIXTURE_AT[0], spot[1] - FIXTURE_AT[1], spot[2]]], pts)
+    if pre["ok"] and pre["nearest_m"] is not None and pre["nearest_m"] - FIXTURE_HALF_M < GUARD_M:
+        pre = {**pre, "ok": False, "why": f"footprint edge {pre['nearest_m'] - FIXTURE_HALF_M:.1f} m < {GUARD_M:.0f} m"}
+    if not pre["ok"]:
+        return {"ok": False, "reason": "guard", "guard_before": pre, "pieces": [], "n": 0, "at": at}
+    before = structures(cli)
+    t0, granted, r = time.time(), {}, {}
+    for _ in range(2):
+        r = cli.request("build_blueprint", {"blueprint": blueprint, "at": at, "facing": "E"}, timeout=2500) or {}
+        missing = (r.get("data") or {}).get("missing") if r.get("reason") == "missing_materials" else None
+        if not missing:
+            break
+        for m in missing:
+            n = int(m["need"]) - int(m.get("have") or 0) + 2
+            dev.setup("grant", purpose="rung2 fixture: materials for the stand-in of Luis's house", item=m["item"], count=n)
+            granted[m["item"]] = granted.get(m["item"], 0) + n
+        time.sleep(2.0)
+    after = structures(cli)
+    pieces = [{"id": k, "piece": v.get("piece"), "name": v.get("name"), "position": v.get("position")}
+              for k, v in after.items() if k not in before and v.get("position")]
+    # off his ledger: the body re-reads the file after 30 s (deconstruct.lua ledger_every_s), so wait that out before
+    # the line, or a note from the cached copy would write the stand-in back as his
+    struck = 0
+    if LEDGER.exists():
+        d = json.loads(LEDGER.read_text(encoding="utf-8"))
+        keep = [e for e in d.get("pieces") or [] if not any(
+            e.get("piece") == q["piece"] and isinstance(e.get("at"), list) and math.dist(e["at"], q["position"]) <= 0.3
+            for q in pieces)]
+        struck = len(d.get("pieces") or []) - len(keep)
+        d["pieces"] = keep
+        tmp = LEDGER.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
+        tmp.replace(LEDGER)
+    time.sleep(35.0)
+    post = guard([q["position"] for q in pieces], pts)  # every piece he may tear down, measured where it stands
+    return {"ok": bool(r.get("ok")) and post["ok"], "reason": r.get("reason") if post["ok"] else "guard",
+            "guard_before": pre, "guard_after": post, "pieces": pieces, "n": len(pieces), "at": at,
+            "s": round(time.time() - t0, 1), "granted": granted, "struck_from_ledger": struck,
+            "detail": str((r.get("data") or {}).get("detail") or (r.get("data") or {}).get("built") or "")[:300]}
+
+
+def standing(fx: list[dict], census: list[list[float]], after: dict[str, dict]) -> list[dict]:
+    """Which stand-in pieces still stand: the same piece type within 0.3 m in get_state's structures, else no census
+    point there at all = gone; a census point but no typed read = unknown (out of get_state's reach, or a new piece
+    of his on the same spot)."""
+    out = []
+    for q in fx:
+        same = any(v.get("piece") == q["piece"] and v.get("position") and math.dist(v["position"], q["position"]) <= 0.3
+                   for v in after.values())
+        pt = any(math.dist(c, q["position"]) <= 0.3 for c in census)
+        out.append({**q, "state": "standing" if same else ("gone" if not pt else "unknown")})
+    return out
+
+
+def items(new: list[dict], tl: dict, fx_state: list[dict] | None) -> dict:
+    """Rung 2's item list, each from game state: the stand-in torn down, his own house (foundation, walls, roof, door in
+    a frame), a crafting table, a firepit and a crate (new pieces in the census, his), and items stored in his crate."""
+    names = [str(n.get("name") or "") for n in new if n.get("mine") is not False]
+
+    def has(*w):
+        return any(any(x.lower() in nm.lower() for x in w) for nm in names)
+    crates = {n["id"] for n in new if "Crate" in str(n.get("name") or "")}
+    stored = [c for c in tl.get("calls") or [] if c.get("tool") == "store" and c.get("ok")
+              and (not crates or str((c.get("args") or {}).get("container") or "") in crates)]
+    out = {"house_foundation": has("Foundation"), "house_walls": has("Wall"), "house_roof": has("Roof"),
+           "house_door": any(nm == "Door" for nm in names) and has("Door Frame"), "crafting_table": has("Crafting Table"),
+           "firepit": has("Campfire", "Fire Pit", "Firepit"), "crate": has("Crate"), "stored": bool(stored)}
+    if fx_state is not None:
+        gone = sum(1 for q in fx_state if q["state"] == "gone")
+        out["teardown"] = bool(fx_state) and gone == len(fx_state)
+        out["teardown_detail"] = (f"{gone} of {len(fx_state)} gone, "
+                                  f"{sum(1 for q in fx_state if q['state'] == 'standing')} standing")
+    out["all"] = all(v for k, v in out.items() if k != "teardown_detail")
+    return out
+
+
+def judge(t0: float, t1: float, line: str, outcome: dict) -> dict:
+    """Every report true: tools/truth_judge.py (Haiku, the facts of the window, the census outcome)."""
+    from tools import truth_check as tc
+    from tools import truth_judge as tj
+    v = tc.analyse_window(ROOT, t0 - 1, t1 + 1)
+    v = tj.apply(v, {"request": line, "kind": "build", "t0": t0, "outcome": outcome})
+    j = v.get("judge") or {}
+    return {"truthful": v.get("truthful"), "source": v.get("truth_source"),
+            "flags": [{k: f.get(k) for k in ("kind", "claim", "why")} for f in v.get("flags") or []][:6],
+            "unverified": len(v.get("unverified") or []), "usd": j.get("usd"), "error": v.get("judge_error")}
+
+
 def score(t0: float, t1: float, who: str = "ClaudeDev") -> dict:
     from tools import recorder_io as rio
     from tools import standard_score as ss
@@ -196,7 +336,13 @@ def cmd_run(a) -> int:
                 nav = json.loads((skills / "nav_memory.json").read_text(encoding="utf-8"))
                 mine = skills / "my_pieces.json"
                 base = (home(json.loads(mine.read_text(encoding="utf-8")).get("pieces") or []) if mine.exists() else None)                     or census.get("me") or [0, 0, 0]
-                spot, how = fresh_spot(pts, base, nav), f"census ({len(pts)} pieces), {CLEAR_M:.0f}+ m clear, near his base {base}"
+                # rung 2: the stand-in goes 8 m off the spot and spans 6.4 m more, and all of it stays GUARD_M clear
+                clear = GUARD_M + math.hypot(*FIXTURE_AT) + FIXTURE_HALF_M + 1.0 if a.rung2 else CLEAR_M
+                # rung 2: level within 1.0 m over 8 m (the stand-in on a slope never settled, 02:3xZ), a wider ring (the dev
+                # world near his base is built up: "no fresh spot" at 45 m clear within 110 m, 02:4xZ)
+                spot = (fresh_spot(pts, base, nav, clear, ring=(40.0, 220.0), level_m=1.0, stand=(-FIXTURE_AT[0], -FIXTURE_AT[1]))
+                        if a.rung2 else fresh_spot(pts, base, nav, clear))
+                how = f"census ({len(pts)} pieces), {clear:.0f}+ m clear, near his base {base}"
                 if spot is None:
                     print("no fresh spot found near him")
                     return 6
@@ -205,6 +351,20 @@ def cmd_run(a) -> int:
             site = {"spot": spot, "chosen": how, "nearest_piece": nearest_piece(spot, pts) if pts else None,
                     "census_pieces": len(pts), "go_to_ok": g.get("ok"), "go_to_reason": g.get("reason"), "stands_at": here}
             print(f"at: {json.dumps(site)}")
+        fx = None
+        if a.rung2:
+            if not site:
+                print("--rung2 needs --fresh or --at (the stand-in goes beside the spot)")
+                return 7
+            fx = fixture_house(cli, site["spot"], pts)
+            print(f"fixture: {json.dumps({k: v for k, v in fx.items() if k != 'pieces'})}")
+            if fx.get("reason") == "guard":
+                print(f"guard: the stand-in is not {GUARD_M:.0f} m clear of every built piece; not sending the line")
+                return 9
+            if fx["n"] < 9:
+                print("the stand-in house did not go up; not sending the line")
+                return 8
+            cli.request("go_to", {"target": [site["spot"][0] - FIXTURE_AT[0], site["spot"][1] - FIXTURE_AT[1], site["spot"][2]]}, timeout=60)
         before = structures(cli)
         spent0 = spend.spend_today()["spent_usd"]
         p, brain_file = cl.start_brain(a, spent0)
@@ -243,6 +403,7 @@ def cmd_run(a) -> int:
             time.sleep(2.0)
             cl.stop_brain(p)
         after = structures(cli)
+        census_after = (all_pieces().get("pts") or []) if fx else []
     rows = cl.brain_rows([brain_file], t0 - 1, ended + 3)
     tl = timeline(rows, t0)
     calls = cl.model_calls(rows)
@@ -258,6 +419,16 @@ def cmd_run(a) -> int:
            "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name}
+    if fx is not None:
+        fx_state = standing(fx["pieces"], census_after, after)
+        decon = [c for c in tl["calls"] if c.get("tool") == "deconstruct"]
+        rec["fixture"] = {k: v for k, v in fx.items() if k != "pieces"} | {"state": fx_state}
+        rec["items"] = items(new, tl, fx_state)
+        rec["teardown"] = {"calls": len(decon), "s": round(sum(float(c.get("dur_s") or 0) for c in decon), 1),
+                           "pieces": len(fx_state)}
+        rec["judge"] = judge(t0, ended, a.line, {"check": "the stand-in house torn down; his own house (foundation, walls, "
+                             "roof, door), crafting table, firepit and crate built; items stored in his crate",
+                             "done": rec["items"]["all"], "how": json.dumps(rec["items"])})
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
@@ -266,7 +437,8 @@ def cmd_run(a) -> int:
 
 
 def show(rec: dict) -> None:
-    print(json.dumps({k: rec.get(k) for k in ("line", "ended", "wall_s", "haiku", "sonnet", "usd", "idle_total_s", "score")}, indent=1))
+    print(json.dumps({k: rec.get(k) for k in ("line", "ended", "wall_s", "haiku", "sonnet", "usd", "idle_total_s", "score",
+                                              "items", "teardown", "judge") if k in rec}, indent=1))
     print("new pieces:", json.dumps(rec.get("pieces_new"))[:1500])
     for v in rec.get("truth") or []:
         print("  truth", v)
@@ -313,6 +485,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--at", default="", help="x,y,z metres: walk him there first (the fresh spot the line's 'here' means)")
     r.add_argument("--fresh", action="store_true", help=f"pick the spot from the census: {CLEAR_M:.0f}+ m from any built piece, near him")
     r.add_argument("--nav-world", default="dev", help="the body's world id for its nav memory (data/skills/<id>)")
+    r.add_argument("--rung2", action="store_true", help="the Rung 2 streak run: a stand-in of Luis's house goes up beside "
+                   "the spot first (harness fixture), then the line (default RUNG2_LINE) asks for all of rung 2")
     sc = sub.add_parser("score")
     sc.add_argument("--since", required=True)
     sc.add_argument("--until", required=True)
@@ -320,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("report")
     rp.add_argument("-n", type=int, default=10)
     a = ap.parse_args(argv)
+    if a.cmd == "run" and a.rung2 and a.line == "claude build yourself a small house here":
+        a.line = RUNG2_LINE
     return {"run": cmd_run, "score": cmd_score, "report": cmd_report}[a.cmd](a)
 
 

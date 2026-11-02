@@ -88,3 +88,16 @@ def test_asked_here_keeps_the_place_he_was_asked():
     assert 'Asked: "claude build yourself a small house here" when you stood at (81, 1913, -31), 33 m from where you are now; Zezima was at (82, 1914, -31)' in text
     assert asked_at(at_ask, "Zezima", "") is None and with_asked({"position": [0, 0, 0]}, None) == {"position": [0, 0, 0]}
     assert "asked_at" not in "\n".join(summary({"position": [0, 0, 0]}))
+
+
+def test_bases_line_from_his_own_record():
+    """my_bases (the body's ledger of what he built, clustered): one line at any distance, nearest first (live 01:29Z:
+    he walled in a new wheel 100 m from his own roofed house, which nothing in state named)."""
+    st = {"position": [0, 0, 0], "my_bases": [
+        {"centre": [70, -70, 0], "distance_m": 99, "direction": "NE", "pieces": 14, "covered": True,
+         "stations": ["Spinning Wheel", "Crafting Table"]},
+        {"centre": [0, 300, 0], "distance_m": 300, "direction": "S", "pieces": 1, "covered": False, "stations": ["Campfire"]}]}
+    text = "\n".join(summary(st))
+    assert ("Your bases (what you built): 99 m NE, roofed, 14 pieces (Spinning Wheel, Crafting Table)"
+            " | 300 m S, no roof, 1 piece (Campfire)") in text
+    assert "my_bases" not in text and "Your bases" not in "\n".join(summary({"position": [0, 0, 0]}))

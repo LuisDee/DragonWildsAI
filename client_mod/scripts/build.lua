@@ -57,7 +57,7 @@ local function mem()
     m.static = m.static or {}
     return m
 end
-M.STATIC_V = 1 -- bump when describe() changes shape (cached static data is per session)
+M.STATIC_V = 2 -- bump when describe() changes shape (cached static data is per session)
 
 -- His unlocked pieces: the UBuildingPieceData objects of ProgressComponent.BuildingsUnlocked (deduplicated:
 -- live P1a, the Deluxe decorations are listed twice), or nil, why.
@@ -101,6 +101,10 @@ function M.describe(api, d)
     p.xp = tonumber(U.try(function() return d.ConstructionXPOnBuild end))
     p.index = tonumber(U.try(function() return d.BuildingPieceDataIndex end))
     p.shelter_text = text(U, U.try(function() return d.ShelterRequirementText end))
+    -- the piece data carries only the tooltip's words (UBuildingPieceData, dump 26161880; the rule itself is on the built
+    -- actor's BuildingShelter component): "Requires Shelter" (the Spinning Wheel) vs "Must Be Exposed" (the Campfire)
+    local st = lower(p.shelter_text)
+    if st:find("shelter", 1, true) and not st:find("expos", 1, true) then p.needs_shelter = true end
     if U.try(function() return d.bOnlyAvailableToHost end) == true then p.host_only = true end
     if id then m.static[id] = { v = M.STATIC_V, p = p } end
     return p
@@ -229,6 +233,10 @@ M.cfg.build = {
     standoff_m = 2.5, footprint_m = 1.5, reach_m = 7.0, open_wait_s = 1.5, select_wait_s = 2.0,
     verify_s = 6.0, leave_presses = 3, leave_wait_s = 0.5, timeout_s = 110, match_m = 1.5, rotate_step_deg = 15,
     budget_s = 25,
+    settle_s = 4.0, -- a cursor read while it still closes on the spot is not a check, up to this long (placement.lua)
+    red_probe_s = 2.0, -- every spot red: press once and wait this long for the game's own reason (0 = off)
+    shelter_up_m = 2.0, -- ... and standing more than this above / below its floor is not in it (on the roof)
+    shelter_reach_m = 25, -- a shelter-only piece: my own covered floors this close to where it was asked count
     -- after the game confirms the build (telemetry / XP + spend), look this long for the new piece in the world
     -- (an actor of this piece within find_m of the preview that wasn't there before the press), so the reply can
     -- say where it stands (co-play 2026-11-01: structure was always null, the crate read as a failure)
@@ -240,7 +248,9 @@ M.cfg.build = {
     snap_aim_m = 0.25, snap_tol_m = 0.06, snap_tol_z_m = 0.12, flush_tol_m = 0.06, stand_extra_m = 1.5, taken_m = 0.5,
     preview_waits = 6, edge_aim_m = 0.3,
     -- no preview actor (instance-only pieces): the cursor must stop gliding (settle_m between reads) within
-    -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s)
+    -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s). Reads
+    -- while the cursor still closes on the spot are not counted (placement.lua settle_s; 2026-11-02 02:3xZ on a slope it
+    -- climbed 3.3 m -> 0.1 m in 14 reads and ran out just as it arrived: 3 walls lost)
     settle_m = 0.03, tremble_m = 0.15, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, corr_max_z_m = 1.2, edge_in_m = 0.3,
     -- speed (Luis's recording: he placed 11 walls from one spot, 0-0.3 m apart, 1-3 s each; MaxPlacementDistance 7 m):
     -- stay where I am when the aim point is within stay_m, my view of it is clear and I'm not in the piece's way
@@ -277,7 +287,10 @@ M.MENU_ACTION = "/Game/Gameplay/Inputs/Actions/UI/IA_BuildMenu.IA_BuildMenu"
 -- 1 = Overlapping / Floating / NeedsFoundation / Unstable / MissingMaterials / InsideVault / protected / limit /
 -- blocked region; 0 = WrongPhysicalSurface or None.
 M.REJECT_WORDS = {
-    preview_red = "the preview was red there (something in the way, not on solid ground, unstable or needs a foundation)",
+    -- red is all the preview shows: the game names the cause (blocked, no foundation, unstable ...) only on a press
+    -- (dump 26161880: the scalar is a colour; the validity hooks never fire). Never list guesses as the cause (tools leg
+    -- run 5, 03:5xZ: "something in the way" became "the walls I put up block every spot")
+    preview_red = "the preview stayed red there (the game doesn't say why while previewing)",
     preview_none = "there was no surface it could go on there",
     preview_off_target = "the preview didn't land where I aimed",
     not_snapped = "the preview didn't snap onto the piece (it stayed where I aimed instead of sitting flush)",
@@ -833,6 +846,65 @@ function W.floor_under(api, pos, self_id)
         bd, bbox.extent[1] * 2, bbox.extent[2] * 2)
     return { id = best.id, name = best.name, from_centre_m = r1(bd), mine = mine, words = words }
 end
+-- Shelter-only pieces (the piece data's ShelterRequirementText, "Requires Shelter": the Spinning Wheel). The game
+-- lets one be PLACED under open sky and then refuses to let it be used (live tools leg run 5, 03:5xZ: a wheel 15 m from
+-- his roofed house, then 4 min and 46 logs walling round it). A roof over a spot = a trace 2.2-10 m above its floor
+-- hits (crafting.lua W.shelter's covered test, the one stations report), with 0.3-2 m above the floor clear.
+function W.ground_at(api, x, y, z) -- the floor under (x, y) from z + 1.5 m (under a roof's slope) down to z - 4 m -> z | nil
+    local hit, o = W.trace(api, { X = x * 100, Y = y * 100, Z = (z + 1.5) * 100 }, { X = x * 100, Y = y * 100, Z = (z - 4) * 100 })
+    local zi = hit and o and o.ImpactPoint and tonumber(o.ImpactPoint.Z)
+    return zi and zi / 100 or nil
+end
+function W.covered_at(api, p)
+    local function up(a, b) return (W.trace(api, { X = p[1] * 100, Y = p[2] * 100, Z = (p[3] + a) * 100 }, { X = p[1] * 100, Y = p[2] * 100, Z = (p[3] + b) * 100 })) end
+    return up(2.2, 10) == true and up(0.3, 2.0) ~= true
+end
+-- Where a shelter-only piece can go near `center`: covered spots, on my own floors first (my house), then any covered
+-- spot round the centre asked for; and a covered place to stand at standoff_m from it (inside, so the camera sees it).
+-- env = {ground_at(x, y, z), covered(p), mine_floors = {{x, y, z}}, reach_m, standoff_m, here}
+-- -> {center, stand_at, on_mine} | nil
+function M.shelter_plan(env, center)
+    local function probe(x, y, z0)
+        local z = env.ground_at(x, y, z0)
+        if not z then return nil end
+        local p = { x, y, z }
+        return env.covered(p) and p or nil
+    end
+    local function on_mine(p)
+        for _, f in ipairs(env.mine_floors or {}) do
+            if math.sqrt((f[1] - p[1]) ^ 2 + (f[2] - p[2]) ^ 2) <= 1.6 and math.abs(f[3] - p[3]) <= 1.5 then return true end
+        end
+        return false
+    end
+    local ring, floors = {}, {}
+    local function add(list, p) if p then list[#list + 1] = p end end
+    add(ring, probe(center[1], center[2], center[3]))
+    for _, r in ipairs({ 1.5, 3.0 }) do
+        for i = 0, 7 do
+            local a = math.rad(i * 45)
+            add(ring, probe(center[1] + r * math.cos(a), center[2] + r * math.sin(a), center[3]))
+        end
+    end
+    for _, f in ipairs(env.mine_floors or {}) do
+        if math.sqrt((f[1] - center[1]) ^ 2 + (f[2] - center[2]) ^ 2) <= (env.reach_m or 25) then add(floors, probe(f[1], f[2], f[3] + 1.0)) end
+    end
+    local function dist(p) return math.sqrt((p[1] - center[1]) ^ 2 + (p[2] - center[2]) ^ 2) end
+    local pick
+    for _, p in ipairs(ring) do if on_mine(p) and (not pick or dist(p) < dist(pick)) then pick = p end end
+    if not pick then for _, p in ipairs(floors) do if not pick or dist(p) < dist(pick) then pick = p end end end
+    local mine = pick ~= nil
+    if not pick then for _, p in ipairs(ring) do if not pick or dist(p) < dist(pick) then pick = p end end end
+    if not pick then return nil end
+    -- stand under the same roof, standoff_m off, nearest me
+    local here, so, stand, sd = env.here or pick, (env.standoff_m or 1.5) + 0.5, nil, nil
+    for i = 0, 7 do
+        local a = math.rad(i * 45)
+        local q = probe(pick[1] + so * math.cos(a), pick[2] + so * math.sin(a), pick[3])
+        local dq = q and math.sqrt((q[1] - here[1]) ^ 2 + (q[2] - here[2]) ^ 2)
+        if q and (not sd or dq < sd) then stand, sd = q, dq end
+    end
+    return { center = pick, stand_at = stand, on_mine = mine }
+end
 -- Built pieces standing where a new piece would go (its box at spot, turned yaw, plus margin_m): the truthful
 -- "what is in the way" for a red preview (live 20:5xZ: a Crafting Table in the middle of a medium foundation kept its
 -- S wall red; the model guessed it). rows: census {id, name, position}; skip: ids to leave out. -> up to 2 rows
@@ -1110,11 +1182,41 @@ local function start_build(api, args, ctx)
         if r and type(r.Yaw) == "number" then yaw = math.rad(r.Yaw) end
         center = { here[1] + math.cos(yaw) * (standoff + 0.5), here[2] + math.sin(yaw) * (standoff + 0.5), here[3] }
     end
+    -- a shelter-only piece goes under a roof (my house first), never under open sky
+    local shelter
+    if piece.needs_shelter and not on then
+        local dm = api.module("deconstruct")
+        local okl, L = pcall(function() return dm and dm.ledger(nil) end)
+        L = okl and L or nil
+        local floors = {}
+        for _, e in ipairs(L and L.pieces or {}) do
+            local id = tostring(e.piece or "")
+            if type(e.at) == "table" and #e.at >= 3 and (id:find("Foundation", 1, true) or id:find("_Floor_", 1, true)) then floors[#floors + 1] = e.at end
+        end
+        local plan = M.shelter_plan({ ground_at = function(x, y, z) return W.ground_at(api, x, y, z) end,
+                                      covered = function(p) return W.covered_at(api, p) end,
+                                      mine_floors = floors, reach_m = cfg.shelter_reach_m, standoff_m = standoff, here = here }, center)
+        if not plan then
+            local house
+            local okb, bases = pcall(function() return dm and dm.bases(L, here) end)
+            for _, b in ipairs(okb and bases or {}) do if b.covered and not house then house = b end end
+            local said = piece.shelter_text ~= "" and (" (the game says \"" .. piece.shelter_text .. "\")") or ""
+            return api.fail("blocked", { piece = piece.id, why = "no_shelter", shelter_text = piece.shelter_text, my_house = house,
+                detail = "The " .. piece.name .. " needs a roof over it" .. said .. ", and there is open sky over every spot "
+                    .. "within 3 m of where it would go and no covered floor of mine within " .. math.floor(cfg.shelter_reach_m) .. " m"
+                    .. (house and string.format("; my house %d m %s at (%.0f, %.0f) has a roof", house.distance_m or 0, house.direction or "",
+                        house.centre[1], house.centre[2]) or "; I have no roofed building of my own to put it in")
+                    .. ". Nothing was placed." })
+        end
+        exact = exact and plan.center[1] == center[1] and plan.center[2] == center[2]
+        center, shelter = plan.center, plan
+    end
     local short = false
     for _, x in ipairs(missing) do if (x.have + (x.in_storage or 0)) < x.need then short = true end end
     local job = { kind = "build", piece = piece, data = data, phase = "approach", missing = missing, center = center, exact = exact,
                   short_materials = short, on = on, footprint = footprint,
-                  standoff = standoff, presses = {}, spent = {}, counts0 = counts, storage0 = storage, opens = 0, leaves = 0 }
+                  standoff = standoff, presses = {}, spent = {}, counts0 = counts, storage0 = storage, opens = 0, leaves = 0,
+                  shelter = shelter, stand_at = shelter and shelter.stand_at or nil }
     job.xp0 = W.construction_xp(api)
     return job
 end
@@ -1284,6 +1386,11 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     if s and s.position and not job.on then
         local okf, fl = pcall(W.floor_under, api, s.position, s.id)
         if okf and fl then floor_words, line = fl.words, line .. " " .. fl.words end
+        if job.shelter then
+            local okc, cov = pcall(W.covered_at, api, s.position)
+            line = line .. (okc and cov and (" It has a roof over it" .. (job.shelter.on_mine and ", in my own building" or "") .. " (it needs shelter).")
+                or " I couldn't confirm a roof over it after all.")
+        end
     end
     -- mine: the game keeps no owner per piece (dump 26161880: FBuildingReplicatedEntry, FClientVisible/ServerOnly
     -- BuildingPieceState and ABaseBuildingActor carry none), so his own ledger (deconstruct.lua my_pieces.json) is what
@@ -1349,7 +1456,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     end
     local rej = {}
     for _, r in ipairs(job.rejects or {}) do
-        rej[#rej + 1] = { spot = r.spot, why = r.why, preview_at = r.preview_at, off_m = r.off_m }
+        rej[#rej + 1] = { spot = r.spot, why = r.why, preview_at = r.preview_at, off_m = r.off_m, trail = r.trail, aim_s = r.aim_s }
     end
     if #rej > 0 then
         line = line .. " Before that " .. #rej .. (#rej == 1 and " preview spot was" or " preview spots were")
@@ -1363,6 +1470,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         flush = att and att.flush, gap_m = att and att.gap_m, offset_m = att and att.offset_m, level_m = att and att.level_m,
         facing_off_deg = att and att.facing_off_deg, snap_moved_m = att and att.snap_moved_m,
         rejected_previews_before_placing = #rej > 0 and rej or nil,
+        placed_after_s = job.place_aim_s, placed_trail = job.place_trail,
         fit = fit or (s and ("It stands at " .. where .. "." .. (floor_words and (" " .. floor_words) or ""))) or nil,
         stayed = job.stayed or nil }, RESULT_MT) }
 end
@@ -1566,7 +1674,16 @@ local function step(api, job, t)
             job.moving, job.phase = false, "open"
         end
         local ds = job.stand_at and here and math.sqrt((here[1] - job.stand_at[1]) ^ 2 + (here[2] - job.stand_at[2]) ^ 2)
-        if (job.stand_at and ds and ds <= 1.2) or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5) then
+        -- under a roof: there means on its floor. Live window 2 (03:25Z): the walk to a stand point inside his house
+        -- ended ON its roof (4.7 m up, the door shut), 2 m from the point on the map, and every aim hit the roof
+        if job.shelter and ds and ds <= 1.2 and not job.moving and math.abs(here[3] - job.stand_at[3]) > cfg.shelter_up_m then
+            local c = job.center
+            return api.fail("blocked", { piece = job.piece.id, why = "no_way_in", stand_at = job.stand_at, at = here,
+                detail = string.format("I couldn't get in under the roof at (%.0f, %.0f) to put the %s down: the way I found ends %.1f m %s its floor%s. Nothing was placed.",
+                    c[1], c[2], job.piece.name, math.abs(here[3] - job.stand_at[3]), here[3] > job.stand_at[3] and "above" or "below",
+                    here[3] > job.stand_at[3] + 3 and " (on top of the building; its door may be shut)" or "") })
+        end
+        if (job.stand_at and ds and ds <= 1.2 and not (job.shelter and math.abs(here[3] - job.stand_at[3]) > cfg.shelter_up_m)) or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5) then
             to_open(); return nil
         end
         if not job.moving then
@@ -1588,7 +1705,10 @@ local function step(api, job, t)
             local sk = api.module("skills")
             local words = sk and sk.why_words and sk.why_words(res.reason) or "I can't find a way there"
             return api.fail(api.reason_code(res.reason or "path_blocked") == "body_error" and "path_blocked" or api.reason_code(res.reason or "path_blocked"),
-                { piece = job.piece.id, why = res.reason, detail = "I can't get to where the " .. job.piece.name .. " should go: " .. words .. "." })
+                { piece = job.piece.id, why = res.reason, stand_at = job.stand_at, trip = res.trip,
+                  detail = job.shelter and string.format("I can't get in under the roof at (%.0f, %.0f) to put the %s there (it needs shelter): %s%s. Nothing was placed.",
+                        job.center[1], job.center[2], job.piece.name, words, job.shelter.on_mine and "; it's my own building, and its door may be shut" or "")
+                      or ("I can't get to where the " .. job.piece.name .. " should go: " .. words .. ".") })
         end
         return nil
     elseif job.phase == "open" then
@@ -1791,14 +1911,30 @@ local function step(api, job, t)
             end
         else
             spots, skipped = P.spots(env, job.center, { footprint_m = job.footprint, standoff_m = math.max(0.8, job.footprint / 2 + 0.3),
-                                                        around_m = job.exact and { 1.0 } or { 1.5, 3.0 }, around_n = 8 })
+                                                        around_m = job.exact and { 1.0 } or { 1.5, 3.0 }, around_n = 8,
+                                                        shelter = job.shelter ~= nil })
             if job.exact and spots[1] and not spots[1].exact then table.insert(spots, 1, { position = job.center, exact = true }) end
             if #spots == 0 then spots = { { position = job.center, exact = true } } end
         end
         job.skipped = skipped
+        -- free placement: the spots the cursor reaches soonest first. Its position steps only every 0.5-1.4 s (live
+        -- 03:37Z: 1.4 s, the first spot 7 m from where the preview sat -> 4.4 s and still 2.5 m short), so the
+        -- nearest good spot to where the preview already is beats the "best" one across the clearing
+        if not job.on and #spots > 1 then
+            local okc, mc = pcall(W.mpc, api)
+            local cur = okc and mc and mc.position
+            if cur then
+                local function dc(sp) return math.sqrt((sp.position[1] - cur[1]) ^ 2 + (sp.position[2] - cur[2]) ^ 2) end
+                local head = (job.exact and spots[1].exact) and table.remove(spots, 1) or nil
+                table.sort(spots, function(a, b) return dc(a) < dc(b) end)
+                if head then table.insert(spots, 1, head) end
+                job.cursor_at_start = { r1(cur[1]), r1(cur[2]), r1(cur[3] or 0) }
+            end
+        end
         local checks = (job.on and job.on.mode == "cursor" and cfg.cursor_checks) or (job.on and 4) or 3
         job.checker = P.checker(env, spots, { match_m = function(sp) return sp.match_m or cfg.match_m end, checks = checks,
-                                              budget_s = cfg.budget_s, compare = "2d" })
+                                              budget_s = cfg.budget_s, compare = "2d",
+                                              settle_s = cfg.settle_s })
         job.phase = "check"
         return nil
     elseif job.phase == "check" then
@@ -1861,11 +1997,60 @@ local function step(api, job, t)
                 end
             end
             if reason == "missing_materials" then d.missing = job.missing end
+            if common == "preview_red" and not job.on then
+                -- what stands in the footprint of the spots tried (the census; a fact, not a guess)
+                local half = (job.footprint or cfg.footprint_m) / 2
+                local box = { origin = { 0, 0, 1.2 }, extent = { half, half, 1.2 } }
+                local seen, names = {}, {}
+                local okr, rows = pcall(W.structures, api, true)
+                for _, st in ipairs(okr and type(rows) == "table" and rows or {}) do -- floors are what it stands on, not in its way
+                    local pid = tostring(st.piece or "")
+                    if pid:find("Foundation", 1, true) or pid:find("_Floor_", 1, true) then seen[st.id] = true end
+                end
+                for _, rj in ipairs(r.rejects or {}) do
+                    for _, st in ipairs(okr and type(rows) == "table" and M.standing_in(rows, rj.spot, box, 0, {}, 0) or {}) do
+                        if not seen[st.id] then seen[st.id] = true; names[#names + 1] = "the " .. tostring(st.name) .. " (" .. tostring(st.id) .. ")" end
+                    end
+                end
+                -- the preview never got there (live window 2: it sat on the roof above me, 3 m off and 4.7 m up)
+                local lr = r.rejects and r.rejects[#r.rejects]
+                if lr and lr.preview_at and lr.spot and ((lr.off_m or 0) > cfg.match_m or math.abs(lr.preview_at[3] - lr.spot[3]) > 1.5) then
+                    local up = lr.preview_at[3] - lr.spot[3]
+                    d.detail = d.detail .. string.format(". Its preview never reached the spot: it stayed %.1f m off%s", lr.off_m or 0,
+                        math.abs(up) > 1.5 and string.format(" and %.1f m %s it (on whatever my view hit)", math.abs(up), up > 0 and "above" or "below") or "")
+                end
+                for _, sk in ipairs(job.skipped or {}) do -- the ground itself (live 03:29Z: a foundation on a slope, 2.07 m)
+                    if sk.exact and sk.why == "uneven" and sk.spread_m then
+                        d.detail = d.detail .. string.format(". The ground where it would go rises %.1f m across its footprint", sk.spread_m)
+                    end
+                end
+                if okr and type(rows) == "table" then
+                    d.in_the_way = names
+                    d.detail = d.detail .. (#names > 0 and (". Where it would go stands " .. table.concat(names, " and ") .. ".")
+                        or ". Nothing built stands where it would go.")
+                end
+            end
+            -- the cause from the game itself: one press on the red preview, as a player clicks to see the message
+            -- (BuildInteractionComponent:Client_ShowValidityNotification, the refused hook)
+            if common == "preview_red" and cfg.red_probe_s > 0 and not job.red_probe and W.mode(api) == "Placement" and W.place_action(api) then
+                job.red_probe = { reason = reason, d = d }
+                job.refused0 = (W.hook("refused") or {}).seq or 0
+                job.complete0 = (W.hook("complete") or {}).seq or 0
+                local last = r.rejects and r.rejects[#r.rejects]
+                job.spot = { position = last and (last.preview_at or last.spot) or job.center }
+                job.before_ids = {}
+                for _, st in ipairs(W.structures_near(api, job.piece.id, job.spot.position, cfg.before_m) or {}) do job.before_ids[st.id] = true end
+                job.presses[#job.presses + 1] = "place (to see why it's red)"
+                W.press(api, W.place_action(api))
+                job.phase, job.verify_until, job.next_actor_check = "verify", t + cfg.red_probe_s, t + 0.5
+                return nil
+            end
             return leave_then(api.fail(reason, d))
         end
         if r.press then
             job.spot, job.preview = r.spot, r.preview
             job.rejects = r.rejects
+            job.place_trail, job.place_aim_s = r.trail, r.aim_s
             job.refused0 = (W.hook("refused") or {}).seq or 0
             job.complete0 = (W.hook("complete") or {}).seq or 0
             local pa = W.place_action(api)
@@ -1884,6 +2069,13 @@ local function step(api, job, t)
         if rf and rf.seq > job.refused0 then
             local texts = W.texts(api)
             local reason = M.STATE_REASON[rf.v] or "blocked"
+            local says = tostring((rf.v == 11 and job.piece.shelter_text) or texts[rf.v] or M.STATE_TEXT[rf.v] or "it wouldn't let me place it")
+            if job.red_probe then
+                local d = job.red_probe.d
+                d.why, d.game_says = M.STATES[rf.v] or tostring(rf.v), says
+                d.detail = d.detail .. " When I pressed place once to see why, the game said: \"" .. says .. "\". Nothing was placed."
+                return leave_then(api.fail(reason, d))
+            end
             return leave_then(api.fail(reason, { piece = job.piece.id, why = M.STATES[rf.v] or tostring(rf.v),
                 detail = "The game refused it: " .. tostring((rf.v == 11 and job.piece.shelter_text) or texts[rf.v] or "it wouldn't let me place it") .. "." }))
         end
@@ -1923,6 +2115,11 @@ local function step(api, job, t)
             return nil
         end
         if t >= job.verify_until and job.structure then return built(false) end -- a new piece stands there: built
+        if t >= job.verify_until and job.red_probe and not evidence then
+            local d = job.red_probe.d
+            d.detail = d.detail .. " I pressed place once to see why and the game gave no message. Nothing was placed."
+            return leave_then(api.fail(job.red_probe.reason, d))
+        end
         if t >= job.verify_until then
             return leave_then(api.fail("verification_failed", { piece = job.piece.id, spent = api.object(spent), evidence = evidence or api.null,
                 detail = "I pressed place for the " .. job.piece.name .. " but " .. (evidence and "the materials weren't used" or "nothing was built") .. "." }))

@@ -22,6 +22,13 @@ P.cfg = {
     checks = 2,             -- re-aim + re-read this many times per spot
     match_m = 2.5,          -- the preview must sit this close to the spot
     budget_s = 25,          -- the whole search
+    settle_s = 0,           -- reads are counted by settling, not by number: while the cursor is still closing on the spot
+                            -- (its last move took it over close_m nearer, under stall_s ago) a read is not a check, up
+                            -- to this long after the aim (0 = off). The cursor glides after each aim (0.3-3 m/s; on a
+                            -- slope it climbs slower): give up only once it stopped and is still off
+    close_m = 0.05,         -- "still closing": its last move took it this much nearer ...
+    stall_s = 1.0,          -- ... and came this recently (its position steps every 0.45-1.3 s; x1.5 the last step seen)
+    close_read_s = 0.1,     -- re-read this soon while it closes
     max_spread_m = 1.5,     -- 3x3 height spread a spot may have (traces only rank / drop hopeless spots)
     min_normal_z = 0.75,
     clear_players_m = 2.5,  -- never a spot this close to another player
@@ -82,7 +89,7 @@ function P.spots(env, center, opts)
         else
             local zs, zc, nz = {}, nil, nil
             for dx = -1, 1 do for dy = -1, 1 do
-                local hit, o = env.trace({ X = p[1] + dx * step_cm, Y = p[2] + dy * step_cm, Z = p[3] + 400 },
+                local hit, o = env.trace({ X = p[1] + dx * step_cm, Y = p[2] + dy * step_cm, Z = p[3] + (opts.shelter and 150 or 400) },
                                          { X = p[1] + dx * step_cm, Y = p[2] + dy * step_cm, Z = p[3] - 600 })
                 local z = hit and o and o.ImpactPoint and o.ImpactPoint.Z or nil
                 if z then zs[#zs + 1] = z end
@@ -92,9 +99,13 @@ function P.spots(env, center, opts)
                 local lo, hi = math.huge, -math.huge
                 for _, z in ipairs(zs) do lo = math.min(lo, z); hi = math.max(hi, z) end
                 local spread = (hi - lo) / 100
-                local up = env.trace({ X = p[1], Y = p[2], Z = zc + 50 }, { X = p[1], Y = p[2], Z = zc + 350 })
+                -- opts.shelter (a shelter-only piece): a roof 2.2-10 m over it is required, only the 0.5-2.2 m above kept clear
+                local up = env.trace({ X = p[1], Y = p[2], Z = zc + 50 }, { X = p[1], Y = p[2], Z = zc + (opts.shelter and 220 or 350) })
+                local open_sky = opts.shelter and not env.trace({ X = p[1], Y = p[2], Z = zc + 220 }, { X = p[1], Y = p[2], Z = zc + 1000 })
                 local los = opts.los ~= false and env.trace({ X = me.X, Y = me.Y, Z = me.Z + 50 }, { X = p[1], Y = p[2], Z = zc + 80 }) or false
-                if not up and not los and spread <= (opts.max_spread_m or cfg.max_spread_m) and (nz or 0) >= (opts.min_normal_z or cfg.min_normal_z) then
+                if open_sky then
+                    skipped[#skipped + 1] = { spot = { p[1] / 100, p[2] / 100, zc / 100 }, why = "open_sky", exact = p.exact }
+                elseif not up and not los and spread <= (opts.max_spread_m or cfg.max_spread_m) and (nz or 0) >= (opts.min_normal_z or cfg.min_normal_z) then
                     out[#out + 1] = { position = { p[1] / 100, p[2] / 100, zc / 100 }, spread_m = math.floor(spread * 100) / 100,
                                       normal_z = nz and math.floor(nz * 1000) / 1000, exact = p.exact }
                 elseif p.exact then
@@ -143,12 +154,41 @@ function P.checker(env, spots, opts)
                          why = (#self.rejects == 0 and self.unreadable > 0) and "preview_unreadable" or (#self.spots == 0 and "no_spots" or "all_rejected") }
             end
             env.aim(sp.position)
-            self.t_read, self.checks = t + wait_s, 0
+            self.t_read, self.checks, self.t_aim, self.last_d, self.last_move, self.trail = t + wait_s, 0, t, nil, nil, {}
             return nil
         end
         if t < self.t_read then return nil end
         local sp = self.spots[self.i]
         local vis = env.read()
+        -- the cursor's way to the spot, per read (for the reply: where the preview was, how long after the aim)
+        if vis and vis.position and #self.trail < 16 then
+            local q = vis.position
+            self.trail[#self.trail + 1] = { math.floor((t - self.t_aim) * 100 + 0.5) / 100, math.floor(q[1] * 100 + 0.5) / 100,
+                                            math.floor(q[2] * 100 + 0.5) / 100, vis.valid }
+        end
+        local settle_s = opts.settle_s or P.cfg.settle_s
+        if settle_s > 0 and vis and vis.position and sp.position and not sp.here
+            and not (vis.valid == true and d2(vis.position, sp.position) <= match_m(sp)) then
+            -- the preview's position updates in steps ~0.45-0.6 s apart (live 03:07Z: pairs of equal reads 0.13 s apart
+            -- while it glided 0.3-3 m/s), so "still closing" = its last move was toward the spot and came less than
+            -- stall_s ago, not "it moved since the previous read"
+            -- the step interval varies: 0.5 s on flat ground, 1.26 s on the slope at 03:29Z (6.7 -> 4.5 -> 3.4 m off), so
+            -- "came recently" scales with the last interval seen between steps (x1.5, at least stall_s, at most 2.5 s)
+            local d = d2(vis.position, sp.position)
+            if not self.last_d or math.abs(self.last_d - d) > 0.02 then
+                local prev = self.last_move
+                self.last_move = { t = t, drop = self.last_d and (self.last_d - d) or (d > 0.2 and math.huge or 0),
+                                   gap = prev and (t - prev.t) or nil }
+            end
+            self.last_d = d
+            local lm = self.last_move
+            local stall = math.min(2.5, math.max(opts.stall_s or P.cfg.stall_s, 1.5 * (lm and lm.gap or 0)))
+            local closing = lm and lm.drop > (opts.close_m or P.cfg.close_m) and t - lm.t < stall
+            if closing and t - self.t_aim < settle_s then
+                self.t_read = t + (opts.close_read_s or P.cfg.close_read_s) -- still on its way: read again, no check spent
+                return nil
+            end
+        end
         if not vis or vis.valid == nil then
             if opts.on_unreadable == "press_once" and not self.pressed_blind then
                 self.pressed_blind = true
@@ -164,12 +204,14 @@ function P.checker(env, spots, opts)
         if vis.position and sp.position then near = (opts.compare == "2d" or sp.aim) and d2(vis.position, sp.position) or d3(vis.position, sp.position) end
         local match = sp.here or not near or near <= match_m(sp)
         if vis.valid == true and match and vis.fresh ~= false then
-            return { press = true, spot = sp, preview = vis, rejects = self.rejects }
+            return { press = true, spot = sp, preview = vis, rejects = self.rejects, trail = self.trail,
+                     aim_s = math.floor((t - (self.t_aim or t)) * 100 + 0.5) / 100 }
         end
         self.checks = self.checks + 1
         if self.checks < checks then env.aim(sp.position); self.t_read = t + wait_s; return nil end
         local rej = { spot = sp.position, valid = vis.valid, why = (vis.valid == true and not match) and "preview_off_target" or vis.why,
-                      preview_at = vis.position, spread_m = sp.spread_m, off_m = near and math.floor(near * 10 + 0.5) / 10 or nil }
+                      preview_at = vis.position, spread_m = sp.spread_m, off_m = near and math.floor(near * 10 + 0.5) / 10 or nil,
+                      trail = self.trail, aim_s = math.floor((t - (self.t_aim or t)) * 100 + 0.5) / 100 }
         self.rejects[#self.rejects + 1] = rej
         if opts.on_reject then opts.on_reject(rej, self) end
         self.next = true

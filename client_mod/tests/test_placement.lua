@@ -104,5 +104,61 @@ c = P.checker(e, { { position = { 5, 0, 0 } } }, { on_reject = function(rej, ch)
 r = run(c)
 check("on_reject may add spots", r.press and r.spot.position[1] == 9)
 
+-- settling: a cursor still closing on the spot (a slow climb up a slope) spends no checks; one that stopped off it does
+do
+    local t_aim
+    local function glide(speed, stop_at)
+        return env({ read = function(ev)
+            local dt = (ev.now or 0) - (t_aim or 0)
+            local d = math.max(stop_at, 3.3 - speed * dt)
+            return { valid = d <= 0.2 and true or false, why = "settling", position = { 5 + d, 0, 0 }, fresh = true }
+        end })
+    end
+    local function go(e, opts)
+        local c = P.checker(e, { { position = { 5, 0, 0 } } }, opts)
+        local t = 0
+        for _ = 1, 400 do
+            t = t + 0.05
+            e.now = t
+            if not t_aim and e.aim_n then t_aim = t end
+            local r = c:step(t)
+            if r then return r, t end
+        end
+    end
+    t_aim = nil
+    local r = go(glide(1.0, 0), { checks = 3, settle_s = 4, match_m = 0.2 })
+    check("settle: a 1 m/s glide is waited for and pressed (3 counted reads would have run out)", r and r.press, r and r.why)
+    t_aim = nil
+    r = go(glide(1.0, 0), { checks = 3, settle_s = 0, match_m = 0.2 })
+    check("settle off: the same glide runs out of checks", r and r.give_up)
+    t_aim = nil
+    local r2, t2 = go(glide(1.0, 1.5), { checks = 3, settle_s = 4, match_m = 0.2 })
+    check("settle: a cursor that stopped 1.5 m off is given up on soon after it stops (not at the 4 s cap)",
+        r2 and r2.give_up and t2 < 3.5, t2)
+    -- live 03:07Z: the preview's position steps every ~0.5 s, so two reads 0.13 s apart are equal while it still glides
+    local function stepped(speed, step_s)
+        return env({ read = function(ev)
+            local dt = (ev.now or 0) - (t_aim or 0)
+            local d = math.max(0, 3.3 - speed * math.floor(dt / step_s) * step_s)
+            return { valid = d <= 0.2 and true or false, why = "settling", position = { 5 + d, 0, 0 }, fresh = true }
+        end })
+    end
+    t_aim = nil
+    r = go(stepped(0.6, 0.5), { checks = 3, settle_s = 8, match_m = 0.2 })
+    check("settle: a glide whose position steps every 0.5 s is still waited for (equal reads between steps)", r and r.press, r and r.why)
+    -- the slope at 03:29Z: steps 1.26 s apart, 2.2 m then 1 m each
+    t_aim = nil
+    r = go(stepped(1.6, 1.26), { checks = 3, settle_s = 8, match_m = 0.2 })
+    check("settle: a slow-stepping glide (1.26 s between steps) is still waited for", r and r.press, r and r.why)
+    -- valid but still far off (the table at 03:07Z read valid 5.6 m off and kept coming): not a check either
+    t_aim = nil
+    r = go(env({ read = function(ev)
+        local d = math.max(0, 3.3 - 1.0 * ((ev.now or 0) - (t_aim or 0)))
+        return { valid = true, position = { 5 + d, 0, 0 }, fresh = true }
+    end }), { checks = 2, settle_s = 4, match_m = 0.2 })
+    check("settle: a valid preview still closing from far off is waited for and pressed at the spot",
+        r and r.press and r.preview.position[1] < 5.25, r and r.preview and r.preview.position[1])
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

@@ -51,6 +51,7 @@ M.cfg = {
     -- floor piece within on_h_m of its centre and on_z_m above or below its top
     link_h_m = 3.15, link_z_m = 4.65, on_h_m = 1.6, on_z_m = 0.6,
     mine_match_m = 0.3, pending_s = 60, ledger_every_s = 30,
+    collect_s = 90, -- picking the refund up off the ground afterwards, at most this long
 }
 M.ACTIONS = {
     destroy = "/Game/Gameplay/Inputs/Actions/Building/IA_Building_DestroyObject.IA_Building_DestroyObject",
@@ -637,6 +638,7 @@ function M.ledger(world, fresh)
         local txt = f:read("a") or ""; f:close()
         local ok, d = pcall(function() return json().decode(txt) end)
         if ok and type(d) == "table" and type(d.pieces) == "table" then L.pieces = d.pieces end
+        if ok and type(d) == "table" and type(d.left) == "table" then L.left = d.left end
     end
     m.ledger = L
     return L
@@ -650,7 +652,7 @@ function M.save_ledger(L)
         f = M.fs.open(tmp, "wb")
     end
     if not f then return false end
-    f:write(json().encode({ v = 1, world = L.world, pieces = L.pieces }, { indent = true })); f:close()
+    f:write(json().encode({ v = 1, world = L.world, pieces = L.pieces, left = L.left }, { indent = true })); f:close()
     M.fs.remove(path)
     return M.fs.rename(tmp, path) == true
 end
@@ -690,6 +692,78 @@ function M.resolve_pending(L, rows, now)
     m.pending = keep
     return dirty
 end
+-- His bases: the ledger's pieces in clusters (a piece within link_m of one in the cluster joins it), nearest first ->
+-- {{centre = {x, y, z}, distance_m, direction, pieces, covered, stations = {names}}}. His memory of what he built,
+-- out to any distance (live 2026-11-02 01:29Z: no roofed wheel in sensing range, so he walled a new one in while
+-- his own roofed house stood 100 m off). covered = a roof or a ceiling tile in it.
+M.cfg.bases = { link_m = 6.0, max = 4 }
+local COMPASS8 = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" }
+function M.bases(L, here)
+    local pts = {}
+    for _, e in ipairs((L or {}).pieces or {}) do
+        if type(e.at) == "table" and #e.at >= 3 then pts[#pts + 1] = e end
+    end
+    local seen, out = {}, {}
+    for i = 1, #pts do
+        if not seen[i] then
+            seen[i] = true
+            local cl, k = { pts[i] }, 1
+            while k <= #cl do
+                for j = 1, #pts do
+                    if not seen[j] and d3(cl[k].at, pts[j].at) <= M.cfg.bases.link_m then seen[j] = true; cl[#cl + 1] = pts[j] end
+                end
+                k = k + 1
+            end
+            local sx, sy, sz, covered, st, have = 0, 0, 0, false, {}, {}
+            for _, e in ipairs(cl) do
+                sx, sy, sz = sx + e.at[1], sy + e.at[2], sz + e.at[3]
+                local id = tostring(e.piece or "")
+                if id:find("Roof", 1, true) or id:find("_Floor_", 1, true) then covered = true end
+                if id:find("^BUILDPIECE_") or id:find("Station", 1, true) or id:find("Chest", 1, true) or id:find("Crate", 1, true) then
+                    local nm = tostring(e.name or id)
+                    if not have[nm] then have[nm] = true; st[#st + 1] = nm end
+                end
+            end
+            local c = { r2(sx / #cl), r2(sy / #cl), r2(sz / #cl) }
+            local b = { centre = c, pieces = #cl, covered = covered, stations = st }
+            if here then
+                local dx, dy = c[1] - here[1], c[2] - here[2]
+                b.distance_m = math.floor(math.sqrt(dx * dx + dy * dy) + 0.5)
+                -- game +Y is south (the compass the body uses elsewhere: N = -Y)
+                local a = math.deg(math.atan(-dy, dx)) % 360
+                b.direction = COMPASS8[math.floor((a + 22.5) / 45) % 8 + 1]
+            end
+            out[#out + 1] = b
+        end
+    end
+    table.sort(out, function(a, b) return (a.distance_m or 0) < (b.distance_m or 0) end)
+    while #out > M.cfg.bases.max do table.remove(out) end
+    return out
+end
+-- Room to pick something up: over the game's carry weight (move.encumbrance: the PlayerEncumbranceComponent), or no
+-- free bag slot while I carry none of it to stack onto. -> {over, full, weight, max_weight}
+function M.room(api, item)
+    local out = {}
+    local mv, inv = api.module("move"), api.module("inventory")
+    if mv and type(mv.encumbrance) == "function" then
+        local ok, e = pcall(mv.encumbrance)
+        if ok and type(e) == "table" and tonumber(e.cur) and tonumber(e.max) then
+            out.weight, out.max_weight = r1(e.cur), r1(e.max)
+            out.over = e.on == true or e.cur >= e.max
+        end
+    end
+    if inv and type(inv.free_slot) == "function" then
+        local ok, sl = pcall(inv.free_slot, "InventoryItems")
+        if ok and sl == nil and not (item and ((api.counts() or {})[item] or 0) > 0) then out.full = true end
+    end
+    return out
+end
+-- What I left lying on the ground (a teardown's refund I had no room for): the ledger's "left", so it isn't forgotten.
+function M.note_left(L, items, at, why)
+    L.left = L.left or {}
+    L.left[#L.left + 1] = { items = items, at = { r2(at[1]), r2(at[2]), r2(at[3] or 0) }, why = why, noted = os.date("!%Y-%m-%dT%H:%M:%SZ") }
+    while #L.left > 20 do table.remove(L.left, 1) end
+end
 -- Flag rows I built (in place).
 function M.mark_mine(api, rows)
     local okw, world = pcall(M.world_id)
@@ -701,7 +775,7 @@ end
 -- get_state.structures (build.lua fills it first in M.MODULES order): mine = true on my own pieces. Pending build
 -- telemetry is resolved here (one piece read around me, only while some is pending).
 function M.state_extras(api, data)
-    if paused() or type(data) ~= "table" or type(data.structures) ~= "table" then return nil end
+    if paused() or type(data) ~= "table" then return nil end
     local okw, world = pcall(M.world_id)
     if not okw then return nil end
     local L = M.ledger(world)
@@ -714,9 +788,11 @@ function M.state_extras(api, data)
     -- false = read against the ledger and not in it (the game keeps no owner per piece, dump 26161880), so the brain
     -- can tell his pieces from other players' and pre-existing ones (brain run 19:42Z: "we already got most of it up
     -- here" about other crates and tables); nil = not checked
-    for _, s in ipairs(data.structures) do
+    for _, s in ipairs(type(data.structures) == "table" and data.structures or {}) do
         if type(s) == "table" and s.position and s.piece then s.mine = ledger_find(L, s) ~= nil end
     end
+    local okb, bases = pcall(M.bases, L, api.my_position())
+    if okb and #bases > 0 then return { my_bases = bases } end
     return nil
 end
 
@@ -1061,25 +1137,58 @@ local function step(api, job, t)
         end
         return nil
     elseif job.phase == "collect" then
-        -- the refund drops beside the piece; the game's magnet takes it when I'm close (live 14:2x: 8 Ash Logs from
-        -- the crate were in my bag 1 s later). Walk over each drop still lying there, once, then report.
+        -- the refund drops beside the piece and a player picks it up. Walking over it was not enough (window 2,
+        -- 03:24-03:28Z: 28 + 8 + 4 Ash Logs left lying after every teardown), so: skills.lua's fetch (walk to it and
+        -- take it, the pickup path a player's fetch uses) per item still lying there, while I have room (carry weight
+        -- under the game's limit, a slot for it); what I leave is said and remembered (the ledger's "left").
         local function finish() job.collect_done = true; return M.result(api, job, job.closed, W.mode(api)) end
-        if job.stopped or t - job.collect_t0 > 45 then return finish() end
-        if job.c_moving then
+        if job.stopped or t - job.collect_t0 > cfg.collect_s then
+            if job.cfetch then api.call("move", "stop") end
+            return finish()
+        end
+        job.c_tried, job.collected = job.c_tried or {}, job.collected or {}
+        if job.c_moving then -- the plain walk-over (no fetch to hand): the game's magnet may take it
             local st = api.move_status()
             if st.mode == "go_to" then return nil end
             job.c_moving, job.c_wait = false, t + 1.5
             return nil
         end
         if job.c_wait and t < job.c_wait then return nil end
-        job.c_tried = job.c_tried or {}
+        if job.cfetch then
+            local okf, r = pcall(job.cfetch.step, t)
+            if okf and r == nil then return nil end
+            local c = job.cfetch_item
+            job.cfetch = nil
+            if okf and type(r) == "table" and r.ok and r.data then
+                job.collected[c] = (job.collected[c] or 0) + (tonumber(r.data.count) or 0)
+            elseif okf and type(r) == "table" then
+                job.collect_fail = job.collect_fail or (r.data and r.data.detail) or r.reason
+            else
+                job.collect_fail = job.collect_fail or tostring(r)
+            end
+            return nil
+        end
+        local S = api.module("skills")
         for _, g in ipairs(job.dropped) do
-            if not job.c_tried[g.id] then
-                job.c_tried[g.id] = true
-                local still = W.ground(api, g.position, 1.5)[g.id]
-                if still then
-                    local mr = api.call("move", "go_to", g.position, { tolerance_m = 0.6, timeout_s = 20, allow_unstuck = false, owner_token = job.token })
-                    if mr.ok then job.c_moving = true; return nil end
+            local key = g.item or g.name or g.id
+            if not job.c_tried[key] then
+                job.c_tried[key] = true
+                local first, n = nil, 0
+                for _, h in ipairs(job.dropped) do
+                    if (h.item or h.name or h.id) == key and W.ground(api, h.position, 1.5)[h.id] then first = first or h; n = n + (h.count or 1) end
+                end
+                if first then
+                    local room = M.room(api, g.item)
+                    if room.over or room.full then job.no_room = room; return finish() end
+                    local f = S and type(S.STARTERS) == "table" and type(S.STARTERS.fetch) == "function"
+                        and S.STARTERS.fetch(api, { target = first.id, count = n }, {}) or nil
+                    if type(f) == "table" and type(f.step) == "function" then
+                        f.token, job.cfetch, job.cfetch_item = job.token, f, key
+                        return nil
+                    end
+                    if type(f) == "table" and f.ok == false then job.collect_fail = job.collect_fail or (f.data and f.data.detail) or f.reason end
+                    local mr = api.call("move", "go_to", first.position, { tolerance_m = 0.6, timeout_s = 20, allow_unstuck = false, owner_token = job.token })
+                    if mr and mr.ok then job.c_moving = true; return nil end
                 end
             end
         end
@@ -1155,10 +1264,28 @@ function M.result(api, job, closed, mode)
         parts[#parts + 1] = string.format("Took down %d piece%s%s in %d s", n, n == 1 and "" or "s",
             n == 1 and (" (the " .. job.removed[1].name .. ")") or (job.whole and (" of the building the " .. job.target.name .. " was part of, top first,") or ""), math.floor(took + 0.5))
         local refund_line = next(got) and ("got back " .. items_words(got, names)) or "got nothing back into my bag"
-        local cost_matches = true
-        for k, v in pairs(job.expected) do if (got[k] or 0) + (lg_by[k] or 0) < v then cost_matches = false end end
-        if next(job.expected) then refund_line = refund_line .. (cost_matches and " (all it cost)" or (" (it cost " .. items_words(job.expected, names) .. ")")) end
-        if next(lg_by) then refund_line = refund_line .. "; " .. items_words(lg_by, names) .. " still lie on the ground there" end
+        local in_bag, cost_matches = true, true
+        for k, v in pairs(job.expected) do
+            if (got[k] or 0) < v then in_bag = false end
+            if (got[k] or 0) + (lg_by[k] or 0) < v then cost_matches = false end
+        end
+        if next(job.expected) and in_bag then refund_line = refund_line .. " (all it cost)"
+        elseif next(job.expected) and not cost_matches then refund_line = refund_line .. " (it cost " .. items_words(job.expected, names) .. ")" end
+        if next(lg_by) then
+            local at = left_ground[1].position
+            local nr = job.no_room
+            local why = nr and (nr.over and string.format("I'm carrying too much, %g of %g", nr.weight or 0, nr.max_weight or 0)
+                or "my bag has no free slot") or (job.collect_fail and ("picking it up failed: " .. tostring(job.collect_fail))) or nil
+            refund_line = refund_line .. "; " .. items_words(lg_by, names) .. string.format(" still lie on the ground at (%.0f, %.0f)", at[1], at[2])
+                .. (why and (" (" .. why .. ")") or "")
+            pcall(function()
+                local L = M.ledger(job.world)
+                local its = {}
+                for k, v in pairs(lg_by) do its[#its + 1] = { item = k, name = names[k] or k, count = v } end
+                M.note_left(L, its, at, why or "not picked up")
+                M.save_ledger(L)
+            end)
+        end
         parts[#parts + 1] = refund_line
     end
     if #job.collapsed > 0 then parts[#parts + 1] = #job.collapsed .. " more fell when their support went" end

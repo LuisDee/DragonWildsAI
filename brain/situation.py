@@ -766,7 +766,7 @@ COVERED_KEYS = frozenset({
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
-    "containers_remembered",
+    "containers_remembered", "my_bases",
 })
 
 
@@ -785,6 +785,24 @@ def asked_at(state: dict, player: str | None, text: str | None) -> dict | None:
 def with_asked(state: dict, asked: dict | None) -> dict:
     """The state with the open request's asked_at (rendered by asked_line), unchanged when there is none."""
     return {**state, "asked_at": asked} if asked and isinstance(state, dict) and not state.get("unavailable") else state
+
+
+def bases_line(state: dict) -> str | None:
+    """'Your bases (what you built): 100 m NE, roofed, 14 pieces (Spinning Wheel, Crafting Table) | ...' from the body's
+    my_bases (deconstruct.lua: his placement ledger, clustered): his memory of what he built, at any distance (live
+    2026-11-02 01:29Z: he walled in a new wheel 100 m from his own roofed house, which nothing in state named)."""
+    bases = state.get("my_bases")
+    if not isinstance(bases, list) or not bases:
+        return None
+    parts = []
+    for b in bases[:4]:
+        if not isinstance(b, dict):
+            continue
+        where = (f"{b['distance_m']:.0f} m {b.get('direction') or ''}".strip() if num(b.get("distance_m")) is not None
+                 else "at ({:.0f}, {:.0f})".format(*b.get("centre", [0, 0])[:2]))
+        st = ", ".join(str(x) for x in (b.get("stations") or [])[:5])
+        parts.append(f"{where}, {'roofed' if b.get('covered') else 'no roof'}, {b.get('pieces')} piece{'' if b.get('pieces') == 1 else 's'}" +(f" ({st})" if st else ""))
+    return ("Your bases (what you built): " + " | ".join(parts))[:LINE_CHARS] if parts else None
 
 
 def asked_line(state: dict) -> str | None:
@@ -1058,6 +1076,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     built = _group([t for t in things if t.group == "built"])  # building pieces with no use: foundations, walls
     lines.append(_line("Built pieces", [g.label() for g in built]))
     lines.append(house_line(state))
+    lines.append(bases_line(state))
     lines.append(asked_line(state))
     lines.append(_line("Stations", stations(state)))
     if not looks_supported and not state.get("surroundings") and \
