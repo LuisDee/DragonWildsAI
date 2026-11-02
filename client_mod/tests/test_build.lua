@@ -321,6 +321,20 @@ check("unreadable preview: never pressed, preview_unreadable, left build mode", 
 reset_game({ no_hook = true })
 r = build({ piece = "campfire" })
 check("no validity hook (live P4: it never fires): MPC 2 on target -> pressed and verified", r and r.ok and count(G.presses, "place") == 1, r and r.reason)
+-- placed freely, off any floor, far from his roofed house: the reply says how far (live 07:4xZ), and never errors
+-- (live 08:0xZ: a nil 'cfg' in that sentence broke every free placement)
+reset_game({ no_hook = true })
+DEC = { ledger = function() return { pieces = {} } end, mark_mine = function() end,
+        bases = function() return { { centre = { 60, 0, 0 }, pieces = 11, covered = true, distance_m = 60 } } end }
+local sn0, press0 = Wb.structures_near, Wb.press
+Wb.press = function(x, a) if a == "place" and G.mode == "Placement" then G.placed = true end; return press0(x, a) end
+Wb.structures_near = function() if G.placed then return { { id = "BP_Station_Campfire_C_1", position = { 3, 0, 0 }, yaw = 0 } } end; return {} end
+r = build({ piece = "campfire" })
+Wb.structures_near, Wb.press = sn0, press0
+check("free placement 60 m from his house: built, and the line says it isn't by the house",
+    r and r.ok and tostring(r.data.built):find("It is 60 m from my house (my roofed building of 11 pieces at (60, 0), W of it), not by it.", 1, true),
+    r and (tostring(r.reason) .. " " .. tostring(r.data.built or r.data.detail)))
+DEC = nil
 -- a snap piece (preview has plugs): colour 2 may be NeedsSnapping -> never pressed (known limit)
 reset_game({ no_hook = true })
 Wb.preview_actor = function() return {} end

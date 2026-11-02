@@ -1442,7 +1442,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             for _, b in ipairs(okb and type(bases) == "table" and bases or {}) do
                 if b.covered and b.distance_m and (not house or b.distance_m < house.distance_m) then house = b end
             end
-            if house and house.distance_m > (cfg.house_far_m or 12) then
+            if house and house.distance_m > (M.cfg.build.house_far_m or 12) then
                 local hx, hy = house.centre[1] - s.position[1], house.centre[2] - s.position[2]
                 line = line .. string.format(" It is %d m from my house (my roofed building of %d pieces at (%.0f, %.0f), %s of it), not by it.",
                     house.distance_m, house.pieces or 0, house.centre[1], house.centre[2], compass(-hx, -hy) or "away")
@@ -2310,6 +2310,11 @@ M.HANDLERS.build = function(log, args, ctx)
         if not ok then
             job.final, job.phase = api.fail("body_error", { detail = "build: " .. tostring(res) }), "leave"
             res = nil
+            -- a batch keeps the error as that piece's result (live 08:0xZ: a nil 'cfg' in the success line was lost,
+            -- and the blueprint read "Built 0 of 11 ... Not tried: #1" with the foundation standing)
+            if job.batch and not job.batch.over and ph ~= "leave" then
+                job.batch.results[job.batch.i], job.batch.done[job.batch.i], job.batch.over = job.final, true, true
+            end
         end
         if res and job.batch and ph ~= "leave" then -- a piece of a batch failed outside leave_then: record it, then leave
             if not job.batch.over then job.batch.results[job.batch.i], job.batch.done[job.batch.i], job.batch.over = res, true, true end
