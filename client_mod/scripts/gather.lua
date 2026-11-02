@@ -541,7 +541,7 @@ local function drops_near(J, center, radius_cm, me)
     local out = {}
     for _, d in ipairs(W.drops(center, radius_cm, J.item)) do
         if not is_bad(d.key, J.t) and (J.item or J.profile.mode == "pickup") then
-            out[#out + 1] = { key = d.key, kind = "drop", actor = d.actor, pos = d.pos, d = U.dist2d(me, d.pos), item = d.item }
+            out[#out + 1] = { key = d.key, kind = "drop", actor = d.actor, pos = d.pos, d = U.dist2d(me, d.pos), item = d.item, n = tonumber(d.count) or 1 }
         end
     end
     table.sort(out, function(x, y) return x.d < y.d end)
@@ -559,7 +559,8 @@ local function choose(J, me)
             if d then return d end
         end
         local d = drops_near(J, me, 400, me)[1]
-        if d then return d end
+        -- (a pickup takes a drop whole: a stack bigger than the count still wanted waits for the spawners, below)
+        if d and not (J.profile.mode == "pickup" and J.want and d.n > J.want - (J.gained or 0)) then return d end
     end
     -- 2. pieces of our felled trees (current site first), and of the piece named in args.target
     for i = #J.sites, 1, -1 do
@@ -585,8 +586,16 @@ local function choose(J, me)
     if J.profile.mode == "pickup" and J.item then
         -- a pile of the item lying in the radius is a pickup too (one collect-all press may take it all): the nearer of
         -- it and the next spawner goes first (live 15:52Z: a pile 5 m away was passed for a stone 13.6 m away)
-        local dr = drops_near(J, me, J.radius_cm, me)[1]
+        -- a pickup takes a stack whole: one that fits what is still wanted first, a bigger one only when nothing else
+        -- gives the item (live 04:27Z: count 3 by stacks of 10, 10 and 1 took a 10 first, 11 in all)
+        local need = J.want and math.max(1, J.want - (J.gained or 0)) or math.huge
+        local fits, big = nil, nil
+        for _, x in ipairs(drops_near(J, me, J.radius_cm, me)) do
+            if x.n <= need then fits = fits or x else big = big or x end
+        end
+        local dr = fits
         if dr and (not roots[1] or dr.d <= (roots[1].d or U.dist2d(me, roots[1].pos))) then return dr end
+        if big and not roots[1] then return big end
     end
     local too_hard
     for _, T in ipairs(roots) do

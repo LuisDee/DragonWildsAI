@@ -830,6 +830,21 @@ do
     res = run_job({ resource = "loose_stones", count = 4 }, 60)
     check("pile 5 m off before a spawner 9 m off", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 4 and Wd.secondary == 1,
           tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " secondary=" .. tostring(Wd.secondary))
+    -- stacks that fit the count first, the spawners before a bigger stack (live 04:27Z: count 3 by stacks of 10, 10
+    -- and 1 took a 10 first: 11 in all)
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.no_magnet, Wd.collect_all, Wd.aim_needed = true, 200, true
+    for i, n in ipairs({ 10, 10, 1 }) do
+        Wd.drops[#Wd.drops + 1] = obj({ id = "BP_RuntimeSpawnedWorldItem_C_S" .. i, pos = { X = 250 + i * 60, Y = 0, Z = 0 }, item = "ITEM_Resources_Stone", count = n, born = T })
+    end
+    for i = 1, 2 do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Sp:" .. i, class = "BP_Spawner_Stone_C", _pos = { X = 0, Y = 500 + i * 200, Z = 0 }, name = "Stone",
+                                        kind = "pickup", visible = true, item = "ITEM_Resources_Stone" }
+    end
+    res = run_job({ resource = "loose_stones", count = 3 }, 90)
+    check("count 3 by stacks of 10, 10, 1 and two stones: exactly 3", res.ok == true and (Wd.inv.ITEM_Resources_Stone or 0) == 3,
+          tostring(res.reason) .. " got=" .. tostring(Wd.inv.ITEM_Resources_Stone) .. " " .. table.concat(res.data and res.data.phase_log or {}, " | "))
     -- a pick that yields a second kind (a cabbage gives seeds): named, but not as lying there
     reset({ inv = {} })
     fake_pc.Pawn = Wd.pawn

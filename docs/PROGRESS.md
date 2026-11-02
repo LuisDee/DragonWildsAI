@@ -867,3 +867,31 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
   - sets that need a roofed station sort after the others;
   - an owned but unworn piece reads "you have one, not on you".
 - **Fixtures:** stone fixtures were cleared after each window (130 Stone dropped by the Tannery at (102,1855)). He ended at 366.9/400.
+
+- 2026-11-02 04:3xZ rung1: the store fix is verified live.
+  - Cause: HandleSplitToExternalSlot onto a full same-item stack (a sword, max 1, in slot 5; Stone 99/99) moves nothing. free_or_same now uses stack room, then a free slot, else "the X is full".
+  - Live check: slot 5 to new slot 8 `x1/1`.
+  - A repeated store/take joins the running one ("I was already doing that: ...").
+  - The rung1 harness make_room now stores only the gate's own fixture grants (setup log minus logs/state/rung1_fixture_cleanup.jsonl, less KEEP); his own gear stays.
+
+## 2026-11-02 04:40Z movement agent: temple exit, overhang, door into a room, pinches, gather counts
+- Temple exit:
+  - a remembered route is walked while the oracle route is pending, and kept when that route ends short (the temple navmesh is an island);
+  - 40 m closer 19.2 → 11.3 s, steady sprint 13.4 → 7.4 s (3 runs each).
+- First step under 5 s whatever the oracle does (0.7-1.6 s healthy).
+- Circling 9 m go_to at (164, 1913): a rock overhang 1.2 m up. localplan now looks up from a cell's low floor (test_localplan "overhang").
+- Doors:
+  - aim at the leaf's bounds centre;
+  - a go_to whose goal is behind a door frame lines up with the frame (GlobalBuildingManager piece record) and walks through; a shut door is opened first.
+  - test_move: "into a room behind a shut door", "an open doorway is walked through from its own frame".
+- Follow:
+  - felt cost kept, doric 77.4 %;
+  - church 59.6 % was a house of Claude's built on the ghost path (build tore it down 04:32Z). Rerun pending.
+- gather:
+  - collect-all only for an all-his-item pile within the count (was: count 4 → 97 stones + 153 Ash Logs);
+  - mixed piles skipped in one go;
+  - stacks that fit the count first;
+  - `target` arg (a log lying there). test_gather 135 ok.
+- Next:
+  - shut-door runs (W15), the church/doric follow pair without the house, 3 in a row;
+  - then route cost near idle hostiles (rats).

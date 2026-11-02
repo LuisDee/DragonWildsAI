@@ -1456,6 +1456,13 @@ Module `client_mod/scripts/crafting.lua`; offline tests `client_mod/tests/test_c
   - fields: `ProcessingStationComponent`, `StationIngredientsInventory`, `StationFuelInventory`, `ValidIngredients`;
   - handlers: `ToggleProcessingStationStarted()` (the start button), `SetCurrentProcessingStation(Comp, IngredientsInv, FuelInv)`, `UnsetCurrentProcessingStation`, `ClearProcessingStation(PC)`.
   - Items go in through the inventory UI's external-slot handlers (`UInventoryUIAPI`, Dominion.hpp:25045): `HandleSplitToExternalSlot(FromSlot, FromSlotType, Amount, ToSlot, OutsideTargetInventory)`, `HandleDragAndDropToExternal`, `HandleExternalQuickTransfer(Slot, OutsideSourceInventory)`, `HandleDragAndDropFromExternal`.
+  - **`HandleSplitToExternalSlot` onto a full stack of the same item moves nothing, silently** (live 2026-11-02, client build 26161880).
+    - The calls `HandleSplitToExternalSlot(7, InventoryItems, 1, 5)` and stone onto a 99/99 Stone stack returned no error, and nothing left his bag (verification_failed).
+    - Cause: a Bronze Sword (`MaxStackSize` 1) aimed at the Ash Chest's own sword in slot 5.
+    - The container row's `ItemData.MaxStackSize` tells it: Stone 99, Ash Logs 99, gear 1, MagicFocus 50.
+    - Containers: the Ash Chest (`BP_BaseBuilding_Chest_Small_C`) has 32 slots and a Crate (`BP_BaseBuilding_Crate_C`) has 16.
+    - Fix: `skills.free_or_same` targets a same-item stack only while `count < max_stack`, moves at most its room, then uses a free slot, else says `container_full`.
+    - Verified: the same store went to free slot 8 and the slot read back `8:ITEM_Sword_Bronze x1/1`.
 - **`UProcessingStationComponent`** (Dominion.hpp:30943), live-readable state:
   - `bStationRunning`, `bReadyToProcess`, `RemainingProcessingTime`, `RemainingFuelTime`, `CurrentRecipe`, `LastValidRecipe`;
   - inventories `Resources`, `Fuel`, `OutputInventory`; `bStoreOutput`, `StorageType`;
@@ -3274,3 +3281,30 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - The Tannery takes ~10 s a Leather ([8, 12]).
   - Dividing by the rate gave a 29 s wait for 3, which timed out at "2 of 3" with both left on the ground.
 - **The old collect failure ("couldn't pick up what it made") was half true.** It never said the items were still lying there, or why they never reached his bag.
+
+### Cooking: the game's own burn chance (build 26161880, live 2026-11-02 03:4xZ, ClaudeDev)
+- Per food power level the player has a Dominion float attribute `UChanceToBurnFoodLevel1..6 : UFloatAttribute` (the recipe's `alt_chance`; the Cooking perks `GE_PerkV2_Cooking_ChanceToBurn_LevelN` move it). Read it with `/Script/Dominion.Default__AttributeFunctionLibrary:BP_TryGetFloatAttributeValue(pawn, StaticFindObject("/Script/Dominion.ChanceToBurnFoodLevelN"), -1.0, {}, {})`: UE4SS fills the two out tables as `{OutAttributeValue = x}` and `{OutbFound = true}`. Read-only (client_mod/commands/burn_attr_probe.lua).
+- ClaudeDev now: level 1 **0.0**, level 2 **0.4615**, levels 3-6 **1.0**. The wiki curve (Culinary Confidence) said "most burn below Cooking 12" for level 2; the game says 46 %, so the game's number wins.
+- crafting.lua `W.burn_odds` reads it (cached 30 s) into every cook's `may_burn` ("Raw Farm Meat: burns about 46% of the time at your Cooking now ... (the game's own odds ...); none from Cooking 27 (wiki)"), the stations tool's `burn_odds`, and get_state `burn_odds {level1..6}` (brain/needs_options.py uses it for the food options). Perception only: nothing is skipped.
+- evals/cook_burn_eval.py (the real 04:20Z turn, Haiku x3 per variant): the old wording -> farm meat first 3/3; the game's odds -> rat first 3/3 (he still cooks all of it).
+
+## Movement: overhangs, the temple navmesh island, doors, pinches; gather counts and named logs (2026-11-02 02:30-04:40Z; game build 26161880, client 26162923; dev world, ClaudeDev; movement agent)
+- **Rock overhang = no walk cell (localplan).** A rock arch by the run-6 house at (164, 1913) (StaticMeshActor ...2044009353) has its underside ~1.2 m over the floor. localplan saw two layers 3.1 m apart and planned under it, and jumps "never left the ground" under the ceiling: 10 plans into the rock, the circling 9 m go_to. `cell_floors` now traces up from a cell's low floor: a ceiling inside head height drops that floor. test_localplan "overhang".
+- **The temple navmesh is an island.** From the temple lodestone, the oracle's path to the grave at (249.9, 1790.8) is a partial path that ends about where he stands, 186 m short. Fix: while the route is pending, a remembered route that reaches the goal is walked at once, and kept when the oracle's route ends short. 3 respawn-to-grave walks each, before → after: 40 m closer 19.2 → 11.3 s; steady sprint 13.4 → 7.4 s.
+- **First step.** A pending route no longer holds him: he walks within `nav_stand_s` = 4 s (min(nav_timeout, 4, timeout × 0.25)). Time to first step: 0.7-1.6 s with the oracle healthy.
+- **Door aim.** The door actor's origin is its hinge post at the floor; a camera ray there gets "nothing targeted" (03:25Z, twice from 1.7 m). Aim at `GetActorBounds` origin.
+- **Door frames.** `GlobalBuildingManager.BuildingPieces[BuildingPieceID].ClientVisible` holds a door piece's placed Location and Yaw. They stay put while the leaf swings: a frame's centre and axis for a doorway waypoint.
+  - A go_to into a room: when the goal is within 4.5 m of a door frame and on the frame's other side, he lines up 1.1 m out, walks through the centre and ends 1.1 m in. If the door is shut, it is opened first.
+  - Before: a 1 m plan grid round the ~1 m doorway circled the house 2.6 m from the goal for 52 s, path_blocked (04:21Z, door open). 1 of 2 runs failed.
+- **Felt cost.** A stop against a thin obstacle that traces don't see (a pinch) marks a cell 0.8 m ahead. The local planner costs those cells +40 each (12 kept per move). Doric follow 77.4 % (best so far; 68.5 / 74.7 / 55 before).
+- **The church follow loss was a house on the ghost path.** Claude's own house stood on the follow_church_loop recording: Square Foundation (99.33, 1864.77), 3 walls, and a door frame at (97.83, 1864.77).
+  - A ray fan showed a wall face 0.35 m west of his stuck spot. On the ghost's own line every trace starts inside a solid.
+  - Build tore the house down at 04:32Z. A Campfire, BP_Station_Campfire_C_2147344511 at (98.37, 1867.12), is still standing; it is not in the ledger.
+- **Collect-all takes every kind (rung 2 run 1, 04:07:46Z).** `gather loose_stones count 4` took 97 stones + 153 Ash Logs + 18 Cabbage ... in 104.5 s.
+  - Cause: the collect step pressed collect-all on any pile of 2 or more stacks. On the mixed pile the game kept offering other kinds, so each stone stack waited the 12 s collect_max_s, 9 times.
+  - Now collect-all needs the pile to be all his item and its total `GetStackSize` within the count still wanted. A stack the game wouldn't hand over (it kept offering another kind) skips the rest of that pile.
+  - A pickup prefers a stack that fits the count, and spawners before a bigger stack (a drop is taken whole).
+  - Live 04:27Z: count 3 by stacks of 10/10/1 + 1 Ash Log: one plain press, no Ash, 11 got (10-stack first). The stack preference came after this run.
+- **gather `target`.** gather only finished pieces of trees HE felled, so a log lying by the doric follow path (BP_SplittableLog_Ash at (113, 1888.7)) could not be cleared: `gather ash` there would fell a fresh tree.
+  - `target` = a census id of a log or stump lying there. Its spot becomes his site (pieces within 4 m, their drops), and the job ends ok `target_done` when they're gone. It never fells a standing tree.
+  - Live 04:22Z: 4 breaks, 20 ash in 65 s.
