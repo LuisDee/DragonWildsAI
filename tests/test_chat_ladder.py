@@ -335,3 +335,17 @@ def test_tell_fails_needs_a_line_after_each_failed_body_action():
     assert cl.action_check([failed, said], tell_fails=True)["ok"]
     out = cl.action_check([said, failed, quiet], tell_fails=True)
     assert not out["ok"] and out["untold_failures"] == ["interact path_blocked"]  # interrupted is no can't-do
+
+
+def test_clearance_measures_from_positions_and_skips_people_and_lodestones():
+    class Cli:
+        def request(self, tool, args, timeout=0):
+            if tool == "get_state":  # a stale structures distance (from before the teleport) must not count
+                return {"data": {"position": [86.98, 1842.01, -30.75], "structures": [
+                    {"name": "Lodestone", "distance": 1.3, "position": [182.1, 1814.7, -30.2]},
+                    {"name": "Wall", "distance": 1.0, "position": [96.2, 1848.6, -31.8]}]}}
+            return {"data": {"interactables": [
+                {"name": "Zanik", "class": "BP_NPC_Zanik_C", "distance": 0.5, "position": [87, 1842, -30]},
+                {"name": "Lodestone", "kind": "lodestone", "distance": 0.4, "position": [87, 1842.2, -30.7]}]}}
+    c = cl.clearance(Cli())
+    assert c["ok"] and c["nearest"] == "Wall" and c["nearest_m"] > 10

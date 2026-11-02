@@ -1876,6 +1876,57 @@ test("store/take: truthful refusals (not a container, not in it, too many, full,
     F.chests, F.open_chest, F.transfer_noop = nil, nil, nil
 end)
 
+test("store: a full stack of the same item is never the target: a free slot, a stack's room, else 'the crate is full'", function()
+    -- live 2026-11-02: a Bronze Sword (max stack 1) was pressed onto the chest's own sword in slot 5; nothing moved
+    local SW = { slot = 0, item = "ITEM_Weapon_Sword_Bronze", name = "Bronze Sword", count = 1, max_stack = 1 }
+    chest_world(6, { SW })
+    F.extra.ITEM_Weapon_Sword_Bronze = 1
+    local _, id = rpc("store", { item = "ITEM_Weapon_Sword_Bronze", container = "chest_1" })
+    local r = run(id, 80)
+    assert(r and r.ok and r.data.count == 1 and F.transfers == 1, json.encode(r))
+    local in_slot1
+    for _, x in ipairs(F.chests.chest_1.rows) do if x.slot == 1 and x.item == SW.item then in_slot1 = x.count end end
+    assert(in_slot1 == 1, "the sword went to the free slot 1: " .. json.encode(F.chests.chest_1.rows))
+    -- a stack with room takes only its room; the rest goes to a free slot (98/100 Stone + 5 -> 100 and 3)
+    chest_world(6, { { slot = 0, item = "ITEM_Resources_Stone", name = "Stone", count = 98, max_stack = 100 } })
+    F.extra.ITEM_Resources_Stone = 5
+    _, id = rpc("store", { item = "ITEM_Resources_Stone", container = "chest_1" })
+    r = run(id, 80)
+    assert(r and r.ok and r.data.count == 5 and F.transfers == 2 and r.data.inside_now == 103, json.encode(r))
+    -- every slot taken and its own stack full: "the crate is full", no press, the screen closed
+    chest_world(1, { { slot = 0, item = "ITEM_Weapon_Sword_Bronze", name = "Bronze Sword", count = 1, max_stack = 1 } })
+    F.extra.ITEM_Weapon_Sword_Bronze = 1
+    _, id = rpc("store", { item = "ITEM_Weapon_Sword_Bronze", container = "chest_1" })
+    r = run(id, 80)
+    assert(r and r.reason == "container_full" and F.transfers == 0 and F.open_chest == nil, json.encode(r))
+    assert(r.data.detail:find("Wooden Chest is full", 1, true) and r.data.detail:find("its one slot is taken and its .- stack is full, so it stays with me%.$"), r.data.detail)
+    -- a stack whose max the item doesn't say and that takes nothing: the next slot, once, before "nothing moved"
+    chest_world(6, { { slot = 0, item = "ITEM_Weapon_Sword_Bronze", name = "Bronze Sword", count = 1 } })
+    F.extra.ITEM_Weapon_Sword_Bronze, F.slot_noop = 1, { [0] = true }
+    _, id = rpc("store", { item = "ITEM_Weapon_Sword_Bronze", container = "chest_1" })
+    r = run(id, 80)
+    assert(r and r.ok and r.data.count == 1 and F.transfers == 2, json.encode(r))
+    F.extra.ITEM_Weapon_Sword_Bronze, F.slot_noop, F.chests, F.open_chest = nil, nil, nil, nil
+end)
+
+test("store: the same store again while it runs joins it ('I was already doing that'), never restarts it", function()
+    chest_world()
+    local _, id1 = rpc("store", { item = "Oak Logs", container = "chest_1" })
+    T = T + 0.5; B.step()
+    local now, id2 = rpc("store", { item = "oak logs", container = "chest_1" })
+    assert(now == nil, "no answer yet: it joined the running store " .. json.encode(now))
+    local r1, r2
+    for _ = 1, 120 do
+        T = T + 0.5; B.step()
+        local msgs = drain()
+        r1, r2 = r1 or result_of(msgs, id1), r2 or result_of(msgs, id2)
+        if r1 and r2 then break end
+    end
+    assert(r1 and r1.ok and r1.data.count == 8 and F.transfers == 2, json.encode(r1))
+    assert(r2 and r2.ok and r2.data.joined and r2.data.count == 8 and r2.data.detail:find("^I was already doing that: Put 8 Oak Logs"), json.encode(r2))
+    F.chests, F.open_chest = nil, nil
+end)
+
 test("store: the copy in his hand stays (the game won't chest an equipped item); the reply says he kept it", function()
     -- live 2026-11-02: store Bronze Shield with one in the bag and one held -> "only 1 went" (verification_failed)
     chest_world()

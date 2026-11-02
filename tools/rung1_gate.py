@@ -509,58 +509,108 @@ def my_crates(cli) -> list[dict]:
     return out
 
 
-def spare_gear(d: dict) -> list[tuple[str, str, int, bool]]:
-    """Copies of a piece of gear beyond the first (a row of 1 that he has more than one row of: swords, shields,
-    staffs, tools): [(item, name, spare, on_hotbar)]. Stacks (food, logs, runes) are never spare."""
-    rows = [dict(x, where=w) for w in ("hotbar", "bag") for x in d.get(w) or [] if isinstance(x, dict)
-            and (w == "hotbar" or x.get("slot_type") == "InventoryItems") and int(x.get("count") or 1) == 1]
-    by: dict[str, list] = {}
-    for x in rows:
-        by.setdefault(str(x.get("item")), []).append(x)
-    return [(it, str(xs[0].get("name") or it), len(xs) - 1, any(x["where"] == "hotbar" for x in xs))
-            for it, xs in by.items() if len(xs) > 1]
+CLEANUP_LOG = ROOT / "logs" / "state" / "rung1_fixture_cleanup.jsonl"  # what make_room put away of the gate's own grants
+CARRY_MAX_KG = 400.0
+# what the next item still wants of a granted thing: his kit once, the eat/drink options, the supply top-up's 6 + 6
+KEEP = {**{it: 1 for it in KIT}, "ITEM_Consumable_Meat_Fillet": 6, "ITEM_Consumable_Water_Clean": 6,
+        "ITEM_Consumable_Water_Dirty": 3, "ITEM_Resources_Raw_Stringy_Meat": 2, "ITEM_Consumable_Fruit_Redberry": 4}
+
+
+def fixture_surplus(carried: dict[str, int], setup_log=None, cleanup_log=None) -> dict[str, int]:
+    """What the gate's own fixtures added that he still carries beyond what the next item needs: every rung1 grant in
+    the fixture setup log (his kit after a grave death, the split/drop stone, the food top-ups, the eat/drink options),
+    less what make_room already put away (CLEANUP_LOG), capped by what he carries now less KEEP. His own things
+    (crafted, gathered, looted) are never in it. -> {item: count}"""
+    if setup_log is None:
+        from evals.bench.devtarget import SETUP_LOG as setup_log
+    granted: dict[str, int] = {}
+    for path, sign in ((setup_log, 1), (cleanup_log or CLEANUP_LOG, -1)):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for ln in lines:
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            if not r.get("ok") or (sign > 0 and not (r.get("verb") == "grant" and str(r.get("purpose") or "").startswith("rung1 gate"))):
+                continue
+            a = r.get("args") or r
+            it = str(a.get("item") or "")
+            granted[it] = granted.get(it, 0) + sign * int(a.get("count") or 1)
+    out = {}
+    for it, g in granted.items():
+        n = min(g, carried.get(it, 0) - KEEP.get(it, 0))
+        if n > 0:
+            out[it] = n
+    return out
 
 
 def make_room(ctx: Ctx, need: int = ROOM_SLOTS) -> dict:
-    """At least `need` free bag slots, the way a player makes room: spare copies of his gear go into his own crate by
-    his own store skill (one of each stays on him; a hotbar piece goes back to the hotbar). Nothing is dropped or
-    destroyed. He must be by the base (his crates). -> {free_before, free, stored, crate, why?}"""
+    """At least `need` free bag slots and under his carry limit, the way a player makes room: what the gate's own
+    fixtures added (fixture_surplus) goes into his own crate by his own store skill, the most slots freed first. His
+    own things stay on him. Nothing is dropped or destroyed. He must be by the base (his crates).
+    -> {free_before, free, kg_before, kg, stored, why?}"""
     free, d = bag_free(ctx.cli)
-    out: dict = {"free_before": free, "free": free, "stored": []}
-    if free is None or free >= need:
+    kg = float(d.get("carry") or d.get("weight") or 0) or None
+    out: dict = {"free_before": free, "free": free, "kg_before": kg, "kg": kg, "stored": []}
+
+    def short() -> bool:
+        return free is None or free < need or (kg is not None and kg >= CARRY_MAX_KG)
+    if not short():
         return out
-    spare = sorted(spare_gear(d), key=lambda x: -x[2])
-    if not spare:
-        out["why"] = "bag short of room and no spare gear copies to store"
+    carried: dict[str, int] = {}
+    rows_of: dict[str, int] = {}
+    for x in [x for w in ("hotbar", "bag") for x in d.get(w) or [] if isinstance(x, dict)
+              and (w == "hotbar" or x.get("slot_type") == "InventoryItems")]:
+        it = str(x.get("item"))
+        carried[it] = carried.get(it, 0) + int(x.get("count") or 1)
+        rows_of[it] = rows_of.get(it, 0) + 1
+    surplus = fixture_surplus(carried)
+    if not surplus:
+        out["why"] = "bag short of room and none of it is the gate's own fixture grants"
         return out
     crates = my_crates(ctx.cli)
     if not crates:
         out["why"] = "no crate of his in sight (data/skills/dev/my_pieces.json)"
         return out
+
+    def freed(kv):  # rows that empty: all of a stack, or the spare copies of a piece of gear
+        it, n = kv
+        return rows_of.get(it, 0) if n >= carried.get(it, 0) else (n if rows_of.get(it, 0) >= carried.get(it, 0) else 0)
     ci = 0
-    for item, name, n, on_hotbar in spare:
-        if free is not None and free >= need:
+    for item, n in sorted(surplus.items(), key=lambda kv: -freed(kv)):
+        if not short():
             break
         while ci < len(crates):
             r = ctx.cli.request("store", {"item": item, "count": n, "container": crates[ci]["id"]}, timeout=120) or {}
             if r.get("reason") == "container_full":
                 ci += 1
                 continue
-            out["stored"].append({"item": name, "count": n, "crate": crates[ci]["id"], "ok": r.get("ok"),
-                                  "reason": r.get("reason")})
+            dd = r.get("data") or {}
+            row = {"t": round(time.time(), 1), "item": item, "count": int(dd.get("count") or n) if r.get("ok") else n,
+                   "ok": bool(r.get("ok")), "crate": crates[ci]["id"], "reason": r.get("reason"), "detail": str(dd.get("detail") or "")[:200]}
+            out["stored"].append(row)
+            if r.get("ok"):
+                CLEANUP_LOG.parent.mkdir(parents=True, exist_ok=True)
+                with CLEANUP_LOG.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(row) + "\n")
             break
-        if on_hotbar:  # the store takes the hotbar copy first: his kept one goes back where he had it
-            ctx.cli.request("move_item", {"item": item, "to": "hotbar"}, timeout=20)
-        free, _ = bag_free(ctx.cli)
-    out["free"] = free
-    if free is None or free < need:
-        out["why"] = f"only {free} free bag slots after storing"
+        if KEEP.get(item) and any(x.get("item") == item for x in d.get("hotbar") or [] if isinstance(x, dict)):
+            ctx.cli.request("move_item", {"item": item, "to": "hotbar"}, timeout=20)  # his kept one stays where he had it
+        free, d2 = bag_free(ctx.cli)
+        kg = float(d2.get("carry") or d2.get("weight") or 0) or kg
+    out["free"], out["kg"] = free, kg
+    if short():
+        out["why"] = f"only {free} free bag slots, {kg} kg after storing the gate's own grants"
     return out
 
 
 def room_words(room: dict) -> str:
     st = [f"{x['count']} {x['item']}" + ("" if x.get("ok") else f" (failed: {x.get('reason')})") for x in room.get("stored") or []]
-    return (f"bag room: {room.get('free_before')} -> {room.get('free')} free slots"
+    kg = f", {room.get('kg_before')} -> {room.get('kg')} kg" if room.get("kg_before") is not None else ""
+    return (f"bag room: {room.get('free_before')} -> {room.get('free')} free slots{kg}"
             + (f", stored in his crate: {', '.join(st)}" if st else "") + (f"; {room['why']}" if room.get("why") else ""))
 
 
@@ -875,6 +925,19 @@ def it_grave(ctx: Ctx) -> dict:
     return g
 
 
+def with_progress(legs: list[dict], work=None):
+    """A still stretch is work, not a stand, while the body action's own progress counters move (main 2026-11-02:
+    moving 240 stacks one press at a time is a player sorting a grave screen). The counter every item samples is his
+    bag (the leg's inv samples, every ~2 s): a change landing inside the stretch (or 2 s after, the read's lag) is
+    items moved. Metres walked can't move in a still stretch; hits are each item's own work() (fight_back)."""
+    inv = sorted((s[0], s[1]) for x in legs for s in ((x.get("rec") or {}).get("inv") or []) if len(s) > 1)
+    moved = [b[0] for a, b in zip(inv, inv[1:]) if a[1] != b[1]]
+
+    def w(a, b):
+        return any(a <= t <= b + 2.0 for t in moved) or bool(work and work(a, b))
+    return w
+
+
 def finish(ctx: Ctx, item: str, legs: list[dict], t_h: float | None, allowed: int, misses: int | None = None, work=None,
            note: str | None = None, need_told: bool = True, audience: bool | None = None,
            extra: dict | None = None) -> dict:
@@ -889,7 +952,7 @@ def finish(ctx: Ctx, item: str, legs: list[dict], t_h: float | None, allowed: in
     if audience is None:
         audience = any(x["rec"].get("audience") for x in legs if x.get("rec")) or bool(ctx.a.target_player)
     says = [t for x in legs for t in x.get("say_ts") or []]
-    stand_s, stands = stand_bar(t0, t1, says, work)
+    stand_s, stands = stand_bar(t0, t1, says, with_progress(legs, work))
     g = grade(item, legs, round(t_h, 1) if t_h else None, misses, allowed, stand_s, need_told, audience, extra)
     g.update(note=note, stands=stands, legs=[{k: x.get(k) for k in ("request", "line", "done", "how", "done_s", "wall_s",
                                                                     "ended", "truthful", "truth_source", "says", "tools",

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -116,16 +117,27 @@ START_OVERRIDES = {k: OFF_DOORWAY for k in ("near_doric", "far_doorway_se", "ram
 
 def clearance(cli) -> dict:
     """The nearest placed piece (get_state.structures) or station/storage (census interactables) to where he stands."""
+    def obstacle(x):  # people and lodestones are no pieces to get wedged in (01:10Z: Zanik at 1.44 m, the EDDE
+        # lodestone at 1.3 m skipped legs that had always run): an NPC walks off, a lodestone is stood beside
+        return isinstance(x, dict) and "Gravestone" not in str(x.get("name")) and "Lodestone" not in str(x.get("name"))             and not str(x.get("class") or "").startswith("BP_NPC_") and x.get("kind") != "lodestone"
+
+    def dist(x, me):  # from the two positions when both are there: get_state's structures distances can be from
+        # before the teleport (01:59Z: 1.3 m to the EDDE lodestone while he stood 98 m away at the doorway start)
+        pos = x.get("position") or x.get("pos")
+        if isinstance(pos, (list, tuple)) and isinstance(me, (list, tuple)) and len(pos) >= 3 and len(me) >= 3:
+            return math.dist([float(v) for v in pos[:3]], [float(v) for v in me[:3]]), pos
+        return (float(x["distance"]), pos) if isinstance(x.get("distance"), (int, float)) else (None, pos)
+
     near = []
     try:
         st = (cli.request("get_state", {}, timeout=15) or {}).get("data") or {}
         me = st.get("position") or st.get("pos")
-        near += [(float(x["distance"]), str(x.get("name") or x.get("id")), x.get("position")) for x in st.get("structures") or []
-                 if isinstance(x, dict) and isinstance(x.get("distance"), (int, float))]
         c = (cli.request("census", {"radius_m": 6, "max": 40, "foliage": False}, timeout=20) or {}).get("data") or {}
-        near += [(float(x["distance"]), str(x.get("name")), x.get("position") or x.get("pos")) for x in c.get("interactables") or []
-                 if isinstance(x, dict) and isinstance(x.get("distance"), (int, float))
-                 and "Gravestone" not in str(x.get("name"))]
+        for x in list(st.get("structures") or []) + list(c.get("interactables") or []):
+            if obstacle(x):
+                d, pos = dist(x, me)
+                if d is not None:
+                    near.append((d, str(x.get("name") or x.get("id")), pos))
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "why": f"clearance not read: {exc}"}
     d, name, pos = min(near, key=lambda n: n[0], default=(None, None, None))

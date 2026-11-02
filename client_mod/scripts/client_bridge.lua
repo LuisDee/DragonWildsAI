@@ -248,6 +248,13 @@ local function finish(a, res)
         a.replied = true
         ch.reply(a.id, res)
     end
+    for _, j in ipairs(a.joiners or {}) do -- the same call again while it ran: it shares this result, said so
+        local d = {}
+        for k, v in pairs(type(res.data) == "table" and res.data or {}) do d[k] = v end
+        d.joined, d.joined_id = true, a.id
+        if type(d.detail) == "string" then d.detail = "I was already doing that: " .. d.detail end
+        pcall(j.chan.reply, j.id, { ok = res.ok, reason = res.reason, data = d })
+    end
     if a.quiet then return end
     if res.ok then ch.emit_event("task_done", { task_id = a.id, data = ch.object(res.data or {}) })
     else
@@ -1360,6 +1367,17 @@ M.API = {
 }
 setmetatable(M.API, { __index = function(_, k) if k == "null" then return S and S.bridge.null end end })
 
+-- Actions a repeat of joins instead of restarting (same args, case-blind)
+local JOINABLE = { store = true, take = true }
+local function same_call(a, b)
+    a, b = type(a) == "table" and a or {}, type(b) == "table" and b or {}
+    local function norm_v(v) return type(v) == "string" and v:lower() or v end
+    for k, v in pairs(a) do if k ~= "probe" and norm_v(v) ~= norm_v(b[k]) then return false end end
+    for k, v in pairs(b) do if k ~= "probe" and norm_v(v) ~= norm_v(a[k]) then return false end end
+    return true
+end
+M._same_call = same_call
+
 -- Run one tool: routes, then module HANDLERS, else not_implemented / unknown_tool.
 local function dispatch(tool, args, ctx)
     local route = R[tool]
@@ -1390,6 +1408,16 @@ local function dispatch(tool, args, ctx)
         return fail("busy", { owner = "brain:" .. tostring(S.action.kind), owner_id = S.action.id,
                               detail = "the brain's " .. tostring(S.action.kind) .. " is running (debug channel; force=true overrides)" })
     end
+    -- the same store/take again while it runs (the model re-asks after its wait detached, still_running): it joins the
+    -- running one and gets its result ("I was already doing that: ..."), never a restart that cancels the first
+    -- (live 2026-11-02 rung3 cook run 1: a store's wait detached when the Tester spoke)
+    local cur = S.action
+    if is_action and JOINABLE[tool] and cur and not cur.done and cur.kind == tool and cur.chan == ctx.chan and same_call(cur.args, args) then
+        cur.joiners = cur.joiners or {}
+        cur.joiners[#cur.joiners + 1] = { id = ctx.id, chan = ctx.chan }
+        ev("client_action_join", { kind = tool, id = ctx.id, joined = cur.id })
+        return nil -- replied by finish()
+    end
     if is_action and tool ~= "stop" then preempt(tool) end
     local res = h(args, ctx)
     if type(res) == "table" and res.wait then
@@ -1400,7 +1428,7 @@ local function dispatch(tool, args, ctx)
         local a = res.pending
         a.id, a.kind, a.started, a.chan = ctx.id, a.kind or tool, now_s(), ctx.chan
         local m = type(ctx.msg) == "table" and ctx.msg or {} -- the cmd's correlation ids (brain/protocol.py cmd)
-        a.ep, a.call, a.run = m.ep, m.call, m.run
+        a.ep, a.call, a.run, a.args = m.ep, m.call, m.run, args
         S.action = a
         rawset(_G, "__dwc_act", { act = a.id, ep = a.ep, call = a.call, kind = a.kind }) -- walltime.stamp reads it
         ev("client_action_start", { kind = a.kind, id = a.id, ep = a.ep, call = a.call, run = a.run })
@@ -2036,6 +2064,7 @@ function M.start(opts)
             -- back lost_by_body)
             local waiting = {}
             for _, w in ipairs(S.waiters or {}) do if w.id then waiting[#waiting + 1] = w.id end end
+            for _, j in ipairs(a and a.joiners or {}) do waiting[#waiting + 1] = j.id end -- a joined repeat is in flight too
             return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time(),
                                          started = S.started_epoch, waiters = waiting,
                                          action = a and { id = a.id, kind = a.kind, age_s = a.started and (now_s() - a.started) or S.bridge.null }

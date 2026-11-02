@@ -125,10 +125,16 @@ end
 function M.to_external(log, row, amount, to_slot, inv)
     F.transfers = (F.transfers or 0) + 1
     if F.transfer_noop then return { ok = true } end
-    take_carried(row, amount)
     for _, r in ipairs(inv.rows) do
-        if r.slot == to_slot then r.count = r.count + amount; return { ok = true } end
+        if r.slot == to_slot then
+            -- the game moves nothing onto another item, past the item's max stack, or (F.slot_noop) at all
+            if r.item ~= row.item or (r.max_stack and r.count + amount > r.max_stack) or (F.slot_noop and F.slot_noop[to_slot]) then
+                return { ok = true }
+            end
+            take_carried(row, amount); r.count = r.count + amount; return { ok = true }
+        end
     end
+    take_carried(row, amount)
     inv.rows[#inv.rows + 1] = { slot = to_slot, item = row.item, name = row.name, count = amount }
     return { ok = true }
 end

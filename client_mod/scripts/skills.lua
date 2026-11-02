@@ -2508,13 +2508,22 @@ local function mark_held(rows, d)
     return rows
 end
 M._mark_held = mark_held
-local function free_or_same(rows, slots, item)
-    for _, r in ipairs(rows) do if r.item == item then return r.slot end end
+-- Where a stack goes in a container: a stack of the same item with room (count < the item's own MaxStackSize, which
+-- the row carries), else the first free slot, else nil (it's full). A full stack is never the target: live 2026-11-02
+-- a Bronze Sword (max 1) was pressed onto the chest's own sword in slot 5 and nothing moved (verification_failed).
+-- skip = slots a press already went nowhere on (an unknown max stack). -> slot, room (nil = a free slot) | nil
+local function free_or_same(rows, slots, item, skip)
+    skip = skip or {}
+    for _, r in ipairs(rows) do
+        local max, n = tonumber(r.max_stack), tonumber(r.count) or 1
+        if r.item == item and not skip[r.slot] and (not max or n < max) then return r.slot, max and (max - n) or nil end
+    end
     local used = {}
     for _, r in ipairs(rows) do used[r.slot] = true end
-    for i = 0, (slots or 0) - 1 do if not used[i] then return i end end
+    for i = 0, (slots or 0) - 1 do if not used[i] and not skip[i] then return i, nil end end
     return nil
 end
+M._free_or_same = free_or_same
 local function input_mod(api) local m = api.module("input"); return m and type(m.claim) == "function" and m or nil end
 local function in_container(rows, what, api) return (api.resolve_name(rows, what)) end
 local function contents_words(rows)
@@ -2703,14 +2712,21 @@ local function start_transfer(api, args, ctx, deposit)
                 if x.item == item and not x.held and (tonumber(x.count) or 0) > 0 then row = x; break end
             end
             if not row then return finish(api.fail("verification_failed", { item = item, moved = job.moved, detail = "I ran out of " .. tostring(iname) .. "." })) end
-            local to = free_or_same(c.rows, c.slots, item)
-            if not to then return finish(api.fail("container_full", { item = item, moved = job.moved, container = t.id,
-                detail = "The " .. label .. " is full" .. (job.moved > 0 and (" after " .. job.moved .. " " .. tostring(iname)) or "") .. "." })) end
-            local n = math.min(left, tonumber(row.count) or 1)
+            local to, room = free_or_same(c.rows, c.slots, item, job.skip)
+            if not to then
+                local stacks = 0
+                for _, x in ipairs(c.rows) do if x.item == item then stacks = stacks + 1 end end
+                return finish(api.fail("container_full", { item = item, moved = job.moved, container = t.id, slots = c.slots,
+                    used = #c.rows, contents = contents_words(c.rows),
+                    detail = "The " .. label .. " is full" .. (job.moved > 0 and (" after " .. job.moved .. " " .. tostring(iname)) or "") .. ": "
+                        .. ((c.slots or #c.rows) == 1 and "its one slot is taken" or ("all " .. tostring(c.slots or #c.rows) .. " slots are taken"))
+                        .. (stacks > 0 and (" and its " .. tostring(iname) .. " stack" .. (stacks > 1 and "s are" or " is") .. " full") or "")
+                        .. ", so " .. (job.moved > 0 and "the rest stays" or "it stays") .. " with me." })) end
+            local n = math.min(left, tonumber(row.count) or 1, room or math.huge)
             local before = carried_count(api, item) -- read BEFORE the press (the server may answer at once)
             local res = invm.to_external(api.log, row, n, to, inv)
             if not res.ok then return finish(api.fail("body_error", { detail = tostring(res.reason) })) end
-            job.pending = { n = n, carried = before - n, inside = (c.by_item[item] or 0) + n, until_t = api.now() + M.cfg.verify_s }
+            job.pending = { n = n, to = to, carried = before - n, inside = (c.by_item[item] or 0) + n, until_t = api.now() + M.cfg.verify_s }
         else
             local src
             for _, x in ipairs(c.rows) do if x.item == item then src = x; break end end
@@ -2804,6 +2820,16 @@ local function start_transfer(api, args, ctx, deposit)
             return press()
         end
         if p and tt >= p.until_t then
+            -- a deposit that went nowhere (that slot took nothing: a stack whose max the item didn't say) tries another
+            -- slot once each, before it says nothing moved
+            if deposit and carried == p.carried + p.n and p.to and not (job.skip and job.skip[p.to]) and (job.retries or 0) < 2 then
+                job.retries = (job.retries or 0) + 1
+                job.skip = job.skip or {}
+                job.skip[p.to] = true
+                if api.log then api.log("store: slot " .. tostring(p.to) .. " of the " .. tostring(label) .. " took no " .. tostring(iname) .. "; trying another") end
+                job.pending = nil
+                return press()
+            end
             if queue then -- what did come counts (read back); the rest of it stays, and the queue goes on
                 job.moved = job.moved + math.max(0, math.min(p.n, carried - (p.carried - p.n)))
                 return item_done("not_moved")
