@@ -16,6 +16,8 @@ Without a spend function the guard is off (``allows()`` is always True), and the
 """
 from __future__ import annotations
 
+import os
+
 import threading
 import time
 from typing import Callable
@@ -23,6 +25,21 @@ from typing import Callable
 OUT_LINE = "I'm out of thinking budget for today, so I'll just keep myself fed, defend myself and follow you."
 BLIND_LINE = ("I can't check my thinking budget right now, so I'll stick to reflexes: staying fed, "
               "defending myself and following you.")
+# A harness run sets DW_SPEND_CAP_USD = today's spend + the run's dollars (tools/chat_ladder.py, m1_run.py): reaching
+# it is this run's allowance, not the day's (rung4 gear_up run 5, 2026-11-02: "out of thinking budget for today" at $2).
+RUN_OUT_LINE = "I've used up my thinking allowance for this run, so I'll just keep myself fed, defend myself and follow you."
+
+
+def run_allowance() -> bool:
+    """True when the cap in force is a run's allowance: DW_SPEND_CAP_USD set below the daily cap."""
+    try:
+        run = float(os.environ.get("DW_SPEND_CAP_USD") or "nan")
+        day = float(os.environ.get("DW_DAILY_CAP_USD") or 10.0)
+    except ValueError:
+        return False
+    return run == run and run < day
+
+
 OUT_REPEAT_S = 600.0
 CHAT_GRACE_S = 1800.0  # player chat keeps working this long while the spend reader fails
 CHAT_KINDS = {"chat", "warmup"}  # everything else (review, situation, director, planner, ...) is autonomous
@@ -119,7 +136,7 @@ class Budget:
         return ok
 
     def out_line(self) -> str:
-        return BLIND_LINE if self._why == "blind" else OUT_LINE
+        return BLIND_LINE if self._why == "blind" else RUN_OUT_LINE if run_allowance() else OUT_LINE
 
     def out_line_due(self) -> bool:
         """Say the honest line now? (once, then at most every OUT_REPEAT_S)"""
