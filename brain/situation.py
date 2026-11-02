@@ -23,7 +23,8 @@ from typing import Iterable
 from . import item_stats
 
 REPO = Path(__file__).resolve().parents[1]
-MAX_LINES = 18  # +skills, +module extras (2026-10-26)
+MAX_LINES = 26  # 18 cut every line after Creatures: On the ground, Stations, Places, Your bases, module extras such as
+                # your_farm (live 2026-11-02 05:33Z: "where's the farm?" with his own plot 7.5 m away)
 MAX_GROUPS = 6  # per line
 LINE_CHARS = 240
 CREATURE_LINE_CHARS = 640  # with the body's fight odds per creature (prep eval 2026-10-26: 240 cut the second one)
@@ -783,7 +784,7 @@ COVERED_KEYS = frozenset({
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
-    "containers_remembered", "my_bases",
+    "containers_remembered", "my_bases", "burn_odds",
 })
 
 
@@ -1118,7 +1119,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     optional = ("Places:", "Reflex policy:", "Skills ", "Quests:", "Stations:",
                 "Spare gear:", "Food/drink:", "Players:", "Wearing:", "World:",
                 "On the ground:", "Around:", "Usable:", "Built pieces:", "Gear vs this area:")
-    for prefix in ("Creatures", "Job:", "Asked:"):
+    for prefix in ("Creatures", "Job:", "Asked:", "Your bases", "Your farm"):
         required = next((line for line in available if line.startswith(prefix)), None)
         if required and required not in chosen:
             index = next((i for i in range(len(chosen)-1, -1, -1)

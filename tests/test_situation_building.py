@@ -101,3 +101,18 @@ def test_bases_line_from_his_own_record():
     assert ("Your bases (what you built): 99 m NE, roofed, 14 pieces (Spinning Wheel, Crafting Table)"
             " | 300 m S, no roof, 1 piece (Campfire)") in text
     assert "my_bases" not in text and "Your bases" not in "\n".join(summary({"position": [0, 0, 0]}))
+
+
+def test_bases_and_farm_survive_a_full_digest():
+    """MAX_LINES cut every line after Creatures (live 2026-11-02 05:33Z: "where's the farm?" with his own plot 7.5 m
+    off): with every optional line filled, 'Your bases' and 'Your farm' still reach him, and burn_odds is no noise."""
+    st = {"position": [0, 0, 0], "health": 50, "max_health": 100, "places": [f"place{i}" for i in range(8)],
+          "my_bases": [{"centre": [70, -70, 0], "distance_m": 99, "direction": "NE", "pieces": 14, "covered": True}],
+          "your_farm": "1 plot 7.5 m N: weeds coming up", "burn_odds": {"level1": 0.0, "level2": 0.46},
+          "fishing_spots": [{"name": "Net Fishing Spot", "distance_m": 4}], "ore_veins": [{"name": "Copper", "distance_m": 9}],
+          "nearby_entities": [{"kind": k, "name": f"{k}{i}", "id": f"{k}{i}", "distance": 5 + i, "position": [i, i, 0]}
+                              for i, k in enumerate(["creature", "item", "player", "resource", "creature", "item"])]}
+    lines = summary(st)
+    text = "\n".join(lines)
+    assert "Your bases (what you built): 99 m NE" in text and "Your farm: 1 plot 7.5 m N" in text
+    assert "Burn odds" not in text

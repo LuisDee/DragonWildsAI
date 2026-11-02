@@ -27,7 +27,8 @@ local function reset(o)
     Wd = { pawn = { pos = { X = 0, Y = 0, Z = 0 } }, held = nil, inv = o.inv or { ITEM_Spade = 1, ITEM_Seeds = 3 }, xp = 0,
            plot = { id = "BP_FarmPlot_C_1#0", owner_id = "BP_FarmPlot_C_1", pos = o.plot_pos or { X = 800, Y = 0, Z = 0 },
                     soil = o.soil or "weeds", harvestable = o.harvestable or false, diseased = false, watered = false, fertilized = false,
-                    weeds_grown = true, prompt = "Plot", digs_needed = o.digs or 1, digs = 0 },
+                    weeds_grown = true, prompt = "Plot", digs_needed = o.digs or 1, digs = 0, stage_digs = o.stage_digs },
+           cat = o.cat,
            water = o.water, modal = o.modal, presses = 0, injected = 0 }
 end
 
@@ -56,7 +57,8 @@ local function step(dt)
             if Wd.held == "ITEM_Spade" and pl.soil == "weeds" then
                 pl.digs = pl.digs + 1
                 Wd.xp = Wd.xp + 3
-                if pl.digs >= pl.digs_needed then pl.soil, pl.weeds_grown = "clear", false end
+                if pl.digs >= pl.digs_needed then pl.soil, pl.weeds_grown = "clear", false
+                elseif pl.stage_digs and pl.digs % pl.stage_digs == 0 then pl.weeds_grown, pl.prompt = false, "Weeds " .. pl.digs end
             elseif Wd.held == "ITEM_Seeds" and pl.soil == "clear" then
                 Wd.inv.ITEM_Seeds = Wd.inv.ITEM_Seeds - 1; pl.prompt = "Wheat (growing)"; Wd.xp = Wd.xp + 5
             end
@@ -89,7 +91,12 @@ W.counts = function()
     return c, l
 end
 W.find_item = function(list, what)
-    for _, e in ipairs(list.hotbar) do if e.item == what or e.name == what then return e end end
+    for _, e in ipairs(list.hotbar) do
+        if e.item == what or e.name == what then
+            if Wd.cat and e.item == "ITEM_Spade" then e.category = Wd.cat end
+            return e
+        end
+    end
 end
 W.held_item = function() return Wd.held end
 W.equip = function(_, item) Wd.held = item; return { ok = true } end
@@ -141,6 +148,19 @@ do -- dig the weeds (3 digs needed, times = 5)
     check("dig: soil changed", res.data.changed and res.data.changed.soil and res.data.changed.soil.to == "clear")
     check("dig: xp", res.data.xp and res.data.xp.Farming and res.data.xp.Farming.xp == 9)
     check("dig: arbiter released", A.owner() == nil)
+end
+
+do -- a spade on weeds digs on until the soil is clear (live 05:00Z: 15 digs, a change every 5; tend had stopped at
+   -- the first change, so "dig" looked done with the weeds still there and the seeds then did nothing)
+    reset({ digs = 15, stage_digs = 5, cat = "Item.Equipment.Tool.Shovel" })
+    local res = run({ item = "ITEM_Spade" })
+    check("dig until clear: ok", res.ok == true, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    check("dig until clear: 15 presses", res.data.presses == 15, res.data.presses)
+    check("dig until clear: soil clear", Wd.plot.soil == "clear" and tostring(res.data.detail):find("soil is clear", 1, true) ~= nil,
+          tostring(res.data.detail))
+    reset({ digs = 15, stage_digs = 5 }) -- no shovel category: the old one-change contract stands
+    local r2 = run({ item = "ITEM_Spade", times = 10 })
+    check("no shovel category: stops at the first change", r2.ok == true and r2.data.presses == 5, r2.data and r2.data.presses)
 end
 
 do -- plant (seed spent, prompt changes)
@@ -195,6 +215,24 @@ do -- growth from the plant mesh (the game's own stage meshes), pure
     local g = F.growth_of(map, "SM_Potato_02")
     check("growth from a stage mesh", g and g.plant == "Potato" and g.stage == 2 and g.of == 3)
     check("no growth for an unknown mesh", F.growth_of(map, "SM_Other") == nil and F.growth_of(map, nil) == nil and F.growth_of(nil, "x") == nil)
+end
+
+do -- "Your farm" (farm_gate 2026-11-02: "where's the farm?" with his own plot 7.5 m away): his plots by what the game
+   -- says about them, grouped, nearest first; Luis's plots never; remembered ones out of sight by distance
+    local me = { X = 0, Y = 0, Z = 0 }
+    local rows = {
+        { mine = true, pos = { X = 0, Y = -750 }, distance_m = 7.5, soil = "weeds", weeds_grown = true, growth = { plant = "Weeds", stage = 3, of = 3 } },
+        { mine = true, pos = { X = 300, Y = -750 }, distance_m = 8.1, soil = "clear", watered = true, growth = { plant = "Cabbage", stage = 1, of = 3 } },
+        { mine = false, pos = { X = 500, Y = 0 }, distance_m = 5, harvestable = true, growth = { plant = "Potato", stage = 3, of = 3 } },
+    }
+    local line = F.farm_line(rows, { { X = 0, Y = -750 }, { X = 300, Y = -750 }, { X = 0, Y = 12000 } }, me)
+    check("farm line: his weeded plot, with distance and the game's own words", tostring(line):find("1 plot 7.5 m N: overgrown with weeds", 1, true) ~= nil, line)
+    check("farm line: his crop's stage and water", tostring(line):find("Cabbage stage 1 of 3, watered", 1, true) ~= nil, line)
+    check("farm line: not Luis's plot", tostring(line):find("Potato", 1, true) == nil, line)
+    check("farm line: remembered plot out of sight", tostring(line):find("1 more out of sight (remembered), nearest 120 m S", 1, true) ~= nil, line)
+    check("farm line: none of his -> nil", F.farm_line({ rows[3] }, {}, me) == nil)
+    check("plot words: ready", F.plot_words({ harvestable = true, growth = { plant = "Flax" } }) == "Flax ready to harvest")
+    check("plot words: clear", F.plot_words({ soil = "clear" }) == "clear, nothing planted")
 end
 
 print(string.format("test_farm: %d passed, %d failed", pass, failn))

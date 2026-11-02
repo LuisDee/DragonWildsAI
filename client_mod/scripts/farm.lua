@@ -25,6 +25,10 @@ M.cfg = {
     stand_tol_m = 1.2, reach_m = 2.5, face_s = 3.0,
     equip_wait_s = 4, equip_repress_s = 1.5,
     tap_frames = 3, verify_s = 3.0, max_times = 10,
+    -- a spade (category Item.Equipment.Tool.Shovel, FarmingSettings.ShovelCategory) on a weeded plot digs on until the
+    -- soil reads clear, as a player keeps digging: live 2026-11-02 05:00Z his fully grown weeds took 5 + 4 + 1 + 5 = 15
+    -- digs (FarmingSettings.DiggingChargesNeededForTilling 5 per step), each dig a change of its own
+    dig_max = 24,
     approach_timeout_s = 60, lease_s = 5, decide_s = 0.1, rows = 8,
 }
 
@@ -90,6 +94,51 @@ function M.growth_of(map, mesh)
     local g = mesh and map and map[mesh]
     if not g then return nil end
     return { plant = g.plant, stage = g.stage, of = g.of }
+end
+
+-- "Your farm" (main 2026-11-02: "where's the farm?" with his own plot 7.5 m away; nothing in state named it): his own
+-- plots (mine: the deconstruct ledger) as a player knows his farm, each with what the game says about it, grouped;
+-- remembered ones out of sight by distance. Words are the plot's own reads, no advice. Pure.
+local COMPASS8 = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" }
+local function compass(me, p)
+    local a = math.deg(math.atan(-(p.Y - me.Y), p.X - me.X)) % 360 -- game +Y is south (deconstruct.lua's compass)
+    return COMPASS8[math.floor((a + 22.5) / 45) % 8 + 1]
+end
+function M.plot_words(p)
+    local g = p.growth
+    if p.harvestable then return ((g and g.plant) and (g.plant .. " ") or "") .. "ready to harvest" end
+    if g and g.plant and g.plant ~= "Weeds" then
+        return string.format("%s stage %s of %s, %s%s", g.plant, tostring(g.stage), tostring(g.of),
+            p.watered and "watered" or "not watered", p.diseased and ", diseased" or "")
+    end
+    if p.soil == "weeds" then return p.weeds_grown and "overgrown with weeds" or "weeds coming up" end
+    return "clear, nothing planted" .. (p.watered and ", watered" or "")
+end
+function M.farm_line(rows, spots, me)
+    local mine, groups, order = {}, {}, {}
+    for _, p in ipairs(rows or {}) do if p.mine then mine[#mine + 1] = p end end
+    for _, p in ipairs(mine) do
+        local w = M.plot_words(p)
+        if not groups[w] then groups[w] = { n = 0, d = p.distance_m, dir = me and p.pos and compass(me, p.pos) }; order[#order + 1] = w end
+        groups[w].n = groups[w].n + 1
+    end
+    local parts = {}
+    for _, w in ipairs(order) do
+        local gr = groups[w]
+        parts[#parts + 1] = string.format("%d plot%s %s m%s: %s", gr.n, gr.n == 1 and "" or "s", tostring(gr.d),
+            gr.dir and (" " .. gr.dir) or "", w)
+    end
+    local far = {}
+    for _, s in ipairs(spots or {}) do
+        local seen = false
+        for _, p in ipairs(mine) do if p.pos and d2(p.pos, s) < 300 then seen = true end end
+        if not seen and me then far[#far + 1] = { d = math.floor(d2(me, s) / 100 + 0.5), dir = compass(me, s) } end
+    end
+    table.sort(far, function(a, b) return a.d < b.d end)
+    if #far > 0 then
+        parts[#parts + 1] = string.format("%d more out of sight (remembered), nearest %d m %s", #far, far[1].d, far[1].dir)
+    end
+    return #parts > 0 and table.concat(parts, " | ") or nil
 end
 
 local function gains(c0, c1)
@@ -368,8 +417,17 @@ local function frame(J)
         local p = plot_now(J)
         local c1 = W.counts()
         local _, n = gains(J.c0, c1)
+        if (M.signature(p) ~= J.sig0 or n > 0) and J.dig and p and p.soil ~= "clear" and J.presses < J.times then
+            J.steps = (J.steps or 0) + 1 -- one dig step done (a weed stage gone, weeds in the bag): dig on until clear
+            say(J.log, string.format("dig step %d after %d presses (soil %s)", J.steps, J.presses, tostring(p.soil)))
+            return set_phase(J, "press", "again")
+        end
         if M.signature(p) ~= J.sig0 or n > 0 then
             J.after, J.inv1 = p, c1
+            if J.dig then
+                return finish(J, result_of(J, true, nil, { detail = string.format(
+                    "Dug the weeds out: %d digs, the soil is %s now.", J.presses, tostring(p and p.soil or "changed")) }))
+            end
             C().counts.changed = C().counts.changed + 1
             local ch = M.changes(J.before, p)
             local words = {}
@@ -381,6 +439,10 @@ local function frame(J)
         if J.t - J.phase_t >= M.cfg.verify_s then
             if J.presses < J.times then return set_phase(J, J.item and "press" or "face", "again") end
             J.after, J.inv1 = p, c1
+            if J.dig and (J.steps or 0) > 0 then
+                return fail(J, "verification_failed", "dig_unfinished", string.format(
+                    "I dug %d times and cleared some of the weeds (%d steps), but the soil still reads %s.", J.presses, J.steps, tostring(p and p.soil)))
+            end
             return fail(J, "verification_failed", "no_change", string.format("I used %s on the plot %d time%s but nothing changed%s.",
                 J.item_name and ("my " .. J.item_name) or "my hands", J.presses, J.presses == 1 and "" or "s",
                 p and p.prompt and (" (the plot says: " .. p.prompt .. ")") or ""))
@@ -405,13 +467,14 @@ function M.start(log, args, ctx)
     end
     local inv0, list = W.counts()
     if not inv0 then return { ok = false, reason = "body_error", data = { detail = "inventory unreadable" } } end
-    local item, item_name
+    local item, item_name, item_cat
     if type(args.item) == "string" and args.item ~= "" then
         local e = W.find_item(list, args.item)
         if not e then
             return { ok = false, reason = "not_in_inventory", data = { why = "no_item", detail = string.format("I don't have %s.", args.item) } }
         end
         item, item_name = e.item, e.name or e.item
+        item_cat = e.category
     end
     local c = C()
     if c.job then finish(c.job, result_of(c.job, false, "interrupted", { why = "new_tend", detail = "A new plot job started." })) end
@@ -432,6 +495,9 @@ function M.start(log, args, ctx)
     J = { gen = c.gen, log = log, pc = pc, plot = plot, item = item, item_name = item_name, token = token, t0 = t, t = t, phase_t = t,
           presses = 0, times = math.max(1, math.min(math.floor(tonumber(args.times) or 1), M.cfg.max_times)),
           before = plot, inv0 = inv0, skills0 = W.skills() }
+    if item and tostring(item_cat or ""):find("Shovel", 1, true) and plot.soil == "weeds" then
+        J.dig, J.times = true, math.max(J.times, M.cfg.dig_max)
+    end
     c.job = J
     set_phase(J, "approach", tostring(plot.id) .. " with " .. tostring(item_name or "hands"))
     J.handle = LoopInGameThreadWithDelay(1, function()
@@ -502,7 +568,8 @@ do
             detail_is_speech = true,
             description = "Work a farm plot once: walk to it and use a carried item on it (its main action, e.g. a spade's "
                 .. "dig, seeds' scatter, a watering can's pour, compost), or with no item press use on it (harvest, cure). "
-                .. "Checks the plot changed. Trains Farming. See farm_plots for each plot's state.",
+                .. "Checks the plot changed. A spade on a weeded plot keeps digging until the soil is clear (the game "
+                .. "needs about 5 digs per weed stage). Trains Farming. See farm_plots for each plot's state.",
             args = { type = "object", properties = obj({
                 plot = { type = "string", description = "A plot id from farm_plots (default: the nearest)." },
                 item = { type = "string", description = "A carried item to use on the plot (name or id); omit to press use." },
@@ -520,6 +587,22 @@ do
         farm_status = { kind = "probe", llm = false, moves = false, timeout_s = 5,
             args = { type = "object", properties = obj(), additionalProperties = false }, description = "Plot job state (debug)." },
     }
+end
+
+
+-- get_state extras: "Your farm: ..." (situation renders a module's string extra as its own line)
+M.cfg.extras_ttl_s = 5
+function M.state_extras(api, data)
+    local c = C()
+    local t = os.clock()
+    if c.ex_t and t - c.ex_t >= 0 and t - c.ex_t < M.cfg.extras_ttl_s then return c.ex end
+    local pos = type(data) == "table" and data.position
+    local me = type(pos) == "table" and pos[1] and { X = pos[1] * 100, Y = pos[2] * 100, Z = (pos[3] or 0) * 100 } or nil
+    local ok, line = pcall(function()
+        return M.farm_line(me and M.plots(W.slots(), me, M.cfg.max_radius_m * 100) or {}, W.my_plot_spots(), me)
+    end)
+    c.ex, c.ex_t = (ok and line) and { your_farm = line } or {}, t
+    return c.ex
 end
 
 return M

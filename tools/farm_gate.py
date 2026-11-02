@@ -97,9 +97,58 @@ def check_farm(rec: dict, rows: list[dict]):
 g.cp.CHECK_HOOKS["farm"] = check_farm
 
 
+# the tools leg starts as Luis's did: no thread, spade or can on him (main 2026-11-02: run 6 had 2 Coarse Thread in hand)
+RESET = {"tools": ("ITEM_Resources_Thread_Coarse", "ITEM_Spade_T1_Wood", "ITEM_WateringCan_Wood")}
+
+
+def _my_crate(ctx, near, max_m=60.0):
+    """His own crate near the house: a census Crate/Chest within 3 m of a storage piece in his ledger
+    (data/skills/dev/my_pieces.json); None when there is none."""
+    import math
+    try:
+        ledger = json.loads((g.ROOT / "data" / "skills" / "dev" / "my_pieces.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    rows = ledger if isinstance(ledger, list) else (ledger.get("pieces") or [])
+    mine = [r["at"] for r in rows if isinstance(r, dict) and r.get("at") and re.search(r"crate|chest|storage", str(r.get("piece")), re.I)
+            and math.dist(r["at"][:2], near[:2]) <= max_m]
+    st = (ctx.cli.request("get_state", {}, timeout=15).get("data") or {})
+    for t in st.get("interactables") or []:
+        pos = t.get("position") or t.get("actor_position")
+        if pos and re.search(r"crate|chest", str(t.get("class") or t.get("name")), re.I) and                 any(math.dist(pos[:2], a[:2]) <= 3.0 for a in mine):
+            return t.get("id")
+    return None
+
+
+def reset(ctx, leg: str) -> list[str]:
+    """Fixture: what the leg must not start with goes into his own crate (store, his skill) when one is near the
+    house, else is dropped at the respawn point like rung3_gate's shed. Returns the note."""
+    want = RESET.get(leg)
+    have = {k: v for k, v in r3._bag(ctx).items() if want and k in want and v > 0}
+    if not have:
+        return []
+    r3.place(ctx, HOUSE)
+    crate = _my_crate(ctx, HOUSE)
+    out = []
+    for it, n in have.items():
+        if crate:
+            r = ctx.cli.request("store", {"item": it, "container": crate, "count": n}, timeout=120)
+            if r.get("ok"):
+                out.append(f"stored his {n} {it} in his crate {crate}")
+                continue
+        r3.place(ctx, r3.DUMP)
+        ctx.cli.request("drop", {"item": it, "count": n}, timeout=30)
+        out.append(f"dropped his {n} {it} at the respawn point")
+    left = {k: v for k, v in r3._bag(ctx).items() if k in have and v > 0}
+    if left:
+        raise RuntimeError(f"could not put away {left} before the {leg} leg")
+    return out
+
+
 def run_farm(ctx, leg: str) -> dict:
     line, kind, target, t_h, deadline = LEGS[leg]
     CTX[:] = [ctx]
+    reset_note = reset(ctx, leg)
     r3.place(ctx, HOUSE)
     time.sleep(2.0)
     before = mine_plots(ctx.cli)
@@ -110,7 +159,7 @@ def run_farm(ctx, leg: str) -> dict:
     rec = row.get("rec") or {}
     work = r3.processing_work(rec.get("t0") or time.time()) if leg == "tools" else None
     return g.finish(ctx, leg, [row], t_h, allowed=1, work=work,
-                    note=(T_NOTE.get(leg, "") + "; " if leg in T_NOTE else "") + f"{w0} at the start, {r3.weight(ctx)} at the end; fixture: placed outside his house {HOUSE}; his plots before {json.dumps(before)} after {json.dumps(after)}")
+                    note=(T_NOTE.get(leg, "") + "; " if leg in T_NOTE else "") + ("; ".join(reset_note) + "; " if reset_note else "") + f"{w0} at the start, {r3.weight(ctx)} at the end; fixture: placed outside his house {HOUSE}; his plots before {json.dumps(before)} after {json.dumps(after)}")
 
 
 class _Lock:  # rung1_gate's run loop takes the lock as "rung1": this gate's owner is "rung3"
