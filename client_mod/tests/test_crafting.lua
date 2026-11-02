@@ -960,5 +960,16 @@ do -- burn odds as a player sees them (rung 3 cook 2026-11-02 04:20Z: he cooked 
     C.W.burn_odds = old
 end
 
+do -- no wheel near: the plan names the Spinning Wheel (a real station in this build), never the catalog-only
+   -- AdvancedSpinningWheel listed first (farm_gate 06:1xZ: he explored 254 m for it and died)
+    reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", "RECIPE_Tool_T1_Spade_Wood" }),
+            have = { ITEM_Resources_Coarse_Animal_Fur = 9, ITEM_Resources_Wood_Ash = 10 } })
+    local r = C.HANDLERS.craft_plan(nil, { item = "Wooden Spade" }, { api = api })
+    local fs
+    for _, st in ipairs((r.data or {}).steps or {}) do if st["do"] == "find_station" then fs = st end end
+    check("plan: find the Spinning Wheel", fs and fs.station == "Spinning Wheel" and fs.name == "Spinning Wheel",
+          fs and (tostring(fs.station) .. " / " .. tostring(fs.name)))
+end
+
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

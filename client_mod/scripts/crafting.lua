@@ -390,7 +390,16 @@ function M.assess(rid, crafts, ctx)
         local row = (ctx.near or {})[sid]
         if row and (not best or (row.distance or 1e9) < (best.distance or 1e9)) then best = row end
     end
-    local sid = best and best.station or (r.stations or {})[1]
+    -- none near: name a station type that exists in this build (a world actor class), not a catalog-only one
+    -- (farm_gate 2026-11-02 06:1xZ: thread's first listed type AdvancedSpinningWheel has no class or name in this
+    -- build, so craft_plan said "find AdvancedSpinningWheel" and he explored 254 m for it, then died; the Spinning
+    -- Wheel he can build was the second listed)
+    local real
+    for _, sid in ipairs(r.stations or {}) do
+        local si = station_info(sid)
+        if not real and si and type(si.classes) == "table" and #si.classes > 0 then real = sid end
+    end
+    local sid = best and best.station or real or (r.stations or {})[1]
     a.station, a.station_name, a.kind = sid, sid and station_name(sid) or nil, sid and (station_info(sid) or {}).kind or nil
     a.station_row = best
     local vendor = sid and (station_info(sid) or {}).vendor == true

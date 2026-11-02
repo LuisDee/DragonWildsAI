@@ -42,7 +42,12 @@ LEGS = {
     "grow": ("claude, get that crop grown as fast as you can", "farm",
              {"name": "his crop a stage further on", "goal": "stage_up"}, None, 600),
     "harvest": ("claude, harvest your crop and keep it", "r3_gain", {"name": "crop", "rx": CROPS, "n": 1}, None, 300),
+    # setup, not a farm leg: after a death in another agent's window his bag (axe, spade, can, seeds, logs, fur) lies
+    # in his grave; a player gets it back before farming. Ungraded on time (no Luis baseline), never in a streak
+    "recover": ("claude, go get your stuff back from your grave", "r3_gain",
+                {"name": "his tools back", "rx": r"logging axe|wooden spade|watering can|seeds", "n": 1}, None, 600),
 }
+SETUP_LEGS = {"recover"}
 # every leg starts at his own roofed house (the build agent's run-6 house, plot 133 beside it), as Luis starts at his
 # base: from the old dev base (108, 1845) he never learned of it (01:29Z window: built walls round an open-sky wheel)
 HOUSE = [174.6, 1919.4, -30.9]
@@ -121,25 +126,28 @@ def _my_crate(ctx, near, max_m=60.0):
 
 
 def reset(ctx, leg: str) -> list[str]:
-    """Fixture: what the leg must not start with goes into his own crate (store, his skill) when one is near the
-    house, else is dropped at the respawn point like rung3_gate's shed. Returns the note."""
+    """Fixture: what the leg must not start with is dropped at the respawn point (rung3_gate's DUMP, 70 m from the old
+    base), out of his bag AND out of his own crate by the house (main 2026-11-02: a crate stash turns the making test
+    into a fetch). Returns the note. Pick the dump up when the farm work is done."""
     want = RESET.get(leg)
-    have = {k: v for k, v in r3._bag(ctx).items() if want and k in want and v > 0}
-    if not have:
+    if not want:
         return []
+    out = []
     r3.place(ctx, HOUSE)
     crate = _my_crate(ctx, HOUSE)
-    out = []
-    for it, n in have.items():
-        if crate:
-            r = ctx.cli.request("store", {"item": it, "container": crate, "count": n}, timeout=120)
+    if crate:
+        for it in want:
+            r = ctx.cli.request("take", {"container": crate, "item": it}, timeout=120)
+            d = r.get("data") or {}
             if r.get("ok"):
-                out.append(f"stored his {n} {it} in his crate {crate}")
-                continue
+                out.append(f"took {d.get('count') or d.get('moved') or 'all'} {it} out of his crate {crate}")
+    have = {k: v for k, v in r3._bag(ctx).items() if k in want and v > 0}
+    if have:
         r3.place(ctx, r3.DUMP)
-        ctx.cli.request("drop", {"item": it, "count": n}, timeout=30)
-        out.append(f"dropped his {n} {it} at the respawn point")
-    left = {k: v for k, v in r3._bag(ctx).items() if k in have and v > 0}
+        for it, n in have.items():
+            ctx.cli.request("drop", {"item": it, "count": n}, timeout=30)
+            out.append(f"dropped his {n} {it} at the respawn point {r3.DUMP}")
+    left = {k: v for k, v in r3._bag(ctx).items() if k in want and v > 0}
     if left:
         raise RuntimeError(f"could not put away {left} before the {leg} leg")
     return out
@@ -158,8 +166,11 @@ def run_farm(ctx, leg: str) -> dict:
     after = mine_plots(ctx.cli)
     rec = row.get("rec") or {}
     work = r3.processing_work(rec.get("t0") or time.time()) if leg == "tools" else None
-    return g.finish(ctx, leg, [row], t_h, allowed=1, work=work,
+    res = g.finish(ctx, leg, [row], t_h, allowed=1, work=work,
                     note=(T_NOTE.get(leg, "") + "; " if leg in T_NOTE else "") + ("; ".join(reset_note) + "; " if reset_note else "") + f"{w0} at the start, {r3.weight(ctx)} at the end; fixture: placed outside his house {HOUSE}; his plots before {json.dumps(before)} after {json.dumps(after)}")
+    if leg in SETUP_LEGS:  # setup: kept for the record, never in a streak
+        res["fails"] = list(res.get("fails") or []) + ["setup"]
+    return res
 
 
 class _Lock:  # rung1_gate's run loop takes the lock as "rung1": this gate's owner is "rung3"
@@ -168,7 +179,7 @@ class _Lock:  # rung1_gate's run loop takes the lock as "rung1": this gate's own
 
 
 def main(argv=None) -> int:
-    g.ITEMS[:] = list(LEGS)
+    g.ITEMS[:] = ["recover", *[k for k in LEGS if k != "recover"]]  # a recover setup first, then the chain in order
     g.RUNNERS.clear()
     g.RUNNERS.update({k: (lambda ctx, k=k: run_farm(ctx, k)) for k in LEGS})
     g.OUT, g.WORLD, g.live_lock = OUT, WORLD, _Lock
