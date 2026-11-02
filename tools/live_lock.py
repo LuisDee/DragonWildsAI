@@ -38,6 +38,7 @@ PRIORITY = LOCK.parent / "live_priority.json"
 DEFAULT_RANK = 5
 STALE_S = 300
 REFRESH_S = 60
+AGE_S = 600  # seconds of waiting worth one rank
 
 
 def _alive(pid: int) -> bool:
@@ -171,8 +172,8 @@ def _ticket(owner: str, qdir: Path | None = None) -> Path:
 
 
 def priorities(path: Path | None = None) -> dict[str, int]:
-    """logs/state/live_priority.json {owner: rank}: a lower rank claims first, then oldest first (unlisted owners rank
-    DEFAULT_RANK). The ladder is climbed in order, so the rung being worked on gets the one body first (main
+    """logs/state/live_priority.json {owner: rank}: a lower rank claims first, less one rank per AGE_S waited, then
+    oldest first (unlisted owners rank DEFAULT_RANK). The ladder is climbed in order, so the rung being worked on gets the one body first (main
     2026-11-01 21:3xZ: rung 1's follow and grave had 3 gate tries all day while rung 3 had 51)."""
     try:
         return {str(k): int(v) for k, v in json.loads((path or PRIORITY).read_text(encoding="utf-8")).items()}
@@ -196,8 +197,10 @@ def queue(qdir: Path | None = None) -> list[dict]:
                 pass
             continue
         out.append({"ticket": t, "ns": int(ns), "owner": owner, "pid": int(pid)})
-    rank = priorities()
-    return sorted(out, key=lambda x: (rank.get(x["owner"], DEFAULT_RANK), x["ns"]))
+    # a waiter's rank improves by 1 per AGE_S waited, so a lower rank is delayed, never starved (live 2026-11-02
+    # 00:17-00:48Z: rung3's farm gate waited 31 min and build 37 min while rank-0 rung1/rung4 windows re-claimed)
+    rank, now = priorities(), time.time_ns()
+    return sorted(out, key=lambda x: (rank.get(x["owner"], DEFAULT_RANK) - (now - x["ns"]) / 1e9 / AGE_S, x["ns"]))
 
 
 @contextmanager
