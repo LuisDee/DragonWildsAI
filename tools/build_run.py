@@ -292,8 +292,13 @@ def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str
             granted[m["item"]] = granted.get(m["item"], 0) + n
         time.sleep(2.0)
     after = structures(cli)
+    # only what the blueprint put up: new ids on the stand-in's own ground (live 08:4xZ: his Crate 32 m off read as new,
+    # its actor id changed when the client rejoined, and was struck from his ledger with the stand-in), and only ids
+    # the build reply itself named when it names any
+    named = {p.get("structure") for p in ((r.get("data") or {}).get("built_pieces") or []) if p.get("structure")}
     pieces = [{"id": k, "piece": v.get("piece"), "name": v.get("name"), "position": v.get("position")}
-              for k, v in after.items() if k not in before and v.get("position")]
+              for k, v in after.items() if k not in before and v.get("position")
+              and math.dist(v["position"][:2], at[:2]) <= FIXTURE_HALF_M + 3.0 and (not named or k in named)]
     # off his ledger: the body re-reads the file after 30 s (deconstruct.lua ledger_every_s), so wait that out before
     # the line, or a note from the cached copy would write the stand-in back as his
     struck = 0
@@ -437,8 +442,9 @@ def cleanup(cli, rows: list[dict]) -> list[dict]:
         pos = r["position"]
         if any(math.dist(pos, g) <= 0.5 for g in gone_at):
             continue
-        # (the piece itself is no neighbour: an orphan stand-in is off his ledger too)
-        if any(0.6 < math.dist(pos[:2], c[:2]) < GUARD_M for c in others):
+        # (its own building is no neighbour: a stand-in is off his ledger too, so its other pieces within 8 m are
+        # skipped; the fixture guard put the whole stand-in 30 m clear of everything else when it went up)
+        if any(8.0 < math.dist(pos[:2], c[:2]) < GUARD_M for c in others):
             out.append({"name": r.get("name"), "ok": False, "detail": "within 30 m of a piece not his; left standing"})
             continue
         near_kept = min(math.dist(pos[:2], k) for k in PROTECT)

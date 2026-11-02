@@ -1,605 +1,687 @@
 {
   "world":"dev",
   "v":1,
+  "left":[{
+      "items":[{
+          "count":4,
+          "name":"Ash Logs",
+          "item":"ITEM_Resources_Wood_Ash"
+        }],
+      "at":[77.37,1910.87,-31.16],
+      "noted":"2026-11-02T05:55:48Z",
+      "why":"picking it up failed: The Ash Logs isn't there any more; someone may have picked it up."
+    }],
   "pieces":[{
       "piece":"BUILDPIECE_Interior_Crate",
-      "at":[108.24,1848.1,-32.11],
       "noted":"2026-11-01T14:14:00Z",
+      "at":[108.24,1848.1,-32.11],
       "name":"Crate",
       "source":"co-play 2026-11-01 11:48-11:49 build reply (brain-live log position)"
     },{
       "piece":"BUILDPIECE_Interior_Crate",
-      "at":[112.54,1849.09,-31.92],
       "noted":"2026-11-01T14:14:00Z",
+      "at":[112.54,1849.09,-31.92],
       "name":"Crate",
       "source":"co-play 2026-11-01 11:48-11:49 build reply (brain-live log position)"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[96.21,1850.14,-31.81],
       "noted":"2026-11-01T14:53:26Z",
+      "at":[96.21,1850.14,-31.81],
       "name":"Square Foundation",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[96.21,1853.14,-31.81],
       "noted":"2026-11-01T15:03:55Z",
+      "at":[96.21,1853.14,-31.81],
       "name":"Square Foundation",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[94.71,1850.14,-31.81],
       "noted":"2026-11-01T15:34:04Z",
+      "at":[94.71,1850.14,-31.81],
       "name":"Wall",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[94.71,1853.14,-31.81],
       "noted":"2026-11-01T15:47:17Z",
+      "at":[94.71,1853.14,-31.81],
       "name":"WALL WITH DOOR FRAME",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Door",
-      "at":[94.71,1853.14,-30.31],
       "noted":"2026-11-01T15:47:17Z",
+      "at":[94.71,1853.14,-30.31],
       "name":"Door",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[97.71,1853.14,-31.81],
       "noted":"2026-11-01T16:12:30Z",
+      "at":[97.71,1853.14,-31.81],
       "name":"Wall",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Floor_Large",
-      "at":[96.21,1850.14,-28.81],
       "noted":"2026-11-01T16:12:30Z",
+      "at":[96.21,1850.14,-28.81],
       "name":"Square Tile",
       "source":"build telemetry"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[161.08,1729.13,-4.04],
       "noted":"2026-11-01T16:26:38Z",
+      "at":[161.08,1729.13,-4.04],
       "name":"Campfire",
       "source":"build telemetry"
     },{
       "piece":"BUILDPIECE_ProcessingStation_Spinning_Wheel",
-      "at":[93.33,1857.72,-31.43],
       "noted":"2026-11-01T18:03:12Z",
+      "at":[93.33,1857.72,-31.43],
       "name":"Spinning Wheel",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Stairs_Straight",
-      "at":[484.34,1780.11,-40.78],
       "noted":"2026-11-01T18:14:59Z",
+      "at":[484.34,1780.11,-40.78],
       "name":"45° STAIRS",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Floor_Large",
-      "at":[96.21,1853.14,-28.81],
       "noted":"2026-11-01T18:28:00Z",
+      "at":[96.21,1853.14,-28.81],
       "name":"Square Tile",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Roof_Large_Diagonal",
-      "at":[96.21,1850.14,-27.31],
       "noted":"2026-11-01T18:28:00Z",
+      "at":[96.21,1850.14,-27.31],
       "name":"45° Roof",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[99.21,1853.14,-31.81],
       "noted":"2026-11-01T18:35:09Z",
+      "at":[99.21,1853.14,-31.81],
       "name":"Square Foundation",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[100.71,1853.14,-31.81],
       "noted":"2026-11-01T18:35:09Z",
+      "at":[100.71,1853.14,-31.81],
       "name":"WALL WITH DOOR FRAME",
       "source":"build telemetry"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[100.62,1859.54,-31.65],
       "noted":"2026-11-01T18:35:09Z",
+      "at":[100.62,1859.54,-31.65],
       "name":"Crafting Table",
       "source":"build telemetry"
     },{
       "piece":"BUILDPIECE_Interior_Crate",
-      "at":[103.8,1857.77,-31.71],
       "noted":"2026-11-01T18:35:09Z",
+      "at":[103.8,1857.77,-31.71],
       "name":"Crate",
       "source":"build telemetry"
     },{
       "piece":"DA_T1_Wall_Large",
+      "noted":"2026-11-01T20:06:43Z",
       "at":[96.21,1854.64,-31.81],
-      "noted":"2026-11-01T20:06:43Z",
       "name":"Wall",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Wall_Large",
+      "noted":"2026-11-01T20:06:43Z",
       "at":[97.71,1850.14,-31.81],
-      "noted":"2026-11-01T20:06:43Z",
       "name":"Wall",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[96.21,1848.64,-31.81],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[96.21,1848.64,-31.81],
       "name":"Wall",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Roof_Large_Diagonal",
-      "at":[96.21,1853.14,-27.31],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[96.21,1853.14,-27.31],
       "name":"45° Roof",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[99.21,1850.14,-31.81],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[99.21,1850.14,-31.81],
       "name":"Square Foundation",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[91.4,1854.37,-31.82],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[91.4,1854.37,-31.82],
       "name":"Campfire",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[99.21,1854.64,-31.81],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[99.21,1854.64,-31.81],
       "name":"Wall",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Door",
-      "at":[100.71,1853.14,-30.31],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[100.71,1853.14,-30.31],
       "name":"Door",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[100.71,1850.14,-31.81],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[100.71,1850.14,-31.81],
       "name":"Wall",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[99.21,1848.64,-31.81],
       "noted":"2026-11-01T20:06:43Z",
+      "at":[99.21,1848.64,-31.81],
       "name":"Wall",
       "source":"build reply (build agent windows 2026-11-01, backfilled)"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[116.04,1801.09,-30.55],
       "noted":"2026-11-01T20:28:03Z",
+      "at":[116.04,1801.09,-30.55],
       "name":"Crafting Table",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[119.12,1802.31,-30.81],
       "noted":"2026-11-01T20:28:09Z",
+      "at":[119.12,1802.31,-30.81],
       "name":"Campfire",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Interior_Crate",
-      "at":[119.53,1799.89,-30.43],
       "noted":"2026-11-01T20:28:16Z",
+      "at":[119.53,1799.89,-30.43],
       "name":"Crate",
       "source":"build reply"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[122.31,1803.38,-30.42],
       "noted":"2026-11-01T20:28:28Z",
+      "at":[122.31,1803.38,-30.42],
       "name":"Square Foundation",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[122.31,1804.88,-30.42],
       "noted":"2026-11-01T20:28:42Z",
+      "at":[122.31,1804.88,-30.42],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[122.31,1801.88,-30.42],
       "noted":"2026-11-01T20:28:51Z",
+      "at":[122.31,1801.88,-30.42],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[123.81,1803.38,-30.42],
       "noted":"2026-11-01T20:28:59Z",
+      "at":[123.81,1803.38,-30.42],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[120.81,1803.38,-30.42],
       "noted":"2026-11-01T20:29:08Z",
+      "at":[120.81,1803.38,-30.42],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Door",
-      "at":[122.31,1804.88,-28.92],
       "noted":"2026-11-01T20:29:19Z",
+      "at":[122.31,1804.88,-28.92],
       "name":"Door",
       "source":"build reply"
     },{
       "piece":"DA_T1_Roof_Large_Hip_Shallow",
-      "at":[122.31,1803.38,-29.67],
       "noted":"2026-11-01T20:29:30Z",
+      "at":[122.31,1803.38,-29.67],
       "name":"30° Hip Roof",
       "source":"build reply"
     },{
       "piece":"DA_T1_Foundation_Medium",
-      "at":[139.12,1866.01,-31.44],
       "noted":"2026-11-01T20:54:30Z",
+      "at":[139.12,1866.01,-31.44],
       "name":"Medium Square Foundation",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[139.23,1866.18,-31.43],
       "noted":"2026-11-01T20:54:33Z",
+      "at":[139.23,1866.18,-31.43],
       "name":"Crafting Table",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Medium",
-      "at":[139.12,1865.26,-31.44],
       "noted":"2026-11-01T20:55:07Z",
+      "at":[139.12,1865.26,-31.44],
       "name":"MEDIUM WALL",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Medium",
-      "at":[140.62,1865.26,-31.44],
       "noted":"2026-11-01T20:55:14Z",
+      "at":[140.62,1865.26,-31.44],
       "name":"MEDIUM WALL",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[104.08,1908.24,-31.02],
       "noted":"2026-11-01T21:15:42Z",
+      "at":[104.08,1908.24,-31.02],
       "name":"Crafting Table",
       "source":"build reply"
     },{
-      "piece":"BUILDPIECE_Interior_Crate",
-      "at":[108.14,1906.98,-30.98],
-      "noted":"2026-11-01T21:15:47Z",
-      "name":"Crate",
-      "source":"build reply"
-    },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[111.74,1901.9,-30.53],
       "noted":"2026-11-01T21:15:57Z",
+      "at":[111.74,1901.9,-30.53],
       "name":"Square Foundation",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[111.74,1903.4,-30.53],
       "noted":"2026-11-01T21:16:04Z",
+      "at":[111.74,1903.4,-30.53],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[36.24,1861.69,-31.73],
       "noted":"2026-11-01T21:41:13Z",
+      "at":[36.24,1861.69,-31.73],
       "name":"Crafting Table",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[36.71,1858.65,-31.72],
       "noted":"2026-11-01T21:41:25Z",
+      "at":[36.71,1858.65,-31.72],
       "name":"Campfire",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Interior_Crate",
-      "at":[40.27,1861.79,-31.73],
       "noted":"2026-11-01T21:41:31Z",
+      "at":[40.27,1861.79,-31.73],
       "name":"Crate",
       "source":"build reply"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[40.58,1862.76,-31.22],
       "noted":"2026-11-01T21:41:42Z",
+      "at":[40.58,1862.76,-31.22],
       "name":"Square Foundation",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[40.58,1861.26,-31.22],
       "noted":"2026-11-01T21:41:52Z",
+      "at":[40.58,1861.26,-31.22],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[40.58,1864.26,-31.22],
       "noted":"2026-11-01T21:41:56Z",
+      "at":[40.58,1864.26,-31.22],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Door",
-      "at":[40.58,1861.26,-29.72],
       "noted":"2026-11-01T21:43:19Z",
+      "at":[40.58,1861.26,-29.72],
       "name":"Door",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[42.08,1862.76,-31.22],
       "noted":"2026-11-01T21:43:29Z",
+      "at":[42.08,1862.76,-31.22],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Pallisades",
-      "at":[39.08,1862.76,-31.22],
       "noted":"2026-11-01T21:43:53Z",
+      "at":[39.08,1862.76,-31.22],
       "name":"Ash Pallisades",
       "source":"build reply"
     },{
       "piece":"DA_T1_Roof_Medium_Shallow",
-      "at":[41.33,1862.01,-27.84],
       "noted":"2026-11-01T21:44:48Z",
+      "at":[41.33,1862.01,-27.84],
       "name":"Medium 30° Roof",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[668.85,1648.56,-10.62],
       "noted":"2026-11-01T22:01:11Z",
+      "at":[668.85,1648.56,-10.62],
       "name":"Crafting Table",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[669.42,1695.38,-15.08],
       "noted":"2026-11-01T22:19:41Z",
+      "at":[669.42,1695.38,-15.08],
       "name":"Campfire",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[57.24,1825.44,-31.56],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[57.24,1825.44,-31.56],
       "name":"Campfire",
       "source":"build reply (log backfill: 2026-10-26T18:00:45Z, None)"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[56.25,1827.26,-31.39],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[56.25,1827.26,-31.39],
       "name":"Crafting Table",
       "source":"build reply (log backfill: 2026-10-27T21:40:14Z, None)"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[155.43,1912.32,-31.94],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[155.43,1912.32,-31.94],
       "name":"Campfire",
       "source":"build reply (log backfill: 2026-10-28T17:09:54Z, None)"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[156.23,1916.88,-32.53],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[156.23,1916.88,-32.53],
       "name":"Crafting Table",
       "source":"build reply (log backfill: 2026-10-28T17:21:25Z, None)"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[349.44,1824.27,-27.59],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[349.44,1824.27,-27.59],
       "name":"Campfire",
       "source":"build reply (log backfill: 2026-10-31T23:34:08Z, None)"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[104.91,1852.71,-32.31],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[104.91,1852.71,-32.31],
       "name":"Crafting Table",
       "source":"build reply (log backfill: 2026-11-01T11:47:35Z, None)"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[107.22,1848.48,-32.17],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[107.22,1848.48,-32.17],
       "name":"Campfire",
       "source":"build reply (log backfill: 2026-11-01T11:47:44Z, None)"
     },{
       "piece":"BUILDPIECE_ProcessingStation_Spinning_Wheel",
-      "at":[89.09,1856.57,-32.08],
       "noted":"2026-11-01T22:34:01Z",
+      "at":[89.09,1856.57,-32.08],
       "name":"Spinning Wheel",
       "source":"build reply (log backfill: 2026-11-01T19:04:18Z, BP_Station_Spinning_Wheel_C_2147463802)"
     },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "at":[163.67,1890.03,-31.21],
       "noted":"2026-11-01T22:49:47Z",
+      "at":[163.67,1890.03,-31.21],
       "name":"Crafting Table",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Interior_Crate",
-      "at":[168.81,1887.78,-30.58],
       "noted":"2026-11-01T22:49:57Z",
+      "at":[168.81,1887.78,-30.58],
       "name":"Crate",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[165.33,1901.14,-31.29],
       "noted":"2026-11-01T22:50:12Z",
+      "at":[165.33,1901.14,-31.29],
       "name":"Campfire",
       "source":"build reply"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[171.2,1915.32,-31.18],
       "noted":"2026-11-01T22:50:48Z",
+      "at":[171.2,1915.32,-31.18],
       "name":"Square Foundation",
       "source":"build reply"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "at":[174.2,1915.32,-31.18],
       "noted":"2026-11-01T22:50:55Z",
+      "at":[174.2,1915.32,-31.18],
       "name":"Square Foundation",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[174.2,1913.82,-31.18],
       "noted":"2026-11-01T22:51:00Z",
+      "at":[174.2,1913.82,-31.18],
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[175.7,1915.32,-31.18],
       "noted":"2026-11-01T22:51:06Z",
+      "at":[175.7,1915.32,-31.18],
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_T1_Roof_Large_Diagonal",
-      "at":[174.2,1915.32,-26.68],
       "noted":"2026-11-01T22:51:15Z",
+      "at":[174.2,1915.32,-26.68],
       "name":"45° Roof",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[174.2,1916.82,-31.18],
       "noted":"2026-11-01T22:51:24Z",
+      "at":[174.2,1916.82,-31.18],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[169.7,1915.32,-31.18],
       "noted":"2026-11-01T22:51:38Z",
+      "at":[169.7,1915.32,-31.18],
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_T1_Roof_Large_Diagonal",
-      "at":[171.2,1915.32,-26.68],
       "noted":"2026-11-01T22:51:45Z",
+      "at":[171.2,1915.32,-26.68],
       "name":"45° Roof",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[171.2,1916.82,-31.18],
       "noted":"2026-11-01T22:51:53Z",
+      "at":[171.2,1916.82,-31.18],
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[171.2,1913.82,-31.18],
       "noted":"2026-11-01T22:52:03Z",
+      "at":[171.2,1913.82,-31.18],
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_FarmPlot_T1_Brynmoor",
-      "at":[177.2,1912.32,-31.18],
       "noted":"2026-11-01T23:04:52Z",
+      "at":[177.2,1912.32,-31.18],
       "name":"Ash Farming Plot",
       "source":"build reply"
     },{
       "piece":"DA_T1_Door",
-      "at":[174.2,1916.82,-29.68],
       "noted":"2026-11-01T23:54:02Z",
+      "at":[174.2,1916.82,-29.68],
       "name":"Door",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_ProcessingStation_Tanner",
-      "at":[102.4,1855.2,-31.97],
       "noted":"2026-11-02T00:11:41Z",
+      "at":[102.4,1855.2,-31.97],
       "name":"Tannery",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Chest_Small",
-      "at":[85.98,1851.65,-31.7],
       "noted":"2026-11-02T00:35:11Z",
+      "at":[85.98,1851.65,-31.7],
       "name":"Ash Chest",
       "source":"build reply"
     },{
-      "piece":"DA_T1_Foundation_Large",
-      "at":[99.33,1864.77,-31.09],
-      "noted":"2026-11-02T01:30:51Z",
-      "name":"Square Foundation",
-      "source":"build reply"
-    },{
-      "piece":"DA_T1_Wall_Large",
-      "at":[99.33,1863.27,-31.09],
-      "noted":"2026-11-02T01:31:00Z",
-      "name":"Wall",
-      "source":"build reply"
-    },{
-      "piece":"DA_T1_Wall_Large",
-      "noted":"2026-11-02T01:31:29Z",
-      "at":[100.83,1864.77,-31.09],
-      "name":"Wall",
-      "source":"build reply"
-    },{
-      "piece":"DA_T1_Wall_Large",
-      "noted":"2026-11-02T01:31:39Z",
-      "at":[99.33,1866.27,-31.09],
-      "name":"Wall",
-      "source":"build reply"
-    },{
-      "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[97.83,1864.77,-31.09],
-      "noted":"2026-11-02T01:31:50Z",
-      "name":"WALL WITH DOOR FRAME",
-      "source":"build reply"
-    },{
       "piece":"BUILDPIECE_CraftingStation_Basic",
-      "noted":"2026-11-02T01:40:43Z",
       "at":[282.65,1823.64,-42.01],
+      "noted":"2026-11-02T01:40:43Z",
       "name":"Crafting Table",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_Campfire",
-      "at":[100.54,1857.34,-31.71],
       "noted":"2026-11-02T02:17:57Z",
+      "at":[100.54,1857.34,-31.71],
       "name":"Campfire",
       "source":"build reply"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "noted":"2026-11-02T02:27:20Z",
       "at":[376.41,1740.26,-41.88],
+      "noted":"2026-11-02T02:27:20Z",
       "name":"Square Foundation",
       "source":"build reply"
     },{
       "piece":"DA_T1_Foundation_Large",
-      "noted":"2026-11-02T02:27:32Z",
       "at":[377.19,1743.16,-41.88],
+      "noted":"2026-11-02T02:27:32Z",
       "name":"Square Foundation",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "noted":"2026-11-02T02:27:37Z",
       "at":[378.64,1742.77,-41.88],
+      "noted":"2026-11-02T02:27:37Z",
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "at":[377.58,1744.61,-41.88],
       "noted":"2026-11-02T02:27:45Z",
+      "at":[377.58,1744.61,-41.88],
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_T1_Roof_Large_Diagonal",
-      "at":[377.19,1743.16,-40.38],
       "noted":"2026-11-02T02:27:50Z",
+      "at":[377.19,1743.16,-40.38],
       "name":"45° Roof",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large_Doorframe",
-      "at":[375.74,1743.55,-41.88],
       "noted":"2026-11-02T02:28:00Z",
+      "at":[375.74,1743.55,-41.88],
       "name":"WALL WITH DOOR FRAME",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "noted":"2026-11-02T02:28:33Z",
       "at":[376.02,1738.82,-41.88],
+      "noted":"2026-11-02T02:28:33Z",
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"DA_T1_Roof_Large_Diagonal",
-      "noted":"2026-11-02T02:28:40Z",
       "at":[376.41,1740.26,-37.38],
+      "noted":"2026-11-02T02:28:40Z",
       "name":"45° Roof",
       "source":"build reply"
     },{
       "piece":"DA_T1_Wall_Large",
-      "noted":"2026-11-02T02:28:58Z",
       "at":[377.86,1739.88,-41.88],
+      "noted":"2026-11-02T02:28:58Z",
       "name":"Wall",
       "source":"build reply"
     },{
       "piece":"BUILDPIECE_ProcessingStation_Spinning_Wheel",
-      "at":[371.79,1740.74,-42.39],
       "noted":"2026-11-02T02:33:13Z",
+      "at":[371.79,1740.74,-42.39],
       "name":"Spinning Wheel",
+      "source":"build reply"
+    },{
+      "piece":"BUILDPIECE_Interior_Crate",
+      "noted":"2026-11-02T03:54:43Z",
+      "at":[112.61,1850.5,-31.87],
+      "name":"Crate",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Foundation_Large",
+      "noted":"2026-11-02T04:05:06Z",
+      "at":[272.83,1758.51,-41.52],
+      "name":"Square Foundation",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Foundation_Large",
+      "noted":"2026-11-02T04:05:22Z",
+      "at":[273.6,1761.41,-41.52],
+      "name":"Square Foundation",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Wall_Large",
+      "at":[275.05,1761.02,-41.52],
+      "noted":"2026-11-02T04:05:34Z",
+      "name":"Wall",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Wall_Large",
+      "at":[273.84,1762.49,-41.52],
+      "noted":"2026-11-02T04:05:41Z",
+      "name":"Wall",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Roof_Large_Diagonal",
+      "at":[273.09,1761.19,-37.02],
+      "noted":"2026-11-02T04:05:48Z",
+      "name":"45° Roof",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Wall_Large_Doorframe",
+      "at":[272.15,1761.79,-41.52],
+      "noted":"2026-11-02T04:05:55Z",
+      "name":"WALL WITH DOOR FRAME",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Wall_Large",
+      "noted":"2026-11-02T04:06:09Z",
+      "at":[272.44,1757.06,-41.52],
+      "name":"Wall",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Roof_Large_Diagonal",
+      "noted":"2026-11-02T04:06:14Z",
+      "at":[272.83,1758.51,-37.02],
+      "name":"45° Roof",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Wall_Large",
+      "noted":"2026-11-02T04:06:21Z",
+      "at":[271.38,1758.9,-41.52],
+      "name":"Wall",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Wall_Large",
+      "noted":"2026-11-02T04:06:31Z",
+      "at":[274.27,1758.12,-41.52],
+      "name":"Wall",
+      "source":"build reply"
+    },{
+      "piece":"DA_T1_Door",
+      "at":[272.15,1761.79,-40.02],
+      "noted":"2026-11-02T04:07:05Z",
+      "name":"Door",
+      "source":"build reply"
+    },{
+      "piece":"BUILDPIECE_CraftingStation_Basic",
+      "noted":"2026-11-02T04:07:21Z",
+      "at":[269.71,1764.42,-41.62],
+      "name":"Crafting Table",
+      "source":"build reply"
+    },{
+      "piece":"BUILDPIECE_Interior_Crate",
+      "noted":"2026-11-02T04:07:37Z",
+      "at":[270.79,1762.58,-41.94],
+      "name":"Crate",
+      "source":"build reply"
+    },{
+      "piece":"BUILDPIECE_Interior_Crate",
+      "at":[268.65,1763.18,-41.51],
+      "noted":"2026-11-02T04:10:13Z",
+      "name":"Crate",
+      "source":"build reply"
+    },{
+      "piece":"BUILDPIECE_Interior_Crate",
+      "noted":"2026-11-01T21:15:47Z",
+      "at":[108.14,1906.98,-30.98],
+      "name":"Crate",
+      "source":"build reply"
+    },{
+      "piece":"BUILDPIECE_Interior_Crate",
+      "noted":"2026-11-02T08:49:58Z",
+      "at":[109.38,1851.74,-32.26],
+      "name":"Crate",
+      "source":"build reply"
+    },{
+      "piece":"BUILDPIECE_Interior_Crate",
+      "noted":"2026-11-02T08:50:12Z",
+      "at":[109.99,1851.23,-31.7],
+      "name":"Crate",
       "source":"build reply"
     }]
 }

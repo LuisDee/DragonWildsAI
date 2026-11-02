@@ -923,8 +923,8 @@ local function step(api, job, t)
         if not job.cur then job.phase = "leave"; return nil end
         P = job.cur
         P.t0, P.stand, P.moves = t, 0, 0
-        P.cost = W.cost(api, P)
-        sum_into(job.expected, P.cost)
+        job.counted = job.counted or {} -- each piece's cost into expected once (a piece taken out of turn comes back)
+        if not job.counted[P] then P.cost = W.cost(api, P); sum_into(job.expected, P.cost); job.counted[P] = true end
         job.phase = "approach"
         return nil
     elseif job.phase == "approach" then
@@ -1008,6 +1008,19 @@ local function step(api, job, t)
                 tg = ch and ch.pid or 0
             end
             if tg == P.pid then
+                job.phase = "press"; return nil
+            end
+            -- taking the whole building down, my aim lands on another piece of it: take that one now, as a player
+            -- does (live 08:5xZ: a wall and a door-frame wall on one spot, every aim at the roof, the frame or another
+            -- wall hit Wall 276 first: "I can't get my aim on it: the Wall (BuildingPiece_276) is in the way", x4)
+            local other = tg and tg ~= 0 and job.whole and job.planned[tg]
+            if other and not other.done and other ~= P then
+                table.insert(job.queue, 1, P)
+                other.t0, other.stand, other.moves = t, 0, 0
+                job.counted = job.counted or {}
+                if not job.counted[other] then other.cost = W.cost(api, other); sum_into(job.expected, other.cost); job.counted[other] = true end
+                for i = #job.queue, 1, -1 do if job.queue[i] == other then table.remove(job.queue, i) end end
+                job.cur = other
                 job.phase = "press"; return nil
             end
             P.reads = (P.reads or 0) + 1
