@@ -103,13 +103,14 @@ def run_farm(ctx, leg: str) -> dict:
     r3.place(ctx, HOUSE)
     time.sleep(2.0)
     before = mine_plots(ctx.cli)
+    w0 = r3.weight(ctx)
     row = g.run_leg(ctx, {"id": leg, "kind": kind, "check_text": f"{target['name']}"}, line, dict(target),
                     deadline_s=deadline, sample=("me", "inv"))
     after = mine_plots(ctx.cli)
     rec = row.get("rec") or {}
     work = r3.processing_work(rec.get("t0") or time.time()) if leg == "tools" else None
     return g.finish(ctx, leg, [row], t_h, allowed=1, work=work,
-                    note=(T_NOTE.get(leg, "") + "; " if leg in T_NOTE else "") + f"fixture: placed outside his house {HOUSE}; his plots before {json.dumps(before)} after {json.dumps(after)}")
+                    note=(T_NOTE.get(leg, "") + "; " if leg in T_NOTE else "") + f"{w0} at the start, {r3.weight(ctx)} at the end; fixture: placed outside his house {HOUSE}; his plots before {json.dumps(before)} after {json.dumps(after)}")
 
 
 class _Lock:  # rung1_gate's run loop takes the lock as "rung1": this gate's owner is "rung3"

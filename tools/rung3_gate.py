@@ -77,6 +77,12 @@ ITEMS3 = {
 ORDER = list(ITEMS3)  # spade before thread: his spade then starts from Flax, as Luis's did (spin, then craft)
 # his first "cook" was scrapped ("kebbits dont drop meat"): the bar is the one he finished (12:57:59, 23 s)
 T_H = {"cook": 23.0}
+# like for like (docs/BASELINES-2026-11-01-luis.md rows 12:45:50 and 12:57:59): Luis carried the dirty water (gathered
+# at 12:40) / raw meat (cow, 12:54) and stood 11 m / 16 m from an existing fire (move 2, use_item 1 in each window);
+# Claude starts by the shared dev base campfire with the same inputs granted, so the windows compare directly
+LIKE = {"boil": " (Luis: 2 Clean Water from carried dirty water at a fire 11 m off; Claude: same, the inputs granted)",
+        "cook": " (Luis: 1 Farm Steak from carried raw meat at a fire 16 m off; Claude: same, the inputs granted, raw"
+                " rat meat since Cooking 8 burns farm meat)"}
 # the item under test he must not already carry (Luis had none; live 17:36Z: "make a stone pickaxe" with 2 in his bag
 # read as "give him one"): dropped at DUMP, away from the base, before the item (fixture, in the row's note)
 MADE = {"axe": "ITEM_Logging_Axe_Stone", "pickaxe": "ITEM_Pickaxe_Stone", "spade": "ITEM_Spade_T1_Wood"}
@@ -89,6 +95,16 @@ def _bag(ctx) -> dict[str, int]:
         k = str(r.get("item") or "")
         out[k] = out.get(k, 0) + int(r.get("count") or 1)
     return out
+
+
+def weight(ctx) -> str:
+    """His carried weight now ("weight 394.9/400"), for every row's note (main 2026-11-02: an overloaded body walks
+    slowly and can't sprint or jump, so a slow row must say whether he was carrying too much)."""
+    try:
+        b = ((ctx.cli.request("get_state", {}, timeout=15) or {}).get("data") or {}).get("bag") or {}
+        return f"weight {b.get('weight'):g}/{b.get('max_weight'):g}" + (" OVERLOADED" if b["weight"] > b["max_weight"] else "")
+    except Exception:  # noqa: BLE001  (an unread weight is said so, never guessed)
+        return "weight unread"
 
 
 def stock(ctx, item: str, want: dict[str, int]) -> list[str]:
@@ -227,9 +243,11 @@ def run3(ctx, item: str) -> dict:
     probe(ctx, item)
     fixtures = shed_note + stock(ctx, item, {**want, **tools_})
     time.sleep(2.0)
+    w0 = weight(ctx)
     kind, text = ("r3_spent", f"he builds it (spends {n} {name})") if item == "wheel" else         ("r3_gain", f"he gains {n} {name} (inventory)")
     row = g.run_leg(ctx, {"id": item, "kind": kind, "check_text": text}, line,
                     {"name": name, "rx": rx, "n": n}, deadline_s=deadline, sample=("me", "inv"))
+    w = f"{w0} at the start, {weight(ctx)} at the end"
     if item == "wheel":
         try:
             st = (ctx.cli.request("stations", {"radius": 40}, timeout=20).get("data") or {}).get("stations") or []
@@ -238,12 +256,12 @@ def run3(ctx, item: str) -> dict:
         wheels = [(w.get("id"), w.get("position"), (w.get("state") or {}).get("resources")) for w in st
                   if w.get("station") == "Spinning Wheel"]
         return g.finish(ctx, item, [row], None, allowed=1,
-                        note=f"setup (ungraded time); wheels now {wheels}; fixtures: {', '.join(fixtures) or 'none'}")
+                        note=f"setup (ungraded time); wheels now {wheels}; {w}; fixtures: {', '.join(fixtures) or 'none'}")
     t_h = T_H.get(item) or g.luis_task_s(task)
     work = processing_work(row["rec"]["t0"]) if item in ("boil", "cook", "thread", "spade") else \
         gather_work if item in ("chop", "mine") else None
     return g.finish(ctx, item, [row], t_h, allowed=1, work=work,
-                    note=f"Luis '{task}' {t_h} s; fixtures: {', '.join(fixtures) or 'none'}")
+                    note=f"Luis '{task}' {t_h} s{LIKE.get(item, '')}; {w}; fixtures: {', '.join(fixtures) or 'none'}")
 
 
 class _Lock:  # rung1_gate's run loop takes the lock as "rung1": this gate's owner is "rung3"
