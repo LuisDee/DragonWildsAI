@@ -414,6 +414,47 @@ def buckets(calls: list[dict], wall_s: float, t0: float, t1: float, who: str = "
     return out
 
 
+def cleanup(cli, rows: list[dict]) -> list[dict]:
+    """Harness clean-up after a scored rung 2 run (dev world fixture, not play): take down what he built in the run
+    by the body's own deconstruct, so the same flat spot near his base is free for the next run (live 08:2xZ: 45
+    spots tried, the near flat ones all built over by earlier runs' houses). rows: {structure, name, position} from
+    his own build replies in the run. Each is found again where it stood (a station's actor id changes when the client
+    rejoins: 08:4xZ "I can't see a built piece with the id ..."); a building is taken down whole from its roof (aimed at
+    a foundation under the walls: "too long trying to get my aim on it"); a crate is emptied into his bag first; and
+    nothing within 30 m of a piece not on his ledger (Luis's) is touched. -> [{name, id, ok, detail}]"""
+    out = []
+    census = all_pieces()
+    others = [c for c, m in zip(census.get("pts") or [], mine_pts(census.get("pts") or [])) if not m]
+    gone_at: list[list[float]] = []
+    rows = sorted([r for r in rows if r.get("position")], key=lambda r: (0 if "oof" in str(r.get("name")) else 1))
+    for r in rows:
+        pos = r["position"]
+        if any(math.dist(pos, g) <= 0.5 for g in gone_at):
+            continue
+        if others and min(math.dist(pos[:2], c[:2]) for c in others) < GUARD_M:
+            out.append({"name": r.get("name"), "ok": False, "detail": "within 30 m of a piece not his; left standing"})
+            continue
+        cli.request("go_to", {"target": pos}, timeout=90)
+        st = structures(cli)
+        cur = next((k for k, v in st.items() if v.get("name") == r.get("name") and v.get("position")
+                    and math.dist(v["position"], pos) <= 0.6), None)
+        if cur is None:
+            out.append({"name": r.get("name"), "ok": True, "detail": "not standing there any more"})
+            continue
+        if "Crate" in str(r.get("name")) or "Chest" in str(r.get("name")):
+            t = cli.request("take", {"container": cur, "item": "Ash Logs"}, timeout=110) or {}  # what the rung 2 line stores
+            out.append({"name": r.get("name"), "id": cur, "emptied": t.get("ok"), "detail": str((t.get("data") or {}).get("detail") or t.get("reason"))[:160]})
+        d = cli.request("deconstruct", {"target": cur, "whole": True}, timeout=600) or {}
+        dd = d.get("data") or {}
+        for q in (dd.get("removed") or []) + (dd.get("collapsed") or []):
+            if isinstance(q, dict) and isinstance(q.get("position"), list):
+                gone_at.append(q["position"])
+        gone_at.append(pos)
+        out.append({"name": r.get("name"), "id": cur, "ok": bool(d.get("ok")), "reason": d.get("reason"),
+                    "detail": str(dd.get("detail") or "")[:200]})
+    return out
+
+
 def score(t0: float, t1: float, who: str = "ClaudeDev") -> dict:
     from tools import recorder_io as rio
     from tools import standard_score as ss
@@ -630,10 +671,28 @@ def cmd_run(a) -> int:
         rec["judge"] = judge(t0, ended, a.line, {"check": "the stand-in house torn down; his own house (foundation, walls, "
                              "roof, door), crafting table, firepit and crate built; items stored in his crate",
                              "done": rec["items"]["all"], "how": json.dumps(rec["items"])})
+    if a.rung2 and site and not a.keep:
+        built = [{"structure": b["structure"], "name": b.get("name"), "position": b.get("position")}
+                 for b in results if b.get("ok") and b.get("structure")]
+        if built:
+            with held("build", 900):
+                rec["cleanup"] = cleanup(cli, built)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
     show(rec)
+    if rec.get("cleanup"):
+        print("cleanup:", json.dumps(rec["cleanup"])[:1500])
+    return 0
+
+
+def cmd_cleanup(a) -> int:
+    """Take down the given ids of his (harness clean-up, as after a rung 2 run), in the live lock."""
+    from tools.live_lock import held
+    with held("build", a.wait):
+        rows = [json.loads(x) for x in a.rows.split(";") if x.strip()]
+        for r in cleanup(cl._debug_client(), rows):
+            print(json.dumps(r))
     return 0
 
 
@@ -688,6 +747,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--nav-world", default="dev", help="the body's world id for its nav memory (data/skills/<id>)")
     r.add_argument("--rung2", action="store_true", help="the Rung 2 streak run: a stand-in of Luis's house goes up beside "
                    "the spot first (harness fixture), then the line (default RUNG2_LINE) asks for all of rung 2")
+    r.add_argument("--keep", action="store_true", help="rung 2: leave what he built standing (no harness clean-up)")
+    cu = sub.add_parser("cleanup")
+    cu.add_argument("--rows", required=True, help='";"-separated JSON rows {"structure", "name", "position"} he built')
+    cu.add_argument("--wait", type=float, default=1800.0)
     sc = sub.add_parser("score")
     sc.add_argument("--since", required=True)
     sc.add_argument("--until", required=True)
@@ -697,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "run" and a.rung2 and a.line == "claude build yourself a small house here":
         a.line = RUNG2_LINE
-    return {"run": cmd_run, "score": cmd_score, "report": cmd_report}[a.cmd](a)
+    return {"run": cmd_run, "score": cmd_score, "report": cmd_report, "cleanup": cmd_cleanup}[a.cmd](a)
 
 
 if __name__ == "__main__":
