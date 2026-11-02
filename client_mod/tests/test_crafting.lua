@@ -67,14 +67,15 @@ function INV.count_item(path)
     return id and (inv_counts()[id] or 0) or nil
 end
 function INV.interact_target()
+    if F.ui_blocks_prompt and F.ui then return { none = true } end -- a station menu open: the game offers no pickup
     local best, bd
     local function consider(id, name, item, pos, reach)
         local d = d2(F.pos, pos)
         if d <= reach and (not best or d < bd) then best, bd = { actor = id, name = name, item = item }, d end
     end
-    for _, s in ipairs(F.stations) do consider(s.id, s.name, nil, s.position, 3.0) end
+    for _, s in ipairs(F.stations) do consider(s.id, s.name, nil, s.position, F.station_reach or 3.0) end
     if not F.no_item_prompt then -- F.no_item_prompt: the game offers no pickup for items (a full bag, live 00:31Z)
-        for _, it in ipairs(F.items) do consider(it.id, it.name, it.item, it.position, 1.5) end
+        for _, it in ipairs(F.items) do consider(it.id, it.name, it.item, it.position, F.item_reach or 1.5) end
     end
     -- F.station_behind: the game's camera ray / character trace (live 2026-10-26, Campfire): a small item
     -- loses to a station that lies BEHIND it along his line of sight (or when he stands on the item)
@@ -577,6 +578,62 @@ do -- lying in a bed: the game blocks walking and stations, so craft says so at 
     SK.W.resting_in = old
     check("resting: craft fails resting, naming the bed", r.ok == false and r.reason == "resting"
           and tostring((r.data or {}).detail):find("Summon", 1, true) ~= nil, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+end
+do -- the station's menu is closed before the pickup: with it open the game offers none (live 2026-11-02 03:31Z)
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    F.ui_blocks_prompt = true
+    local r = run({ recipe = "RECIPE_Process_IronBar" })
+    F.ui_blocks_prompt = nil
+    check("proc/menu open blocks pickup: closed first, collected", r.ok and inv_counts().ITEM_Resources_IronBar == 1 and F.closed == 1,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail) .. " closed=" .. tostring(F.closed))
+end
+do -- out of time with part made: he collects what lies there and says the rest wasn't done (live 2026-11-02 03:2xZ:
+   -- "made 2 of 3" and both Leather left lying by the Tannery)
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 6, ITEM_Fuel_Resources_Charcoal = 2 } })
+    local toggle = C.W.toggle
+    C.W.toggle = function(...)
+        local ok = toggle(...)
+        local st = F.stations[1]
+        st.never = true -- the second bar never finishes; the first is out at once
+        F.nid = (F.nid or 0) + 1
+        F.items[#F.items + 1] = { id = "out_" .. F.nid, item = "ITEM_Resources_IronBar", name = "Iron Bar", count = 1,
+                                  position = { st.position[1] + 1, st.position[2], st.position[3] } }
+        return ok
+    end
+    local r = run({ recipe = "RECIPE_Process_IronBar", count = 2 }, 1200)
+    C.W.toggle = toggle
+    check("proc/timeout part made: collected the one, ok partial", r.ok and r.data.partial and inv_counts().ITEM_Resources_IronBar == 1,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    check("proc/stopped part made: says the rest wasn't done", tostring((r.data or {}).detail):find("1 of 2", 1, true) ~= nil,
+          (r.data or {}).detail)
+    reset({ stations = { FURNACE({ proc_s = 1e9 }) }, unlocked = U({ "RECIPE_Process_IronBar" }), -- still running at the deadline
+            have = { ITEM_Resources_IronOre = 6, ITEM_Fuel_Resources_Charcoal = 2 } })
+    C.W.toggle = function(...)
+        local ok = toggle(...)
+        local st = F.stations[1]
+        F.nid = (F.nid or 0) + 1
+        F.items[#F.items + 1] = { id = "out_" .. F.nid, item = "ITEM_Resources_IronBar", name = "Iron Bar", count = 1,
+                                  position = { st.position[1] + 1, st.position[2], st.position[3] } }
+        return ok
+    end
+    r = run({ recipe = "RECIPE_Process_IronBar", count = 2 }, 2400)
+    C.W.toggle = toggle
+    check("proc/timeout part made: collected, says it stopped waiting", r.ok and inv_counts().ITEM_Resources_IronBar == 1
+          and tostring(r.data.detail):find("stopped waiting (1 of 2)", 1, true) ~= nil, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+end
+do -- the side spots round the station never get the item's prompt; the plain walk-up (its tighter last step) does
+   -- (live 2026-11-02 03:09Z: 3 Leather by the Tannery, "no use from where I can stand"; interact on one took it)
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    F.item_reach = 0.7 -- the prompt only from close up; once it runs, the station's own prompt reaches only its centre
+    local toggle = C.W.toggle
+    C.W.toggle = function(...) F.station_reach = 0.3; return toggle(...) end
+    local r = run({ recipe = "RECIPE_Process_IronBar" })
+    C.W.toggle, F.item_reach, F.station_reach = toggle, nil, nil
+    check("proc/side spots fail, plain walk-up collects", r.ok and inv_counts().ITEM_Resources_IronBar == 1,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
 end
 do -- the output finds no room and lies by the station, with no pickup offered (live 2026-11-02 00:31Z: Tannery,
    -- bag 32/32, 406/400): he says it is still there, where, and the room he lacks, not "couldn't pick up what it made"

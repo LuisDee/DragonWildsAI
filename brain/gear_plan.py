@@ -52,6 +52,21 @@ def _recipes() -> dict[str, dict]:
 
 
 @lru_cache(maxsize=1)
+def _station_rules() -> dict[str, dict]:
+    try:
+        return json.loads((REPO / "data" / "station_rules.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _at(station: str) -> str:
+    """'Spinning Wheel' -> 'Spinning Wheel (needs a roof over it, ...)': a station's own rule next to its name (live
+    2026-11-02 gear_up: 400 s building and roofing a wheel in the open; the plan never said it needs a roof)."""
+    r = _station_rules().get(station)
+    return f"{station} ({r['note']})" if isinstance(r, dict) and r.get("note") else station
+
+
+@lru_cache(maxsize=1)
 def _by_output() -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
     for r in _recipes().values():
@@ -140,7 +155,7 @@ def _cost(r: dict, have: dict[str, int], unlocked: set[str]) -> dict:
             if sub:
                 ins = ", ".join(f"{x.get('name')} x{int(x.get('count') or 0) * math.ceil(lack / max(1, int((sub.get('outputs') or [{}])[0].get('count') or 1)))}"
                                 for x in sub.get("inputs") or [])
-                st = "/".join(sub.get("stations") or []) or "by hand"
+                st = "/".join(_at(x) for x in sub.get("stations") or []) or "by hand"
                 lock = "" if sub.get("id") in unlocked else " (unlocks when you hold its inputs" + (
                     " at " + " ".join(_station_word(a) for a in (_unlock_needs(sub) or ([], []))[1]) if (_unlock_needs(sub) or ([], []))[1] else "") + ")"
                 via.append(f"{i.get('name')} <- {ins} at {st}{lock}")
@@ -240,7 +255,8 @@ def lines(p: dict, max_opts: int = 3, compact: bool = False) -> list[str]:
         parts = []
         for o in s["best"][:max_opts]:
             if o["status"] == "owned":
-                d = "you have one: " + "; ".join(o["where"][:2])
+                # "not on you": live 2026-11-02 gear_up run 5 crafted a Leather Cowl and carried it 400 s unworn
+                d = "you have one, not on you: " + "; ".join(o["where"][:2])
             elif o["status"] == "craftable_now":
                 d = f"craftable now at {o.get('station')} ({', '.join(o['needs'])})"
             else:
@@ -306,10 +322,19 @@ def sets(p: dict, state: dict) -> list[dict]:
                     continue
                 per = max(1, int((r.get("outputs") or [{}])[0].get("count") or 1))
                 ways.append(" + ".join(f"{x.get('name')} x{int(x.get('count') or 0)}" for x in ins)
-                            + (f" per {per}" if per > 1 else "") + f" at a {(r.get('stations') or ['by hand'])[-1]}")
+                            + (f" per {per}" if per > 1 else "") + f" at a {_at((r.get('stations') or ['by hand'])[-1])}")
                 carried += [f"{x.get('name')} x{have[x['item']]}" for x in ins if have.get(x.get("item"))]
             st["short"].append({"name": b["name"], "count": lack, "ways": ways, "carried": list(dict.fromkeys(carried))})
-    return sorted(out.values(), key=lambda s: sum(x["count"] for x in s["short"]))
+    # a set whose shortfall only comes through a station with a placement rule (the roofed Spinning Wheel) after one that
+    # doesn't, then by how much is short (live 2026-11-02 gear_up run 5: the leather set's thread sent him 400 s into
+    # roofing a wheel while the Reinforced set lacked only bones)
+    rules = _station_rules()
+
+    def ruled(x: dict) -> bool:
+        return bool(x["ways"]) and all(any(f"at a {k} (" in w for k in rules if not k.startswith("_")) for w in x["ways"])
+    for st in out.values():
+        st["ruled"] = [x["name"] for x in st["short"] if ruled(x)]
+    return sorted(out.values(), key=lambda s: (bool(s["ruled"]), sum(x["count"] for x in s["short"])))
 
 
 def set_line(p: dict, state: dict) -> str | None:

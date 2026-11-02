@@ -1,0 +1,4 @@
+{
+  "_note": "Placement/running rules of stations a recipe names, by the station's display name: what a player learns from the game's own text. Shown next to the station in plans (brain/gear_plan.py). Verified rows only.",
+  "Spinning Wheel": {"note": "needs a roof", "source": "DISCOVERIES 'The Spinning Wheel needs a roof to RUN and to be PLACED' (UBuildingShelterComponent, build 26161880, live 2026-11-01)"}
+}

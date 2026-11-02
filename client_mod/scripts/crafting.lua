@@ -338,9 +338,10 @@ function M.plan(rid, crafts, sid)
     if p.kind == "processing" then
         local pt = r.pt or {}
         local lo, hi = tonumber(pt[1]) or 0, tonumber(pt[2]) or tonumber(pt[1]) or 0
-        local rate = tonumber(st and st.rate) or 1
-        if rate <= 0 then rate = 1 end
-        p.seconds = ((lo + hi) / 2) / rate * crafts
+        -- the recipe's processing_time is the time per item as played: the station's processing_rate (5.0 on most) is no
+        -- divisor (live: Tannery ~10 s a Leather, [8, 12]; dividing by 5 gave a 29 s wait for 3 and timed out at 2 of 3,
+        -- 2026-11-02 03:2xZ). The wait still ends as soon as the outputs are in.
+        p.seconds = ((lo + hi) / 2) * crafts
         p.fuels = {}
         if r.fuel then
             for _, c in ipairs(r.fuel) do p.fuels[#p.fuels + 1] = { path = c[1], item = item_id(c[1]), name = item_name(c[1]), count = c[2] * crafts, fixed = true } end
@@ -1697,6 +1698,13 @@ local function proc_step(api, job, t)
             job.phase, job.collect_until = "magnet", t + M.cfg.magnet_wait_s
             return nil
         end
+        if t >= job.until_t and made > 0 and not job.timed_out then
+            -- out of time with some made: collect those (they lie by the station) and say the rest wasn't done, never
+            -- leave them behind (live 2026-11-02 03:2xZ: "made 2 of 3" and both Leather left lying by the Tannery)
+            job.timed_out = { after_s = math.floor(t - (job.started_at or t)), made = made }
+            job.phase, job.collect_until = "magnet", t + M.cfg.magnet_wait_s
+            return nil
+        end
         if t >= job.until_t then
             local d = base_data(job)
             d.loaded, d.fuel_used, d.produced, d.station_before = job.loaded, job.fuel, made, job.station_before
@@ -1716,7 +1724,11 @@ local function proc_step(api, job, t)
             if r == nil then return nil end
             if not (sk._episode_cleanup and sk._episode_cleanup(api,job.ep,job.token)) then return nil end
             job.ep = nil
-            if not r.ok then job.pickup_fail = r end
+            -- the spots round the station failed: walk up to the item itself the plain way (the interact tool's own
+            -- approach, with its tighter last step) once before giving up (live 2026-11-02 03:09Z: 3 Leather lay by the
+            -- Tannery, "no use from where I can stand" from the side spots; interact on one took it at once)
+            if not r.ok and not job.plain_tried and (r.data or {}).why ~= "gone" then job.plain_tried = true
+            elseif not r.ok then job.pickup_fail = r end
             job.picks = (job.picks or 0) + 1
             return nil
         end
@@ -1730,12 +1742,20 @@ local function proc_step(api, job, t)
         end
         local targets = proc_collect_targets(api, job)
         local sk = api.module("skills")
-        if #targets > 0 and (job.picks or 0) < out_total(job) + 2 and sk and sk._episode_poll and sk._new_episode
+        if #targets > 0 and (job.picks or 0) < out_total(job) + 3 and sk and sk._episode_poll and sk._new_episode
             and not job.pickup_fail then
             local th = targets[1]
+            -- close the station's menu first, as a player does: with it open the game offers no pickup at all (live
+            -- 2026-11-02 03:31Z, 447/400 so the Leather stayed on the ground: 4 spots, "no use from where I can stand",
+            -- menu closed only at the end; a plain interact right after took one at once)
+            if job.ui_open and not paused() then
+                pcall(W.close, api, job.plan.kind); job.ui_open = false
+                local IN = api.module("input")
+                if IN and IN.release then pcall(IN.release, "screen") end
+            end
             -- the shared episode (aim at the item itself, other sides on a miss); the output lies at the station,
             -- whose own interaction wins any near miss, so it stands where the station is not behind the item
-            job.ep = sk._new_episode(api, th, { label = th.name or "output", avoid = job.station.position,
+            job.ep = sk._new_episode(api, th, { label = th.name or "output", avoid = (not job.plain_tried) and job.station.position or nil,
                 -- any NEW output of this recipe the detector targets will do (never a pre-existing item)
                 accept = function(det) return det.item ~= nil and want[det.item] == true and det.actor ~= nil
                                               and not job.pre_items[det.actor] end })
@@ -1780,10 +1800,10 @@ local function proc_step(api, job, t)
                 if room.free_slot == false then facts[#facts + 1] = "my bag has no free slot" end
                 if room.over then facts[#facts + 1] = "I'm carrying too much (" .. string.format("%g", room.weight) .. " of " .. string.format("%g", room.max_weight) .. ")" end
                 d.detail = "The " .. tostring(job.station.name) .. " made " .. n .. " " .. tostring(left[1].name)
-                    .. ", but it's still lying on the ground by it" .. (p and (" at (" .. d.left_behind.at[1] .. ", " .. d.left_behind.at[2] .. ")") or "")
-                    .. (#facts > 0 and ("; " .. table.concat(facts, " and ")) or "") .. "."
+                    .. ", but it didn't come to my bag and is still lying on the ground by it"
+                    .. (p and (" at (" .. d.left_behind.at[1] .. ", " .. d.left_behind.at[2] .. ")") or "")
+                    .. (#facts > 0 and (" (" .. table.concat(facts, " and ") .. ")") or "") .. "."
                     .. (job.pickup_fail and (" " .. tostring((job.pickup_fail.data or {}).detail or "")) or "")
-                    .. (#facts > 0 and " Once I make room I can pick it up there." or "")
                 return api.fail(room.free_slot == false and "inventory_full" or "verification_failed", d)
             end
             d.detail = now == nil and ("The " .. tostring(job.station.name) .. " finished, but I couldn't read my inventory to check what I got.")
@@ -1795,6 +1815,12 @@ local function proc_step(api, job, t)
             .. (job.fuel and job.fuel.source == "station" and " (using the fuel that was already in it)" or "") .. "."
             .. (bad > 0 and (" The rest came out wrong: " .. spoilt .. ".") or "")
         if total < out_total(job) then d.partial = true end
+        if job.timed_out and total < out_total(job) then
+            d.detail = d.detail .. " The " .. tostring(job.station.name) .. " was still on the rest after " .. job.timed_out.after_s
+                .. " s, so I stopped waiting (" .. total .. " of " .. out_total(job) .. ")."
+        elseif total < out_total(job) and bad == 0 then
+            d.detail = d.detail .. " The " .. tostring(job.station.name) .. " stopped with " .. total .. " of " .. out_total(job) .. " done."
+        end
         return { ok = true, data = d }
     end
 end

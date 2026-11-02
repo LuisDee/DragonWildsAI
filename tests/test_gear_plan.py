@@ -34,7 +34,7 @@ def test_capped_at_the_region_but_owned_gear_counts_and_where():
     off = p["slots"]["left_hand"]["best"]
     assert off and off[0]["name"] == "Bronze Shield" and off[0]["where"] == ["your base crate at (104,1858)"]
     text = "\n".join(gear_plan.lines(p))
-    assert "Bronze Shield (PL 3): you have one: your base crate at (104,1858)" in text
+    assert "Bronze Shield (PL 3): you have one, not on you: your base crate at (104,1858)" in text
 
 
 def test_remembered_grave_items_are_owned():
@@ -67,3 +67,11 @@ def test_whole_set_per_style_sums_the_pieces_and_names_the_no_thread_style():
     assert any("Tannery" in w for w in short["Leather"]["ways"]) and "Animal Hide x4" in short["Leather"]["carried"]
     line = gear_plan.set_line(p, st)
     assert "heavy PL 2 (Reinforced Helmet/Body/Platelegs)" in line and "unlock once you hold Leather + Animal Bone" in line
+
+
+def test_station_rule_named_with_the_station():
+    # live 2026-11-02 gear_up: 400 s building and roofing a Spinning Wheel in the open; the plan never said it needs a roof
+    from brain import gear_plan as gp
+    assert "roof" in gp._at("Spinning Wheel") and gp._at("Tannery") == "Tannery"
+    ways = [w for r in gp._by_output().get("ITEM_Resources_Thread_Coarse") or [] for w in r.get("stations") or []]
+    assert "Spinning Wheel" in ways  # the recipe data names it the way the rules file keys it
