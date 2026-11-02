@@ -36,7 +36,7 @@ CROPS = r"potato|cabbage|wheat|flax|redberr|marrentill|harralander|kwuarm|onion|
 # leg -> (line, check kind, target, Luis's time or None, deadline s)
 LEGS = {
     "tools": ("claude, get yourself a wooden spade and a watering can for the farm", "r3_gain",
-              {"name": "Wooden Spade and Wooden Watering Can", "rx": r"wooden spade|watering can", "n": 2}, None, 900),
+              {"name": "Wooden Spade and Wooden Watering Can", "rx": r"wooden spade|watering can", "n": 2}, 128.0, 900),
     "plant": ("claude, plant something in your farm plot and water it", "farm",
               {"name": "a watered crop in his own plot", "goal": "planted"}, None, 600),
     "grow": ("claude, get that crop grown as fast as you can", "farm",
@@ -46,6 +46,13 @@ LEGS = {
 # every leg starts at his own roofed house (the build agent's run-6 house, plot 133 beside it), as Luis starts at his
 # base: from the old dev base (108, 1845) he never learned of it (01:29Z window: built walls round an open-sky wheel)
 HOUSE = [174.6, 1919.4, -30.9]
+# like for like with Luis (docs/BASELINES-2026-11-01-luis.md), from no fur and no flax: kebbit hunt 36 s (4 fur), "pick
+# flax" 26 s for 3 (x4/3 for the wheel's 4: ~35 s), "make spade" 47.1 s INCLUDING building the spinning wheel and
+# spinning 2 thread, and the can made inside his 176 s farm window (~10 s, estimated) = ~128 s. Stone he carried; so
+# does Claude's roofed house start (both are given a roofed base).
+T_NOTE = {"tools": "T_h 128 s = Luis's kebbits 36 s + flax ~35 s (26 s per 3) + spade 47.1 s (wheel built and 2 thread"
+                   " spun inside it) + can ~10 s (estimated, crafted inside his farm window); both start with a roofed"
+                   " base, no fur, no flax"}
 CTX: list = []  # the running leg's ctx (the farm check reads farm_plots through its bridge client)
 
 
@@ -102,7 +109,7 @@ def run_farm(ctx, leg: str) -> dict:
     rec = row.get("rec") or {}
     work = r3.processing_work(rec.get("t0") or time.time()) if leg == "tools" else None
     return g.finish(ctx, leg, [row], t_h, allowed=1, work=work,
-                    note=f"fixture: placed outside his house {HOUSE}; his plots before {json.dumps(before)} after {json.dumps(after)}")
+                    note=(T_NOTE.get(leg, "") + "; " if leg in T_NOTE else "") + f"fixture: placed outside his house {HOUSE}; his plots before {json.dumps(before)} after {json.dumps(after)}")
 
 
 class _Lock:  # rung1_gate's run loop takes the lock as "rung1": this gate's owner is "rung3"
