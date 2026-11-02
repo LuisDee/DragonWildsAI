@@ -2799,6 +2799,30 @@ do
 end
 
 
+-- weapons_known names the slotted arrows and the other arrows he carries (live 2026-11-02 03:47)
+do
+    local list = { loadout = { { item = "ITEM_Shortbow_Wood", name = "Ash Shortbow", loadout_slot = "HeldRight" },
+                               { item = "ITEM_Ammo_Arrows_Stone_Bodkin", name = "Stone Arrow", count = 2, loadout_slot = "Ammo" } },
+                   bag = { { item = "ITEM_Ammo_Arrows_Stone_Bodkin", name = "Stone Arrow", count = 2, slot_type = "Ammo" },
+                           { item = "ITEM_Ammo_Arrows_Bone_Bodkin", name = "Fang Arrow", count = 33, slot_type = "Ammo" },
+                           { item = "ITEM_Ammo_Bolts_Bone", name = "Bone Bolts", count = 10, slot_type = "Ammo" } } }
+    local wk = Cm.weapons_known(list)
+    local b = wk["Ash Shortbow"] or {}
+    check("weapons_known: the slotted arrows by name", b.ammo == 2 and b.ammo_name == "Stone Arrow", b.ammo_name)
+    check("weapons_known: the other arrows he carries (not bolts, not the slotted stack)", b.ammo_carried and #b.ammo_carried == 1
+        and b.ammo_carried[1].name == "Fang Arrow" and b.ammo_carried[1].count == 33, b.ammo_carried and #b.ammo_carried)
+end
+
+-- an empty ammo slot says what is in the bag instead
+do
+    local list = { loadout = { { item = "ITEM_Shortbow_Wood", name = "Ash Shortbow", loadout_slot = "HeldRight" } },
+                   bag = { { item = "ITEM_Ammo_Arrows_Bone_Bodkin", name = "Fang Arrow", count = 33, slot_type = "Ammo" } } }
+    local w = Cm._ammo_words_for_list and Cm._ammo_words_for_list("no_ammo", { name = "Ash Shortbow", cat = "bow" }, list)
+    check("ammo_words: names the arrows in the bag", w and w:find("33 Fang Arrow are in my bag", 1, true) ~= nil, w)
+    local w2 = Cm._ammo_words_for_list and Cm._ammo_words_for_list("no_ammo", { name = "Ash Shortbow", cat = "bow" }, { loadout = {}, bag = {} })
+    check("ammo_words: none carried", w2 and w2:find("carry no arrows", 1, true) ~= nil, w2)
+end
+
 -- ================================================================ bow_ready: the draw runs from the nock (live 2026-11-02)
 do
     local g = { comp = {}, seed = { full_accuracy_s = 1.25 }, aim_t0 = 10, flags = { loaded = true }, loaded_t = 9 }

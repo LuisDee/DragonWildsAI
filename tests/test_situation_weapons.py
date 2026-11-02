@@ -84,3 +84,13 @@ def test_weapons_line_names_the_slotted_arrows_and_the_better_ones_carried():
     assert "2 Stone Arrow (PL 1, 5-12 dmg) in its ammo slot; also carried: 33 Fang Arrow (PL 2, 10-24 dmg)" in ln
     st["weapons_known"]["Ash Shortbow"].update(ammo=0, ammo_carried=None)
     assert "ammo slot EMPTY" in situation.weapons_line(st)
+
+
+def test_no_weapon_says_so_and_where_weapons_are():
+    """06:05Z: respawned with nothing, he punched a PL2 rat to death (his) with a dagger 21 m off and his bow in a grave."""
+    st = {"weapons_known": [], "nearby_items": [{"name": "Stone Dagger", "id": "x1", "distance": 21.0},
+                                                {"name": "Oak Logs", "id": "x2", "distance": 18.0}],
+          "graves_remembered": [{"distance": 214, "lost": ["Fillet x16", "Clean Water x13", "Ash Shortbow x1"]}]}
+    assert situation.weapons_line(st) == ("Your weapons: NONE in hand or bag (bare hands); on the ground: Stone Dagger 21 m; "
+                                          "in your graves: Ash Shortbow (214 m)")
+    assert situation.weapons_line({}) is None  # nothing known about weapons: no claim

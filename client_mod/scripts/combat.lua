@@ -2937,6 +2937,27 @@ local function ranged_frame(F, pawn)
 end
 M._ranged_frame = ranged_frame
 
+-- The plain reason a bow / crossbow can't shoot: its ammo slot is empty, and what fitting ammo is in his bag
+-- instead (the game does not refill the slot from the bag: farming run 7, 2026-11-02 05:5xZ, Fang Arrows in the bag,
+-- "the bow's ammo slot keeps coming up empty").
+function M._ammo_words_for_list(why, prof, l)
+    if why ~= "no_ammo" or not prof then return nil end
+    local ok, wk = pcall(M.weapons_known, l or {})
+    local row = ok and wk and wk[prof.name or "?"] or nil
+    local what = (prof.cat == "crossbow") and "bolts" or "arrows"
+    local have = {}
+    for _, a in ipairs((row and row.ammo_carried) or {}) do have[#have + 1] = string.format("%d %s", a.count or 0, a.name or "?") end
+    if #have > 0 then
+        return string.format("The %s's ammo slot is empty; %s %s in my bag, not in the ammo slot, so it can't shoot them yet.",
+            prof.name or "weapon", table.concat(have, ", "), #have == 1 and (have[1]:match("^1 ") and "is" or "are") or "are")
+    end
+    return string.format("The %s's ammo slot is empty and I carry no %s for it.", prof.name or "weapon", what)
+end
+function M.ammo_words(why, prof)
+    if why ~= "no_ammo" or not prof then return nil end
+    return M._ammo_words_for_list(why, prof, mcall("inventory", "list", nil) or {})
+end
+
 -- Is the bow drawn? After a release the bow nocks the next arrow (~1.0-1.25 s, live 2026-11-02 04:55) and the
 -- draw (TimeBeforeFullAccuracy) runs from then; the game's HasReachedFullAccuracy never turned true on his client,
 -- so it is time since the later of "aim started" and "this arrow nocked". A staff: time since aim start.
@@ -3699,7 +3720,7 @@ local function frame(F)
                 local ok, why = ranged_setup(F, pawn, pc)
                 if not ok then
                     return finish(F, result_of(F, false, (why == "no_ammo" or why == "no_runes") and "not_enough_resources" or "body_error",
-                        { why = why, detail = "ranged weapon not ready: " .. tostring(why) }))
+                        { why = why, detail = M.ammo_words(why, F.profile) or ("ranged weapon not ready: " .. tostring(why)) }))
                 end
             end
             if F.style and F.style ~= "auto" then
@@ -4433,13 +4454,29 @@ end
 -- -> {[name] = {kind, per_hit, per_s, from = "learned" | "data", ammo = n | nil, ammo_slot}}
 function M.weapons_known(list)
     local items = M.weapons().items or {}
-    local slots = {}
+    local slots, slot_item = {}, {}
     for _, e in ipairs(list.loadout or {}) do
         local sl = tostring(e.loadout_slot or "")
         if sl:find("Ammo", 1, true) or sl:find("Bolts", 1, true) then
             local k = sl:find("MagicAmmo", 1, true) and "MagicAmmo" or sl
             slots[k] = (slots[k] or 0) + (e.count or 0)
+            slot_item[k] = slot_item[k] or e
         end
+    end
+    -- the other arrows / bolts he carries (live 2026-11-02 03:47: he crafted Fang Arrows and shot his 2 Stone ones,
+    -- because nothing showed him which arrows were slotted or that better ones were in his bag)
+    local function carried_ammo(pat, except)
+        local by, order = {}, {}
+        for _, where in ipairs({ "hotbar", "bag" }) do
+            for _, e in ipairs(list[where] or {}) do
+                if e.item and e.item:find(pat) and e.item ~= except then
+                    local n = e.name or e.item
+                    if not by[n] then by[n] = { name = n, item = e.item, count = 0 }; order[#order + 1] = by[n] end
+                    by[n].count = by[n].count + (e.count or 1)
+                end
+            end
+        end
+        return #order > 0 and order or nil
     end
     local out, seen = {}, {}
     for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
@@ -4455,6 +4492,11 @@ function M.weapons_known(list)
                 if p.kind == "magic" then row.ammo_slot = "MagicAmmo"
                 elseif p.kind == "ranged" then row.ammo_slot = (p.cat == "crossbow") and "CrossbowBolts" or "Ammo" end
                 if row.ammo_slot then row.ammo = slots[row.ammo_slot] or 0 end
+                if p.kind == "ranged" then
+                    local inslot = slot_item[row.ammo_slot]
+                    row.ammo_name = inslot and (inslot.name or inslot.item) or nil
+                    row.ammo_carried = carried_ammo(p.cat == "crossbow" and "^ITEM_Ammo_Bolts" or "^ITEM_Ammo_Arrows", inslot and inslot.item)
+                end
                 out[p.name or e.item] = row
             end
         end
