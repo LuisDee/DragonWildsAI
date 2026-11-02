@@ -108,11 +108,13 @@ def _fn(name: str, description: str, props: dict, required: list[str] | None = N
 
 
 BOARD_TOOLS = [
-    _fn("add_task", "Put a job on your task board, then plan and do it by yourself, step by step, each step checked "
-        "in the game, pausing whenever a player needs you. A job belongs here when it needs more than a couple of "
-        "your tools in a row, research (recipes, where things are, what something is weak to), crafting chains, "
-        "travel, repeated trips, or minutes to hours of work, or when the player leaves it to you. Starting such "
-        "a job with one tool call does only its first step. Describe the job in plain words as the player meant it.",
+    _fn("add_task", "Hand a job to your task board: a planner researches it, plans every step and routes round "
+        "blockers, and you work it step by step, each step checked in the game; it is kept until it is done or truly "
+        "blocked (then you say what's left and why), pausing whenever a player needs you, and it survives deaths and "
+        "interruptions. Use it when the end he asked for is several steps off: gathering, crafting chains (anything "
+        "you'd need to make or get first), travel, repeated trips, research, minutes to hours of work, or he leaves it "
+        "to you. Calling the job's first tool yourself instead does only that step, and the job is lost at the first "
+        "blocker. Describe the job in plain words as the player meant it, with its end state.",
         {"text": {"type": "string", "description": "The job, in plain words."},
          "when": {"type": "string", "enum": ["now", "next", "later"],
                   "description": "now = start it now (the current job waits), next = after the current job, "

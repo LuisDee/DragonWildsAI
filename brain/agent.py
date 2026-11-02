@@ -70,9 +70,26 @@ UNHEARD_NOTE = ("Nobody heard that: you wrote plain text and called no tool, and
 # a store call; the next turn returned no call and the request ended there. A later turn that stops with nothing,
 # right after a line of his was said, is told once what he last said; the model decides (never a veto, code never
 # speaks for him). Decided on the turn's shape only, never the line's words.
+# Rung4 gear_up run 2026-11-01 23:36:46Z: interact on a grave failed path_blocked twice with the guard's true reason ("I
+# can't get to the Player Gravestone safely ... a drop that killed me 4 times"); he drank, ate, went to another grave and
+# said "got my gear back from the grave": the can't-do never reached the player. A request that is about to end with a
+# failure no later line of his followed gets ONE more turn, told which (the result's own detail). The model decides
+# (code never speaks for it, never a phrase rule); decided on the turn's shape only.
+UNREPORTED_NOTE = ("Before you stop: these steps failed and {player} hasn't heard about it from you: {items}. He should "
+                   "know what you couldn't do and why: say it in one short plain line with the real reason from the "
+                   "result, unless a later step already sorted it out. If it's sorted, reply with no text at all.")
 STOP_NOTE = ("You stopped: no tool call and nothing said. Your last line to the player was: {line!r}. If it says you "
              "will keep going or do more, call the tool(s) for that now. If you can't, say in a few words what's "
              "stopping you. If it's done, reply with no text at all.")
+# Live 2026-11-02 gear_up (logs/brain-live-20261102-013020-15324.jsonl): "gear up properly" met a failed craft (no
+# thread: the wheels need a roof) and he ended the request with "short on bones and leather, any spare?", the job
+# dropped although his situation listed the no-thread set and a task board was offered. A player's request that is
+# about to end after a body failure, with no long-job tool called in it, gets ONE turn reminding him of the request and
+# the long-job tool. The model decides (replay of that turn: 5/5 hand the rest on; "truly blocked" stays a choice).
+OPEN_JOB_NOTE = ("He asked {request!r}. This request ends here unless you act: if that job isn't finished and another "
+                 "route exists (your situation lists them), take it now or hand the rest to {tool}; if you are truly "
+                 "blocked, reply with no text at all.")
+LONG_JOB_TOOLS = ("add_task", "start_goal")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
@@ -446,6 +463,9 @@ class Agent:
         turn = 0
         parked = None  # the no-progress breaker parked a step: this turn is the chain's last
         prev_line, stop_checked = None, False  # the line said with the previous turn; the one-time STOP_NOTE check
+        unreported: list[dict] = []  # body failures no later line of his followed (UNREPORTED_NOTE)
+        fail_checked = False
+        failed_any, handed, open_checked = False, False, False  # OPEN_JOB_NOTE: an open failure, a long-job tool, the check
         last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
         while True:
             if d.interrupts and self.active_goal:
@@ -469,6 +489,13 @@ class Agent:
                 said = said or t["spoken"]
             elif t["failure"][1] in Reason.INTERRUPTS:  # a newer command took over: it speaks
                 break
+            if line_said:  # a line heard in a turn after the model saw them: it had its say on those
+                unreported = [f for f in unreported if f["turn"] == turn]
+            if t["failure"]:
+                fd = t["failure"][2] if isinstance(t["failure"][2], dict) else {}
+                unreported.append({"turn": turn, "tool": t["failure"][0], "reason": t["failure"][1],
+                                   "detail": str(fd.get("detail") or "")[:200] or None})
+            fail_check = False
             if parked or last_turn:  # caps spend: the model heard why and had its one turn to say it
                 self.log.log("chain_stopped", turns=turn, why="parked" if parked else "deadline", parked=parked)
                 break
@@ -479,8 +506,13 @@ class Agent:
             # is already said, so this costs no reply latency.
             # Only for a player's request: on a situation_review, speaking IS the response (run 1: all 4 reviews
             # paid a 2nd call that answered "I said my line already").
-            promise_check = (turn == 0 and self.check_promises and bool(event.text) and not t["ran"] and not t["failure"]
-                             and bool(d.speech) and not (d.actions or d.goal or d.skill))
+            # ...and once on a later turn whose line came after reads in that same turn (farming 2026-11-02 23:05Z: lookup
+            # flax, then "I'll go look" and no call, 483 s idle): a line after fresh research is a plan, not a report
+            # (a talk-only report after a verified go_to has no reads before it: no extra call for those)
+            promise_check = (self.check_promises and bool(event.text) and not t["ran"] and not t["failure"]
+                             and bool(d.speech) and not (d.actions or d.goal or d.skill)
+                             and (turn == 0 or (not stop_checked and getattr(d, "read_rounds", 0) > 0
+                                                and not getattr(d, "talk_checked", False))))
             more = more or promise_check
             unheard = (turn == 0 and addressed and bool(event.text) and not body_events and not t["ran"]
                        and not t["failure"] and not d.speech and not (d.actions or d.goal or d.skill or d.refusals)
@@ -495,6 +527,22 @@ class Agent:
             stop_checked = stop_checked or stop_check or promise_check or unheard  # never doubled with those
             more = more or stop_check
             stop_line, prev_line = prev_line, this_line
+            # not in a board run: the board reports its own step failures (test_recovery_decision_dispatch)
+            if not more and unreported and not fail_checked and not t["failure"] and self._directed is None                     and not self._player_spoke():
+                fail_check = fail_checked = more = True
+                stop_checked = True  # never doubled with the STOP_NOTE check
+                self.log.log("failure_unreported", failures=unreported)
+            # the request's latest body failure still stands: no body action of a later turn worked
+            failed_any = bool(t["failure"]) or (failed_any and not t["ran"])
+            handed = handed or bool(d.goal) or any(c.name in LONG_JOB_TOOLS for c in d.actions)
+            open_check = False
+            job_tool = None
+            if not more and failed_any and not (handed or open_checked):
+                job_tool = next((n for n in LONG_JOB_TOOLS if n in getattr(self.controller, "offered", set)()), None)
+            if (job_tool and self.check_promises and bool(event.text) and not body_events and self._directed is None
+                    and not self._player_spoke()):
+                open_check = open_checked = stop_checked = more = True  # never doubled with the STOP_NOTE check
+                self.log.log("open_job_check", request=event.text, tool=job_tool)
             if not more:
                 break
             spoke = self._player_spoke()
@@ -527,6 +575,10 @@ class Agent:
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
                                               note=PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
+                                              UNREPORTED_NOTE.format(player=self.controller.player, items="; ".join(
+                                                  f"{f['tool']} {f['reason']}" + (f" ({f['detail']})" if f["detail"] else "")
+                                                  for f in unreported)) if fail_check else
+                                              OPEN_JOB_NOTE.format(request=event.text, tool=job_tool) if open_check else
                                               PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else
                                               STOP_NOTE.format(line=stop_line) if stop_check else None,
                                               news=news)

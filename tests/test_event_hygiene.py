@@ -695,6 +695,25 @@ def test_no_review_in_combat_during_a_command_or_a_job(tmp_path):
     assert len(r.model.contexts) == 1
 
 
+def test_a_pending_drop_is_re_read_before_it_goes_out(tmp_path):
+    """Live 2026-11-01 23:39:48: "health now dying, 100 -> 0" went out 4 min after his death, while he read 64-76 HP.
+    A change that waited out a fight is checked against the current state: recovered = dropped, else today's level."""
+    r = _proactive_rig(tmp_path, said="")
+    r.body.emit({"type": "attacked", "by": "rat_1", "name": "Giant Rat"})
+    r.body.state = _vitals_state(10)  # crossed every line while fighting: pending
+    r.at(5).step()
+    r.body.state = _vitals_state(70)  # rested back above 50 % before the fight ended
+    r.at(40).step()
+    assert r.model.contexts == []  # nothing true left to review
+    r.body.emit({"type": "attacked", "by": "rat_1", "name": "Giant Rat"})
+    r.body.state = _vitals_state(10)
+    r.at(45).step()
+    r.body.state = _vitals_state(25)  # still down, but not as far as when it was noticed
+    r.at(80).step()
+    ch = r.model.contexts[-1]["body_event"]["changes"][0]
+    assert ch["what"] == "endurance" and ch["to_pct"] == 25
+
+
 def test_idle_near_the_player_is_a_change_worth_a_review(tmp_path):
     r = _proactive_rig(tmp_path, said="")
     r.at(200).step()
@@ -1378,3 +1397,33 @@ def test_director_hooks_get_the_players_line_and_the_bodys_effects_block(tmp_pat
     r.agent._run_task(Task(skill="go_to", args={"target": "Zezima"}))
     assert r.agent._directed[0]["effects"]["items_in"] == [{"item": "ITEM_X", "count": 1}]
     r.agent._directed = None
+
+
+def test_a_request_that_ends_with_an_unsaid_failure_gets_one_turn_to_say_it(tmp_path):
+    """Rung4 gear_up 2026-11-01 23:36:46: interact on a grave failed path_blocked with the guard's true reason, then he
+    drank and stopped; the can't-do never reached chat. The model gets ONE more turn, told which step failed and why
+    (the result's own detail); what it says is its own line, and code says nothing for it."""
+    tools = {"get_state", "say", "go_to", "interact", "consume"}
+    r = Replay(tmp_path, STATES[5], tools=tools)
+    why = "I can't get to the Player Gravestone safely: a drop that killed me 4 times is 2 m past it."
+    r.body.act("interact", fail("path_blocked", detail=why))
+    r.body.act("go_to", ok(target="grave_2"))
+    r.model.replies["grab your grave"] = FakeLLM.say("", FakeLLM.call("interact", target="grave_1"))
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("go_to", target="grave_2")),  # another thing, nothing said
+                     LLMResponse(content=""),  # stops: the failure is still unsaid
+                     FakeLLM.say("can't reach that grave, it's right by the drop that killed me")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude grab your grave"})
+    r.at(0).step()
+    note = r.model.calls[-1]["messages"][-1]["content"]
+    assert note.startswith("Before you stop: these steps failed") and "interact path_blocked" in note and why in note
+    assert r.body.said == ["can't reach that grave, it's right by the drop that killed me"]
+
+
+def test_a_failure_he_already_told_needs_no_extra_turn(tmp_path):
+    r = Replay(tmp_path, STATES[5], tools={"get_state", "say", "go_to", "interact", "consume"})
+    r.body.act("interact", fail("path_blocked", detail="a drop next to it"))
+    r.model.replies["grab your grave"] = FakeLLM.say("", FakeLLM.call("interact", target="grave_1"))
+    r.model.turns = [FakeLLM.say("can't reach it, there's a drop right by it")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude grab your grave"})
+    r.at(0).step()
+    assert not any(str(m.get("content") or "").startswith("Before you stop") for c in r.model.calls for m in c["messages"])

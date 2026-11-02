@@ -243,6 +243,8 @@ class Decision:
     effort: str | None = None  # the effort this request runs at, when not the client's default (addressed chat)
     situation: list[str] | None = None  # the situation lines the model last saw in this request (next_turn)
     held_say: str | None = None  # a say the model made beside a read this turn (held until the turn acts)
+    read_rounds: int = 0  # model calls of this turn that only read (their results went back to the model)
+    talk_checked: bool = False  # this turn already had the TALK_ONLY_NOTE check
 
 
 def current_observation(state: dict | None) -> dict:
@@ -708,6 +710,7 @@ class Controller:
                 resp, messages = self._final_pass(messages, resp, reads, d, tag)
                 break
             messages = messages + [assistant_message(resp)]
+            d.read_rounds += 1
             for call in reads:
                 messages.append(tool_result_message(call, self._read(call, d)))
             self._answer_says(messages, resp, d)
@@ -887,6 +890,7 @@ class Controller:
         if speech and not self.acts(resp) and note is None and self.check_talk_only and not succeeded:
             self._answer_says(msgs, resp)  # the held line is a tool call too: answer it before the check request
             resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
+            d2.talk_checked = True
         d2.speech = speech
         d2.messages = msgs
         self._collect([c for c in self.acts(resp) if c.name not in self.read_tools], d2, state or {})

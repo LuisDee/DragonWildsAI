@@ -198,3 +198,45 @@ def test_a_talk_only_reply_right_after_a_result_gave_quest_work_gets_the_check(t
 def test_a_result_that_only_completed_a_quest_keeps_the_report_with_no_check(tmp_path, monkeypatch):
     r = _quest_rig(tmp_path, monkeypatch, [{"quest": "Rune Mysteries", "from": "given", "to": "complete"}])
     assert TALK_ONLY_NOTE not in _notes(r) and [c[0] for c in r.body.calls] == ["interact"]
+
+
+def test_a_later_turn_that_reads_then_only_promises_gets_the_promise_note(tmp_path):
+    """Farming 2026-11-02 23:05Z (logs/brain-live-20261102-000358-9988.jsonl): after work that went fine he looked
+    flax up, said "I'll go look" with no call, and stood 483 s. A line after reads in the same turn is a plan: the
+    one-time PROMISE_NOTE (turn shape only). A talk-only report straight after a verified action stays free."""
+    from brain.agent import PROMISE_NOTE
+    r = Replay(tmp_path, STATES[5], tools=TOOLS | {"inventory"})
+    r.body.act("interact", ok(target=MEAT))
+    r.model.replies["grab that meat"] = FakeLLM.say("", FakeLLM.call("interact", target=MEAT))
+    r.body.act("go_to", ok(target="Zezima"))
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("inventory")),  # a read in the follow-up turn
+                     FakeLLM.say("need a fire for this, I'll go look"),  # then a promise, no call
+                     FakeLLM.say("", FakeLLM.call("go_to", target="Zezima")),  # the note's answer: the call
+                     FakeLLM.say("")]
+    _run(r)
+    assert PROMISE_NOTE in _notes(r)
+    assert [c[0] for c in r.body.calls] == ["interact", "go_to"]
+
+
+def test_a_request_ending_on_a_standing_failure_gets_one_open_job_turn(tmp_path):
+    """Live gear_up 2026-11-02 (logs/brain-live-20261102-013020-15324.jsonl): a failed craft, then "short on bones and
+    leather, any spare?" and the job dropped. A player's request about to end with its latest body failure standing and
+    no long-job tool called gets ONE turn naming the request and the long-job tool; the model decides."""
+    from brain.agent import OPEN_JOB_NOTE
+    r = _rig(tmp_path)
+    r.model.turns = [FakeLLM.say("can't reach it, it's stuck behind the wall"),  # talk only after the failure
+                     FakeLLM.say(""),  # the talk-only check: the line stands
+                     FakeLLM.say("", FakeLLM.call("start_goal", goal="get that meat another way")),  # the open-job turn
+                     FakeLLM.say("")]
+    _run(r)
+    notes = _notes(r)
+    assert any(n.startswith("He asked 'claude grab that meat'") and "start_goal" in n for n in notes)
+    assert "truly blocked" in OPEN_JOB_NOTE and len(r.records("open_job_check")) == 1
+
+
+def test_no_open_job_turn_once_a_later_action_worked(tmp_path):
+    r = _rig(tmp_path)
+    r.body.act("go_to", ok(target="Zezima"))
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("go_to", target="Zezima")), FakeLLM.say("")]
+    _run(r)
+    assert r.records("open_job_check") == []

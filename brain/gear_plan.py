@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -143,7 +144,8 @@ def _cost(r: dict, have: dict[str, int], unlocked: set[str]) -> dict:
                 lock = "" if sub.get("id") in unlocked else " (unlocks when you hold its inputs" + (
                     " at " + " ".join(_station_word(a) for a in (_unlock_needs(sub) or ([], []))[1]) if (_unlock_needs(sub) or ([], []))[1] else "") + ")"
                 via.append(f"{i.get('name')} <- {ins} at {st}{lock}")
-    return {"needs": need, "short": short, "via": via, "station": "/".join(r.get("stations") or []) or None}
+    return {"needs": need, "short": short, "via": via, "station": "/".join(r.get("stations") or []) or None,
+            "inputs": [(i.get("item"), i.get("name"), int(i.get("count") or 0)) for i in r.get("inputs") or []]}
 
 
 def plan(state: dict, cat: dict | None = None, stash: dict | None = None) -> dict:
@@ -264,6 +266,72 @@ def lines(p: dict, max_opts: int = 3, compact: bool = False) -> list[str]:
     if compact:
         out[1:] = sorted(out[1:], key=lambda x: "you have one" not in x)
     return out
+
+
+def sets(p: dict, state: dict) -> list[dict]:
+    """The whole job per armour style (light / medium / heavy): one best-PL piece of that style for every armour slot
+    that can improve, the bill for all of them together against what he carries, and how each short input is made
+    (one recipe level: every recipe for it and its station). Live 2026-11-02: per-slot lines led him to stop at the
+    first piece's blocker (one thread short, the wheels under open sky); the style that needs no thread went untried."""
+    have = _counts(state)
+    out: dict[str, dict] = {}
+    for slot in ARMOUR_SLOTS:
+        s = p["slots"].get(slot) or {}
+        worn_pl = int(s.get("worn_pl") or 0) if s.get("worn") else 0
+        if s.get("best_pl") is None or s["best_pl"] <= worn_pl:
+            continue
+        for o in s.get("best") or []:
+            style = str(o.get("weight") or "").lower()
+            if not style or style == "none" or slot in out.get(style, {}).get("slots", {}):
+                continue
+            st = out.setdefault(style, {"style": style, "pl": o["pl"], "slots": {}, "bill": {}, "owned": [], "unlock": []})
+            st["slots"][slot] = o["name"]
+            if o["status"] == "owned":
+                st["owned"].append(o["name"])
+                continue
+            if o["status"] == "unlocks":
+                st["unlock"] += [x for x in o["unlocks_with"]["hold"] if x not in st["unlock"]]
+            for item, name, n in o.get("inputs") or []:
+                st["bill"].setdefault(item, {"name": name, "need": 0})["need"] += n
+    for st in out.values():
+        st["short"] = []
+        for item, b in st["bill"].items():
+            lack = b["need"] - have.get(item, 0)
+            if lack <= 0:
+                continue
+            ways, carried = [], []
+            for r in _by_output().get(item) or []:
+                ins = r.get("inputs") or []
+                if not ins:
+                    continue
+                per = max(1, int((r.get("outputs") or [{}])[0].get("count") or 1))
+                ways.append(" + ".join(f"{x.get('name')} x{int(x.get('count') or 0)}" for x in ins)
+                            + (f" per {per}" if per > 1 else "") + f" at a {(r.get('stations') or ['by hand'])[-1]}")
+                carried += [f"{x.get('name')} x{have[x['item']]}" for x in ins if have.get(x.get("item"))]
+            st["short"].append({"name": b["name"], "count": lack, "ways": ways, "carried": list(dict.fromkeys(carried))})
+    return sorted(out.values(), key=lambda s: sum(x["count"] for x in s["short"]))
+
+
+def set_line(p: dict, state: dict) -> str | None:
+    """One line, every style's whole bill: 'Whole armour set per style ...: light PL 2 (Apprentice Hat/Robe/Leggings):
+    short Coarse Thread x19 (<- Coarse Animal Fur x3 or Flax x1 at a Spinning Wheel; you carry ...) | heavy ...'."""
+    parts = []
+    for st in sets(p, state):
+        names = list(st["slots"].values())
+        pre = os.path.commonprefix(names) if len(names) > 1 else ""
+        stem = pre[:pre.rfind(" ")] if " " in pre else ""
+        pieces = stem + " " + "/".join(n[len(stem):].strip() for n in names) if stem else ", ".join(names)
+        bill = "short " + "; ".join(
+            f"{x['name']} x{x['count']}" + (f" (<- {' or '.join(x['ways'])}"
+                                            + (f"; you carry {', '.join(x['carried'])}" if x["carried"] else "") + ")"
+                                            if x["ways"] else "")
+            for x in st["short"]) if st["short"] else "you have everything for it"
+        if st["owned"]:
+            bill += f"; you own {', '.join(st['owned'])}"
+        if st["unlock"]:
+            bill += f"; its recipes unlock once you hold {' + '.join(st['unlock'])}"
+        parts.append(f"{st['style']} PL {st['pl']} ({pieces}): {bill}")
+    return ("Whole armour set per style, all pieces together: " + " | ".join(parts)) if parts else None
 
 
 def describe(state: dict, stash: dict | None = None) -> list[str]:

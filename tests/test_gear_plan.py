@@ -51,3 +51,19 @@ def test_describe_never_raises():
 def test_weak_creatures_alone_do_not_cap_him_at_his_starter_tier():
     p = gear_plan.plan(_state(nearby_entities=[{"name": "Kebbit", "power_level": 1, "alive": True}]))
     assert p["slots"]["body"]["best_pl"] == 2 and p["pl_full_set"] == 2
+
+
+def test_whole_set_per_style_sums_the_pieces_and_names_the_no_thread_style():
+    """Live 2026-11-02 gear_up: per-slot lines showed the light piece first (one thread short) and he stopped at the
+    wheel's blocker; the whole bill per style shows heavy needs leather and bone, no thread."""
+    st = _state(inventory={"ITEM_Resources_AnimalBone": 4, "ITEM_Resources_Animal_Hide": 4,
+                           "ITEM_Resources_Thread_Coarse": 3, "ITEM_Resources_Coarse_Animal_Fur": 13})
+    p = gear_plan.plan(st)
+    rows = {s["style"]: s for s in gear_plan.sets(p, st)}
+    heavy = rows["heavy"]
+    assert set(heavy["slots"]) == {"head", "body", "legs"}
+    short = {x["name"]: x for x in heavy["short"]}
+    assert short["Animal Bone"]["count"] == 4 + 10 + 8 - 4 and "Coarse Thread" not in short
+    assert any("Tannery" in w for w in short["Leather"]["ways"]) and "Animal Hide x4" in short["Leather"]["carried"]
+    line = gear_plan.set_line(p, st)
+    assert "heavy PL 2 (Reinforced Helmet/Body/Platelegs)" in line and "unlock once you hold Leather + Animal Bone" in line
