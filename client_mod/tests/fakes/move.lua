@@ -42,5 +42,6 @@ function M.status()
     end
     return { mode = S.move.mode, status = S.move.status, result = S.move.result, ticks = 1 }
 end
+function M.encumbrance() return S.move.enc end -- {on, cur, max} (move.encumbrance)
 M.VERSION = 1
 return M

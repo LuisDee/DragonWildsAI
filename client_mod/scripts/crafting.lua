@@ -542,6 +542,14 @@ function M.plan_tree(goal, count, ctx)
         steps[#steps + 1] = { ["do"] = "craft", recipe = rid, item = item, name = name_of_id(item), crafts = crafts,
                               count = crafts * per, station = a.station, station_name = a.station_name,
                               ready = n.status == "craft" or nil }
+        -- a processing station's own time per batch (recipe data, e.g. Leather 8-12 s): what a long load costs, so a
+        -- speed-up (Overdrive on a tannery) can be weighed before it starts (live 2026-11-02: 6 hides waited out 38 s)
+        local pt = r and type(r.processing_time) == "table" and tonumber(r.processing_time[1]) and r.processing_time or nil
+        if pt then
+            local lo, hi = tonumber(pt[1]), tonumber(pt[2]) or tonumber(pt[1])
+            steps[#steps].each_s = lo == hi and lo or { lo, hi }
+            steps[#steps].takes_s = math.floor(crafts * (lo + hi) / 2 + 0.5)
+        end
         return n
     end
     node = function(item, need, depth, stack)

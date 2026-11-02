@@ -2189,6 +2189,11 @@ function M.state_extras(api, data)
                             lost = names, lost_ids = dm.lost, grave_id = dm.grave_id, go_to = "my_grave:" .. tostring(dm.ts),
                             danger = dm.cause == "fall" and string.format("by a drop that killed me %d time(s)%s", dm.deaths_here or 1,
                                 dm.drop_m and string.format(" (a %d m fall)", dm.drop_m) or "") or nil }
+        if not list[#list].danger then -- killed in a fight there (combat's history at the grave's time)
+            local Cb = api.module("combat")
+            local okk, k = pcall(function() return Cb and Cb.killed_at and Cb.killed_at(dm.ts) end)
+            if okk and k then list[#list].danger = "where a " .. tostring(k.killed_by or k.creature) .. " killed me" end
+        end
     end
     if #list > 0 then out.graves_remembered, out.death_memory = list, list[1] end
     local inv = api.module("inventory")
@@ -2238,6 +2243,18 @@ function M.state_extras(api, data)
             for _, pg in ipairs(inv.pages(ic)) do if pg.type_name == "InventoryItems" then return pg.n end end
         end)
         out.bag = { used = used, capacity = okc and cap or nil }
+    end
+    -- how heavy he is (the game's PlayerEncumbranceComponent, via move.encumbrance): a player knows he is overloaded
+    -- (live 00:24Z: 403/400 = walk only, no sprint or jumps, and the model never knew)
+    local mv = api.module("move")
+    if mv and type(mv.encumbrance) == "function" then
+        local oke, e = pcall(mv.encumbrance)
+        if oke and type(e) == "table" then
+            out.bag = out.bag or { used = used }
+            out.bag.weight = e.cur and math.floor(e.cur * 10 + 0.5) / 10 or nil
+            out.bag.max_weight = e.max and math.floor(e.max * 10 + 0.5) / 10 or nil
+            out.bag.encumbered = e.on == true
+        end
     end
     -- his own recipe unlocks (crafting.W.unlocked: PlayerController.ProgressComponent.RecipesUnlocked),
     -- cached 30 s, for the brain's needs -> options digest (brain/needs.py: what he could craft or cook)

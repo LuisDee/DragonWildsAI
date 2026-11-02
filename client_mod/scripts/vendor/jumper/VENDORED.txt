@@ -1,0 +1,7 @@
+Jumper 1.8.1 (tag jumper-1.8.1-1, commit a2be178979fe429e8ed188bc21d105cbe49ddfd9), Roland Yonaba, MIT (LICENSE).
+Source: https://github.com/Yonaba/Jumper  (pure Lua grid pathfinding: A*, Dijkstra, JPS, BFS, DFS)
+Used by client_mod/scripts/wetroute.lua (dry routing round water, 2026-11-02), required as "vendor.jumper.*".
+
+Local patch (one line, search/astar.lua computeCost): the step cost is multiplied by
+finder.nodeCost(neighbour) when the pathfinder has one (a per-cell time cost >= 1; Jumper 1.8.1 is uniform-cost).
+With a multiplier >= 1 the EUCLIDIAN heuristic stays admissible. JPS ignores it (do not use JPS with costs).

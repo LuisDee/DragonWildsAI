@@ -7,7 +7,11 @@ os.execute('mkdir "' .. (dir .. "/client_io/nav"):gsub("/", "\\") .. '" 2>nul')
 os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>nul')
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
-    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua", "mapplayers.lua" }) do
+    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua", "mapplayers.lua", "wetroute.lua",
+                         "vendor/jumper/grid.lua", "vendor/jumper/pathfinder.lua", "vendor/jumper/core/bheap.lua", "vendor/jumper/core/heuristics.lua",
+                         "vendor/jumper/core/node.lua", "vendor/jumper/core/path.lua", "vendor/jumper/search/astar.lua", "vendor/jumper/search/bfs.lua",
+                         "vendor/jumper/search/dfs.lua", "vendor/jumper/search/dijkstra.lua", "vendor/jumper/search/jps.lua" }) do
+        os.execute('mkdir "' .. (dir .. "/client_mod/scripts/" .. n):gsub("/[^/]*$", ""):gsub("/", "\\") .. '" 2>nul')
         local src = assert(io.open(here .. "/../scripts/" .. n, "rb")):read("a")
         local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
     end
@@ -17,6 +21,7 @@ do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
     local f = assert(io.open(dir .. "/mod/body/util.lua", "wb")); f:write(util); f:close()
 end
 _G.DW_WORLD_GUID = "test-world"
+function json_cells(c) local o = {}; for _, k in ipairs(c) do o[#o + 1] = '"' .. k .. '"' end; return "[" .. table.concat(o, ",") .. "]" end
 package.path = here .. "/?.lua;" .. package.path
 
 -- ---- fake engine
@@ -1984,6 +1989,7 @@ run(300)
 s = MZ.status()
 local said46 = false
 for i = nlog46 + 1, #logs do if logs[i]:find("the goal is in it", 1, true) then said46 = true end end
+if os.getenv("WET_DEBUG") then for i = nlog46 + 1, #logs do if logs[i]:find("water", 1, true) then print("W46", logs[i]) end end end
 check("water goal: arrives in the pond (known water), no dry detour", first46 and first46.status == "arrived" and s.result and s.result.status == "arrived" and said46,
     tostring(first46 and first46.status) .. " " .. tostring(s.result and s.result.status) .. " said=" .. tostring(said46))
 MZ.stop(log)
@@ -2279,7 +2285,7 @@ do
     run(1)
     -- PLAN fix 1: an unconfirmed first jump skips the second press and the go_to carries on (noted on the trip)
     check("jump binding: unknown airborne skips the second jump",st.mode=="go_to" and not st.result and st.jump_double==false and
-        st.trip_notes and st.trip_notes[#st.trip_notes]=="a double jump never left the ground")
+        st.trip_notes and st.trip_notes[#st.trip_notes]=="my jump never left the ground")
     pawn.CharacterMovement.IsMovingOnGround=ground; air=0
     pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE
     st.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; st.mwp=2
@@ -3149,8 +3155,116 @@ do
     check("trail: his hop over open ground is not copied", said and n == 0, tostring(said) .. " jumps=" .. n)
     said, n = hop({ { 300, 320, -100, 100 } })
     check("trail: his jump over a low wall is copied", not said and n >= 1, tostring(said) .. " jumps=" .. n)
+    -- his jump up onto a 1.6 m ledge (he lands on it, on ground): copied, not "run on" toward him up there
+    do
+        M.stop(log); walls = {}; air = 0; jumps = 0
+        raised = { { 400, 2000, -150, 150, 160, 160 } }
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 900, Y = 0, Z = 160 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(2)
+        local mv = _G.DW_MOVE
+        mv.crumbs = { { X = 0, Y = 0, Z = 0 }, { X = 100, Y = 0, Z = 120, air = true }, { X = 300, Y = 0, Z = 250, air = true },
+                      { X = 500, Y = 0, Z = 160 }, { X = 900, Y = 0, Z = 160 } }
+        mv.trail_i, mv.trail_jumped = 2, {}
+        local n0 = #logs
+        step(3)
+        said = false
+        for i = n0 + 1, #logs do if logs[i]:find("running on, no jump", 1, true) then said = true end end
+        check("trail: his jump up onto a ledge is copied, not run on", not said and jumps >= 1, tostring(said) .. " jumps=" .. jumps)
+        raised = {}
+    end
     pawn.Jump = real_jump
     M.stop(log); walls = {}; luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- WEDGED among placed pieces (live 23:42Z, Luis's church base: a Spinning Wheel, a bench, farm plots): the failure
+-- names them instead of a bare "stuck"
+do
+    M.stop(log); frame_hook = nil; raised = {}; air = 0; oracle = nil; pump_oracle(); lakes = {}
+    _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+    walls = { { 60, 160, -400, 400, true }, { -160, -60, -400, 400, true }, { -400, 400, 60, 160, true }, { -400, 400, -160, -60, true } }
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    luis.loc = { X = 90000, Y = 90000, Z = 0 }
+    local base_find = FindAllOf
+    local wheel = obj({ GetFullName = function() return "BP_Station_Spinning_Wheel_C /Game/Maps/World.L:PersistentLevel.BP_Station_Spinning_Wheel_C_2147480387" end,
+        K2_GetActorLocation = function() return { X = 0, Y = 110, Z = -10 } end,
+        GetActorBounds = function(_, _, o, e) o.X, o.Y, o.Z = 0, 110, -10; e.X, e.Y, e.Z = 58, 60, 76 end })
+    FindAllOf = function(c) if c == "BP_BaseBuilding_BaseActor_C" then return { wheel } end return base_find(c) end
+    M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 120, nav = false })
+    run(1200)
+    local r = M.status().result
+    FindAllOf = base_find
+    check("wedged: the failure names the placed piece he is wedged against", r and r.reason == "stuck" and r.why == "wedged_by_pieces"
+        and tostring(r.detail):find("Spinning Wheel", 1, true) ~= nil, r and (tostring(r.reason) .. " " .. tostring(r.detail)))
+    M.stop(log); walls = {}
+end
+
+-- WATER: a pond on the straight way is gone round on dry ground (it is slower to swim: MaxSwimSpeed 300 against ~650
+-- running); a river across the whole way is swum (no way round is faster). Luis, 2026-11-02
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle()
+    local function water_run(cells, goal)
+        M.stop(log); _G.DW_NAVMEM = nil; os.remove(memf)
+        local f = io.open(memf, "w"); f:write('{"v":1,"next_id":1,"traps":[],"taboos":[],"routes":[],"water_cells":' .. json_cells(cells) .. '}'); f:close()
+        pawn.loc = { X = 0, Y = 0, Z = 0 }
+        local n0, wet_n = #logs, 0
+        local NMt = dofile(dir .. "/client_mod/scripts/navmem.lua")
+        M.go_to(log, goal, { tolerance_m = 1.5, timeout_s = 60, nav = false })
+        for _ = 1, 400 do
+            run(1)
+            local mem = _G.DW_NAVMEM
+            if mem and NMt.is_water(mem, pawn.loc) then wet_n = wet_n + 1 end
+            local s2 = M.status()
+            if s2.result then break end
+        end
+        local said = {}
+        for i = n0 + 1, #logs do if logs[i]:find("move: water:", 1, true) then said[#said + 1] = logs[i] end end
+        local s3 = M.status()
+        if os.getenv("WET_DEBUG") then print("WET", pawn.loc.X, pawn.loc.Y, s3.mode, s3.status, s3.result and s3.result.status, table.concat(said, " | ")) end
+        return s3.result, wet_n, table.concat(said, " | ")
+    end
+    local pond = {}
+    for i = 6, 13 do for j = -4, 3 do pond[#pond + 1] = i .. ":" .. j end end -- 16 x 16 m at x 12-28 m
+    local r, wet_n, said = water_run(pond, { 40, 0, 0 })
+    check("water: a pond on the way is gone round on dry ground", r and r.status == "arrived" and wet_n == 0 and said:find("going round", 1, true) ~= nil,
+        tostring(r and r.status) .. " wet_frames=" .. wet_n .. " " .. said)
+    local river = {}
+    for i = 9, 10 do for j = -60, 60 do river[#river + 1] = i .. ":" .. j end end -- a 4 m band, 240 m long
+    r, wet_n, said = water_run(river, { 40, 0, 0 })
+    check("water: a river across the whole way is swum (going round is no faster)", r and r.status == "arrived" and said:find("so across it", 1, true) ~= nil,
+        tostring(r and r.status) .. " " .. said)
+    -- following: he walks round a pond (Luis 2026-11-02: "Claude goes straight through the water instead of round
+    -- it"); Claude, cutting the corner toward him, does not cut through the water
+    do
+        M.stop(log); _G.DW_NAVMEM = nil; os.remove(memf)
+        local f = io.open(memf, "w"); f:write('{"v":1,"next_id":1,"traps":[],"taboos":[],"routes":[],"water_cells":' .. json_cells(pond) .. '}'); f:close()
+        local NMt = dofile(dir .. "/client_mod/scripts/navmem.lua")
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 400, Y = 0, Z = 0 }
+        local path = { { 900, -1300 }, { 3100, -1300 }, { 4200, 0 }, { 6000, 0 } } -- round the pond's south side
+        local seg = 1
+        frame_hook = function()
+            local tgt = path[seg]; if not tgt then return end
+            local dx, dy = tgt[1] - luis.loc.X, tgt[2] - luis.loc.Y
+            local d = math.sqrt(dx * dx + dy * dy); local sp = 420 * DT
+            if d <= sp then luis.loc.X, luis.loc.Y = tgt[1], tgt[2]; seg = seg + 1
+            else luis.loc.X, luis.loc.Y = luis.loc.X + dx / d * sp, luis.loc.Y + dy / d * sp end
+        end
+        local n0, wet_n = #logs, 0
+        M.follow(log, "Zezima", 3, { nav = false })
+        for _ = 1, 260 do
+            run(1)
+            local mem = _G.DW_NAVMEM
+            if mem and NMt.is_water(mem, pawn.loc) then wet_n = wet_n + 1 end
+        end
+        frame_hook = nil
+        local said = ""
+        for i = n0 + 1, #logs do if logs[i]:find("move: water:", 1, true) then said = said .. logs[i] .. " | " end end
+        local dl = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^ 2)
+        check("water: following him round a pond, Claude does not cut through it", wet_n == 0 and dl < 800,
+            string.format("wet_frames=%d d=%.0f %s", wet_n, dl, said))
+        M.stop(log); luis.loc = { X = 90000, Y = 90000, Z = 0 }
+    end
+    M.stop(log); _G.DW_NAVMEM = nil; os.remove(memf)
 end
 
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end

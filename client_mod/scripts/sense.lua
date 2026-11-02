@@ -214,6 +214,25 @@ function M.perks(now)
             end)
         end)
     end)
+    -- on a client the runtime states are empty (server-side; live 2026-11-02 00:1xZ: 0 states, so get_state said
+    -- perks: [] while Double Jump and Air Dash were unlocked): every loaded perk definition, asked of the component
+    -- (IsPerkUnlocked answers on the client: 30 of 202 unlocked, 12 ms)
+    if #out == 0 then
+        local okf, all = pcall(FindAllOf, "SkillPerkData")
+        for _, d in ipairs(okf and type(all) == "table" and all or {}) do
+            local nm = U.fullname(d) or ""
+            local id = U.valid(d) and not nm:find("Default__", 1, true) and U.short(d)
+            if id and not seen[id] and U.try(function() return comp:IsPerkUnlocked(d) end) == true then
+                seen[id] = true
+                local info = U.try(function() return d.PerkUnlockInfo end)
+                local sk = info and U.try(function() return info.AssociatedSkill end)
+                out[#out + 1] = { name = text(U.try(function() return d.PerkName end)) or id,
+                                  skill = U.valid(sk) and text(U.try(function() return sk.Name end)) or nil,
+                                  level = num(info and U.try(function() return info.RequiredSkillLevel end)),
+                                  description = text(U.try(function() return d.PerkDescription end)), id = id }
+            end
+        end
+    end
     table.sort(out, function(a, b)
         if (a.skill or "") ~= (b.skill or "") then return (a.skill or "") < (b.skill or "") end
         return (a.level or 0) < (b.level or 0)

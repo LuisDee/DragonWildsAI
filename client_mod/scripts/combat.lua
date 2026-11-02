@@ -677,6 +677,7 @@ function M.on_damage(ctx, ev)
         local tk = c.taken[name:lower()] or { sum = 0, t0 = t, n = 0 }
         tk.sum, tk.n, tk.t = tk.sum + amount, tk.n + 1, t
         c.taken[name:lower()] = tk
+        if f then f.last_hit_by = name end -- who killed him, when the fight ends in his death (the grave's danger)
     elseif mine_i and vid ~= me then
         local types, outcomes = {}, {}
         pcall(function()
@@ -1369,8 +1370,25 @@ function M.record_fight(m, F, res)
     h[#h + 1] = { at = os.time(), outcome = M._outcome_of(F, res), reason = res.reason, damage_taken = math.floor((F.dmg_taken or 0) * 10) / 10,
                   dur_s = F.t and F.t0 and math.floor((F.t - F.t0) * 10) / 10 or nil, kills = F.kills or 0,
                   parries = F.n_parried or 0, blocks = F.n_blocked or 0, dodges = F.n_dodges or 0, heals = F.n_heals or 0,
-                  weapon = F.equip_plan and F.equip_plan.weapon or nil }
+                  weapon = F.equip_plan and F.equip_plan.weapon or nil,
+                  killed_by = M._outcome_of(F, res) == "died" and (F.last_hit_by or F.target_name) or nil }
     while #h > M.cfg.history_max do table.remove(h, 1) end
+end
+
+-- The fight he died in at about this time (a grave's ts): {creature, killed_by, at} | nil. A grave's danger beyond
+-- falls (live 2026-11-02: "risk: none known" on the grave a Goblin Warrior killed him at; he ran back there at PL 0).
+function M.killed_at(ts, m)
+    m = m or C().mem
+    ts = tonumber(ts)
+    if not (m and m.history and ts) then return nil end
+    local best, bd
+    for name, h in pairs(m.history) do
+        for _, e in ipairs(h) do
+            local d = e.outcome == "died" and e.at and math.abs(e.at - ts) or nil
+            if d and d <= 90 and (not bd or d < bd) then best, bd = { creature = name, killed_by = e.killed_by, at = e.at }, d end
+        end
+    end
+    return best
 end
 
 -- Write the memory: tmp, then old -> .bak, tmp -> file, remove .bak. -> ok, err

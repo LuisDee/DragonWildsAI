@@ -1656,6 +1656,14 @@ test("a death whose spot holds no grave of his any more is closed as gone (live 
     assert(g and #g == 1 and g[1].position[2] == 28, "his grave in sight: the death stays: " .. json.encode(g))
 end)
 
+test("state: his carry weight from the game (overloaded = walk only), in the bag", function()
+    reset()
+    F.move.enc = { on = true, cur = 403.2, max = 400 }
+    local b = rpc("get_state").data.bag
+    F.move.enc = nil
+    assert(b and b.weight == 403.2 and b.max_weight == 400 and b.encumbered == true, json.encode(b))
+end)
+
 test("death: items the game keeps (bDropOnDeath false) are not lost; a death with nothing else is no grave; the respawn bag corrects lost", function()
     reset()
     local sk = B.module("skills")

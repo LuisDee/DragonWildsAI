@@ -142,6 +142,12 @@ M.cfg = {
     arrive_settle_s = 1.5,     -- ... or after this long inside the circle (then arrived as he is)
     water_depth = 0.25,        -- EnvironmentComponent:GetNormalizedWaterDepth() above this = in water
     water_cell_cost = 8,       -- local planner: extra cost per known-water cell (prefer going round)
+    wet_lookahead_cm = 4000,   -- dry routing (scripts/wetroute.lua): water this far ahead on the way is weighed
+    wet_run_cms = 650,         -- ... dry ground at his run (sprint ~680, walk 450) against water at MaxSwimSpeed (300)
+    wet_heavy_cms = 270,       -- ... encumbered (403/400 live 00:24Z: walking only, 2.7 m/s)
+    wet_min_gain_s = 0.3,      -- ... going round must save this much time over swimming
+    wet_entry_s = 2.0,         -- ... and swimming costs this much more (getting in, and out up a bank: live exits
+                               --     often needed a hop, 2026-11-01)
     bug_side_s = 12,           -- Bug2: time per side (left-hand, then right-hand)
     bug_side_cm = 3500,        -- Bug2: distance per side
     help_player_cm = 4000,     -- ask for help when a player is this close
@@ -1439,6 +1445,15 @@ local function encumbrance(pawn)
     return { on = on, cur = ok2 and tonumber(cur) or nil, max = ok3 and tonumber(mx) or nil }
 end
 local function heavy(st) return st.enc ~= nil and st.enc.on == true end
+-- his carry weight for the brain (skills.lua state bag): {on, cur, max} or nil (live 00:24Z: 403/400, walk only, and
+-- the model never knew)
+function M.encumbrance()
+    local pc = local_pc()
+    local okp, pawn = pcall(function() return pc and pc.Pawn end)
+    if not (okp and pawn and pawn:IsValid()) then return nil end
+    local ok, e = pcall(encumbrance, pawn)
+    return ok and e or nil
+end
 
 local function lp_begin(st, pawn, me, far, why, log, observe)
     local LP = lp_module()
@@ -1958,7 +1973,7 @@ local function jump_tick(f)
             -- the first jump never left the ground: no second press, carry on (the stuck/re-plan ladder decides;
             -- live 2026-10-31 20:32 this ended the ramp_down journey)
             st.jump_double = false
-            note(st, "a double jump never left the ground")
+            note(st, "my jump never left the ground")
             if log then log("move: double jump: first jump not airborne after 1.2 s; skipping the second") end
         end
     end
@@ -3232,7 +3247,10 @@ local function steer_trail(f)
         -- never closes behind a 6.8 m/s sprint (ghost ladder 2026-11-01: Luis hops and Windsteps on the flat; church
         -- loop 20:19:24Z, 10.5 m behind for 5 s after one). Run on when the straight line to where he lands on our
         -- level (or to below him while he is still up) is clear at knee height with floor all the way
-        local tgt = land and not land.air and math.abs(land.Z - me.Z) <= step_tol(st) and land or f.goal
+        -- (not when he lands on something above our step: he jumped up onto it, and the way on is that jump; live
+        -- doric 23:31:40Z, "running on" toward him on a 1.8 m ledge, then 4 s pushing into its face at 1 m/s)
+        local up = land and not land.air and land.Z - me.Z > step_tol(st)
+        local tgt = not up and (land and not land.air and math.abs(land.Z - me.Z) <= step_tol(st) and land or f.goal)
         if tgt and d2(me, tgt) > 100 and d2(me, tgt) < 1200 and ground_check(pawn) == true then
             local okc, clear = pcall(escape_line_clear, pawn, me, me.Z - (st.half_h or 88), tgt)
             if okc and clear == true then
@@ -3304,6 +3322,141 @@ local function steer_nav(f)
     end
 end
 
+-- ------------------------------------------------------------------ dry routing round water
+-- Water slows him (MaxSwimSpeed 300 cm/s against ~650 running): water ahead on the way (the trail, a remembered
+-- or oracle route, or the straight line) is weighed by scripts/wetroute.lua, a time-cost A* on the remembered water
+-- map; when going round is faster he follows that detour, then the way he was on picks up past the water. The water
+-- channel looks at the way ahead, so a pond he has never waded is seen before he walks in (Luis, 2026-11-02).
+M._wf = {} -- (no main-chunk local: the chunk is at its 200-locals limit)
+function M._wf.module() return lazy(ROOT .. "/client_mod/scripts/wetroute.lua", "plan") end
+-- the way ahead from where he stands: points of the source he is on, with the index each came from
+function M._wf.way(st, me, goal)
+    local pts, src = {}, "straight"
+    local function add(list, i0)
+        for k = i0, #list do pts[#pts + 1] = { X = list[k].X, Y = list[k].Y, k = k } end
+    end
+    if st.trail_i and st.crumbs[st.trail_i] then src = "trail"; add(st.crumbs, st.trail_i)
+    elseif st.mpath and st.mwp and st.mpath[st.mwp] then src = "memory"; add(st.mpath, st.mwp)
+    elseif st.path and st.wp and st.path[st.wp] then src = "nav"; add(st.path, st.wp) end
+    pts[#pts + 1] = { X = goal.X, Y = goal.Y }
+    return pts, src
+end
+-- along the way (from me), the first water and the first dry spot after it, within the lookahead
+function M._wf.stretch(me, way, wet, look)
+    -- the target past it: up to 10 m on along the way while it stays dry (aiming at the shore point itself made
+    -- the detour come back along the far bank to it)
+    local prev, walked, enter, exit = { X = me.X, Y = me.Y }, 0, nil, nil
+    for _, q in ipairs(way) do
+        local dx, dy = q.X - prev.X, q.Y - prev.Y
+        local l = math.sqrt(dx * dx + dy * dy)
+        if l > 1 then
+            local n = math.max(1, math.ceil(l / 50))
+            for i = 1, n do
+                local x, y = prev.X + dx * i / n, prev.Y + dy * i / n
+                local at = walked + l * i / n
+                local w = wet(x, y)
+                if exit then
+                    if w then return enter, exit end
+                    exit.X, exit.Y, exit.k = x, y, q.k
+                    if at - exit.at_cm >= 1000 then return enter, exit end
+                elseif w and not enter then
+                    if at > look then return nil end
+                    enter = { X = x, Y = y, at_cm = at }
+                elseif enter and not w and not wet(x + dx / l * 200, y + dy / l * 200) then
+                    exit = { X = x, Y = y, k = q.k, at_cm = at }
+                end
+            end
+        end
+        walked, prev = walked + l, q
+        if not enter and walked > look then return nil end
+    end
+    return enter, exit
+end
+-- is there water over the ground at (x, y)? the water channel (nil when it can't tell)
+function M._wf.look(pawn, x, y, z)
+    local okf, hf, outf = pcall(raw_trace, pawn, { X = x, Y = y, Z = z + 150 }, { X = x, Y = y, Z = z - 400 })
+    if not (okf and hf and outf.ImpactPoint) then return nil end
+    return water_at(pawn, x, y, outf.ImpactPoint.Z)
+end
+function M._wet_tick(f)
+    local st, pawn, me, t, log, goal = f.st, f.pawn, f.me, f.t, f.log, f.goal
+    if st.wade or st.in_water or st.local_authority or st.ticks % 3 ~= 0 then return end
+    local mem, NMm = nav_mem()
+    local WRm = M._wf.module()
+    if not (mem and NMm and NMm.is_water and WRm) then return end
+    local function wet(x, y) return NMm.is_water(mem, { X = x, Y = y }) end
+    local feet = me.Z - (st.half_h or 88)
+    -- look ahead with the water channel (one spot per look, 3/6/9 m on the way he is heading): water found is
+    -- remembered, and a detour that runs into it is planned again
+    local head = st.wet and st.wet.pts[st.wet.i] or st.aim or goal
+    local hx, hy = head.X - me.X, head.Y - me.Y
+    local hl = math.sqrt(hx * hx + hy * hy)
+    if hl > 100 and rawget(_G, "DW_WATER_CH") then
+        st.wet_look_i = (st.wet_look_i or 0) % 3 + 1
+        local k = math.min(hl, st.wet_look_i * 300)
+        local x, y = me.X + hx / hl * k, me.Y + hy / hl * k
+        if not wet(x, y) then
+            if M._wf.look(pawn, x, y, feet) == true then
+                NMm.mark_water(mem, { X = x, Y = y, Z = feet })
+                st.water_new = (st.water_new or 0) + 1
+                if st.wet then st.wet, st.wet_t, st.wet_swim_key = nil, nil, nil end
+            end
+        end -- (a remembered cell is not re-checked here: shallow water no channel sees would be forgotten each look)
+    end
+    if st.wet then return end
+    if t - (st.wet_t or -100) < 1.0 then return end
+    st.wet_t = t
+    local way, src = M._wf.way(st, me, goal)
+    local enter, exit = M._wf.stretch(me, way, wet, M.cfg.wet_lookahead_cm)
+    if not (enter and exit) then return end -- no water ahead, or the goal is in it (a pond to use: wade in)
+    -- the dry spot past it may be water no one has waded yet (live 00:24:57Z: a detour "round" the pond to a goal
+    -- in its unmapped east half): look first
+    if rawget(_G, "DW_WATER_CH") and M._wf.look(pawn, exit.X, exit.Y, feet) == true then
+        NMm.mark_water(mem, { X = exit.X, Y = exit.Y, Z = feet })
+        st.water_new = (st.water_new or 0) + 1
+        return
+    end
+    local key = math.floor(exit.X / 200) .. ":" .. math.floor(exit.Y / 200)
+    if st.wet_swim_key == key then return end
+    if not st.swim_cms then
+        local oks, sw = pcall(function() return pawn.CharacterMovement.MaxSwimSpeed end)
+        st.swim_cms = (oks and tonumber(sw) and sw > 0) and sw or 300
+    end
+    -- his speed on dry ground now: encumbered he walks (~270 cm/s live 00:24Z, slower than he swims), else his run
+    local run = heavy(st) and M.cfg.wet_heavy_cms or (st.sprint == false and 450 or M.cfg.wet_run_cms)
+    local p = WRm.plan({ from = me, to = exit, is_water = wet, run_cms = run, swim_cms = st.swim_cms })
+    if p and p.swim_m < p.straight.swim_m - 1 and p.straight.cost_s + (p.swim_m < 0.5 and M.cfg.wet_entry_s or 0) - p.cost_s >= M.cfg.wet_min_gain_s then
+        st.wet = { pts = p.points, i = 1, src = src, k = exit.k, t = t }
+        st.wet_detours = (st.wet_detours or 0) + 1
+        if log then log(string.format("move: water: going round the water %.0f m ahead: %.0f m on dry ground instead of %.0f m with %.0f m swimming (%.1f s against %.1f s; I swim %.1f m/s)",
+            enter.at_cm / 100, p.len_m, p.straight.len_m, p.straight.swim_m, p.cost_s, p.straight.cost_s, st.swim_cms / 100)) end
+    else
+        st.wet_swim_key = key
+        if log then log(string.format("move: water: %.0f m of water %.0f m ahead; going round is no faster (%s), so across it",
+            p and p.straight.swim_m or 0, enter.at_cm / 100, p and string.format("%.1f s against %.1f s", p.cost_s, p.straight.cost_s) or "no way round known")) end
+    end
+end
+function M._steer_wet(f)
+    local st, me, log = f.st, f.me, f.log
+    local w = st.wet
+    local i0 = w.i
+    while w.pts[w.i] and d2(me, w.pts[w.i]) < 2 * M.cfg.wp_radius_cm do w.i = w.i + 1 end
+    if w.i > i0 then f.idxp = true end
+    if not w.pts[w.i] then
+        -- past the water: the way he was on picks up there (its index at the dry spot, never back into the water)
+        if w.k then
+            if w.src == "trail" and st.trail_i then st.trail_i = math.max(st.trail_i, w.k)
+            elseif w.src == "memory" and st.mpath then st.mwp = math.max(st.mwp or 1, w.k)
+            elseif w.src == "nav" and st.path then st.wp = math.max(st.wp or 1, w.k) end
+        end
+        if log then log(string.format("move: water: round it in %.1f s; back on the %s way", f.t - w.t, w.src)) end
+        st.wet = nil
+        return
+    end
+    local q = w.pts[w.i]
+    f.aim, f.src = { X = q.X, Y = q.Y, Z = me.Z }, "wet"
+end
+
 local function steer_route(f)
     local st, t, me = f.st, f.t, f.me
     if st.backtrack_until and t < st.backtrack_until and st.backtrack_pt then
@@ -3315,6 +3468,7 @@ local function steer_route(f)
     -- in order; a source that ran out this frame (segment done, trail caught up, memory route done) hands on to the next
     if st.lpath and steer_local(f) then return true end
     if st.lpath then return end
+    if st.wet and not st.local_authority then M._steer_wet(f); if f.src == "wet" then return end end
     if st.trail_i and steer_trail(f) then return true end
     if st.trail_i then return end
     if st.mpath and steer_memory(f) then return true end
@@ -3326,6 +3480,7 @@ end
 -- ~6 m ahead on a remembered or oracle route (it knows the way round cliffs and hills); else the goal
 local function far_goal(f)
     local st, me = f.st, f.me
+    if st.wet and st.wet.pts[st.wet.i] then local q = st.wet.pts[st.wet.i]; return { X = q.X, Y = q.Y, Z = me.Z } end
     if st.nav_required and st.path and st.wp and st.wp <= #st.path then return st.path[st.wp] end
     if st.trail_i then return st.crumbs[math.min(#st.crumbs, st.trail_i + M.cfg.trail_lookahead)] end
     if st.mpath and st.mwp and st.mwp <= #st.mpath then
@@ -3883,6 +4038,33 @@ local function stuck_tick(f)
     st.win_t, st.win_pos = t, v(me)
 end
 
+-- Placed pieces (stations, plots, walls: BP_BaseBuilding_BaseActor_C) whose bounds touch his capsule: what he is
+-- wedged against, by name (live 23:42Z: boxed in at the church base by a Spinning Wheel 1.4 m off, a bench and two
+-- farm plots; every input moved 0 cm and no jump left the ground, and he could only say "path blocked")
+function M._wedged_by(pawn, me)
+    local okf, all = pcall(FindAllOf, "BP_BaseBuilding_BaseActor_C")
+    if not (okf and type(all) == "table") then return {} end
+    local okr, rad = pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleRadius() end)
+    rad = (okr and tonumber(rad) or 42) + 25
+    local out = {}
+    for _, a in ipairs(all) do
+        local okl, l = pcall(function() return a:K2_GetActorLocation() end)
+        if okl and l and math.abs(l.X - me.X) < 600 and math.abs(l.Y - me.Y) < 600 then
+            local okb, o, e = pcall(function() local o2, e2 = {}, {}; a:GetActorBounds(true, o2, e2, false); return o2, e2 end)
+            if okb and o and e and o.X and e.X and math.abs(me.X - o.X) <= e.X + rad and math.abs(me.Y - o.Y) <= e.Y + rad
+                and me.Z - (o.Z + e.Z) < 120 and (o.Z - e.Z) - me.Z < 120 then
+                local okn, n = pcall(function() return a:GetFullName() end)
+                local cls = okn and n and n:match("([%w_]+)_C_%d+$") or "piece"
+                local name = cls:gsub("^BP_", ""):gsub("^Station_", ""):gsub("^Crafting_", ""):gsub("^T%d_", ""):gsub("_New$", ""):gsub("_%d+$", "")
+                    :gsub("(%l)(%u)", "%1 %2"):gsub("_", " ")
+                out[#out + 1] = { name = name, at = { X = l.X, Y = l.Y, Z = l.Z }, d_m = math.floor(d2(me, l) / 10 + 0.5) / 10 }
+            end
+        end
+    end
+    table.sort(out, function(x, y) return x.d_m < y.d_m end)
+    return out
+end
+
 -- he cannot move at all (wedged): ask a nearby player to lead him out (a go_to waits for the lead), else "stuck"
 local function wedged(f, at)
     local st, pawn, t, me, goal, dist, log = f.st, f.pawn, f.t, f.me, f.goal, f.dist, f.log
@@ -3906,6 +4088,33 @@ local function wedged(f, at)
         return stop(st, { status = "failed", reason = "rooted", why = rwhy, detail = rwhy, dist_m = dist / 100, at_m = at }, log)
     end
     mark_trap(st, me)
+    local okw, by = pcall(M._wedged_by, pawn, me)
+    local wedge_detail
+    if okw and type(by) == "table" and #by > 0 then
+        local names = {}
+        for i = 1, math.min(3, #by) do names[#names + 1] = string.format("the %s (%.1f m)", by[i].name, by[i].d_m) end
+        wedge_detail = string.format("I'm wedged in among placed things: %s; I can't walk or jump out%s", table.concat(names, ", "),
+            (st.trip_notes and table.concat(st.trip_notes, " "):find("never left the ground", 1, true)) and " (my jumps never left the ground)" or "")
+        if log then log("move: wedged: " .. wedge_detail) end
+        -- once: walk out the open side, away from what holds him (the sum of directions from each piece to him)
+        if not st.wedge_out_tried then
+            st.wedge_out_tried = true
+            local ax, ay = 0, 0
+            for _, w in ipairs(by) do
+                local dx, dy = me.X - w.at.X, me.Y - w.at.Y
+                local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
+                ax, ay = ax + dx / l, ay + dy / l
+            end
+            local l = math.sqrt(ax * ax + ay * ay)
+            if l > 0.1 then
+                st.backtrack_pt, st.backtrack_until = { X = me.X + ax / l * 150, Y = me.Y + ay / l * 150, Z = me.Z }, t + 1.5
+                st.bt_tested, st.bt_pos, st.move_acc = nil, nil, 0
+                st.prog_t, st.prog_pos, st.win_t, st.win_pos = t, v(me), t, v(me)
+                if log then log(string.format("move: wedged: walking out away from them, toward %s", fmt(st.backtrack_pt))) end
+                return true
+            end
+        end
+    end
     local hname, hpawn = nearest_player(pawn, me, M.cfg.help_player_cm)
     if not st.asked_help then
         st.asked_help = true
@@ -3917,8 +4126,9 @@ local function wedged(f, at)
         st.status = "unreachable"
         return true
     end
-    if hname and hpawn and not st.lead_done then return wait_for_lead(st, hname, hpawn, me, t, "wedged", "can't move") end
-    return stop(st, { status = "failed", reason = "stuck", dist_m = dist / 100, at_m = at }, log)
+    if hname and hpawn and not st.lead_done then return wait_for_lead(st, hname, hpawn, me, t, "wedged", wedge_detail or "can't move") end
+    return stop(st, { status = "failed", reason = "stuck", dist_m = dist / 100, at_m = at, why = wedge_detail and "wedged_by_pieces" or nil,
+        detail = wedge_detail, wedged_by = wedge_detail and by or nil }, log)
 end
 
 -- he can move but not get closer: a remembered route (one that reaches the goal, a trap's exit, or any)
@@ -4135,6 +4345,7 @@ local function tick(st, gen, log)
     if st.door and door_step(f) then return end
     f.path = st.path
     trail_entry(f)
+    pcall(M._wet_tick, f)
     f.aim, f.src, f.idxp = goal, "straight", false
     if st.link_exec and steer_link(f) then return end
     if st.stepoff then steer_stepoff(f) end
@@ -4652,7 +4863,7 @@ function M.status()
         stuck_n = st.stuck_n, stuck_total = st.stuck_total, jumps = st.jumps, double_jumps = st.double_jumps,
         last_stuck = st.last_stuck, ticks = st.ticks, self_edges = st.self_edges,
         prefetched = st.prefetched, lp_stand_s = st.lp_stand_s, unstuck = _G.DW_UNSTUCK,
-        hops = st.hops, water_entries = st.water_entries, in_water = st.in_water, trace_profile = PROFILE_NAME or (rawget(_G, "DW_TRACE_PROFILE") and _G.DW_TRACE_PROFILE.name),
+        hops = st.hops, water_entries = st.water_entries, in_water = st.in_water, water_detours = st.wet_detours, trace_profile = PROFILE_NAME or (rawget(_G, "DW_TRACE_PROFILE") and _G.DW_TRACE_PROFILE.name),
         bug2 = st.bug and { dir = st.bug.dir, travel_m = math.floor(st.bug.travel) / 100 } or nil,
         lead = st.lead and { helper = st.lead.name, phase = st.lead.phase or "waiting" } or nil,
         memory = st.mpath and { src = st.msrc, wp = st.mwp, n = #st.mpath } or nil, trip_pts = st.trip and #st.trip,

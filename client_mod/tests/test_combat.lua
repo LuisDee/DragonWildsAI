@@ -2759,5 +2759,18 @@ do -- attacking a creature someone else killed: the reason says whose kill it wa
     Cm.guard_stop(nil); A.reset(nil)
 end
 
+-- a grave's killer: the fight he died in at the grave's time (live 2026-11-02: the Goblin Warrior grave said "none known")
+do
+    local m = { history = { ["goblin warrior"] = { { at = 1000, outcome = "died", killed_by = "Goblin Warrior" } },
+                            ["giant rat"] = { { at = 1003, outcome = "killed" } } } }
+    local k = Cm.killed_at(1001.2, m)
+    check("killed_at: the fight he died in near the grave's time", k and k.creature == "goblin warrior" and k.killed_by == "Goblin Warrior", k and k.creature)
+    check("killed_at: nothing 2 min off", Cm.killed_at(1200, m) == nil)
+    local F = { target_name = "Goblin Runt", last_hit_by = "Goblin Archer", kills = 0 }
+    local mem = { history = {} }
+    Cm.record_fight(mem, F, { ok = false, reason = "companion_down", data = { died = true } })
+    check("record_fight: a death names who hit him last", mem.history["goblin runt"][1].killed_by == "Goblin Archer")
+end
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)
