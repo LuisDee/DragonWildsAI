@@ -361,6 +361,33 @@ local function spots_around(ip, origin, fwd, angles, dist_m)
 end
 M._spots_around = spots_around
 
+-- Standing spots round a thing that keep clear of a drop that killed him (a navmem hazard: move never steps within its
+-- 2 m ring), as a player walks round to the safe side of a grave on a cliff lip (live 2026-11-02 06:50:20Z: the first
+-- spot lay between him and the drop, move stopped 2.8 m short, and the grave was given up). Spots 1.2-2.2 m out, each
+-- hazard_clear_m from the hazard with ground under it within 3 m (move.ground_at), nearest him first. Once per
+-- episode. -> true when there are any.
+M.cfg.hazard_clear_m = 2.5
+function M._spots_off_hazard(api, e, hz)
+    if e.hazard_tried or not e.ipoint then return false end
+    e.hazard_tried = true
+    local here = api.my_position()
+    local keep = {}
+    for _, k in ipairs({ 1.2, 1.7, 2.2 }) do
+        for _, s in ipairs(spots_around(e.ipoint, nil, nil, { 0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330 }, k)) do
+            if dist2d(s, hz) >= M.cfg.hazard_clear_m then
+                local r = api.call("move", "ground_at", s)
+                local g = type(r) == "table" and (type(r.data) == "table" and r.data or r) or nil
+                if r and r.ok and g and g.floor_z and (tonumber(s[3]) or g.floor_z) - g.floor_z < 3 then keep[#keep + 1] = s end
+            end
+        end
+    end
+    if #keep == 0 then return false end
+    if here then table.sort(keep, function(a, b) return dist2d(a, here) < dist2d(b, here) end) end
+    e.spots, e.spot_i, e.phase, e.moving, e.approaches = keep, 1, "approach", false, 0
+    if api.log then api.log(string.format("interact: a drop that killed me is by the %s: %d standing spots clear of it", e.label, #keep)) end
+    return true
+end
+
 -- A small thing (a world item) next to a bigger interactable that competes for the game's detector (the
 -- station it came out of, the item the detector picked instead): the detector's camera ray and character trace
 -- run from him THROUGH the thing, so whatever lies beyond it along that line wins any near miss. Stand where
@@ -782,6 +809,7 @@ local function episode_poll(api, e, t, owner_token)
         if res.status == "stopped" then return nil end -- e.g. suspended by a reflex and resumed: walk again
         e.last_move_why = res.reason or res.why or e.last_move_why
         -- (not past a drop that killed him: every spot round it inches him closer, live 22:43Z six tries)
+        if res.why == "known_drop" and type(res.hazard) == "table" and M._spots_off_hazard(api, e, res.hazard) then return nil end
         if res.why ~= "known_drop" and next_spot(e) then return nil end -- that side is blocked: try the next standing spot (big things only)
         return move_failure(api, res, "the " .. e.label, { target = th.id })
     elseif e.phase == "face" then
@@ -2381,6 +2409,25 @@ local function matching(api, about, radius)
     return best
 end
 
+-- What he remembers GATHERING that matches `about` (navmem's gather spots, written by gather.lua), as one sentence, or
+-- nil: an explore that found nothing says where he has found it before, so the model can choose to range that far.
+local NM_MOD
+function W.gather_memory()
+    if NM_MOD == nil then
+        local okc, chunk = pcall(loadfile, ROOT .. "/client_mod/scripts/navmem.lua")
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        NM_MOD = (okm and type(mod) == "table" and mod.known_text) and mod or false
+    end
+    return NM_MOD or nil
+end
+local function known_gather(api, about, here, radius)
+    local NM = W.gather_memory()
+    if not (NM and here) then return nil end
+    return NM.known_text(function(g) return api.match_score({ name = g.name, item = g.item }, about) >= 0.5 end, here, { beyond_m = radius })
+end
+M._known_gather = known_gather
+
 local function start_explore(api, args, ctx)
     if not need_str(args.about) then return api.fail("invalid_args", { detail = "about is required (what to look for)" }) end
     local cfg = M.cfg.explore
@@ -2408,12 +2455,22 @@ local function start_explore(api, args, ctx)
         local n = math.min(#job.bad, 2)
         return "; legs that fell short: " .. table.concat(job.bad, "; ", #job.bad - n + 1, #job.bad)
     end
+    -- a leg whose end or middle has no ground within a safe fall below it points over a cliff or the world's edge
+    -- (live 2026-11-02 05:44Z: a leg 40 m north of Temple Woods' edge; the walk to the nearest ground ran along the lip
+    -- and he fell 34 m, bag lost): not a way to explore
+    local function over_void(p)
+        local r = api.call("move", "ground_at", p)
+        local g = type(r) == "table" and (type(r.data) == "table" and r.data or r) or nil
+        return g ~= nil and r.ok and g.floor_z == nil
+    end
     local function pick()
         local here = api.my_position() or start
         local best, bscore
         for _, d in ipairs(DIRS) do
-            if not job.failed[d[3]] then
-                local goal = { here[1] + d[1] * leg_m, here[2] + d[2] * leg_m, here[3] }
+            local goal = { here[1] + d[1] * leg_m, here[2] + d[2] * leg_m, here[3] }
+            if not job.failed[d[3]] and (over_void(goal) or over_void({ here[1] + d[1] * leg_m / 2, here[2] + d[2] * leg_m / 2, here[3] })) then
+                job.voids = (job.voids or 0) + 1
+            elseif not job.failed[d[3]] then
                 local away = dist2d(goal, start) or 0
                 local score = visits_near(mem, goal) * 10 - away -- least visited, then farther from where he began
                 if not best or score < bscore then best, bscore = { goal = goal, deg = d[3] }, score end
@@ -2468,9 +2525,19 @@ local function start_explore(api, args, ctx)
         end
         if res.status == "failed" and job.leg then job.failed[job.leg.deg] = true end
         if not next_leg() then
+            -- how far he has looked (walked, and his farthest point from the start, plus what he sees around), then what
+            -- he remembers finding further out: farm chain run 9 explored 174 m west with 10 Flax picked 300 m north-east
+            local far = 0
+            for _, p in ipairs(job.trail) do far = math.max(far, dist2d(p, start) or 0) end
+            local okk, known = pcall(known_gather, api, args.about, here, radius)
+            known = okk and known or nil
             return api.fail("nothing_in_range", { about = args.about, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
+                farthest_m = math.floor(far + 0.5), sight_m = radius, known_spots = known,
                 trail = job.trail, trips = job.trips, detail = "explored " .. job.legs_done .. " legs (about " .. math.floor(job.travelled + 0.5)
-                    .. " m) and saw nothing matching '" .. args.about .. "'" .. legs_said() })
+                    .. " m walked, at most " .. math.floor(far + 0.5) .. " m from where I began, seeing about " .. math.floor(radius)
+                    .. " m around) and saw nothing matching '" .. args.about .. "'" .. legs_said()
+                    .. ((job.voids or 0) > 0 and "; ways over a cliff or the world's edge left out" or "")
+                    .. (known and (". " .. known) or "") })
         end
         return nil
     end

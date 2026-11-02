@@ -1388,20 +1388,24 @@ end
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 
 -- (b6) a spot that killed him (a fall off the world's edge: live 22:10/22:11Z): a walk toward it stops 2 m short and
--- says why; a walk away from it is not held
+-- says why; a walk away from it is not held; a goal beyond it, outside its 2 m ring (his grave beside the 05:44Z drop,
+-- live 06:18:40Z), is reached round the ring
 do
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 do local f = io.open(memf, "w"); f:write([==[{"v":1,"next_id":9,"traps":[],"taboos":[],"routes":[],
   "hazards":[{"at":[6,0,-0.9],"n":2,"cause":"fall","drop_m":40}]}]==]); f:close() end
 local hz = {}
-for k, gx in ipairs({ 9, -9 }) do
+for k, gx in ipairs({ 7.2, -9, 9 }) do
     raised = {}; oracle = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil
     local n0 = #logs
     local MT = dofile(MOVE)
+    hz[k] = { near = 1e9 }
+    frame_hook = function() hz[k].near = math.min(hz[k].near, math.sqrt((pawn.loc.X - 600) ^ 2 + pawn.loc.Y ^ 2)) end
     MT.go_to(log, { gx, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60, nav = false })
-    run(300)
+    run(400)
+    frame_hook = nil
     local r = MT.status().result
-    hz[k] = { r = r, x = pawn.loc.X }
+    hz[k].r, hz[k].x = r, pawn.loc.X
     for i = n0 + 1, #logs do if logs[i]:find("move: hazard:", 1, true) then hz[k].said = logs[i] end end
     MT.stop(log)
 end
@@ -1409,6 +1413,8 @@ check("hazard: a walk toward a spot that killed me stops short of it, failed kno
     hz[1].r and hz[1].r.status == "failed" and hz[1].r.why == "known_drop" and hz[1].x <= 420 and hz[1].x >= 250
     and hz[1].r.detail and hz[1].r.detail:find("killed me 2 time(s)", 1, true) and hz[1].said ~= nil, hz[1].r and hz[1].r.detail .. " x=" .. hz[1].x)
 check("hazard: a walk away from it is not held", hz[2].r and hz[2].r.status == "arrived", hz[2].r and hz[2].r.status)
+check("hazard: a goal 3 m beyond it is reached round its ring (never within 2 m)", hz[3].r and hz[3].r.status == "arrived" and hz[3].near >= 190,
+    (hz[3].r and tostring(hz[3].r.status) .. " " .. tostring(hz[3].r.detail) or "nil") .. " near=" .. hz[3].near)
 do
     local MT = dofile(MOVE)
     _G.DW_NAVMEM = nil
@@ -2675,6 +2681,30 @@ do
     M.stop(log); frame_hook = nil; raised = {}; oracle = nil; pump_oracle()
 end
 
+-- the same walk with NOTHING there: his recorded path rises 2.4 m over flat ground (a ghost's hop arcs read as on-ground,
+-- or a log since chopped; doric follow 04:59Z): our ground lies right under those crumbs, so no "walking below him"
+;(function()
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; sprinting = false; oracle = function() return nil end; pump_oracle()
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 300, Y = 0, Z = 0 }; ps_luis.PawnPrivate = luis
+    local lx, l_air = 300, false
+    luis.CharacterMovement = obj({ IsMovingOnGround = function() return not l_air end })
+    frame_hook = function()
+        if lx < 2400 then lx = lx + 450 * DT end
+        l_air = (lx > 850 and lx < 1000) or (lx > 1600 and lx < 1700)
+        luis.loc.X, luis.loc.Y = lx, 0
+        luis.loc.Z = FLOOR + 90 + ((lx > 1000 and lx < 1600) and 240 or 0) + (l_air and 120 or 0)
+    end
+    local n0 = #logs
+    M.follow(log, "Zezima", 3, { local_plan = true })
+    run(200)
+    local below = false
+    for i = n0 + 1, #logs do if logs[i]:find("walking below him", 1, true) or logs[i]:find("skipping to where it comes back down", 1, true) then below = logs[i] end end
+    local dd = math.sqrt((luis.loc.X - pawn.loc.X) ^ 2 + (luis.loc.Y - pawn.loc.Y) ^ 2)
+    check("trail follow: his path high over our own ground is no climb (no walking below him)", not below and dd < 450,
+        string.format("d=%.0f %s", dd, tostring(below)))
+    M.stop(log); frame_hook = nil; luis.CharacterMovement = nil; oracle = nil; pump_oracle()
+end)()
+
 -- the same crate, but he JUMPS onto it (airborne crumbs before the top): Claude tries the jump, misses (2.4 m is out
 -- of his reach) and, back on the ground at the take-off, takes the trail where it comes down instead of pushing on
 do
@@ -2857,8 +2887,16 @@ do
               { -20, 0, -170, -60, true }, { -20, 0, 60, 170, true }, leaf }
     local shut, presses, aims_ok = true, 0, 0
     local door = obj({ HingeInteraction = obj({ InteractionPrompt = { ToString = function() return shut and "Open Door" or "Close Door" end } }),
-                       K2_GetActorLocation = function() return { X = -10, Y = 0, Z = 60 } end,
+                       K2_GetActorLocation = function() return { X = -10, Y = 0, Z = 60 } end, BuildingPieceID = 77,
                        GetFName = function() return { ToString = function() return "BP_T1_Door_C_1" end } end })
+    -- the door's piece record (GlobalBuildingManager.BuildingPieces): the frame's centre and yaw (a wall along Y)
+    TEST_GBM = { BuildingPieces = { ForEach = function(_, fn)
+        fn({ get = function() return 76 end }, { get = function() return { ClientVisible = { Location = { X = 400, Y = 400, Z = 0 }, Yaw = 0 } } end })
+        fn({ get = function() return 77 end }, { get = function() return { ClientVisible = { Location = { X = -10, Y = 0, Z = 0 }, Yaw = 90 } } end })
+    end } }
+    TEST_BASE_FIRST = FindFirstOf
+    FindFirstOf = function(c) if c == "GlobalBuildingManager" then return TEST_GBM end return TEST_BASE_FIRST(c) end
+    _G.DW_DOOR_FRAMES = nil
     local stuck_door = false
     local base_find = FindAllOf
     FindAllOf = function(c) if c == "BP_BaseBuilding_BaseActor_C" then return { door } end return base_find(c) end
@@ -2915,7 +2953,58 @@ do
         r and r.status == "arrived" and presses == 1 and opened_in and not plan_first and in_t and in_t < 8,
         (r and tostring(r.status) or "nil") .. " presses=" .. presses .. " plan_first=" .. tostring(plan_first) .. " t=" .. tostring(in_t))
     MDo.stop(log)
-    FindAllOf = base_find; walls = {}; _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
+    -- an OPEN door, from off to the side (live 04:21Z: a 1 m plan grid round the ~1 m doorway circled his house
+    -- 2.6 m from the goal for 52 s): he lines up with the frame and walks straight through
+    shut = false
+    walls = { walls[1], walls[2], walls[3], walls[4], walls[5] } -- the room without the leaf (no new locals here)
+    _G.DW_LP_CACHE = nil
+    pawn.loc = { X = -350, Y = 380, Z = 0 }
+    nl = #logs
+    T0 = T
+    MDo.go_to(log, { 1.5, 0.3, 0 }, { tolerance_m = 1, nav = false, timeout_s = 40 })
+    in_t = nil
+    while not MDo.status().result and T - T0 < 20 do run(1) end
+    if MDo.status().result then in_t = T - T0 end
+    r = MDo.status().result
+    opened_in = false -- (reused: the main chunk is at its locals limit) the lining-up line
+    opened_in = table.concat(logs, "|", nl + 1):match("[^|]*through the doorway[^|]*") or false
+    check("door: an open doorway is walked through from its own frame (lined up, no circling)",
+        r and r.status == "arrived" and opened_in and in_t and in_t < 12,
+        (r and tostring(r.status) .. " " .. tostring(r.detail) or "nil") .. " t=" .. tostring(in_t) .. " " .. tostring(opened_in))
+    MDo.stop(log)
+    -- a SWINGING door (live 05:45:51Z, "stayed shut after 2 presses" in 1 s): the hinge state flips at the press,
+    -- the prompt only when the swing ends 1.5 s later, and a second press meanwhile shuts it again. One press.
+    ;(function()
+        local shown, swing_t = "Open Door", nil
+        door.Hinge = { HingeState = 2, bIsReady = true }
+        door.HingeInteraction = { InteractionPrompt = { ToString = function()
+            if swing_t and T - swing_t >= 1.5 then shown = door.Hinge.HingeState == 2 and "Open Door" or "Close Door" end
+            return shown end } }
+        inv.press_interact = function()
+            if not near() then return { ok = true } end
+            presses = presses + 1
+            if door.Hinge.HingeState == 2 then
+                door.Hinge.HingeState = 0
+                for i, w in ipairs(walls) do if w == leaf then table.remove(walls, i) break end end
+            else door.Hinge.HingeState = 2; walls[#walls + 1] = leaf end
+            swing_t = T
+            return { ok = true } end
+        shut, presses = true, 0
+        walls[#walls + 1] = leaf
+        _G.DW_LP_CACHE = nil
+        pawn.loc = { X = -400, Y = 0, Z = 0 }
+        local n0, t0 = #logs, T
+        MDo.go_to(log, { 1.5, 0, 0 }, { tolerance_m = 1, nav = false, timeout_s = 40 })
+        while not MDo.status().result and T - t0 < 20 do run(1) end
+        local rr = MDo.status().result
+        local said = table.concat(logs, "|", n0 + 1):match("[^|]*opened the door[^|]*")
+        check("door: a swinging door (hinge open, prompt not yet) is pressed once, then walked through",
+            rr and rr.status == "arrived" and presses == 1 and said,
+            (rr and tostring(rr.status) .. " " .. tostring(rr.detail) or "nil") .. " presses=" .. presses .. " t=" .. (T - t0) .. " " .. tostring(said))
+        MDo.stop(log)
+        door.Hinge = nil
+    end)()
+    FindAllOf, FindFirstOf = base_find, TEST_BASE_FIRST; walls = {}; _G.DW_LP_CACHE = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }
 end
 
 -- ENCUMBERED (live 2026-11-01 13:2x: 446.5 of 300 weight): no jump attempts (they fail in game), and the honest reason
@@ -3394,6 +3483,46 @@ do
     end
     M.stop(log); _G.DW_NAVMEM = nil; os.remove(memf)
 end
+
+-- IDLE HOSTILES (Luis 2026-11-02: route cost near idle hostiles in sight, like the hazard memory): a Giant Rat
+-- (Aggressive, ambient) 6 m off a straight 24 m walk is given a wide berth; one already fighting, or one at the goal
+-- (the rat he walks up to), is not
+;(function()
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); _G.DW_LP_CACHE = nil
+    luis.loc = { X = 90000, Y = 90000, Z = 0 }
+    local alert = 0
+    local rat = obj({ K2_GetActorLocation = function() return { X = 800, Y = 50, Z = 0 } end,
+        LoadedData = obj({ Archetype = 0 }), HealthComponent = obj({ IsDead = function() return false end }),
+        IsFollower = function() return false end, GetFName = function() return { ToString = function() return "BP_GiantRat_C_1" end } end })
+    rat.__alert = true
+    setmetatable(rat, { __index = function(_, k) if k == "CurrentAlertnessState" then return alert end end })
+    local base_find = FindAllOf
+    FindAllOf = function(c) if c == "DominionAICharacter" then return { rat } end return base_find(c) end
+    local function walk(goal)
+        pawn.loc = { X = 0, Y = 0, Z = 0 }
+        M.go_to(log, goal, { tolerance_m = 1, nav = false, timeout_s = 40 })
+        local closest, t0 = 1e9, T
+        while not M.status().result and T - t0 < 30 do
+            run(1)
+            closest = math.min(closest, math.sqrt((pawn.loc.X - 800) ^ 2 + (pawn.loc.Y - 50) ^ 2))
+        end
+        local r = M.status().result
+        M.stop(log)
+        return r, closest, T - t0
+    end
+    local r, closest, dt = walk({ 24, 0, 0 })
+    check("hostile: an idle rat 0.5 m off the way is walked round (keeps 5 m+), arrives", r and r.status == "arrived" and closest >= 500 and dt < 10,
+        (r and r.status or "nil") .. string.format(" closest=%.0f t=%.1f", closest, dt))
+    alert = 4
+    r, closest, dt = walk({ 24, 0, 0 })
+    check("hostile: one already in combat is no cost (the fight handles it)", r and r.status == "arrived" and closest < 300,
+        (r and r.status or "nil") .. string.format(" closest=%.0f", closest))
+    alert = 0
+    r, closest, dt = walk({ 9, 0.5, 0 })
+    check("hostile: the rat at the goal (walking up to it) is no cost", r and r.status == "arrived" and dt < 4,
+        (r and r.status or "nil") .. string.format(" t=%.1f", dt))
+    FindAllOf = base_find
+end)()
 
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))

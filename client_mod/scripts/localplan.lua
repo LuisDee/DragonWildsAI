@@ -70,6 +70,14 @@ function LP.new(o)
     self.cell_cost = o.cell_cost               -- optional fn(x, y, floor_z) -> extra cost in cells (known water, avoid zones)
     self.dry_slack = o.dry_slack or 300        -- aim at a zero-cost cell when it is at most this much further from the goal
     self.water_probe = o.water_probe           -- optional fn(x, y, floor_z) -> true if water covers that floor
+    -- a LIP: a floor cell next to a hole with no floor within lip_depth below it (a cliff edge, the world's edge).
+    -- Walking it costs lip_cost cells, and a lip is never the place a plan ends (live 2026-11-02 05:44:18Z: the
+    -- path to the cell nearest an explore goal across a void ran along x = 132 with no floor at x = 131, and on its
+    -- second point he was off the edge: 34 m down, dead)
+    self.lip_depth = o.lip_depth or 600
+    self.lip_cost = o.lip_cost or 6
+    self.lips = {}
+    self.forbid = o.forbid                     -- optional fn(x, y) -> true: no walking there (a drop the mover refused)
     self.queue = {}
     -- spiral order from the centre outwards, so a partial grid is still useful
     for ring = 0, self.r do
@@ -225,6 +233,26 @@ function LP:edge(a, b)
     return nil
 end
 
+-- true when an adjacent sampled cell has no floor (and no solid top) within lip_depth below node n
+function LP:lip(n)
+    local c = self.lips[n]
+    if c ~= nil then return c end
+    c = false
+    local floor_z = n.z - self.lip_depth
+    for di = -1, 1 do
+        for dj = -1, 1 do
+            local L = (di ~= 0 or dj ~= 0) and self.nodes[key(n.i + di, n.j + dj)]
+            if L then
+                local deep = not (L.solid_z and L.solid_z >= floor_z)
+                for _, m in ipairs(L) do if m.z >= floor_z then deep = false; break end end
+                if deep then c = true end
+            end
+        end
+    end
+    self.lips[n] = c
+    return c
+end
+
 -- 2D distance from point p to segment a-b
 local function seg_dist(px, py, ax, ay, bx, by)
     local vx, vy = bx - ax, by - ay
@@ -335,22 +363,25 @@ function LP:plan(goal)
             closed[cur] = true
             expanded = expanded + 1
             local hc = h(cur)
-            if hc < best_h then best_h, best_n = hc, cur end
+            local lip = cur ~= start and self:lip(cur)
+            if hc < best_h and not lip then best_h, best_n = hc, cur end
             if self.cell_cost then
                 local cx, cy = self:pos(cur.i, cur.j)
-                if (self.cell_cost(cx, cy, cur.z) or 0) == 0 and hc < best_dry_h then best_dry_h, best_dry = hc, cur end
+                if not lip and (self.cell_cost(cx, cy, cur.z) or 0) == 0 and hc < best_dry_h then best_dry_h, best_dry = hc, cur end
             end
-            if hc < cell then break end
+            if hc < cell and not lip then break end
             for di = -1, 1 do
                 for dj = -1, 1 do
                     if di ~= 0 or dj ~= 0 then
                         for _, nb in ipairs(self.nodes[key(cur.i + di, cur.j + dj)] or {}) do
-                            if not closed[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) and not self:avoided(cur, nb) then
+                            if not closed[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) and not self:avoided(cur, nb)
+                                and not (self.forbid and self.forbid(self:pos(nb.i, nb.j))) then
                                 local kind, extra = self:edge(cur, nb)
                                 if kind and self.cell_cost then
                                     local nx, ny = self:pos(nb.i, nb.j)
                                     extra = extra + (self.cell_cost(nx, ny, nb.z) or 0)
                                 end
+                                if kind and self:lip(nb) then extra = extra + self.lip_cost end
                                 if kind then
                                     local step = ((di ~= 0 and dj ~= 0) and 1.414 or 1) * cell + extra * cell
                                     local ng = g[cur] + step

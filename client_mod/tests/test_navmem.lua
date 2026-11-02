@@ -107,5 +107,31 @@ do
     check("a dropped seed stays off after a reload", NM.trap_at(m5, P(0, 0, 0)) == nil)
 end
 
+-- gather spots: where gathering worked, merged per item, saved, told back nearest first
+do
+    local gm = NM.load(dir, "wg", "L_World")
+    local t0 = 1793586300 -- 2026-11-02 02:25Z
+    NM.add_gather_spot(gm, "ITEM_Resources_Flax", "Flax", P(39390, 171260, -4160), 3, t0 - 60)
+    local g2, new2 = NM.add_gather_spot(gm, "ITEM_Resources_Flax", "Flax", P(39000, 172000, -4100), 7, t0)
+    NM.add_gather_spot(gm, "ITEM_Resources_Flax", "Flax", P(47000, 169400, -4000), 3, t0 - 36000)
+    NM.add_gather_spot(gm, "ITEM_Resources_Stone", "Stone", P(39390, 171260, -4160), 2, t0)
+    check("gather spot: a pick 8 m off counts for the same spot", not new2 and g2.n == 10 and g2.picks == 2 and g2.ts == t0, g2 and g2.n)
+    check("gather spot: per item", #NM.gather_spots(gm, "ITEM_Resources_Flax") == 2 and #NM.gather_spots(gm, "ITEM_Resources_Stone") == 1)
+    NM.save(gm)
+    local gm2 = NM.load(dir, "wg", "L_World")
+    local me = { 174.6, 1919.4 }
+    local sp = NM.gather_spots(gm2, function(g) return g.name == "Flax" end, me)
+    check("gather spots survive a save, nearest first", #sp == 2 and sp[1].n == 10 and sp[1].dist_m < sp[2].dist_m, #sp)
+    local txt = NM.gather_spot_text(sp, me, t0 + 5 * 3600)
+    check("gather spot text: count, distance, compass (+Y is south), time and age",
+        txt and txt:find("Flax you've gathered before: 10 about 301 m NE at %(394, 1713%), last 02:25Z %(5.0 h ago%)") ~= nil, txt)
+    check("gather spot text: regrowth said as seen", txt and txt:find("crops have taken over an hour") ~= nil, txt)
+    local near = NM.gather_spot_text(NM.gather_spots(gm2, "ITEM_Resources_Flax", { 392, 1715 }), { 392, 1715 }, t0 + 600, { beyond_m = 40 })
+    check("gather spot text: a spot inside the searched radius is named picked out, not a place to go",
+        near and near:find("%(1 spot within 40 m, none there now%)") ~= nil and not near:find("10 about") , near)
+    check("gather spot text: nothing remembered is nil", NM.gather_spot_text({}, me) == nil)
+    check("compass: +Y is south", NM.compass({ 0, 0 }, { 0, 10 }) == "S" and NM.compass({ 0, 0 }, { 10, -10 }) == "NE")
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

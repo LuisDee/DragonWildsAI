@@ -1806,6 +1806,63 @@ test("explore names its legs that fell short, and a death is not 'saw nothing' (
     assert(d and d.reason == "companion_down" and d.data.detail:find("went down", 1, true) and d.data.detail:find("fell 30.2 m", 1, true), json.encode(d))
 end)
 
+test("explore leaves out legs over a void (a cliff, the world's edge: live 05:44Z, a 34 m fall)", function()
+    reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.interactables = {}; F.world.resources = {}
+    rpc("get_state")
+    F.ground_at = function(p) return { ok = true, floor_z = (p[2] >= -1) and 0 or nil } end -- nothing south of y = -1
+    local _, id = rpc("explore", { about = "lava", max_legs = 3, leg_m = 10 })
+    local n = run(id, 40)
+    F.ground_at = nil
+    assert(n and n.reason == "nothing_in_range" and n.data.legs == 3, json.encode(n))
+    for _, p in ipairs(n.data.trail or {}) do assert(p[2] >= -1, "a leg went over the void: " .. json.encode(n.data.trail)) end
+    assert(n.data.detail:find("world's edge", 1, true), n.data.detail)
+end)
+
+test("explore that finds nothing says how far he looked and where he has gathered it before (farm chain run 9)", function()
+    reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.interactables = {}; F.world.resources = {}
+    rpc("get_state")
+    local t = os.time()
+    _G.DW_NAVMEM = { gather_spots = {
+        { item = "ITEM_Resources_Flax", name = "Flax", at = { 0, -300, -40 }, n = 10, picks = 10, ts = t - 5 * 3600 },
+        { item = "ITEM_Resources_Stone", name = "Stone", at = { 5, 5, 0 }, n = 3, picks = 3, ts = t } } }
+    local _, id = rpc("explore", { about = "flax", max_legs = 2, leg_m = 10 })
+    local n = run(id, 40)
+    _G.DW_NAVMEM = nil
+    assert(n and n.reason == "nothing_in_range", json.encode(n))
+    local d = n.data.detail
+    assert(d:find("m walked, at most %d+ m from where I began, seeing about 40 m around%) and saw nothing matching 'flax'"), d)
+    assert(n.data.farthest_m >= 10 and n.data.farthest_m <= 21, json.encode(n.data))
+    assert(d:find("Flax you've gathered before: 10 about %d+ m N at %(0, %-300%), last %d%d:%d%dZ %(5.0 h ago%)"), d)
+    assert(not d:find("Stone", 1, true), "only what matches 'flax': " .. d)
+    local _, id2 = rpc("explore", { about = "lava", max_legs = 1, leg_m = 10 })
+    local n2 = run(id2, 40)
+    assert(n2 and n2.reason == "nothing_in_range" and not n2.data.detail:find("before", 1, true), json.encode(n2))
+end)
+
+test("interact: a grave beside a drop that killed him is reached from a spot clear of it (live 06:50:20Z)", function()
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    F.world.interactables = { { id = "grave_7", class = "BP_PlayerGravestone_C", name = "", prompt = "Take All", position = { 1, 30, 3 },
+                                contents = { { item = "ITEM_Bronze_Sword", count = 1 } } } }
+    F.move.position = { 1, 25, 3 }
+    F.ground_at = function(p) return { ok = true, floor_z = p[3] - 0.9 } end
+    F.auto_arrive = false
+    local hz = { 1, 28.6, 2.1 } -- the last ground before the fall: between him and the grave
+    local _, id = rpc("interact", { target = "grave_7" })
+    for _ = 1, 3 do T = T + 1; B.step() end
+    assert(F.move.mode == "go_to", "walking to the first spot: " .. json.encode(F.move))
+    F.move.mode, F.move.result = "idle", { status = "failed", reason = "unreachable", why = "known_drop", hazard = hz,
+        detail = "I stopped 2.8 m short of a drop that killed me 1 time(s)" }
+    for _ = 1, 3 do T = T + 1; B.step() end
+    local g = F.move.target
+    assert(F.move.mode == "go_to" and g and math.sqrt((g[1] - hz[1]) ^ 2 + (g[2] - hz[2]) ^ 2) >= 2.5,
+        "a second walk, to a spot clear of the drop: " .. json.encode(g))
+    F.auto_arrive = true
+    local r = run(id, 60)
+    F.ground_at = nil
+    assert(r and r.ok and (F.extra.ITEM_Bronze_Sword or 0) == 1, json.encode(r))
+end)
+
 -- ------------------------------------------------------------------ containers: deposit / withdraw (build design §5)
 test("explore ignores function-word substrings", function()
     for _,query in ipairs({"a door, gate, stairs or opening leading out of the temple", "gap in the wall, gate or opening"}) do

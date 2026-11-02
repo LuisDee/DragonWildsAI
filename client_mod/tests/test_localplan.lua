@@ -317,5 +317,35 @@ do
     check("overhang: no walk under a rock whose underside is below head height", qp ~= nil and not under, qp and #qp)
 end
 
+-- LIP (live 2026-11-02 05:44:18Z, Temple Woods' edge): ground for x >= 0 and y <= 800, nothing below elsewhere (no
+-- floor within the trace). An explore goal across the void: the plan may not hug the edge (no point next to the void)
+-- nor end on it, and a cell the mover refused (forbid) is never entered.
+do
+    local function lg(x, y) return x >= -50 and y <= 850 end
+    local function ltrace(a, b, horizontal)
+        if horizontal then return nil end
+        if b.Z > a.Z then return nil end
+        if lg(a.X, a.Y) then return 0, false, 1 end
+        return nil
+    end
+    local L = LP.new({ trace = ltrace, center = { X = 150, Y = 0, Z = 90 }, radius_m = 12, cell_cm = 100,
+        env = { step = 45, jump = 250, djump = 450, drop = 150 } })
+    local s3 = "sampling"
+    while s3 ~= "ready" do s3 = L:step(12) end
+    local lpts = L:plan({ X = -300, Y = 1600, Z = 90 })
+    local hug, endp = nil, lpts and lpts[#lpts]
+    for k = 2, #(lpts or {}) do local p = lpts[k]; if p.X < 100 or p.Y > 700 then hug = p.X .. "," .. p.Y end end
+    check("lip: no point next to a void and the plan doesn't end on its edge", lpts ~= nil and not hug,
+        (lpts and #lpts or "nil") .. " hug=" .. tostring(hug) .. " end=" .. tostring(endp and (endp.X .. "," .. endp.Y)))
+    local F = LP.new({ trace = ltrace, center = { X = 150, Y = 0, Z = 90 }, radius_m = 12, cell_cm = 100,
+        env = { step = 45, jump = 250, djump = 450, drop = 150 }, forbid = function(x, y) return x <= 300 and y >= 200 end })
+    s3 = "sampling"
+    while s3 ~= "ready" do s3 = F:step(12) end
+    local fpts = F:plan({ X = 200, Y = 600, Z = 90 })
+    local inside = false
+    for _, p in ipairs(fpts or {}) do if p.X <= 300 and p.Y >= 200 then inside = true end end
+    check("forbid: a refused drop's cells are never entered", fpts ~= nil and not inside, fpts and #fpts)
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

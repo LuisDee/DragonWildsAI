@@ -125,6 +125,7 @@ M.cfg = {
     cam_yield_s = 0.6,         -- ... and move leaves the camera alone this long (renewed while it keeps aiming)
     lp_cell_cm = 100,
     door_find_cm = 450,        -- a shut door this near when a local plan fails is opened (E), as a player does
+    doorway_out_cm = 110,      -- a go_to through a built doorway lines up this far out from the frame, and ends this far in
     door_reach_cm = 170,       -- he presses from here (the detector's camera ray reaches ~2.5 m from the pawn)
     lp_budget = 64,            -- traces per frame while standing to sample/verify (0.08 ms each live, 2026-11-01; 16 stood ~2.5 s a plan)
     lp_cache_ttl_s = 30,       -- world-aligned cell cache shared by plans and prefetch (builds change)
@@ -142,7 +143,10 @@ M.cfg = {
     arrive_settle_s = 1.5,     -- ... or after this long inside the circle (then arrived as he is)
     water_depth = 0.25,        -- EnvironmentComponent:GetNormalizedWaterDepth() above this = in water
     water_cell_cost = 8,       -- local planner: extra cost per known-water cell (prefer going round)
-    felt_cell_cost = 40,       -- ... and per cell where he was stopped pushing this move (a thin obstacle it cannot see)
+    felt_cell_cost = 40,
+    -- idle hostiles he can see (Aggressive, not yet in combat): a planner cost round each, as a player gives a rat
+    -- a wide berth instead of walking through its pack (Luis 2026-11-02; same idea as the hazard memory)
+    mob_avoid = true, mob_scan_s = 1.0, mob_scan_cm = 3000, mob_r_cm = 700, mob_cell_cost = 25, mob_goal_cm = 1000,       -- ... and per cell where he was stopped pushing this move (a thin obstacle it cannot see)
     wet_lookahead_cm = 4000,   -- dry routing (scripts/wetroute.lua): water this far ahead on the way is weighed
     wet_run_cms = 650,         -- ... dry ground at his run (sprint ~680, walk 450) against water at MaxSwimSpeed (300)
     wet_heavy_cms = 270,       -- ... encumbered (403/400 live 00:24Z: walking only, 2.7 m/s)
@@ -944,6 +948,25 @@ local function door_prompt(a)
     local ok, s = pcall(function() return a.HingeInteraction.InteractionPrompt:ToString() end)
     return ok and type(s) == "string" and s or nil
 end
+-- the hinge's own state (UHingeComponent "Hinge": HingeState 0/1 open forward/backward, 2 closed; bIsReady false
+-- while it swings). The prompt text flips only when the swing ends, so a second press 0.5 s after the first shut
+-- the door again ("stayed shut after 2 presses" in 1 s, live 05:45:51-54Z). -> closed (bool|nil), ready (bool|nil)
+function M._hinge(a)
+    local okh, h = pcall(function() return a.Hinge end)
+    if not (okh and h) then return nil, nil end
+    local oks, hs = pcall(function() return tonumber(h.HingeState) end)
+    local okr, rd = pcall(function() return h.bIsReady end)
+    local closed, ready
+    if oks and hs then closed = hs == 2 end
+    if okr and type(rd) == "boolean" then ready = rd end
+    return closed, ready
+end
+function M._door_shut(a)
+    local closed = M._hinge(a)
+    if closed ~= nil then return closed end
+    local pr = door_prompt(a)
+    return pr and pr:lower():find("open", 1, true) and true or false
+end
 local function door_name(a)
     local ok, s = pcall(function() return a:GetFName():ToString() end)
     return ok and s or tostring(a)
@@ -957,7 +980,7 @@ local function shut_door_near(me, goal, r_cm)
         if okl and l and math.abs(l.X - me.X) < r_cm and math.abs(l.Y - me.Y) < r_cm and math.abs(l.Z - me.Z) < 300 then
             local d = d2(me, l)
             local pr = d <= r_cm and door_prompt(a)
-            if pr and pr:lower():find("open", 1, true) then
+            if pr and M._door_shut(a) then
                 local score = d + 0.5 * (goal and d2(goal, l) or 0)
                 if not bs or score < bs then best, bs = { actor = a, at = v(l), name = door_name(a), prompt = pr }, score end
             end
@@ -1021,9 +1044,75 @@ local function camera_taken_by_owner(st)
     return ok and holds == true
 end
 
+-- A built door's frame: where its piece was placed and its yaw (GlobalBuildingManager.BuildingPieces[pid].ClientVisible,
+-- the record build.lua's census reads). The leaf swings and the actor's origin is its hinge post; the record stays put.
+-- Cached per piece id (a placed piece does not move).
+function M._door_frame(a)
+    local okp, pid = pcall(function() return tonumber(a.BuildingPieceID) end)
+    if not (okp and pid) then return nil end
+    _G.DW_DOOR_FRAMES = _G.DW_DOOR_FRAMES or {}
+    local c = _G.DW_DOOR_FRAMES[pid]
+    if c then return c end
+    local okg, gbm = pcall(FindFirstOf, "GlobalBuildingManager")
+    if not (okg and gbm) then return nil end
+    pcall(function()
+        gbm.BuildingPieces:ForEach(function(k, val)
+            if c then return end
+            local kk = k.get and k:get() or k
+            if tonumber(kk) == pid then
+                local e = val.get and val:get() or val
+                local cv = e.ClientVisible
+                local l = cv.Location
+                c = { X = l.X, Y = l.Y, Z = l.Z, yaw = tonumber(cv.Yaw) or 0 }
+            end
+        end)
+    end)
+    if c and type(c.X) == "number" then _G.DW_DOOR_FRAMES[pid] = c; return c end
+    return nil
+end
+-- The way through a built doorway to a goal on its far side: 1 m out from the frame on his side, the frame's centre,
+-- 1 m in on the goal's side, as a player lines up with a door and walks through it (a 1 m plan grid round a ~1 m
+-- doorway circled his house 2.6 m from the goal for 52 s, live 04:21Z). Floor points (route Z = his feet).
+function M._doorway_path(me, goal, hh)
+    local okf, all = pcall(FindAllOf, "BP_BaseBuilding_BaseActor_C")
+    local best, bscore
+    for _, a in ipairs(okf and type(all) == "table" and all or {}) do
+        local c = door_prompt(a) and M._door_frame(a)
+        if c and d2(c, goal) <= M.cfg.door_find_cm and math.abs(c.Z - goal.Z) < 400 then
+            local r = math.rad(c.yaw)
+            for _, n in ipairs({ { X = math.cos(r), Y = math.sin(r) }, { X = -math.sin(r), Y = math.cos(r) } }) do
+                local sm = (me.X - c.X) * n.X + (me.Y - c.Y) * n.Y
+                local sg = (goal.X - c.X) * n.X + (goal.Y - c.Y) * n.Y
+                if sm * sg < 0 and math.abs(sm) >= 60 and math.abs(sg) >= 30 then
+                    local score = d2(c, goal)
+                    if not bscore or score < bscore then best, bscore = { c = c, n = n, s = sm > 0 and 1 or -1, name = door_name(a) }, score end
+                end
+            end
+        end
+    end
+    if not best then return nil end
+    local c, n, s, fz = best.c, best.n, best.s, me.Z - hh
+    local function at(k) return { X = c.X + n.X * s * k, Y = c.Y + n.Y * s * k, Z = fz } end
+    -- (and on to the goal: once in, the oracle's route led back out round the house, live 05:47:33Z)
+    return { at(M.cfg.doorway_out_cm), at(0), at(-M.cfg.doorway_out_cm), { X = goal.X, Y = goal.Y, Z = fz } }, best
+end
+
 -- the shut door nearest the goal (within door_find_cm of it) that is nearer the goal than he is: open it (door_begin)
+function M._doorway_begin(st, me, goal, log)
+    -- again while he is still on the outside (a plan or a stuck dropped the line-up: live 05:12Z), up to 3 times
+    if not goal or (st.mpath and st.msrc == "doorway") or (st.doorway_n or 0) >= 3 then return false end
+    local okw, pts, dw = pcall(M._doorway_path, me, goal, st.half_h or 90)
+    if not (okw and pts) then return false end
+    st.doorway_used, st.doorway_n = true, (st.doorway_n or 0) + 1
+    st.mpath, st.mwp, st.msrc, st.lpath, st.lwp = pts, 1, "doorway", nil, nil
+    st.wet, st.wet_t, st.water_replan = nil, nil, nil
+    if log then log(string.format("move: the goal is through the doorway of %s at (%.1f,%.1f): lining up 1 m out, then through it",
+        tostring(dw.name), dw.c.X / 100, dw.c.Y / 100)) end
+    return true
+end
 function M._door_to_goal(st, t, me, goal, dist, log)
     if not goal then return false end
+    if M._doorway_begin(st, me, goal, log) then return true end
     local okd, d = pcall(shut_door_near, goal, me, M.cfg.door_find_cm)
     if not (okd and d) or d2(d.at, goal) >= dist then return false end
     return door_begin(st, t, log, d)
@@ -1075,7 +1164,8 @@ local function door_step(f)
         if not inv then door_end(st, t, false, "no interact key (inventory module)", log); return false end
         local okt, tg = pcall(inv.interact_target, pawn)
         local on = okt and type(tg) == "table" and tg.prompt and tostring(tg.prompt):lower():find("door", 1, true)
-        if on and t - d.aim_t > 0.1 then
+        local _, ready = M._hinge(d.actor)
+        if on and t - d.aim_t > 0.1 and ready ~= false then
             pcall(inv.press_interact, log)
             d.phase, d.press_t, d.presses = "wait", t, d.presses + 1
         elseif t - d.aim_t > 2.0 then
@@ -1086,8 +1176,9 @@ local function door_step(f)
     end
     if d.phase == "wait" then
         if t - d.press_t < 0.5 then return true end
-        local pr = door_prompt(d.actor)
-        if pr and not pr:lower():find("open", 1, true) then door_end(st, t, true, nil, log); return false end
+        if not M._door_shut(d.actor) then door_end(st, t, true, nil, log); return false end
+        -- (not again while it may still be swinging: up to 1.5 s after the press)
+        if t - d.press_t < 1.5 and select(2, M._hinge(d.actor)) == false then return true end
         if d.presses < 2 then d.phase, d.aim_t = "aim", t; return true end
         door_end(st, t, false, "it stayed shut after 2 presses", log)
         return false
@@ -1507,6 +1598,9 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
             for _, q in ipairs(st.felt or {}) do -- (stuck_tick: where he was stopped)
                 if math.abs(q.X - x) < 70 and math.abs(q.Y - y) < 70 then c = c + M.cfg.felt_cell_cost end
             end
+            for _, m in ipairs(st.mobs or {}) do -- (M._mob_replan: idle hostiles in sight)
+                if (m.X - x) ^ 2 + (m.Y - y) ^ 2 < m.r * m.r then c = c + M.cfg.mob_cell_cost end
+            end
             return c
         end,
         -- a goal IN water (a pond to drink from, a ford) is aimed at as it is: no swap for dry ground
@@ -1520,6 +1614,19 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
                 local mem, NMm = nav_mem()
                 if mem then NMm.mark_water(mem, { X = x, Y = y, Z = floor_z }) end
                 return true
+            end
+            return false
+        end or nil,
+        -- a drop the cliff guard refused is a wall to every plan of this move (live 05:44:17Z: refused at (130,1971),
+        -- the next plan walked the same edge and he fell 34 m)
+        -- and so is the ring round a spot that killed him (navmem hazards: cliff_guard never lets him step within
+        -- hazard_standoff_cm of one), so a plan goes round it to a goal beside it (his grave by the 05:44Z drop)
+        forbid = not observe and function(x, y)
+            for _, q in ipairs(st.drop_pts or {}) do if (q.X - x) ^ 2 + (q.Y - y) ^ 2 < 8100 then return true end end
+            local mem, NMm = nav_mem()
+            if mem and NMm.hazard_near and mem.hazards and #mem.hazards > 0 then
+                local okh, h = pcall(NMm.hazard_near, mem, { X = x, Y = y, Z = me.Z - hh }, M.cfg.hazard_standoff_cm + 40)
+                if okh and h then return true end
             end
             return false
         end or nil })
@@ -3231,6 +3338,18 @@ local function steer_local(f)
     if p.act == "jump" or p.act == "djump" then return steer_typed_jump(f, p) end
 end
 
+-- A high crumb with our own ground right under it (a trace down from it): nothing up there to walk on, he was over
+-- open ground (a hop the ghost recorded as on-ground, or a log since chopped: doric follow 04:59Z "his path goes 1.8 m
+-- up here; walking below him" sent him 12 s round to nowhere). Cached on the crumb.
+function M._crumb_floats(pawn, cr, me, st)
+    if cr.floats == nil then
+        local ok, hit, out = pcall(raw_trace, pawn, { X = cr.X, Y = cr.Y, Z = cr.Z }, { X = cr.X, Y = cr.Y, Z = cr.Z - 800 })
+        local fz = ok and hit and out and out.ImpactPoint and out.ImpactPoint.Z
+        cr.floats = (type(fz) == "number" and fz - (me.Z - (st.half_h or 90)) < step_tol(st) + 40) or false
+    end
+    return cr.floats
+end
+
 -- the leader's trail: hold at the take-off of a move of his we lack (a gap); jump where he jumped
 local function steer_trail(f)
     local st, pawn, t, me, log = f.st, f.pawn, f.t, f.me, f.log
@@ -3268,6 +3387,12 @@ local function steer_trail(f)
                 cr, found = q, true
                 break
             end
+        end
+        if not found and M._crumb_floats(pawn, cr, me, st) then
+            -- nothing up there to walk on (our own ground under it): that crumb is past, the trail goes on (live 05:14Z:
+            -- he stood under such a crumb, aim 1.8 m straight up, "stuck")
+            st.trail_i = math.min(#st.crumbs, st.trail_i + 1)
+            return
         end
         if not found then
             if log then log(string.format("move: trail: his path goes %.1f m up here; walking below him until it comes down",
@@ -3451,6 +3576,9 @@ end
 function M._wet_tick(f)
     local st, pawn, me, t, log, goal = f.st, f.pawn, f.me, f.t, f.log, f.goal
     if st.wade or st.in_water or st.local_authority or st.ticks % 3 ~= 0 then return end
+    -- lining up through a doorway (its last 2 m): no detour round water (live 04:51-55Z, his house by a pond: a dry
+    -- detour and the doorway pulled him back and forth, 22 plans)
+    if st.doorway_used then return end
     local mem, NMm = nav_mem()
     local WRm = M._wf.module()
     if not (mem and NMm and NMm.is_water and WRm) then return end
@@ -3550,6 +3678,13 @@ end
 -- ~6 m ahead on a remembered or oracle route (it knows the way round cliffs and hills); else the goal
 local function far_goal(f)
     local st, me = f.st, f.me
+    if st.doorway_used then st.wet = nil end -- (through a doorway: its frame points, never a water detour)
+    -- the doorway line-up beats the oracle's route: its waypoint outside pulled every wall_ahead plan back out
+    -- toward (172.8,1920) from 1 m before the door (live 05:45:54-05:46:10Z, 12 plans)
+    if st.msrc == "doorway" and st.mpath and st.mwp and st.mpath[st.mwp] then
+        local q = st.mpath[st.mwp]
+        return { X = q.X, Y = q.Y, Z = q.Z + (st.half_h or 90) }
+    end
     if st.wet and st.wet.pts[st.wet.i] then local q = st.wet.pts[st.wet.i]; return { X = q.X, Y = q.Y, Z = me.Z } end
     if st.nav_required and st.path and st.wp and st.wp <= #st.path then return st.path[st.wp] end
     if st.trail_i then return st.crumbs[math.min(#st.crumbs, st.trail_i + M.cfg.trail_lookahead)] end
@@ -3620,6 +3755,68 @@ local function zone_replan(f)
     end
 end
 
+-- IDLE HOSTILES on the way: Aggressive creatures (LoadedData.Archetype 0) in sight that are not in combat yet
+-- (CurrentAlertnessState not to_combat/combat), alive, within mob_scan_cm; none near the goal (the rat he walks up to
+-- fight, the player he follows past them). Each is a mob_r_cm circle of planner cost; a way ahead that crosses one is
+-- re-planned once per set of them (a way round costs at most a few seconds; no way round = walk on through).
+function M._mobs_scan(st, t, me, goal)
+    if t - (st.mobs_t or -99) < M.cfg.mob_scan_s then return st.mobs end
+    st.mobs_t = t
+    local out, ids = {}, {}
+    local okf, all = pcall(FindAllOf, "DominionAICharacter")
+    for _, a in ipairs(okf and type(all) == "table" and all or {}) do
+        local ok, m = pcall(function()
+            local l = a:K2_GetActorLocation()
+            if not l or d2(me, l) > M.cfg.mob_scan_cm or math.abs(l.Z - me.Z) > 600 then return nil end
+            if goal and d2(goal, l) < M.cfg.mob_goal_cm then return nil end
+            local data = a.LoadedData
+            if not (data and data:IsValid()) or tonumber(data.Archetype) ~= 0 then return nil end
+            local al = tonumber(a.CurrentAlertnessState)
+            if al == 3 or al == 4 then return nil end
+            local hc = a.HealthComponent
+            if hc and hc:IsValid() and hc:IsDead() then return nil end
+            if a:IsFollower() then return nil end
+            local nm = a:GetFName():ToString()
+            return { id = "mob:" .. nm, kind = "circle", X = l.X, Y = l.Y, Z = l.Z - 90, r = M.cfg.mob_r_cm, h = 400, until_s = t + 1e6, name = nm }
+        end)
+        if ok and m then out[#out + 1] = m; ids[#ids + 1] = m.name end
+    end
+    table.sort(ids)
+    local sig = table.concat(ids, ",")
+    if sig ~= st.mob_sig then st.mob_sig, st.mob_ver = sig, (st.mob_ver or 0) + 1 end
+    st.mobs = out
+    return out
+end
+function M._mob_replan(f)
+    local st, t, me, log = f.st, f.t, f.me, f.log
+    if not (M.cfg.mob_avoid and st.use_lp and (st.mode == "go_to" or st.mode == "follow")) or st.local_authority then return false end
+    local ok, mobs = pcall(M._mobs_scan, st, t, me, f.goal)
+    if not (ok and mobs and #mobs > 0) then return false end
+    if st.lpath and st.lp_mver == st.mob_ver then return false end -- this plan already weighed them
+    if st.mob_plan_ver == st.mob_ver or not may_plan(st, t) then return false end
+    local src = f.src
+    if src == "link" or src == "stepoff" or src == "bug2" or src == "backtrack" or src == "avoid_exit" then return false end
+    local AZm = az_module()
+    if not AZm then return false end
+    local mfeet = me.Z - (st.half_h or 90)
+    local zc
+    if st.lpath then zc = AZm.on_route(mobs, { X = me.X, Y = me.Y, Z = mfeet }, st.lpath, st.lwp, mfeet, 40)
+    else
+        local L = math.min(f.dist or 0, M.cfg.lp_grid_m * 100)
+        zc = AZm.on_segment(mobs, me, { X = me.X + (f.dx or 0) * L, Y = me.Y + (f.dy or 0) * L }, mfeet, 40)
+    end
+    if not zc then return false end
+    st.mob_plan_ver = st.mob_ver
+    st.lpath = nil
+    if lp_begin(st, f.pawn, me, far_goal(f), "hostile " .. tostring(zc.name), log) then
+        st.lp_mver = st.mob_ver
+        st.status = "planning"
+        if log then log(string.format("move: a %s (idle, hostile) %.0f m off my way: planning round it", tostring(zc.name), d2(me, zc) / 100)) end
+        return true
+    end
+    return false
+end
+
 -- forward wall probe (a few per second): a steep hit at knee height ahead -> plan round it; blocked at the knee
 -- but clear at jump height = a low obstacle (a felled log): jump it. Water entered, or known water ahead -> re-plan.
 local function probe(f)
@@ -3627,6 +3824,12 @@ local function probe(f)
     if not (st.use_lp and not st.lpath and src ~= "backtrack" and src ~= "link" and src ~= "bug2" and src ~= "stepoff"
         and t - (st.probe_t or 0) > M.cfg.probe_every_s and may_plan(st, t)) then return end
     st.probe_t = t
+    -- a goal through a built doorway: line up with its frame as soon as it is near, before a remembered route or a
+    -- plan walks him into the house's wall (live 04:40Z: a route remembered from before the house stood, 25 s)
+    if st.mode == "go_to" and not st.door and dist < 1500 and t - (st.doorway_t or -9) > (st.doorway_used and 3.0 or 1.0) then
+        st.doorway_t = t
+        if M._doorway_begin(st, me, f.goal, log) then return true end
+    end
     local hh = st.half_h or 90
     local knee = me.Z - hh + 50
     -- start 60 cm out: from Claude's centre the ray hits his own attached gear (live 19:22)
@@ -3667,12 +3870,12 @@ local function probe(f)
         end
     end
     if low then return end
-    if st.water_replan then
+    if st.water_replan and not st.doorway_used then
         st.water_replan = nil
         if lp_begin(st, pawn, me, far_goal(f), "water", log) then st.status = "planning"; return true end
     end
     -- known water a few metres ahead on the way (e.g. an oracle route through shallow water)
-    if not st.lpath and not st.in_water and not st.wade and dist > 1000 and not st.trail_i then
+    if not st.lpath and not st.in_water and not st.wade and dist > 1000 and not st.trail_i and not st.doorway_used then
         local mem, NMm = nav_mem()
         if mem and next(mem.water or {}) then
             for _, k in ipairs({ 300, 600, 900 }) do
@@ -3796,6 +3999,24 @@ function M.unsafe_ahead(pawn, dx, dy)
     local st = { drop_m = math.floor(worst / 100 + 0.5), drop_more = worst >= safe + 300, drop_steep = steep }
     return M.drop_words(st)
 end
+-- For skills that pick a spot to walk to (explore's legs): the ground under p = {x, y, z} m, traced from 30 m above
+-- it down past a safe fall. -> {ok, floor_z (m) | nil (nothing within a safe fall below: a cliff, the world's edge),
+-- fall_m, safe_m}. Live 2026-11-02 05:44Z: an explore leg 40 m north of Temple Woods' edge pointed over the void.
+function M.ground_at(log, p)
+    if type(p) ~= "table" or not tonumber(p[1]) or not tonumber(p[2]) then return { ok = false, error = "p {x,y,z} m needed" } end
+    local pc = local_pc()
+    local okp, pawn = pcall(function() return pc and pc.Pawn end)
+    if not (okp and pawn and pawn:IsValid()) then return { ok = false, why = "no_pawn" } end
+    local lim = rawget(_G, "DW_FALL_LIMITS") or {}
+    _G.DW_FALL_LIMITS = lim
+    local safe = fall_limits(lim, pawn)
+    local x, y, z = p[1] * 100, p[2] * 100, (tonumber(p[3]) or 0) * 100
+    -- (from 30 m up: a trace starting inside a hillside finds no landscape under it)
+    local ok, hit, out = pcall(raw_trace, pawn, { X = x, Y = y, Z = z + 3000 }, { X = x, Y = y, Z = z - safe })
+    if not ok then return { ok = false, why = "trace_failed" } end
+    local fz = hit and out and out.ImpactPoint and tonumber(out.ImpactPoint.Z)
+    return { ok = true, floor_z = fz and fz / 100 or nil, fall_m = fz and math.max(0, (z - fz) / 100) or nil, safe_m = safe / 100 }
+end
 local function cliff_guard(f)
     local st, pawn, t, me, log, dx, dy = f.st, f.pawn, f.t, f.me, f.log, f.dx, f.dy
     if st.wade or st.in_water or st.jump_t or (st.ticks or 0) % 2 ~= 0 then return end
@@ -3823,6 +4044,17 @@ local function cliff_guard(f)
         local okh, h, hd = pcall(HNM.hazard_near, hmem, ahead, M.cfg.hazard_standoff_cm)
         if okh and h then
             local hc = { X = h.at[1] * 100, Y = h.at[2] * 100, Z = h.at[3] * 100 }
+            -- a goal outside its ring (his grave beside the drop: live 06:18:40Z, the spot lay on the straight way to
+            -- it): plan round the ring (lp_begin forbids it), twice at most, before giving up
+            local gf = f.goal and feet_of(st, f.goal)
+            if hd < d2(fe, hc) and st.mode == "go_to" and st.use_lp and gf and d2(gf, hc) > M.cfg.hazard_standoff_cm
+                and (st.hz_plans or 0) < 2 and t - (st.hz_plan_t or -9) > 1.5 then
+                st.hz_plans, st.hz_plan_t = (st.hz_plans or 0) + 1, t
+                st.win_t, st.win_pos = t, v(me)
+                st.lpath, st.lwp = nil, nil
+                if log then log(string.format("move: hazard: the drop that killed me at [%.1f,%.1f] is on my way; planning round it", h.at[1], h.at[2])) end
+                if lp_begin(st, pawn, me, f.goal, "hazard", log) then st.status = "planning"; return true end
+            end
             if hd < d2(fe, hc) then
                 local detail = string.format("I stopped %.1f m short of a drop that killed me %d time(s) at [%.1f,%.1f]%s; I don't go closer than %.0f m to it",
                     d2(fe, hc) / 100, h.n or 1, h.at[1], h.at[2], h.drop_m and string.format(" (a %d m fall)", h.drop_m) or "",
@@ -3850,6 +4082,14 @@ local function cliff_guard(f)
     st.drop_m = math.floor(worst / 100 + 0.5)
     st.drop_more = worst >= safe + 300 -- no floor within reach of the trace: "more than N m"
     st.cliff_n = (st.cliff_n or 0) + 1
+    st.drop_pts = st.drop_pts or {}
+    do
+        local l = math.max(math.sqrt(dx * dx + dy * dy), 1e-6)
+        for _, k in ipairs(steep and { 70, 120, 200, 300, 450, 600 } or { 70, 120 }) do
+            st.drop_pts[#st.drop_pts + 1] = { X = me.X + dx / l * k, Y = me.Y + dy / l * k }
+        end
+        while #st.drop_pts > 60 do table.remove(st.drop_pts, 1) end
+    end
     st.win_t, st.win_pos = t, v(me)
     if log then log(string.format("move: %s at (%.0f,%.0f) on %s (safe fall %d m); not stepping off",
         M.drop_words(st), me.X / 100, me.Y / 100, tostring(f.src), math.floor(safe / 100))) end
@@ -4449,7 +4689,7 @@ local function tick(st, gen, log)
     end
     f.dx, f.dy = dx, dy
     prefetch(f)
-    if zone_replan(f) or probe(f) or local_stall(f) or cliff_guard(f) or killz(f) or steer_input(f) then return end
+    if zone_replan(f) or M._mob_replan(f) or probe(f) or local_stall(f) or cliff_guard(f) or killz(f) or steer_input(f) then return end
     sprint_tick(f)
     -- an owned airborne or landing transaction must not enter the ordinary stuck ladder
     if st.local_authority and (st.lp_jump_exec or st.ws_exec or st.jump_t) then

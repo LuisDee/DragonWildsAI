@@ -42,6 +42,8 @@ function M.status()
     end
     return { mode = S.move.mode, status = S.move.status, result = S.move.result, ticks = 1 }
 end
+-- move.ground_at: FAKE.ground_at(p) when a test sets it (a void: floor_z nil), else level ground
+function M.ground_at(log, p) local G = rawget(_G, "FAKE") or S; if G.ground_at then return G.ground_at(p) end return { ok = true, floor_z = 0 } end
 function M.encumbrance() return S.move.enc end -- {on, cur, max} (move.encumbrance)
 M.VERSION = 1
 return M

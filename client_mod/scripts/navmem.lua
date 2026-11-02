@@ -113,6 +113,100 @@ function NM.water_spot_near(mem, p, max_cm)
     return best
 end
 
+-- ------------------------------------------------------------------ gather spots (where GATHERING worked)
+-- {item, name, at = {x,y,z} m, n = items gained there in all, picks, first_ts, ts}: where his count of an item rose
+-- during a gather (gather.lua), merged per item within gather_merge_cm. What a player remembers ("flax grows east of
+-- the house, I picked 10 there"), per world, across runs and brains. Read back as a fact when that item is wanted
+-- (gather / explore finding none, a craft short of it): NM.gather_spot_text. Agent memory precedent: Voyager /
+-- Mindcraft "memory of places" (brain/map_memory.py keeps the brain's sightings; this keeps what WORKED, body-side).
+NM.cfg.gather_merge_cm = NM.cfg.gather_merge_cm or 2000
+NM.cfg.gather_max = NM.cfg.gather_max or 300
+function NM.add_gather_spot(mem, item, name, at_cm, n, ts)
+    if type(item) ~= "string" or type(at_cm) ~= "table" or not tonumber(at_cm.X) then return nil end
+    mem.gather_spots = mem.gather_spots or {}
+    ts, n = ts or os.time(), math.max(1, math.floor(tonumber(n) or 1))
+    for _, g in ipairs(mem.gather_spots) do
+        if g.item == item and d2(cm(g.at), at_cm) <= NM.cfg.gather_merge_cm then
+            g.n, g.picks, g.name = (g.n or 0) + n, (g.picks or 0) + 1, name or g.name
+            if ts >= (g.ts or 0) then g.ts = ts end
+            if ts < (g.first_ts or ts) then g.first_ts = ts end
+            return g, false
+        end
+    end
+    local g = { item = item, name = name, at = m(at_cm), n = n, picks = 1, first_ts = ts, ts = ts }
+    mem.gather_spots[#mem.gather_spots + 1] = g
+    while #mem.gather_spots > NM.cfg.gather_max do -- the stalest spot goes first
+        local oi, ot = 1, math.huge
+        for i, x in ipairs(mem.gather_spots) do if (x.ts or 0) < ot then oi, ot = i, x.ts or 0 end end
+        table.remove(mem.gather_spots, oi)
+    end
+    return g, true
+end
+-- the spots whose item passes match(spot) (an item id string = that item), nearest to me_m ({x,y} m) first
+function NM.gather_spots(mem, match, me_m)
+    local out = {}
+    for _, g in ipairs(mem and mem.gather_spots or {}) do
+        local ok = (type(match) == "string" and g.item == match) or (type(match) == "function" and match(g))
+        if ok then
+            local c = { item = g.item, name = g.name, at = g.at, n = g.n, picks = g.picks, ts = g.ts, first_ts = g.first_ts }
+            if type(me_m) == "table" and tonumber(me_m[1]) then
+                c.dist_m = math.sqrt((g.at[1] - me_m[1]) ^ 2 + (g.at[2] - me_m[2]) ^ 2)
+            end
+            out[#out + 1] = c
+        end
+    end
+    table.sort(out, function(a, b) return (a.dist_m or 0) < (b.dist_m or 0) end)
+    return out
+end
+-- compass word from a to b (metres, game axes: +X east, +Y SOUTH)
+local COMPASS8 = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" }
+function NM.compass(a, b)
+    local dx, dy = b[1] - a[1], b[2] - a[2]
+    local deg = math.deg(math.atan(-dy, dx)) % 360
+    return COMPASS8[math.floor((deg + 22.5) / 45) % 8 + 1]
+end
+local function ago(s)
+    if s < 5400 then return math.max(1, math.floor(s / 60 + 0.5)) .. " min ago" end
+    return string.format("%.1f h ago", s / 3600)
+end
+-- One sentence of what he remembers gathering (spots from NM.gather_spots, nearest first), or nil:
+-- "Flax you've picked before: 10 about 245 m NE at (394, 1713), last 02:25Z (5.2 h ago); 3 about ... ."
+-- opts.beyond_m: spots this close count as searched just now (named as picked out, not as a place to go);
+-- opts.max (3). A picked patch's comeback is said from what he saw, never promised.
+function NM.gather_spot_text(spots, me_m, now, opts)
+    opts = opts or {}
+    if type(spots) ~= "table" or #spots == 0 then return nil end
+    now = now or os.time()
+    local parts, inside, name = {}, 0, nil
+    for _, g in ipairs(spots) do
+        name = name or g.name or g.item
+        if opts.beyond_m and g.dist_m and g.dist_m <= opts.beyond_m then
+            inside = inside + 1
+        elseif #parts < (opts.max or 3) then
+            local where = string.format("at (%d, %d)", math.floor(g.at[1] + 0.5), math.floor(g.at[2] + 0.5))
+            if g.dist_m and type(me_m) == "table" then
+                where = string.format("about %d m %s %s", math.floor(g.dist_m + 0.5), NM.compass(me_m, g.at), where)
+            end
+            parts[#parts + 1] = string.format("%d %s, last %s (%s)", g.n or 1, where, os.date("!%H:%MZ", g.ts or now),
+                ago(math.max(0, now - (g.ts or now))))
+        end
+    end
+    local s = tostring(name) .. " you've gathered before: " .. (#parts > 0 and table.concat(parts, "; ") or "only around here")
+    if inside > 0 then
+        s = s .. string.format(" (%d spot%s within %d m, none there now)", inside, inside == 1 and "" or "s", math.floor(opts.beyond_m))
+    end
+    -- what he has seen of regrowth (DISCOVERIES "pickup sweep", 2026-11-01): said as seen, never promised
+    return s .. ". Picked spots regrow: crops have taken over an hour, sticks and stones about 40 min."
+end
+-- the live client's one navigation memory (move.lua loads it into _G.DW_NAVMEM), or nil before the first walk
+function NM.shared() local mm = rawget(_G, "DW_NAVMEM"); return type(mm) == "table" and mm or nil end
+-- the sentence for the shared memory's spots passing match (an item id or a function), seen from here_m, or nil
+function NM.known_text(match, here_m, opts)
+    local mem = NM.shared()
+    if not mem then return nil end
+    return NM.gather_spot_text(NM.gather_spots(mem, match, here_m), here_m, os.time(), opts)
+end
+
 function NM.load(root, world, map)
     local P = NM.paths(root, world, map)
     local J = json(root)
@@ -122,6 +216,7 @@ function NM.load(root, world, map)
     mem = mem or NM.new_mem(world)
     mem.routes, mem.traps, mem.taboos = mem.routes or {}, mem.traps or {}, mem.taboos or {}
     mem.water_spots, mem.hazards = mem.water_spots or {}, mem.hazards or {}
+    mem.gather_spots = mem.gather_spots or {}
     local wl = mem.water_cells or {}
     mem.water, mem.water_cells = {}, nil
     for _, k in ipairs(wl) do mem.water[k] = true end
@@ -146,7 +241,8 @@ function NM.save(mem)
     local J = json(mem._root)
     if not J then return false end
     local out = { v = 1, world = mem.world, next_id = mem.next_id, routes = {}, traps = {}, taboos = {}, water_cells = {},
-                  water_spots = mem.water_spots or {}, hazards = mem.hazards or {} }
+                  water_spots = mem.water_spots or {}, hazards = mem.hazards or {},
+                  gather_spots = mem.gather_spots or {} }
     for k in pairs(mem.water or {}) do out.water_cells[#out.water_cells + 1] = k end
     for _, r in ipairs(mem.routes) do if not r.seed then out.routes[#out.routes + 1] = r end end
     for _, t in ipairs(mem.traps) do if not t.seed then out.traps[#out.traps + 1] = t end end
