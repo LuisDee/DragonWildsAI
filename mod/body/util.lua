@@ -35,6 +35,7 @@ function U.crumb(log, step, data) U.event(log, "crumb", { step = step, data = da
 function U.try(f, ...)
     local ok, v = pcall(f, ...)
     if ok then return v end
+    return nil -- one value, always: tonumber(U.try(...)) with zero values raised "value expected" (2026-11-01 22:51Z)
 end
 
 -- Like U.try, but returns nil, err_string on failure (for probes that report the error).

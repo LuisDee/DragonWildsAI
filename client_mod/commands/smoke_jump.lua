@@ -10,15 +10,13 @@ return function(log)
     _G.DW_SMOKE_JUMP = res
     pawn:Jump()
     for i = 1, 20 do
-        ExecuteWithDelay(i * 50, function()
-            ExecuteInGameThread(function()
-                if not pawn:IsValid() then return end
-                local dz = pawn:K2_GetActorLocation().Z - z0
-                res.samples = res.samples + 1
-                if dz > res.max_dz_cm then res.max_dz_cm = dz end
-                if i == 6 then pawn:StopJumping() end
-                if i == 20 then res.done = true end
-            end)
+        ExecuteInGameThreadWithDelay(i * 50, function() -- game thread only (DISCOVERIES "Dev server crash 2026-11-02")
+            if not pawn:IsValid() then return end
+            local dz = pawn:K2_GetActorLocation().Z - z0
+            res.samples = res.samples + 1
+            if dz > res.max_dz_cm then res.max_dz_cm = dz end
+            if i == 6 then pawn:StopJumping() end
+            if i == 20 then res.done = true end
         end)
     end
     return { ok = true, z0_cm = z0 }

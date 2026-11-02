@@ -117,8 +117,10 @@ local function rebuild_links_around(log, at)
         comp:SetStaticMesh(mesh)
         a:SetActorScale3D({ X = M.LINK_REBUILD_M, Y = M.LINK_REBUILD_M, Z = 0.2 })
     end)
-    ExecuteWithDelay(3000, function()
-        ExecuteInGameThread(function() pcall(function() a:K2_DestroyActor() end) end)
+    -- game-thread delay only: ExecuteWithDelay runs on UE4SS's async thread, and its ExecuteInGameThread pushed onto
+    -- the hook_lua stack the game thread was using (server crash 2026-11-02, DISCOVERIES "Dev server crash 2026-11-02")
+    ExecuteInGameThreadWithDelay(3000, function()
+        pcall(function() if a:IsValid() then a:K2_DestroyActor() end end)
     end)
     U.event(log, "nav_oracle_links_rebuild", { at = wire(at) })
     return true
