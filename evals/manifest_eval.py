@@ -246,9 +246,9 @@ def score_bag_food(calls, speech):
     m = first(calls, "move_item")
     if m and m["args"].get("to") == "hotbar":
         return ("PASS", "move_item then consume") if first(calls, "consume") else ("PASS", "move_item to hotbar")
-    if first(calls, "consume"):
-        return "PARTIAL", "consume straight from the bag (body answers in_bag)"
-    return "FAIL", "no move_item"
+    if first(calls, "consume"):  # the body drags a bag item to the hotbar and uses it (skills.lua consume, 2026-11-02)
+        return "PASS", "consume straight from the bag (the body moves it to the hotbar and uses it)"
+    return "FAIL", "no move_item or consume"
 
 
 CASES = [

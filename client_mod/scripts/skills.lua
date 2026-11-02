@@ -59,6 +59,7 @@ M.cfg = {
                             -- doesn't target it (live 2026-11-02 03:41: 3 x 3 s faces before a grave's press)
     nudge_scale = 0.3,
     verify_s = 4.0,         -- after a press: wait this long for the inventory to grow / the thing to go
+    container_find_m = 30,  -- store/take: a container named by what it is ("crate") is looked for this far
     no_progress_s = 25,     -- approach watchdog: no 0.5 m closer to the thing for this long ends the episode (live
     progress_m = 0.5,       -- 2026-10-25 21:57: interact cycled standing spots on an unreachable ledge for 101 s)
     presses = 2,            -- presses per thing before verification_failed
@@ -1235,6 +1236,10 @@ end
 local function used_data(api, job, now_v, now_n, rose)
     local d = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat, before = job.before,
         after = now_v, max = job.max, stat_rose = rose == true, count_left = now_n, fetched = job.fetched == true, risk = job.row.risk }
+    if job.moved_from_bag then
+        d.moved_to_hotbar = true
+        d.detail = "Moved the " .. tostring(job.row.name) .. " from my bag to my hotbar and " .. (job.row.consumable == "drink" and "drank" or "ate") .. " it."
+    end
     if type(job.before) == "number" and type(job.max) == "number" and job.before >= job.max - 1 then
         d.wasted = true
         d.detail = "My " .. tostring(job.stat) .. " was already full (" .. math.floor(job.before + 0.5) .. "/"
@@ -1269,8 +1274,20 @@ local function start_consume(api, args, ctx)
             return api.fail("unsafe", { item = r.item, name = r.name, risk = refuse.risk, detail = refuse.detail })
         end
         if r.where ~= "hotbar" then
-            return api.fail("in_bag", { item = r.item, name = r.name, offer = "move_item",
-                detail = "The " .. tostring(r.name) .. " is in my bag, not on my hotbar; I can only use things from the hotbar." })
+            -- a player drags it to the hotbar and presses it (main 2026-11-02: one call, not move_item + consume, which
+            -- cost a model turn and often an in_bag miss first). The bag "use" path stays off (the client hang, L-bag-use).
+            if job.moved_from_bag then
+                return api.fail("in_bag", { item = r.item, name = r.name, offer = "move_item",
+                    detail = "I moved the " .. tostring(r.name) .. " to my hotbar but it didn't get there." })
+            end
+            local mr = api.call("inventory", "move", r.item, "hotbar")
+            if not mr.ok then
+                return api.fail("in_bag", { item = r.item, name = r.name, offer = "move_item", why = mr.reason,
+                    detail = "The " .. tostring(r.name) .. " is in my bag and I couldn't move it to my hotbar ("
+                        .. tostring((mr.data or {}).detail or mr.reason) .. ")." })
+            end
+            job.moved_from_bag, job.phase, job.move_until = r, "to_hotbar", api.now() + 3
+            return nil
         end
         job.stat = STAT_OF[r.consumable]
         job.row, job.phase = r, "use"
@@ -1349,6 +1366,14 @@ local function start_consume(api, args, ctx)
     job.on_resume = function() if job.fetch and job.fetch.on_resume then job.fetch.on_resume() end end
     job.step = function(t)
         if job.phase == "use" then return use_step(job.row) end
+        if job.phase == "to_hotbar" then -- dragged from the bag: press it once the hotbar lists it
+            local l2 = api.call("inventory", "list")
+            for _, x in ipairs(l2.ok and inv_rows(l2.data) or {}) do
+                if x.item == job.moved_from_bag.item and x.where == "hotbar" then job.row, job.phase = x, "use"; return use_step(x) end
+            end
+            if t >= job.move_until then return use_step(job.moved_from_bag) end -- says it didn't get there
+            return nil
+        end
         if job.phase == "fetch" then
             local fr = job.fetch.step(t)
             if not fr then return nil end
@@ -2606,6 +2631,43 @@ local function free_or_same(rows, slots, item, skip)
     return nil
 end
 M._free_or_same = free_or_same
+-- A container by id, else by what a player calls it ("crate", "chest", "Ash Chest", "storage"): the nearest storage
+-- whose name, class or kind matches (live 2026-11-02 07:39Z: "crate" with his Crate 1 m off was "I can't see that
+-- chest anywhere near me"). None: the storage that IS near, by name and distance. -> thing | nil, fail data
+local ANY_STORAGE = { storage = true, container = true, box = true, chest = true, crate = true }
+local function is_storage(t)
+    local h = (tostring(t.class or "") .. " " .. tostring(t.name or "")):lower()
+    return t.kind == "storage" or t.chest == true or h:find("chest", 1, true) ~= nil or h:find("crate", 1, true) ~= nil
+        or h:find("storage", 1, true) ~= nil
+end
+local function find_container(api, what)
+    local t, r = api.find_thing(what)
+    if t then return t end
+    local things = type(api.census_things) == "function" and api.census_things(M.cfg.container_find_m, 100) or {}
+    local lw = lower(what):gsub("^the ", ""):gsub("^my ", "")
+    local word = lw:gsub("s$", "")
+    local near = {}
+    for _, x in ipairs(things or {}) do if is_storage(x) then near[#near + 1] = x end end
+    table.sort(near, function(a, b) return (tonumber(a.distance) or math.huge) < (tonumber(b.distance) or math.huge) end)
+    local best
+    for _, x in ipairs(near) do
+        local h = (tostring(x.class or "") .. " " .. tostring(x.name or "")):lower()
+        if lower(x.name) == lw or (ANY_STORAGE[word] and (word == "chest" or word == "crate") and h:find(word, 1, true))
+            or (ANY_STORAGE[word] and word ~= "chest" and word ~= "crate")
+            or (type(api.match_score) == "function" and api.match_score(x, what) >= 1) then best = x; break end
+    end
+    if best then return best end
+    local d = copy(r and r.data)
+    local list = {}
+    for i, x in ipairs(near) do
+        if i > 4 then break end
+        list[#list + 1] = string.format("%s (%s)", tostring(x.name or x.class), x.distance and (math.floor(x.distance + 0.5) .. " m") or "near")
+    end
+    d.target, d.storage_near = what, list
+    d.detail = "I can't see a " .. tostring(what) .. " near me" .. (#list > 0 and ("; the storage near me: " .. table.concat(list, ", ") .. ".")
+        or "; there's no chest or crate within " .. M.cfg.container_find_m .. " m.")
+    return nil, d
+end
 local function input_mod(api) local m = api.module("input"); return m and type(m.claim) == "function" and m or nil end
 local function in_container(rows, what, api) return (api.resolve_name(rows, what)) end
 local function contents_words(rows)
@@ -2688,11 +2750,8 @@ local function start_transfer(api, args, ctx, deposit)
         return api.fail("no_permission", { why = "open_chests",
             detail = "The server hasn't given me rights to open chests here, so I can't use it." })
     end
-    local t, r = api.find_thing(args.container)
-    if not t then
-        local d = copy(r and r.data); d.detail = "I can't see that chest anywhere near me."
-        return api.fail("unknown_target", d)
-    end
+    local t, r = find_container(api, args.container)
+    if not t then return api.fail("unknown_target", r) end
     local inv = invm.inventory_of(api.actor_of(t))
     if not inv then
         return api.fail("not_a_container", { container = t.id, detail = "The " .. tostring(t.name or "thing") .. " isn't something I can store things in." })
@@ -3267,7 +3326,7 @@ M.MANIFEST = {
         reasons = { "unknown_target", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },
     consume = { kind = "action", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 30,
         detail_is_speech = SPEAKS,
-        description = "Eat or drink one item from your hotbar (bag items: move_item first; ground items: interact first). "
+        description = "Eat or drink one item you carry (a bag item is dragged to your hotbar and used; ground items: interact first). "
             .. "Food and drink each have their own use lock (~6 s): a drink right after a food goes at once, a second "
             .. "food waits ~6 s for the first.",
         args = { type = "object", required = { "item" }, properties = obj({

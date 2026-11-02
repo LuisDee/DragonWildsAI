@@ -408,13 +408,19 @@ test("consume: crash-safety mechanism (BUGS L38): a crash-risk item is refused w
     inv.crash_refusal = real
 end)
 
-test("consume: in the bag -> in_bag + offer; not carried -> not_in_inventory; no stat change -> verification_failed", function()
+test("consume: in the bag -> dragged to the hotbar and used, said so; a drag that fails -> in_bag; not carried; no stat change", function()
     reset()
     F.cons = { { name = "Forager's Sandwich", item = "ITEM_Food_Sandwich", count = 3, consumable = "food", where = "bag",
                  stat = "sustenance", amount = 20 } }
-    local r = rpc("consume", { item = "sandwich" })
-    assert(r.reason == "in_bag" and r.data.offer == "move_item" and r.data.detail:find("bag"), json.encode(r))
-    assert(F.uses == 0, "no bag-UI use")
+    local r0, cid = rpc("consume", { item = "sandwich" })
+    local r = r0 or run(cid, 20)
+    assert(r and r.ok and r.data.moved_to_hotbar and F.cons[1].where == "hotbar" and F.uses == 1, json.encode(r))
+    assert(r.data.detail == "Moved the Forager's Sandwich from my bag to my hotbar and ate it.", r.data.detail)
+    F.cons[1].where, F.move_noop = "bag", true -- the drag doesn't take: never a bag-UI use
+    r0, cid = rpc("consume", { item = "sandwich" })
+    r = r0 or run(cid, 20)
+    F.move_noop = nil
+    assert(r.reason == "in_bag" and r.data.offer == "move_item" and r.data.detail:find("didn't get there", 1, true) and F.uses == 1, json.encode(r))
     r = rpc("consume", { item = "potato" })
     assert(r.reason == "not_in_inventory" and r.data.detail:find("potato"), json.encode(r))
     r = rpc("consume", { item = "Oak Logs" })
@@ -475,7 +481,6 @@ test("move_item bag -> hotbar (verified), then consume works; equip verified in 
     reset()
     F.cons = { { name = "Forager's Sandwich", item = "ITEM_Food_Sandwich", count = 3, consumable = "food", where = "bag",
                  stat = "sustenance", amount = 20 } }
-    assert(rpc("consume", { item = "Forager's Sandwich" }).reason == "in_bag")
     local id = send("move_item", { item = "Forager's Sandwich", to = "hotbar" })
     local m = run(id, 10)
     assert(m and m.ok and m.data.to == "hotbar" and F.cons[1].where == "hotbar", json.encode(m))
@@ -2001,6 +2006,20 @@ test("store: the same store again while it runs joins it ('I was already doing t
     end
     assert(r1 and r1.ok and r1.data.count == 8 and F.transfers == 2, json.encode(r1))
     assert(r2 and r2.ok and r2.data.joined and r2.data.count == 8 and r2.data.detail:find("^I was already doing that: Put 8 Oak Logs"), json.encode(r2))
+    F.chests, F.open_chest = nil, nil
+end)
+
+test("store/take: a container named by what it is ('chest', 'the Wooden Chest', 'storage'); none -> the storage that is near", function()
+    -- live 07:39Z: "crate" with his Crate 1 m off -> "I can't see that chest anywhere near me"
+    for _, name in ipairs({ "chest", "the Wooden Chest", "storage", "Chests" }) do
+        chest_world()
+        local _, id = rpc("store", { item = "Oak Logs", container = name, count = 1 })
+        local r = run(id, 80)
+        assert(r and r.ok and r.data.container == "chest_1", name .. ": " .. json.encode(r))
+    end
+    chest_world()
+    local r = rpc("store", { item = "Oak Logs", container = "crate" })
+    assert(r.reason == "unknown_target" and r.data.detail:find("I can't see a crate near me; the storage near me: Wooden Chest", 1, true), json.encode(r))
     F.chests, F.open_chest = nil, nil
 end)
 

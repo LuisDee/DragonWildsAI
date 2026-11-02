@@ -341,6 +341,27 @@ def t_human(steps: list, base: dict | None = None, travel_m: float = 0.0) -> tup
     return round(total, 1), parts, prov
 
 
+# Read-only lookups change nothing in the world and their time is already in the time bar: an ambiguous or not-found
+# answer from one is no miss (main 2026-11-02). World actions that failed, and action collisions (still_running), are.
+READ_ONLY_TOOLS = frozenset({"craft_plan", "recipes", "inventory", "look", "inspect", "stations", "buildables", "where",
+                             "world_info", "quests", "lodestones", "spells", "get_state", "my_places", "recall"})
+NO_MISS_REASONS = frozenset({"interrupted"})
+
+
+def count_fumbles(brain: list[dict]) -> int:
+    """The misses of a leg from its brain-log tool results: failed calls, less interruptions (the player spoke or
+    another command took over) and read-only lookups (READ_ONLY_TOOLS). One rule for every gate (rung1/3/4, farm, coplay)."""
+    n = 0
+    for r in brain:
+        res = r.get("result") or {}
+        if r.get("kind") != "tool_result" or res.get("ok") is not False:
+            continue
+        if res.get("reason") in NO_MISS_REASONS or r.get("tool") in READ_ONLY_TOOLS:
+            continue
+        n += 1
+    return n
+
+
 def level(done: bool, wall_s: float | None, t_h: float, corrections: int, fumbles: int, items: int, deaths: int,
           told: bool, false_claims: int, timed: bool = True) -> tuple[str | None, list[str]]:
     """(H | A | None, the reasons it is not H / not A). timed=False leaves the time test out (the "clean" reading:

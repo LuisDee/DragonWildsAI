@@ -1503,7 +1503,9 @@ M.ATTACKED_REPEAT_S = 5
 -- nothing to eat/drink for it in the inventory (the stay-fed reflex would handle it otherwise).
 -- Checked every VITALS_CHECK_S from sense.me (so it works without the watcher); re-armed once the
 -- stat is back above VITALS_REARM, repeated every VITALS_REPEAT_S while it stays low.
-M.VITALS_LOW, M.VITALS_REARM, M.VITALS_CHECK_S, M.VITALS_REPEAT_S = 15, 25, 2, 180
+-- VITALS_CHECK_S 0.5 (was 2): the wake is the event, not a 2 s poll (live r1-20261102T065157Z: stat set at 0.8 s,
+-- vitals_low at 2.4 s); one sense.me read per check, the inventory only when a stat is low.
+M.VITALS_LOW, M.VITALS_REARM, M.VITALS_CHECK_S, M.VITALS_REPEAT_S = 15, 25, 0.5, 180
 M.VITAL_NEEDS = { hydration = "drink", sustenance = "food" }
 
 -- The bars of a vitals row ({sustenance = {v, max}, ...} or {survival = {...}}) as percent of their max then:

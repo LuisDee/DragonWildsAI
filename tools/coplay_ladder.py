@@ -365,8 +365,7 @@ def standard(rec: dict, rows: list[dict], done: bool | None, done_at: float | No
     stop) have no time test: done is A, H when follow kept >= 90 % (stop: done is H). Timed kinds: T_h = reaction +
     the walk to the target at sprint speed + Luis's baseline time for the work (data/baselines, else provisional)."""
     kind, t0 = rec["kind"], rec["t0"]
-    fumbles = sum(1 for r in rows if r.get("kind") == "tool_result" and (r.get("result") or {}).get("ok") is False
-                  and (r.get("result") or {}).get("reason") not in ("interrupted",))
+    fumbles = ss.count_fumbles(rows)
     told = any(r.get("kind") == "say" for r in rows)
     if kind in ("follow", "stop"):
         lv, why = ss.level(bool(done), 0.0, 1.0, 0, fumbles, 1, deaths, told, 0 if truthful else 1, timed=False)
