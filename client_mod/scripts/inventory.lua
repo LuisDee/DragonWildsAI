@@ -172,6 +172,7 @@ function M.describe_item(it)
         max_durability = num(U.try(function() return it:GetMaxDurability() end)),
         kind = U.class_word(it), -- Item / HeldEquipmentItem / WearableEquipment / ...
         category = text(U.try(function() return data.Category.TagName end)),
+        max_stack = num(U.try(function() return data.MaxStackSize end)), -- a split into a free slot never more (skills store)
     }
     if d.max_durability and d.max_durability <= 0 then d.max_durability, d.durability = nil, nil end
     -- Food / drink / potion by CLASS (UObject:IsA on the item data). Never by property presence:
@@ -503,13 +504,13 @@ function M.consume_busy(kind)
     for _, k in ipairs(keys) do
         local u = USING[k]
         if type(u) == "table" and u.until_t and now < u.until_t then
-            return { item = u.item, kind = k, left_s = math.ceil((u.until_t - now) * 10) / 10 }
+            return { item = u.item, kind = k, by = u.by, left_s = math.ceil((u.until_t - now) * 10) / 10 }
         end
     end
     return nil
 end
-local function mark_using(d)
-    USING[lock_key(d.consumable)] = { item = d.name or d.item, until_t = M.busy_clock() + M.CONSUME_BUSY_S }
+local function mark_using(d, by)
+    USING[lock_key(d.consumable)] = { item = d.name or d.item, by = by, until_t = M.busy_clock() + M.CONSUME_BUSY_S }
 end
 
 -- His own eat/drink comes first: the stay-fed reflex defers to the model (main 2026-11-01). Live 15:49Z: he moved a
@@ -525,16 +526,21 @@ end
 -- never keeps him from water at the floor while he eats. Never refuses the model: only the reflex reads this.
 local HOLD = _G.DWReflexHold or {}
 _G.DWReflexHold = HOLD
-M.REFLEX_HOLD_S = { use = 4, move = 6 }
+-- move = 15 s: he moved it to use it, and his consume can be a model turn or two away (live r1-20261102T051035Z: a
+-- 6 s hold ran out 6.5 s after his move, the reflex drank the water he had just put on the hotbar and his own drink
+-- then waited out its lock). Under the floor a kind's hold counts only its first FLOOR_HOLD_S.
+M.REFLEX_HOLD_S = { use = 4, move = 15 }
+M.FLOOR_HOLD_S = 6
 function M.hold_reflex(kind, secs, why)
     local key = kind or "all"
-    local until_t = os.time() + (tonumber(secs) or 0)
-    if not HOLD[key] or HOLD[key].until_t < until_t then HOLD[key] = { until_t = until_t, why = why } end
+    local now = os.time()
+    local until_t = now + (tonumber(secs) or 0)
+    if not HOLD[key] or HOLD[key].until_t < until_t then HOLD[key] = { until_t = until_t, why = why, since = now } end
 end
 function M.reflex_held(kind, at_floor)
     local now = os.time()
     local h = kind and HOLD[kind]
-    if h and now < h.until_t then return h end
+    if h and now < h.until_t and not (at_floor and h.since and now - h.since > M.FLOOR_HOLD_S) then return h end
     h = HOLD.all
     if h and now < h.until_t and not at_floor then return h end
     return nil
@@ -570,7 +576,7 @@ function M.use(log, what, opts)
         if not bar then return { ok = false, reason = "no hotbar widget" } end
         say(log, "use: hotbar UseItemInSlot(" .. d.slot .. ") " .. tostring(d.item))
         local ok, err = pcall(function() bar:UseItemInSlot(d.slot) end)
-        if ok and d.consumable then mark_using(d) end
+        if ok and d.consumable then mark_using(d, opts.by) end
         if ok and d.consumable and opts.by == "command" then
             M.hold_reflex(nil, M.CONSUME_BUSY_S + M.REFLEX_HOLD_S.use, "his own use of " .. tostring(d.name or d.item))
         end
@@ -581,7 +587,7 @@ function M.use(log, what, opts)
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
     say(log, "use: HandleInternalUseItem(" .. d.slot .. ", " .. tostring(d.slot_type) .. ") " .. tostring(d.item))
     local ok, err = pcall(function() api:HandleInternalUseItem(d.slot, SLOT_TYPE[d.slot_type]) end)
-    if ok and d.consumable then mark_using(d) end
+    if ok and d.consumable then mark_using(d, opts.by) end
     if ok and d.consumable and opts.by == "command" then
         M.hold_reflex(nil, M.CONSUME_BUSY_S + M.REFLEX_HOLD_S.use, "his own use of " .. tostring(d.name or d.item))
     end

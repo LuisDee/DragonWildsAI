@@ -1252,6 +1252,21 @@ local function start_consume(api, args, ctx)
         -- another use OF THIS KIND is mid-animation (the reflex, combat, his own last one): its press would swallow ours,
         -- so wait it out. A food and a drink overlap (inventory.consume_busy is per kind): his drink never waits for his food.
         local busy = inv and type(inv.consume_busy) == "function" and inv.consume_busy(r.consumable) or nil
+        if busy and busy.by == "reflex" and STAT_OF[r.consumable] then
+            -- his stay-fed reflex is already using one of this kind: that need is being met. Say so once its stat
+            -- rose (<= 2 s), never wait its lock out and press another (live r1-20261102T051035Z: 6.5 s, then a 2nd drink)
+            local st = STAT_OF[r.consumable]
+            local v = stat_now(api, st)
+            job.reflex_wait = job.reflex_wait or { t = api.now(), before = v }
+            local w = job.reflex_wait
+            if not ((v and w.before and v > w.before + 0.5) or api.now() - w.t >= 2.0) then return nil end
+            local mx = stat_max(api, st)
+            local verb = r.consumable == "drink" and "drank" or "ate"
+            return { ok = true, data = { item = r.item, name = r.name, kind = r.consumable, stat = st, by_reflex = true, reflex_item = busy.item,
+                before = w.before, after = v, max = mx, stat_rose = (v and w.before and v > w.before + 0.5) or false, pressed = false,
+                detail = string.format("My stay-fed reflex already %s a %s%s, so I didn't use the %s.", verb, tostring(busy.item),
+                    (v and mx and mx > 0) and string.format(" (%s now %d %%)", st, math.floor(v / mx * 100 + 0.5)) or "", tostring(r.name)) } }
+        end
         if busy then
             job.busy_until = job.busy_until or (api.now() + M.cfg.consume_wait_s)
             if api.now() < job.busy_until then return nil end
@@ -2722,7 +2737,7 @@ local function start_transfer(api, args, ctx, deposit)
                         .. ((c.slots or #c.rows) == 1 and "its one slot is taken" or ("all " .. tostring(c.slots or #c.rows) .. " slots are taken"))
                         .. (stacks > 0 and (" and its " .. tostring(iname) .. " stack" .. (stacks > 1 and "s are" or " is") .. " full") or "")
                         .. ", so " .. (job.moved > 0 and "the rest stays" or "it stays") .. " with me." })) end
-            local n = math.min(left, tonumber(row.count) or 1, room or math.huge)
+            local n = math.min(left, tonumber(row.count) or 1, room or tonumber(row.max_stack) or math.huge)
             local before = carried_count(api, item) -- read BEFORE the press (the server may answer at once)
             local res = invm.to_external(api.log, row, n, to, inv)
             if not res.ok then return finish(api.fail("body_error", { detail = tostring(res.reason) })) end
@@ -2805,7 +2820,9 @@ local function start_transfer(api, args, ctx, deposit)
         end
         local p = job.pending
         local carried, inside = carried_count(api, item), contents().by_item[item] or 0
-        if p and carried == p.carried and inside == p.inside then
+        -- a deposit is read on the container's side: his own count may fall further meanwhile (live 2026-11-02 04:30Z:
+        -- 25 Clean Water went in while his reflex drank one; the exact match never came and it said "nothing moved")
+        if p and inside == p.inside and (carried == p.carried or (deposit and carried < p.carried)) then
             job.moved, job.pending = job.moved + p.n, nil
             if job.moved >= want then
                 if queue then return item_done(nil) end
@@ -2822,7 +2839,7 @@ local function start_transfer(api, args, ctx, deposit)
         if p and tt >= p.until_t then
             -- a deposit that went nowhere (that slot took nothing: a stack whose max the item didn't say) tries another
             -- slot once each, before it says nothing moved
-            if deposit and carried == p.carried + p.n and p.to and not (job.skip and job.skip[p.to]) and (job.retries or 0) < 2 then
+            if deposit and inside == p.inside - p.n and carried >= p.carried + p.n - 1 and p.to and not (job.skip and job.skip[p.to]) and (job.retries or 0) < 2 then
                 job.retries = (job.retries or 0) + 1
                 job.skip = job.skip or {}
                 job.skip[p.to] = true
@@ -3183,7 +3200,9 @@ M.MANIFEST = {
         reasons = { "unknown_target", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },
     consume = { kind = "action", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 30,
         detail_is_speech = SPEAKS,
-        description = "Eat or drink one item from your hotbar (bag items: move_item first; ground items: interact first).",
+        description = "Eat or drink one item from your hotbar (bag items: move_item first; ground items: interact first). "
+            .. "Food and drink each have their own use lock (~6 s): a drink right after a food goes at once, a second "
+            .. "food waits ~6 s for the first.",
         args = { type = "object", required = { "item" }, properties = obj({
             item = str("A carried item's name or id, or 'food' / 'drink' / 'potion'.") }) },
         ground = obj({ item = "carried" }),

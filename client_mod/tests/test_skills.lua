@@ -344,6 +344,18 @@ test("consume: a food mid-animation does not hold a drink (the game's use lock i
     assert(r and r.ok and F.uses == 1, json.encode(r))
 end)
 
+test("consume: the stay-fed reflex already drinking that kind -> says so at once, no second press", function()
+    -- live r1-20261102T051035Z: the reflex drank the water he had just put on the hotbar; his drink waited 6.5 s, then pressed again
+    reset()
+    F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar", stat = "hydration", amount = 25 } }
+    F.consume_busy = { item = "Clean Water", kind = "drink", by = "reflex", left_s = 5 }
+    local r0, id = rpc("consume", { item = "Clean Water" })
+    local r = r0 or run(id, 15)
+    F.consume_busy = nil
+    assert(r and r.ok and r.data.by_reflex and (F.uses or 0) == 0, json.encode(r))
+    assert(tostring(r.data.detail):find("^My stay%-fed reflex already drank a Clean Water"), r.data.detail)
+end)
+
 test("consume from the hotbar: verified by the stat rising", function()
     reset()
     F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar",
@@ -1906,6 +1918,14 @@ test("store: a full stack of the same item is never the target: a free slot, a s
     _, id = rpc("store", { item = "ITEM_Weapon_Sword_Bronze", container = "chest_1" })
     r = run(id, 80)
     assert(r and r.ok and r.data.count == 1 and F.transfers == 2, json.encode(r))
+    -- his reflex drinks one while the deposit is in flight: read on the crate's side, it went (live 04:30Z: 25 Clean
+    -- Water moved and the reply said "nothing moved")
+    chest_world(6, {})
+    F.extra.ITEM_Consumable_Water_Clean, F.eat_during = 10, "ITEM_Consumable_Water_Clean"
+    _, id = rpc("store", { item = "ITEM_Consumable_Water_Clean", container = "chest_1", count = 5 })
+    r = run(id, 80)
+    assert(r and r.ok and r.data.count == 5 and r.data.inside_now == 5 and F.transfers == 1, json.encode(r))
+    F.extra.ITEM_Consumable_Water_Clean, F.eat_during = nil, nil
     F.extra.ITEM_Weapon_Sword_Bronze, F.slot_noop, F.chests, F.open_chest = nil, nil, nil, nil
 end)
 

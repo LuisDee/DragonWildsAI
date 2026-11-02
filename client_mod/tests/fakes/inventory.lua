@@ -135,6 +135,7 @@ function M.to_external(log, row, amount, to_slot, inv)
         end
     end
     take_carried(row, amount)
+    if F.eat_during == row.item then take_carried(row, 1) end -- his reflex uses one meanwhile
     inv.rows[#inv.rows + 1] = { slot = to_slot, item = row.item, name = row.name, count = amount }
     return { ok = true }
 end
