@@ -2234,7 +2234,10 @@ function M.state_extras(api, data)
     end
     local inv_rows = data.inventory_items or {}
     local used = 0
-    for _, r in ipairs(inv_rows) do if r.where == "bag" then used = used + 1 end end
+    -- the InventoryItems page only: runes, ammo and quest items have pages of their own (live 00:31Z: "bag 40/32")
+    for _, r in ipairs(inv_rows) do
+        if r.where == "bag" and (r.slot_type or "InventoryItems") == "InventoryItems" then used = used + 1 end
+    end
     if inv and type(inv.pages) == "function" and type(inv.pc) == "function" then
         local okc, cap = pcall(function()
             local pc = inv.pc()
@@ -2447,6 +2450,34 @@ local function carried_count(api, item)
     end
     return n
 end
+-- The copies in his hands: the loadout's HeldRight / HeldLeft point at hotbar stacks (matched by item and durability,
+-- else by item). The game won't put an equipped item in a chest (live 2026-11-02: a 2nd Bronze Shield he held timed
+-- out as "only 1 went"), so a store moves only the rest and says it kept the one in his hand. Marks rows[i].held.
+local function mark_held(rows, d)
+    local keys = {}
+    for _, r in ipairs((d or {}).loadout or {}) do
+        if r.loadout_slot == "HeldRight" or r.loadout_slot == "HeldLeft" then
+            keys[#keys + 1] = { item = r.item, durability = r.durability, hand = r.loadout_slot == "HeldLeft" and "left" or "right" }
+        end
+    end
+    if #keys == 0 then
+        local h = (d or {}).held or {}
+        if h.right_item then keys[#keys + 1] = { item = h.right_item, hand = "right" } end
+        if h.left_item then keys[#keys + 1] = { item = h.left_item, hand = "left" } end
+    end
+    for _, k in ipairs(keys) do
+        local pick
+        for pass = 1, 2 do
+            for _, r in ipairs(rows) do
+                if not pick and not r.held and r.where == "hotbar" and r.item == k.item
+                        and (pass == 2 or k.durability == nil or r.durability == k.durability) then pick = r end
+            end
+        end
+        if pick then pick.held = k.hand end
+    end
+    return rows
+end
+M._mark_held = mark_held
 local function free_or_same(rows, slots, item)
     for _, r in ipairs(rows) do if r.item == item then return r.slot end end
     local used = {}
@@ -2547,19 +2578,30 @@ local function start_transfer(api, args, ctx, deposit)
     end
     local label = args.label or t.name or "chest"
     local want = math.floor(tonumber(args.count) or 0)
-    local item, iname
+    local item, iname, job_held
     if deposit then
         local lr = api.call("inventory", "list")
         local row = lr.ok and find_carried(api, lr.data, args.item) or nil
         if not row then return api.fail("not_in_inventory", { item = args.item, detail = "I don't have any " .. args.item .. "." }) end
         item, iname = row.item, row.name or row.item
-        local have = carried_count(api, item)
+        local have, held_n = 0, 0
+        for _, x in ipairs(mark_held(inv_rows(lr.data), lr.data)) do
+            if x.item == item then
+                if x.held then held_n = held_n + 1 else have = have + (tonumber(x.count) or 1) end
+            end
+        end
+        if have < 1 and held_n > 0 then
+            return api.fail("not_enough_resources", { item = item, have = 0, held = held_n,
+                detail = "The only " .. tostring(iname) .. " I have is the one in my hand; it has to come off before it can go in a chest." })
+        end
         if want < 1 then want = have end
         if want > have then
-            return api.fail("not_enough_resources", { item = item, have = have, want = want, detail = "I only have " .. have .. " " .. tostring(iname) .. "." })
+            return api.fail("not_enough_resources", { item = item, have = have, want = want, held = held_n > 0 and held_n or nil,
+                detail = "I only have " .. have .. " " .. tostring(iname) .. (held_n > 0 and " besides the one in my hand" or "") .. "." })
         end
+        job_held = held_n
     end
-    local job = { kind = kind, container = t, moved = 0, phase = "open", from = api.my_position() }
+    local job = { kind = kind, container = t, moved = 0, phase = "open", from = api.my_position(), kept_held = job_held }
     -- how far he walked to it, for a reply that says so (main 2026-11-01: a player walks over and opens it)
     local function walked()
         local here = api.my_position()
@@ -2627,7 +2669,9 @@ local function start_transfer(api, args, ctx, deposit)
         if deposit then
             local lr = api.call("inventory", "list")
             local row
-            for _, x in ipairs(inv_rows(lr.ok and lr.data or {})) do if x.item == item and (tonumber(x.count) or 0) > 0 then row = x; break end end
+            for _, x in ipairs(mark_held(inv_rows(lr.ok and lr.data or {}), lr.ok and lr.data or {})) do
+                if x.item == item and not x.held and (tonumber(x.count) or 0) > 0 then row = x; break end
+            end
             if not row then return finish(api.fail("verification_failed", { item = item, moved = job.moved, detail = "I ran out of " .. tostring(iname) .. "." })) end
             local to = free_or_same(c.rows, c.slots, item)
             if not to then return finish(api.fail("container_full", { item = item, moved = job.moved, container = t.id,
@@ -2722,8 +2766,10 @@ local function start_transfer(api, args, ctx, deposit)
                 local w = walked()
                 return finish({ ok = true, data = { item = item, name = iname, count = job.moved, container = t.id, container_name = label,
                     carried_now = carried, inside_now = inside, contents = contents_words(contents().rows), walked_m = w,
+                    kept_held = (job.kept_held or 0) > 0 and job.kept_held or nil,
                     detail = string.format("%s %d %s %s the %s%s.", deposit and "Put" or "Took", job.moved, tostring(iname),
-                        deposit and "in" or "out of", label, walk_words(w)) } })
+                        deposit and "in" or "out of", label, walk_words(w))
+                        .. ((job.kept_held or 0) > 0 and " I kept the one in my hand." or "") } })
             end
             return press()
         end

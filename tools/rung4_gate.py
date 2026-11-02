@@ -15,6 +15,14 @@ Items (Luis's tasks from evals/baselines/luis_20261101_tasks.json; T_h = his rec
   spells   "kill that goblin with your attack spells" (a Goblin Runt spawned 12 m off: dev fixture)
            [no Luis staff fight: T_h = rung 1's fight bar, 1.5 s + his kill unit]  done: it reads dead and runes
            were spent (staff casts spend the magic ammo slot's runes)
+  gear_up  "get all your stuff together and gear up properly" (Luis 2026-11-01: "get him to get all his shit and put
+           his good armour on"). No fixtures at all: he starts as he is. Target from brain/gear_plan.py at the start
+           (his state + the containers he remembers): the best full armour set he can reach (PL) and the best
+           weapon / off-hand. [T_h composed from Luis's own tasks for what that target is short of: 'kill cow' per
+           15 hides / 14 bones, 'make tannery' (build + 5.9 s per leather), 'make armour' per piece + an equip each,
+           his run speed for the walk to a container that holds better gear]  done: his worn armour PL and held kit
+           reach the target. His graves are read at the end and shown to the judge: going for one is his call, and
+           what he says about it is judged.
 Materials that are not the item under test are granted (dev fixture) and listed in the row's note. Stations are his
 own (his crafting table at the base, the tannery he builds): Luis's are never used. Copies of the item under test he
 already carries (a bow, gate-made armour) are dropped at the respawn point first, so he starts as Luis did.
@@ -54,8 +62,10 @@ LINES = {"tannery": "claude build yourself a tannery and turn your hides into le
          "armour": "claude make yourself some armour for your level and put it on",
          "bow_make": "claude make yourself a bow and some arrows",
          "bow_kill": "claude shoot that kebbit with your bow",
-         "spells": "claude kill that goblin with your attack spells"}
-ITEMS4 = ["tannery", "armour", "bow", "spells"]
+         "spells": "claude kill that goblin with your attack spells",
+         "gear_up": "claude get all your stuff together and gear up properly",
+         "bag": "claude you're carrying too much, sort your bag out"}
+ITEMS4 = ["tannery", "armour", "bow", "spells", "gear_up", "bag"]
 # what each item's check reads (inventory display names)
 BOW_RX, ARROW_RX = r"(shortbow|longbow|\bbow)$", r"arrow"
 ARMOUR_RX = r"(body|helmet|cowl|chaps|platelegs|robe|hat|leggings|chestpiece|legs|gloves|boots|cape)$"
@@ -74,7 +84,10 @@ T_H = {"tannery": lambda: luis("make tannery"),
        "armour": lambda: luis("make armour") + 2 * g.MOVE_S,  # + putting the 2 pieces on (his drag gap each)
        "bow_make": lambda: luis("make bow"),
        "bow_kill": lambda: 1.5 + luis("use bow") / 3,  # his 3 kills in one window: one kill's share + reaction
-       "spells": lambda: 1.5 + g.unit("kill")}
+       "spells": lambda: 1.5 + g.unit("kill"),
+       "gear_up": lambda: None,  # composed per run from what he is short of (gear_up_t_h)
+       "bag": lambda: None}  # per run: a walk to his nearest crate and back + a drag per stack he stores
+LUIS_RUN_MS = 384 / 61.7  # 'return back to foundation': 384 m in 61.7 s moving (recorder 2026-11-01)
 
 
 # ------------------------------------------------------------------ context: worn gear counts as carried
@@ -84,12 +97,29 @@ class Ctx4(g.Ctx):
     their own names with their counts when no bag stack of that item is listed (the slot references a bag stack, so
     it is counted once; the compact inventory reply keeps only the slot's name). Held items are hotbar references,
     already counted."""
+    held_rows = False  # gear_up: held weapon / off-hand as "held:<name>" rows (other items count held gear as hotbar)
+    carry_rows = False  # bag: his carry weight as a "carry:cur" / "carry:max" row (the game's encumbrance getters)
+    hazard_guard = None  # gear_up: called with every me() sample (fall_guard); sets self.abort to end the window
+    abort = None
+
+    def me(self) -> dict:
+        m = super().me()
+        if self.hazard_guard is not None and m:
+            self.hazard_guard(self, m)
+        return m
+
     def stacks(self) -> list[dict]:
         d = cp._data(self.cli.request("inventory", {"raw": True}, timeout=20))
         rows = [{"name": r.get("name") or r.get("item"), "item": r.get("item"), "count": r.get("count")}
                 for where in ("hotbar", "bag") for r in d.get(where) or [] if isinstance(r, dict)]
+        if self.carry_rows and (c := carry()):
+            rows += [{"name": "carry:cur", "item": None, "count": round(c["cur"], 1)},
+                     {"name": "carry:max", "item": None, "count": round(c["max"], 1)}]
         for r in d.get("loadout") or []:
             slot = str(r.get("loadout_slot") or r.get("slot") or "") if isinstance(r, dict) else ""
+            if slot in ("HeldRight", "HeldLeft") and self.held_rows and (r.get("name") or r.get("item")):
+                rows.append({"name": f"held:{r.get('name') or r.get('item')}", "item": None, "count": 1, "slot": f"held:{slot}"})
+                continue
             if not slot or slot in ("HeldRight", "HeldLeft") or not (r.get("name") or r.get("item")):
                 continue
             if slot.startswith(("MagicAmmo", "Ammo")):
@@ -100,6 +130,33 @@ class Ctx4(g.Ctx):
             else:
                 rows.append({"name": f"worn:{r.get('name') or r.get('item')}", "item": None, "count": 1, "slot": f"worn:{slot}"})
         return rows
+
+
+CARRY_LUA = r"""return function(log)
+    if rawget(_G, "DW_PAUSE") == true then return { ok = false, error = "paused" } end
+    local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+    local U = assert(loadfile(root .. "/mod/body/util.lua"))()
+    local pc
+    for _, c in ipairs(U.find_all("BP_PlayerController_C", { skip_defaults = true })) do
+        if U.try(function() return c:IsLocalController() end) == true then pc = c end
+    end
+    local pawn = pc and U.try(function() return pc.Pawn end)
+    local ec = U.valid(pawn) and U.try(function() return pawn.PlayerEncumbranceComponent end)
+    if not U.valid(ec) then return { ok = false, error = "no encumbrance component" } end
+    return { ok = true, cur = U.try(function() return ec:GetCurrentCarryWeight() end),
+             max = U.try(function() return ec:GetMaxCarryWeight() end), over = U.try(function() return ec:IsEncumbered() end) }
+end
+"""
+
+
+def carry() -> dict | None:
+    """His carry weight {cur, max, over} (read-only: UPlayerEncumbranceComponent getters, as move.lua reads them)."""
+    from tools import combat_s1
+    r = combat_s1.client("r4_carry", CARRY_LUA, timeout=10)
+    r = r.get("result") if isinstance(r.get("result"), dict) else r
+    if not (r.get("ok") and isinstance(r.get("cur"), (int, float)) and isinstance(r.get("max"), (int, float))):
+        return None
+    return {"cur": float(r["cur"]), "max": float(r["max"]), "over": r.get("over") is True}
 
 
 # ------------------------------------------------------------------ checks (registered in coplay_ladder)
@@ -191,7 +248,74 @@ def check_kill_with(rec: dict, rows: list[dict]):
     return ok, how, when if ok else None, m
 
 
-cp.CHECK_HOOKS.update({"r4_all": check_all, "r4_wear": check_wear, "r4_kill": check_kill_with})
+def _gear_index() -> dict[str, tuple[str, int]]:
+    """display name (lower) -> (slot, power level) for every armour piece, weapon and shield in the item catalog."""
+    from brain import item_stats
+    return {str(c["name"]).lower(): (c.get("slot"), int(c["power_level"])) for c in item_stats.catalog().values()
+            if c.get("name") and c.get("power_level") is not None and c.get("role") in ("armour", "weapon", "shield")}
+
+
+def gear_on(c: dict, idx: dict | None = None) -> dict:
+    """What one inventory sample has on him: {"pl": armour PL, "slots": {slot: (name, pl)}} from worn:/held: rows."""
+    idx = idx if idx is not None else _gear_index()
+    slots: dict[str, tuple[str, int]] = {}
+    for k in c:
+        if not k.startswith(("worn:", "held:")):
+            continue
+        name = k.split(":", 1)[1]
+        slot, pl = idx.get(name.lower(), (None, None))
+        if slot and (slot not in slots or pl > slots[slot][1]):
+            slots[slot] = (name, pl)
+    armour = [slots[s][1] if s in slots else 0 for s in ("head", "body", "legs")]
+    return {"pl": sum(armour) // 3, "slots": slots}
+
+
+def check_gear(rec: dict, rows: list[dict]):
+    """Done when his worn armour's PL reaches the target and every kit slot (weapon, off-hand) holds gear of the
+    target PL or better (both from gear_plan at the start)."""
+    tg, inv = rec["target"], rec.get("inv") or []
+    idx = _gear_index()
+
+    def short(c: dict) -> list[str]:
+        on = gear_on(c, idx)
+        out = [f"armour PL {on['pl']} (target {tg['pl']})"] if on["pl"] < tg["pl"] else []
+        for slot, want in (tg.get("kit") or {}).items():
+            have = on["slots"].get(slot)
+            if not have or have[1] < want:
+                out.append(f"{slot} {have[0] + ' PL ' + str(have[1]) if have else 'empty'} (target PL {want})")
+        return out
+    when = next((t for t, c in inv[1:] if not short(c)), None)
+    first, last = (inv[0][1] if inv else {}), (inv[-1][1] if inv else {})
+
+    def words(c: dict) -> str:
+        on = gear_on(c, idx)
+        return f"PL {on['pl']}: " + (", ".join(f"{s} {n} (PL {pl})" for s, (n, pl) in sorted(on["slots"].items())) or "nothing")
+    how = f"at the start {words(first)}; at the end {words(last)}"
+    if short(last):
+        how += "; still short: " + "; ".join(short(last))
+    d = _bag_delta(rec)
+    if d:
+        how += "; his inventory over the window (worn:/held: = on him): " + _delta_words(d)
+    return when is not None, how, when, {"bag_delta": d, "gear_end": gear_on(last, idx)}
+
+
+def check_carry(rec: dict, rows: list[dict]):
+    """Done when his carry weight is at or under his max (the game's encumbrance), from the carry: rows."""
+    inv = rec.get("inv") or []
+
+    def w(c: dict) -> tuple[float | None, float | None]:
+        return c.get("carry:cur"), c.get("carry:max")
+    when = next((t for t, c in inv[1:] if None not in w(c) and w(c)[0] <= w(c)[1]), None)
+    first, last = (inv[0][1] if inv else {}), (inv[-1][1] if inv else {})
+    how = f"carry weight {w(first)[0]} of {w(first)[1]} at the start, {w(last)[0]} of {w(last)[1]} at the end"
+    d = {k: v for k, v in _bag_delta(rec).items() if not k.startswith("carry:")}
+    if d:
+        how += "; his inventory over the window: " + _delta_words(d)
+    return when is not None, how, when, {"bag_delta": d, "carry_end": w(last)}
+
+
+cp.CHECK_HOOKS.update({"r4_all": check_all, "r4_wear": check_wear, "r4_kill": check_kill_with, "r4_gear": check_gear,
+                       "r4_carry": check_carry})
 
 
 # ------------------------------------------------------------------ setup helpers
@@ -399,7 +523,212 @@ def it_spells(ctx) -> dict:
                          f"fixtures: {', '.join(fixtures) or 'none'}")
 
 
-RUNNERS4 = {"tannery": it_tannery, "armour": it_armour, "bow": it_bow, "spells": it_spells}
+def gear_target(state: dict, stash: dict | None) -> dict:
+    """The gear_up target from brain/gear_plan.py: armour PL of the best full set he can reach, the kit slots whose
+    best reachable PL beats what he holds, and the way Luis went for armour (Reinforced, 'make armour') per slot that
+    is short, for T_h."""
+    from brain import gear_plan
+    p = gear_plan.plan(state, stash=stash)
+    kit = {}
+    for slot in gear_plan.KIT_SLOTS:
+        sl = p["slots"][slot]
+        held = int(sl["worn_pl"] or 0) if sl["worn"] else -1
+        if sl["best_pl"] is not None and sl["best_pl"] >= max(held, 0):
+            kit[slot] = sl["best_pl"]  # keep (or reach) the best he can hold
+    pieces = []
+    for slot in gear_plan.ARMOUR_SLOTS:
+        sl = p["slots"][slot]
+        if sl["best_pl"] is None or (sl["worn"] and sl["best_pl"] <= int(sl["worn_pl"] or 0)):
+            continue
+        o = next((o for o in sl["best"] if str(o.get("name") or "").startswith("Reinforced")), sl["best"][0])
+        pieces.append(o)
+    fetch = [(slot, o) for slot in gear_plan.KIT_SLOTS for o in p["slots"][slot]["best"][:1]
+             if slot in kit and o["status"] == "owned" and "carried" not in o["where"] and "worn" not in o["where"]]
+    fetch += [(o["name"], o) for o in pieces if o["status"] == "owned" and "carried" not in o["where"]]
+    return {"pl": p["pl_full_set"], "pl_now": p["pl_now"], "kit": kit, "pieces": pieces, "fetch": fetch, "plan": p}
+
+
+def gear_up_t_h(tg: dict, state: dict) -> tuple[float, str]:
+    """Luis's time for what the target is short of, composed from his own recorded tasks; (seconds, how)."""
+    short: dict[str, int] = {}
+    for o in tg["pieces"]:
+        if o["status"] == "owned":
+            continue
+        for x in o.get("short") or []:
+            m = re.match(r"(.+) x(\d+)$", x)
+            if m:
+                short[m.group(1)] = short.get(m.group(1), 0) + int(m.group(2))
+    have = state.get("inventory") or {}
+    leather = short.get("Leather", 0)
+    hides = max(0, leather - int(have.get(HIDE, 0) or 0))
+    bones = short.get("Animal Bone", 0)
+    parts = []
+    kill = luis("kill cow") * max(hides / 15, bones / 14)  # his 74 s window: 15 hides, 14 bones
+    if kill:
+        parts.append(f"'kill cow' {luis('kill cow')} s x max({hides} hides/15, {bones} bones/14) = {kill:.0f} s")
+    tan = 0.0
+    if leather:
+        own = any(re.search(r"tann", str(x.get("name") or ""), re.I) and x.get("mine") for x in state.get("structures") or [])
+        build = 0.0 if own else luis("make tannery") - 17.8  # his 17.8 s stand was the leather processing
+        tan = build + 17.8 / 3 * leather
+        parts.append(f"tannery {'(his own: no build) ' if own else f'build {build:.1f} s + '}{17.8 / 3:.1f} s x {leather} leather")
+    n = len([o for o in tg["pieces"] if o["status"] != "owned"])
+    arm = (luis("make armour") / 2 + g.MOVE_S) * n
+    if n:
+        parts.append(f"'make armour' {luis('make armour')} s / 2 per piece + an equip, x {n}")
+    walk = 0.0
+    pos = state.get("position") or [0, 0]
+    for _, o in tg["fetch"]:
+        m = re.search(r"\((-?\d+),(-?\d+)\)", " ".join(o["where"]))
+        if m:
+            d = ((float(m.group(1)) - pos[0]) ** 2 + (float(m.group(2)) - pos[1]) ** 2) ** 0.5
+            walk += 2 * d / LUIS_RUN_MS + 2.0 + g.MOVE_S
+            parts.append(f"fetch {o['name']} from {o['where'][0]}: {d:.0f} m there and back at his {LUIS_RUN_MS:.1f} m/s + 2 s open + an equip")
+    t = kill + tan + arm + walk
+    return t, "; ".join(parts) or "nothing short"
+
+
+def gear_work(t0: float):
+    """A stand is work while a station he started runs (rung3), his gather job swings, or the body logs a fight
+    (combat: lines in the client log; the target of a hide hunt is not a spawned creature the leg tracks)."""
+    proc = r3.processing_work(t0)
+    cache: list[float] = []
+
+    def fights() -> list[float]:
+        if not cache:
+            from datetime import datetime
+            path = g.ROOT / "logs" / "client" / "client.log"
+            try:
+                with open(path, "rb") as f:
+                    f.seek(max(0, path.stat().st_size - 3_000_000))
+                    text = f.read().decode("utf-8", "replace")
+            except OSError:
+                text = ""
+            for ln in text.splitlines():
+                if "combat:" in ln and "ai action" not in ln and ln[:4].isdigit():
+                    try:
+                        cache.append(datetime.fromisoformat(ln[:20].replace("Z", "+00:00")).timestamp())
+                    except ValueError:
+                        pass
+            cache.append(-1.0)  # read once
+        return cache
+
+    def work(a, b):
+        return proc(a, b) or r3.gather_work(a, b) or any(a - 1 <= x <= b + 1 for x in fights())
+    return work
+
+
+FALL_DROP_M, FALL_NEAR_M, FALL_WINDOW_S = 2.5, 15.0, 4.0
+
+
+def hazards() -> list[dict]:
+    """The client's recorded fall-death spots (navmem, world "dev"): [{at: [x, y, z], n, drop_m}]."""
+    try:
+        return json.loads((g.ROOT / "data" / "skills" / "dev" / "nav_memory.json").read_text(encoding="utf-8")).get("hazards") or []
+    except (OSError, ValueError):
+        return []
+
+
+def fall_guard(spots: list[dict]):
+    """Main 2026-11-02: the post-stop drift at the world edge is not fixed, so a window ends (and his action is
+    stopped) on a z drop of more than 2.5 m within 4 s, within 15 m of a recorded drop, or on a death there."""
+    hist: list[tuple[float, list]] = []
+
+    def near(p) -> dict | None:
+        return next((h for h in spots if ((h["at"][0] - p[0]) ** 2 + (h["at"][1] - p[1]) ** 2) ** 0.5 <= FALL_NEAR_M), None)
+
+    def guard(ctx, m: dict) -> None:
+        p = m.get("position")
+        if ctx.abort or not (isinstance(p, list) and len(p) >= 3):
+            return
+        now = time.time()
+        hist.append((now, p))
+        del hist[:-30]
+        h = near(p)
+        if not h:
+            return
+        top = max(q[2] for t, q in hist if now - t <= FALL_WINDOW_S)
+        why = None
+        if m.get("dead"):
+            why = f"fall guard: he died {((h['at'][0] - p[0]) ** 2 + (h['at'][1] - p[1]) ** 2) ** 0.5:.1f} m from the recorded drop at {h['at'][:2]}"
+        elif top - p[2] > FALL_DROP_M:
+            why = f"fall guard: z dropped {top - p[2]:.1f} m in {FALL_WINDOW_S:.0f} s within {FALL_NEAR_M:.0f} m of the recorded drop at {h['at'][:2]}"
+        if why:
+            ctx.abort = why
+            try:
+                ctx.cli.request("stop", {}, timeout=10)
+            except Exception:  # noqa: BLE001
+                pass
+    return guard
+
+
+def it_gear_up(ctx) -> dict:
+    from brain.stash import Stash
+    preflight_char(ctx)
+    ctx.held_rows, ctx.abort = True, None
+    ctx.hazard_guard = fall_guard(hazards())
+    r3.place(ctx, SPOT["armour"])
+    full_hp(ctx)
+    state = cp._data(ctx.cli.request("get_state", {}, timeout=20))
+    stash = Stash(g.ROOT / "logs" / "state" / "worlds" / WORLD / "containers.json").labels()
+    tg = gear_target(state, stash)
+    t_h, t_how = gear_up_t_h(tg, state)
+    graves0 = [x.get("position") for x in state.get("graves_remembered") or []]
+    deadline = max(600.0, 2.5 * t_h)
+    time.sleep(1.0)
+    row = g.run_leg(ctx, {"id": "gear_up", "kind": "r4_gear",
+                          "check_text": f"his worn armour reaches PL {tg['pl']} (the best full set he can reach, gear_plan "
+                                        f"at the start) and he holds kit of PL {tg['kit'] or 'what he has'}"},
+                    LINES["gear_up"], {"pl": tg["pl"], "kit": tg["kit"]}, deadline_s=deadline, sample=("me", "inv"))
+    ctx.hazard_guard, aborted, ctx.abort = None, ctx.abort, None
+    after = cp._data(ctx.cli.request("get_state", {}, timeout=20))
+    graves1 = [x.get("position") for x in after.get("graves_remembered") or []]
+    p = tg["plan"]
+    best = {s: [o["name"] for o in v["best"][:3]] for s, v in p["slots"].items() if v["best"]}
+    note = (f"target from gear_plan at the start: armour PL {tg['pl_now']} -> {tg['pl']}, kit {tg['kit']}; best per slot "
+            f"{best}; containers remembered {list(stash) or 'none'}; graves at the start {graves0}, at the end {graves1} "
+            f"(the 16:37 grave sits 0.6 m from a 42 m drop: movement's guard says path_blocked/known_drop); "
+            f"T_h {t_h:.0f} s = {t_how}; no fixtures" + (f"; ENDED BY {aborted}" if aborted else ""))
+    row.setdefault("how", "")
+    row["how"] += f"; his graves at the start {graves0}, at the end {graves1}"
+    return g.finish(ctx, "gear_up", [row], t_h, allowed=1, work=gear_work(row["rec"]["t0"]), note=note)
+
+
+def it_bag(ctx) -> dict:
+    """Movement 2026-11-02: he is encumbered (407.7 of 400) since the gear_up grave runs. One natural line, no
+    fixture: he stores or drops what he likes. T_h: Luis's run to Claude's nearest own crate and back + an open + a
+    drag per stack that left his bag (his recorded drag gap), or one drag per dropped stack when no crate is near."""
+    preflight_char(ctx)
+    ctx.carry_rows, ctx.abort = True, None
+    ctx.hazard_guard = fall_guard(hazards())
+    c0 = carry()
+    if not c0:
+        raise RuntimeError("no carry weight read (encumbrance component)")
+    if not c0["over"] and c0["cur"] <= c0["max"]:
+        return {"item": "bag", "pass": False, "fails": ["infra"], "why": f"not over his carry weight: {c0['cur']:.1f} of {c0['max']:.0f}"}
+    state = cp._data(ctx.cli.request("get_state", {}, timeout=20))
+    pos = state.get("position") or [0, 0]
+    crates = [((x["position"][0] - pos[0]) ** 2 + (x["position"][1] - pos[1]) ** 2) ** 0.5 for x in state.get("structures") or []
+              if x.get("mine") and re.search(r"crate|chest|box", str(x.get("name") or ""), re.I) and isinstance(x.get("position"), list)]
+    near = min(crates) if crates else None
+    row = g.run_leg(ctx, {"id": "bag", "kind": "r4_carry", "check_text": "his carry weight is at or under his max"},
+                    LINES["bag"], {}, deadline_s=240, sample=("me", "inv"))
+    ctx.hazard_guard, ctx.carry_rows, aborted, ctx.abort = None, False, ctx.abort, None
+    moved = sum(1 for k, v in (_bag_delta(row["rec"]) or {}).items() if v < 0 and not k.startswith(("carry:", "worn:", "held:")))
+    # no crate of his own in reach: a chest built on the spot (Luis's 'crafting table and firepit': 2 pieces in 11 s)
+    build = 0.0 if near is not None and near < 40 else luis("crafting table and firepit") / 2
+    t_h = (2 * near / LUIS_RUN_MS if build == 0.0 else build) + 2.0 + max(1, moved) * g.MOVE_S + 1.5
+    c1 = carry()
+    walk = (f" + {near:.0f} m there and back at Luis's {LUIS_RUN_MS:.1f} m/s" if build == 0.0 else
+            f" + a chest built ({build:.1f} s: Luis's 'crafting table and firepit' / 2)") + " + 2 s open"
+    note = (f"carry {c0['cur']:.1f}/{c0['max']:.0f} -> " + (f"{c1['cur']:.1f}/{c1['max']:.0f}" if c1 else "?")
+            + f"; his nearest own crate {near and round(near, 1)} m; T_h = 1.5 s reaction{walk}"
+            + f" + {max(1, moved)} drag(s) x {g.MOVE_S} s; no fixtures" + (f"; ENDED BY {aborted}" if aborted else ""))
+    return g.finish(ctx, "bag", [row], t_h, allowed=1, note=note)
+
+
+RUNNERS4 = {"tannery": it_tannery, "armour": it_armour, "bow": it_bow, "spells": it_spells, "gear_up": it_gear_up,
+            "bag": it_bag}
 
 
 class _Lock:  # rung1_gate's run loop takes the lock as "rung1": this gate's owner is "rung4"
@@ -416,7 +745,8 @@ def main(argv=None) -> int:
         argv = sys.argv[1:]
     if argv and argv[0] == "plan":
         for k, v in LINES.items():
-            print(f"  {k:<9} {v!r:<66} T_h {round(T_H[k](), 1)} s")
+            t = T_H[k]()
+            print(f"  {k:<9} {v!r:<66} T_h {round(t, 1) if t else 'per run'}" + (" s" if t else ""))
         print(f"live lock: {live_lock.read() or 'free'}; cost ~2-8 Haiku calls per item + 1 judge call per leg")
         return 0
     if argv and argv[0] == "run" and "--world" not in argv:

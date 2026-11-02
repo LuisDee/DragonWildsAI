@@ -13,6 +13,9 @@
   "BP_AI_Ram_Character_C": "/Game/Gameplay/AI/Ram/BP_AI_Ram_Character.BP_AI_Ram_Character_C",
   "BP_AI_MediumBeast_Character_C": "/Game/Gameplay/AI/BeastFaction/MediumBeast/BP_AI_MediumBeast_Character.BP_AI_MediumBeast_Character_C",
   "BP_AI_RangedBeast_Character_C": "/Game/Gameplay/AI/BeastFaction/RangedBeast/BP_AI_RangedBeast_Character.BP_AI_RangedBeast_Character_C",
+  "BP_AI_GiantRat_Character_C": [
+    "/Game/Gameplay/AI/GiantRat/BP_AI_GiantRat_Character.BP_AI_GiantRat_Character_C"
+  ],
   "_candidates_source": "2026-10-26 pincases: candidate lists for Wolf, WolfElite, Terrorbird, Ram, MediumBeast and RangedBeast are the package paths in the server's IoStore directory index (tools/utoc_list.py over RSDragonwilds-WindowsServer.utoc, build 26161880; Content/ = /Game/). The index has NO BP_AI_DireWolf_Character (the old DireWolf candidates were guesses, removed) and no *Thug* AI class. A list stays UNVERIFIED until a live spawn loads it; then it becomes a string with a _verified row.",
   "_verified": {
     "BP_AI_RuntGoblin_Character_C": {

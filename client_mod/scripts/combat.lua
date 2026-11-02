@@ -252,7 +252,10 @@ function M.score_weapon(p, enemy, learned, known)
     if not p or p.kind ~= "melee" or not p.prim then return nil end
     local f = M.TOOL_FACTOR[p.cat]
     if f == 0 then return nil end
-    local s = (M.dps(p) or 0) * (f or 1)
+    -- his own learned damage with it first (M.my_dps: the server's verdicts on his hits), the catalog only when he has
+    -- none: live 2026-11-02 01:16Z a Stone Dagger (catalog 15/s x1.5 stab-weak = 22.5) beat his Bronze Sword (catalog
+    -- 16.3, learned 48 a hit = 56/s, 5 rat kills, 0 deaths) and he died to two Giant Rats with it, 0 hits landed
+    local s = (M.my_dps(p) or M.dps(p) or 0) * (f or 1)
     local why
     for _, tag in ipairs(p.types or {}) do
         local a, src
@@ -264,24 +267,50 @@ function M.score_weapon(p, enemy, learned, known)
     return s, why
 end
 
+-- His record with each weapon against this creature (combat memory history): {item = {n, kills, deaths}}.
+function M.weapon_record(enemy, m)
+    m = m or C().mem
+    local h = m and m.history and enemy and enemy.name and m.history[tostring(enemy.name):lower()] or nil
+    local r = {}
+    for _, f in ipairs(h or {}) do
+        if f.weapon then
+            local x = r[f.weapon] or { n = 0, kills = 0, deaths = 0 }
+            x.n = x.n + 1
+            if f.outcome == "killed" then x.kills = x.kills + 1 elseif f.outcome == "died" then x.deaths = x.deaths + 1 end
+            r[f.weapon] = x
+        end
+    end
+    return r
+end
+
 -- Best weapon he OWNS (inventory.list entries: hotbar, bag, loadout) for this enemy, and the best
 -- shield. -> {weapon = {entry, profile, score}, shield = {entry, profile}} (nil when none).
-function M.best_weapon(list, enemy, data, learned, known)
+-- A weapon he has fought this creature with 2+ times and won with more than he died ("proven") beats one that is not,
+-- whatever the numbers say: a player keeps the sword he killed 5 rats with (live 2026-11-02 01:16Z, see score_weapon).
+function M.best_weapon(list, enemy, data, learned, known, record)
     data = data or M.weapons()
     local items = data.items or {}
-    local best, shield
+    record = record or M.weapon_record(enemy)
+    local function proven(item) local x = record[item]; return x ~= nil and x.n >= 2 and x.kills > x.deaths end
+    local best, shield, best_proven
     for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
         for _, e in ipairs((list or {})[where] or {}) do
             local p = e.item and items[e.item]
             if p and not e.broken then
                 local s, why = M.score_weapon(p, enemy, learned, known)
                 if s and (not best or s > best.score + 1e-6) then best = { entry = e, profile = p, score = s, where = where, why = why } end
+                if s and proven(e.item) and (not best_proven or s > best_proven.score + 1e-6) then
+                    local x = record[e.item]
+                    best_proven = { entry = e, profile = p, score = s, where = where,
+                                    why = string.format("proven: %d kills, %d deaths in %d fights with it vs %s", x.kills, x.deaths, x.n, tostring(enemy.name)) }
+                end
                 if p.role == "shield" and (not shield or (p.block or 0) > (shield.profile.block or 0)) then
                     shield = { entry = e, profile = p, where = where }
                 end
             end
         end
     end
+    if best_proven and best and not proven(best.entry.item) then best = best_proven end
     return { weapon = best, shield = shield }
 end
 
@@ -1760,8 +1789,9 @@ local function step_equip(F, pawn)
         -- a two-handed tool (the Mithril Logging Axe) is reported in the LEFT hand only (DISCOVERIES R2):
         -- restore whatever was the main held item
         F.prev_main = F.prev_right or F.prev_left
-        say(F.log, string.format("weapon %s (score %.1f) shield %s; held before %s / %s", tostring(F.equip_plan.weapon),
-            F.weapon_score or 0, tostring(F.equip_plan.shield), tostring(F.prev_right), tostring(F.prev_left)))
+        say(F.log, string.format("weapon %s (score %.1f%s) shield %s; held before %s / %s", tostring(F.equip_plan.weapon),
+            F.weapon_score or 0, (pick.weapon and pick.weapon.why) and (", " .. pick.weapon.why) or "", tostring(F.equip_plan.shield),
+            tostring(F.prev_right), tostring(F.prev_left)))
     end
     local plan = F.equip_plan
     local right, left = held_items(pawn)

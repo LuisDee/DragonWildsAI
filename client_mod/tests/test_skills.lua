@@ -1821,6 +1821,26 @@ test("store/take: truthful refusals (not a container, not in it, too many, full,
     F.chests, F.open_chest, F.transfer_noop = nil, nil, nil
 end)
 
+test("store: the copy in his hand stays (the game won't chest an equipped item); the reply says he kept it", function()
+    -- live 2026-11-02: store Bronze Shield with one in the bag and one held -> "only 1 went" (verification_failed)
+    chest_world()
+    F.extra.ITEM_Shield_Bronze = 1
+    F.held_left = { item = "ITEM_Shield_Bronze", name = "Bronze Shield", durability = 1018 }
+    local _, id = rpc("store", { item = "ITEM_Shield_Bronze", container = "chest_1" })
+    local r = run(id, 80)
+    assert(r and r.ok and r.data.count == 1 and r.data.kept_held == 1 and F.transfers == 1, json.encode(r))
+    assert(tostring(r.data.detail):find("I kept the one in my hand.", 1, true), json.encode(r.data))
+    -- only the held one left: a truthful refusal before any walk, naming the hand
+    chest_world()
+    F.extra.ITEM_Shield_Bronze = nil
+    F.held_left = { item = "ITEM_Shield_Bronze", name = "Bronze Shield", durability = 1018 }
+    r = rpc("store", { item = "ITEM_Shield_Bronze", container = "chest_1" })
+    assert(r.reason == "not_enough_resources" and r.data.held == 1 and r.data.detail:find("the one in my hand", 1, true), json.encode(r))
+    r = rpc("store", { item = "ITEM_Shield_Bronze", container = "chest_1", count = 2 })
+    assert(r.reason == "not_enough_resources" and r.data.detail:find("in my hand", 1, true), json.encode(r))
+    F.held_left, F.chests, F.open_chest = nil, nil, nil
+end)
+
 test("store: a reflex pre-empting mid-transfer closes the chest at once; on resume it reopens and finishes", function()
     chest_world()
     F.open_chest, F.transfer_noop = "chest_1", true -- open, first press pending (the server hasn't answered)

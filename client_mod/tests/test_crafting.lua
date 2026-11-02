@@ -73,7 +73,9 @@ function INV.interact_target()
         if d <= reach and (not best or d < bd) then best, bd = { actor = id, name = name, item = item }, d end
     end
     for _, s in ipairs(F.stations) do consider(s.id, s.name, nil, s.position, 3.0) end
-    for _, it in ipairs(F.items) do consider(it.id, it.name, it.item, it.position, 1.5) end
+    if not F.no_item_prompt then -- F.no_item_prompt: the game offers no pickup for items (a full bag, live 00:31Z)
+        for _, it in ipairs(F.items) do consider(it.id, it.name, it.item, it.position, 1.5) end
+    end
     -- F.station_behind: the game's camera ray / character trace (live 2026-10-26, Campfire): a small item
     -- loses to a station that lies BEHIND it along his line of sight (or when he stands on the item)
     if F.station_behind and best and best.item then
@@ -575,6 +577,35 @@ do -- lying in a bed: the game blocks walking and stations, so craft says so at 
     SK.W.resting_in = old
     check("resting: craft fails resting, naming the bed", r.ok == false and r.reason == "resting"
           and tostring((r.data or {}).detail):find("Summon", 1, true) ~= nil, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+end
+do -- the output finds no room and lies by the station, with no pickup offered (live 2026-11-02 00:31Z: Tannery,
+   -- bag 32/32, 406/400): he says it is still there, where, and the room he lacks, not "couldn't pick up what it made"
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    F.no_item_prompt = true
+    local old_free, old_enc = INV.free_slot, MOVE.encumbrance
+    INV.free_slot = function() return nil end
+    MOVE.encumbrance = function() return { on = true, cur = 406.04, max = 400 } end
+    local r = run({ recipe = "RECIPE_Process_IronBar" })
+    INV.free_slot, MOVE.encumbrance = old_free, old_enc
+    local d = r.data or {}
+    check("proc/no room: inventory_full, not verification_failed", r.ok == false and r.reason == "inventory_full", tostring(r.reason))
+    check("proc/no room: names what lies there and where", d.left_behind and d.left_behind.count == 1 and d.left_behind.at
+          and d.left_behind.at[1] == 9 and #d.left_behind.ids == 1, d.left_behind and d.left_behind.count)
+    check("proc/no room: detail says it is still there, the full bag and the weight",
+          tostring(d.detail):find("still lying on the ground by it at (9, 3)", 1, true) ~= nil
+          and tostring(d.detail):find("no free slot", 1, true) ~= nil and tostring(d.detail):find("406 of 400", 1, true) ~= nil,
+          d.detail)
+    check("proc/no room: the bar is still in the world", #F.items == 1)
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    F.no_item_prompt = true -- room known to be there: no room claim, still where it lies
+    INV.free_slot = function() return 4 end
+    r = run({ recipe = "RECIPE_Process_IronBar" })
+    INV.free_slot = old_free
+    check("proc/no prompt, room free: verification_failed, says where it lies, claims no full bag",
+          r.reason == "verification_failed" and tostring((r.data or {}).detail):find("still lying", 1, true) ~= nil
+          and tostring((r.data or {}).detail):find("free slot", 1, true) == nil, tostring((r.data or {}).detail))
 end
 do -- the output lies at the station, whose interaction wins a near miss (live 2026-10-26: "the game targets
    -- BP_Station_Campfire_C, not the Clean Water"): he stands where the station is not behind the item

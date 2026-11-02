@@ -33,9 +33,15 @@ function M.list(log)
     end
     if F.has_food then bag[#bag + 1] = { name = "Sandwich", item = "ITEM_Sandwich", count = 1, consumable = "food", slot = 20 } end
     if F.has_drink then bag[#bag + 1] = { name = "Water", item = "ITEM_Water", count = 1, consumable = "drink", slot = 21 } end
-    return { ok = true, hotbar = hotbar, bag = bag,
-             loadout = { { name = "Bronze Hatchet", item = "ITEM_Tool_Axe_Bronze", count = 1, slot = 7, loadout_slot = "HeldRight" } },
-             personal = {}, held = { right = "Bronze Hatchet", right_item = "ITEM_Tool_Axe_Bronze" } }
+    local loadout = { { name = "Bronze Hatchet", item = "ITEM_Tool_Axe_Bronze", count = 1, slot = 7, loadout_slot = "HeldRight" } }
+    -- FAKE.held_left = {item, name, durability}: a hotbar stack he holds in his left hand (the loadout points at it)
+    local hl = F.held_left
+    if hl then
+        hotbar[#hotbar + 1] = { name = hl.name, item = hl.item, count = 1, slot_type = "QuickAction", slot = 6, durability = hl.durability }
+        loadout[#loadout + 1] = { name = hl.name, item = hl.item, count = 1, slot = 8, loadout_slot = "HeldLeft", durability = hl.durability }
+    end
+    return { ok = true, hotbar = hotbar, bag = bag, loadout = loadout,
+             personal = {}, held = { right = "Bronze Hatchet", right_item = "ITEM_Tool_Axe_Bronze", left = hl and hl.name, left_item = hl and hl.item } }
 end
 function M.drop(log, what, count)
     if not tostring(what):lower():find("oak") then return { ok = false, reason = "not in inventory: " .. tostring(what) } end

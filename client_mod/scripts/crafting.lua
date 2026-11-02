@@ -938,6 +938,26 @@ function W.take_from(api, slot, source)
     return ok, (not ok) and tostring(err) or nil
 end
 
+-- Room for what a station makes: a free InventoryItems slot (inventory.free_slot) and his carry weight
+-- (move.encumbrance). A station whose output finds no room drops it on the ground by itself (live 2026-11-02 00:31Z:
+-- bag 32/32 and 406/400, the Tannery's 2 Leather left lying there). -> { free_slot = bool|nil, weight, max_weight, over }
+function W.room(api)
+    local out = {}
+    local inv, mv = api.module("inventory"), api.module("move")
+    if inv and type(inv.free_slot) == "function" then
+        local ok, s = pcall(inv.free_slot, "InventoryItems")
+        if ok then out.free_slot = s ~= nil end
+    end
+    if mv and type(mv.encumbrance) == "function" then
+        local ok, e = pcall(mv.encumbrance)
+        if ok and type(e) == "table" and tonumber(e.cur) and tonumber(e.max) then
+            out.weight, out.max_weight = math.floor(e.cur * 10 + 0.5) / 10, math.floor(e.max * 10 + 0.5) / 10
+            out.over = e.on == true or e.cur > e.max
+        end
+    end
+    return out
+end
+
 -- The processing menu's start button.
 function W.toggle(api)
     local ui = ui_object(api, "ProcessingStationUIAPI")
@@ -1747,6 +1767,25 @@ local function proc_step(api, job, t)
             return api.fail("craft_failed", d)
         end
         if total <= 0 then
+            local left = now ~= nil and proc_collect_targets(api, job) or {}
+            if #left > 0 then -- what it made is still lying there: say so, where, and the room he has (read, not guessed)
+                local n, p = 0, left[1].position
+                for _, th in ipairs(left) do n = n + (tonumber(th.count) or 1) end
+                local room = (W.room and W.room(api)) or {}
+                d.left_behind = { item = left[1].item, name = left[1].name, count = n, ids = {},
+                                  at = p and { math.floor(p[1] + 0.5), math.floor(p[2] + 0.5) } or nil }
+                for _, th in ipairs(left) do d.left_behind.ids[#d.left_behind.ids + 1] = th.id end
+                d.bag = room
+                local facts = {}
+                if room.free_slot == false then facts[#facts + 1] = "my bag has no free slot" end
+                if room.over then facts[#facts + 1] = "I'm carrying too much (" .. string.format("%g", room.weight) .. " of " .. string.format("%g", room.max_weight) .. ")" end
+                d.detail = "The " .. tostring(job.station.name) .. " made " .. n .. " " .. tostring(left[1].name)
+                    .. ", but it's still lying on the ground by it" .. (p and (" at (" .. d.left_behind.at[1] .. ", " .. d.left_behind.at[2] .. ")") or "")
+                    .. (#facts > 0 and ("; " .. table.concat(facts, " and ")) or "") .. "."
+                    .. (job.pickup_fail and (" " .. tostring((job.pickup_fail.data or {}).detail or "")) or "")
+                    .. (#facts > 0 and " Once I make room I can pick it up there." or "")
+                return api.fail(room.free_slot == false and "inventory_full" or "verification_failed", d)
+            end
             d.detail = now == nil and ("The " .. tostring(job.station.name) .. " finished, but I couldn't read my inventory to check what I got.")
                 or ("The " .. tostring(job.station.name) .. " finished, but I couldn't pick up what it made."
                     .. (job.pickup_fail and (" " .. tostring((job.pickup_fail.data or {}).detail or "")) or ""))

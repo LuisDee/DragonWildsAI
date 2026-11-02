@@ -490,6 +490,32 @@ do
     local learned = {}
     Cm.learn_outcome(learned, "Kebbit", { "DamageType.Physical.Stab" }, { "weak" })
     check("learned weakness raises score", Cm.score_weapon(dag, { name = "Kebbit" }, learned) > s1)
+    do -- his learned damage beats the catalog, and a proven weapon beats an untried one (live 2026-11-02 01:16Z:
+       -- a Stone Dagger, catalog x1.5 stab-weak, replaced the Bronze Sword he had killed 5 Giant Rats with; he died)
+        local st = Cm._state()
+        local saved = st.hit_dmg
+        st.hit_dmg = {}
+        local rat = { name = "Giant Rat", affinities = { ["DamageType.Physical.Stab"] = "weak" } }
+        local kit = { loadout = {}, hotbar = { { item = "ITEM_Sword_Bronze", slot = 1 } }, bag = { { item = "ITEM_Dagger_Stone", slot = 3 } } }
+        check("catalog only: the stab-weak rat makes the dagger win", Cm.best_weapon(kit, rat, nil, nil, nil, {}).weapon.entry.item == "ITEM_Dagger_Stone")
+        st.hit_dmg["Bronze Sword"] = 48.3
+        check("learned 48/hit: the sword outscores the untried dagger",
+              Cm.score_weapon(W.items.ITEM_Sword_Bronze, rat) > Cm.score_weapon(W.items.ITEM_Dagger_Stone, rat))
+        st.hit_dmg = {}
+        local rec = { ITEM_Sword_Bronze = { n = 5, kills = 5, deaths = 0 } }
+        local b = Cm.best_weapon(kit, rat, nil, nil, nil, rec).weapon
+        check("proven sword (5 kills, 0 deaths) beats the untried dagger", b.entry.item == "ITEM_Sword_Bronze"
+              and tostring(b.why):find("proven", 1, true) ~= nil, b.entry.item)
+        rec = { ITEM_Sword_Bronze = { n = 1, kills = 1, deaths = 0 } }
+        check("one fight is not proven", Cm.best_weapon(kit, rat, nil, nil, nil, rec).weapon.entry.item == "ITEM_Dagger_Stone")
+        rec = { ITEM_Sword_Bronze = { n = 3, kills = 1, deaths = 2 } }
+        check("a weapon he died with more than he won is not proven", Cm.best_weapon(kit, rat, nil, nil, nil, rec).weapon.entry.item == "ITEM_Dagger_Stone")
+        local m = { history = { ["giant rat"] = { { weapon = "ITEM_Sword_Bronze", outcome = "killed" }, { weapon = "ITEM_Sword_Bronze", outcome = "killed" },
+                                                 { weapon = "ITEM_Dagger_Stone", outcome = "died" } } } }
+        local r2 = Cm.weapon_record(rat, m)
+        check("weapon_record counts per weapon", r2.ITEM_Sword_Bronze.n == 2 and r2.ITEM_Sword_Bronze.kills == 2 and r2.ITEM_Dagger_Stone.deaths == 1)
+        st.hit_dmg = saved
+    end
     check("live affinity used", Cm.affinity({ name = "X", affinities = { ["DamageType.Physical.Crush"] = "immune" } }, "DamageType.Physical.Crush") == "immune")
 
     local me = { hp = 100, max_hp = 100, pl = 2, dps = Cm.dps(dag) }
