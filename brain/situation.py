@@ -436,8 +436,12 @@ def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
         sl = str(slot).lower()
         if sl.startswith("magicammo"):
             name += " (magic ammo: a staff or wand casts with it)"
-        elif sl in ("ammo", "crossbowbolts"):
-            name += " (ammo: a bow or crossbow shoots it)"
+        elif sl == "ammo":
+            name += " (arrows: a bow shoots it)"
+        elif sl == "crossbowbolts":
+            # live rung 4, 08:27Z: "a bow or crossbow shoots it" on his 2 Bone Bolts read as arrows for his new bow;
+            # he planned Bone Bolts, made no arrows and found out at the equip
+            name += " (crossbow bolts: only a crossbow shoots them, a bow can't)"
         if name not in out:
             out.append(name)
     return out

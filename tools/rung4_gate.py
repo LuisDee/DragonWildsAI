@@ -379,6 +379,18 @@ def store_his(ctx, name: str, n: int, stores: list[tuple[str, list]]) -> tuple[b
         if res.get("ok"):
             return True, f"stored {n} {name} in his storage at ({at[0]:.1f}, {at[1]:.1f})"
         why = f"{res.get('reason')}: {(res.get('data') or {}).get('detail')}"
+    if stores and why.startswith("container_full") and not getattr(ctx, "built_crate", False):
+        # every crate of his by the base is full (08:4xZ: all 4; each gate run makes a bow that the next sheds):
+        # as a player would, he builds another crate there (its materials a dev fixture) and it takes them
+        ctx.built_crate = True
+        cost = build_cost(ctx, "crate")
+        stock(ctx, "storage", cost)
+        b = ctx.cli.request("build", {"piece": "Crate", "near": [STASH_AT[0], STASH_AT[1] + 2.5, -31.2]}, timeout=180) or {}
+        if not b.get("ok"):
+            return False, f"{why}; and a new crate wasn't built ({b.get('reason')}: {(b.get('data') or {}).get('detail')})"
+        stores[:] = own_storage(ctx)
+        ok, msg = store_his(ctx, name, n, stores)
+        return ok, f"built him a crate (all his were full, materials {cost}); " + msg
     return False, why
 
 
