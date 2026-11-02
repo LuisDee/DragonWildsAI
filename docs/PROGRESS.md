@@ -895,3 +895,28 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - Next:
   - shut-door runs (W15), the church/doric follow pair without the house, 3 in a row;
   - then route cost near idle hostiles (rats).
+- 2026-11-02 06:1xZ rung1:
+  - The chat ladder is GREEN x2 after the digest change 4f0256a: 9/9 and 9/9, truthful, mean 2.1 and 2.0 calls.
+  - eat_drink x3 (no supply): PASS x1.33, time x3.08, time x2.29.
+  - Fixes:
+    - the consume description states the per-kind locks;
+    - a move to the hotbar holds the reflex for that kind 15 s;
+    - a consume that finds the reflex mid-use says so (by_reflex);
+    - brain/consume_order interleaves food and drink consumes;
+    - the deposit verify is read on the crate side.
+
+## 2026-11-02 05:45-06:55Z movement: world-edge death fixed, doors, rats
+- Root cause of the 05:44Z Temple Woods death: a world-edge void, and a local plan that ran along its lip after the drop guard refused it. Fixes: planner lip cost + lip-free plan end, refused drops forbidden, hazard rings forbidden, and planning round a ring when the goal is outside it. Plus move.ground_at, and explore skipping legs over a void. Tests: localplan lip/forbid, move hazard round-ring, a skills explore void test and a grave-spot test.
+- Live: W23b explore from the fatal start went east, closest edge 7.3 m. W23 grave failed (interact's spot was inside the ring); W25 replans standing spots clear of the hazard.
+- Doors: far_goal prefers the doorway line-up over the oracle's outside waypoint (12 wall_ahead plans pulled him back out). The opener reads Hinge.HingeState/bIsReady (no second press mid-swing). The doorway route runs on to the goal. Swinging-door test added. Live door runs in W24.
+- Rats: W22 found no idle rat near the runts, so there is no live "on" measurement. Avoidance kept on and the DW_MOB_AVOID_OFF knob deleted.
+
+## 2026-11-02 04:1x-07:2xZ rung4: litter, bow root cause, re-arm perception, flee memory
+- Tannery stone litter cleared into his own Crate _364399 (all piles + 12 hides); end weight 270.75/400, later 32.8/400 after deaths emptied him.
+- Bow: the shot tracker followed the arrow nocked on the bow (the flying one is the previously nocked LoadedProjectile), which poisoned the learned speed (1566 -> 461), made every shot "fly" 4.5 s and gave shots_not_firing. HasReachedFullAccuracy never turns true on his client; a released aim key within 0.2 s loses the arrow; aim can fail to come back after a dodge. Fixed in combat.lua/ranged.lua (bow_ready, loose before a dodge, re-press aim, stop by positions, fit rejection + re-seed). Kebbit kill 99.7 s -> 48 s -> 25 s. DISCOVERIES "Bow draw cycle and shot tracking".
+- Arrows: weapons line names the slotted ammo and other ammo carried with wiki power/damage; attack says plainly when the slot is empty and arrows are in the bag. The Ammo loadout slot references the InventoryAmmunition stack; the bridge's compact inventory has no loadout ({"raw": true} does).
+- 06:06 rat death (bare-handed after a 05:44 fall death): no "no weapon" line (added no_weapon_line: ground weapons, grave weapons); defense windstep prior from tags outweighed 2 real failures (prior_strength_guess 2); "can't outrun it" came from caught_by written by a STUCK flee (rat MaxWalkSpeed 600 vs his sprint 680 measured) -> caught_by only when he really ran.
+- Next: rung4_gate bow x3, then spells x3.
+- 2026-11-02 08:2x-08:49Z movement:
+  - Door: the doorway line-up uses only the frame's through-axis (-sin yaw, cos yaw); from east of the house the along-the-wall axis had lined him up against the wall. The opener starts only within 3 m and never presses from out of reach (not counted as a try). The door test now starts dry, east of the pond. W28: 3/3 in 19.9, 45.2 and 9.0 s.
+  - Follow: church 99.3 / 100 / 100 % = 3 in a row PASS. Doric 93.4 % PASS, then 87.9 % and 80.1 % (ladder FAIL), so not yet 3 in a row.

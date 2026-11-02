@@ -995,6 +995,10 @@ local function door_begin(st, t, log, door)
     local d = door or shut_door_near(me, st.lp_far or st.goal, M.cfg.door_find_cm)
     st.door_tried = st.door_tried or {}
     if not d or (st.door_tried[d.name] or 0) >= 2 then return false end
+    -- not from across a step or a ledge: its approach is a straight 4 s walk, and from 5 m behind a raised bit it
+    -- aimed from where it stood ("nothing targeted" twice from the far side, live 07:26:59-07:27:11Z). The walk
+    -- brings him nearer; the door is pressed once he is within reach of it
+    if d2(me, d.at) > M.cfg.door_reach_cm + 130 then return false end
     st.door_tried[d.name] = (st.door_tried[d.name] or 0) + 1
     d.t0, d.phase, d.presses = t, "approach", 0
     -- aimed at the middle of the door: the actor's origin is its hinge post at the floor, and a ray there missed it
@@ -1080,7 +1084,10 @@ function M._doorway_path(me, goal, hh)
         local c = door_prompt(a) and M._door_frame(a)
         if c and d2(c, goal) <= M.cfg.door_find_cm and math.abs(c.Z - goal.Z) < 400 then
             local r = math.rad(c.yaw)
-            for _, n in ipairs({ { X = math.cos(r), Y = math.sin(r) }, { X = -math.sin(r), Y = math.cos(r) } }) do
+            -- the way through is the frame's local Y (-sin yaw, cos yaw): its local X runs along the wall. Both axes
+            -- were tried, and from beside the house (start east of it, live 08:23-08:25Z) the along-the-wall axis
+            -- passed the side test and lined him up 1 m east of the frame, against the wall, for 70 s
+            for _, n in ipairs({ { X = -math.sin(r), Y = math.cos(r) } }) do
                 local sm = (me.X - c.X) * n.X + (me.Y - c.Y) * n.Y
                 local sg = (goal.X - c.X) * n.X + (goal.Y - c.Y) * n.Y
                 if sm * sg < 0 and math.abs(sm) >= 60 and math.abs(sg) >= 30 then
@@ -1151,6 +1158,13 @@ local function door_step(f)
                 pawn:AddMovementInput({ X = dx / l, Y = dy / l, Z = 0 }, 1.0, false)
                 return true
             end
+        end
+        -- (not pressed from out of reach: the detector still names a door 3 m off round a wall corner, but the press
+        -- does nothing there: "stayed shut after 2 presses" from beside the house, live 08:23:21-31Z). Not a try.
+        if dist > M.cfg.door_reach_cm + 60 then
+            st.door_tried[d.name] = math.max(0, (st.door_tried[d.name] or 1) - 1)
+            door_end(st, t, false, string.format("I couldn't get within reach of it (%.1f m off)", dist / 100), log)
+            return false
         end
         d.phase, d.aim_t = "aim", t
     end
