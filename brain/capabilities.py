@@ -151,6 +151,10 @@ class Capabilities:
         if e is not None:
             clean = deepcopy(args if args is not None else {})
             schema = e.get("args", {"type": "object"})
+            # an optional arg sent as null means "not given" (farm_gate 2026-11-02 01:3xZ: gather with mode/radius
+            # null failed invalid_args 5 times in one window, as the legacy path below already drops them)
+            req = set(schema.get("required") or []) if isinstance(schema, dict) else set()
+            clean = {k: v for k, v in clean.items() if v is not None or k in req}
             try:
                 jsonschema.validate(clean, schema)
                 if isinstance(schema, dict):
