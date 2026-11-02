@@ -46,7 +46,7 @@ $bootLog = if ($env:DW_CLIENT_BOOT_LOG) { $env:DW_CLIENT_BOOT_LOG } else { Join-
 New-Item -ItemType Directory -Force (Split-Path $bootLog) | Out-Null
 function BLog($msg) {
     $line = "$(Get-Date -Format o) $(Protect-Secret $msg)"
-    Add-Content -Encoding utf8 $bootLog $line
+    try { Add-SharedLine $bootLog $line } catch { }
     if (-not $Quiet) { Write-Host $line }
 }
 

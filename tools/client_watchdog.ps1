@@ -48,7 +48,7 @@ function Ev([string]$event, [hashtable]$f = @{}) {
     $o = [ordered]@{ ts = (Get-Date).ToUniversalTime().ToString('o'); event = $event }
     if ($DryRun) { $o.dry_run = $true }
     foreach ($k in $f.Keys) { $o[$k] = $f[$k] }
-    Protect-Secret ($o | ConvertTo-Json -Compress -Depth 6) | Add-Content -Encoding utf8 $events
+    try { Add-SharedLine $events (Protect-Secret ($o | ConvertTo-Json -Compress -Depth 6)) } catch { }
 }
 function AgeS([string]$path) {
     if (-not (Test-Path $path)) { return 1e9 }

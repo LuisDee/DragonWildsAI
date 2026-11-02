@@ -71,6 +71,14 @@ function Protect-Secret([string]$s) {
     $s
 }
 
+# Append a line with FileShare.ReadWrite: Add-Content refuses a file an open reader holds, so a stale Git `tail -F`
+# silenced boot.log (21:21Z-01:10Z) and client_watchdog.jsonl (from 2026-11-01 10:41Z) with nothing but errors.
+function Add-SharedLine([string]$path, [string]$line) {
+    $fs = [System.IO.File]::Open($path, 'Append', 'Write', 'ReadWrite')
+    try { $w = New-Object System.IO.StreamWriter($fs, (New-Object System.Text.UTF8Encoding($false))); $w.WriteLine($line); $w.Flush() }
+    finally { $fs.Close() }
+}
+
 # ------------------------------------------------------------------ join targets (which server Claude joins)
 # A target is a gitignored secrets file: line 1 address (host:port), line 2 world password.
 #   shockbyte (default, Luis's world) -> client_io/secrets/server.txt
