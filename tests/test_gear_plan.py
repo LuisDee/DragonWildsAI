@@ -75,3 +75,11 @@ def test_station_rule_named_with_the_station():
     assert "roof" in gp._at("Spinning Wheel") and gp._at("Tannery") == "Tannery"
     ways = [w for r in gp._by_output().get("ITEM_Resources_Thread_Coarse") or [] for w in r.get("stations") or []]
     assert "Spinning Wheel" in ways  # the recipe data names it the way the rules file keys it
+
+
+def test_pl_with_one_piece_worn_now():
+    # live 2026-11-02 gear_up run 5: the Leather Cowl (PL 2) he carried would have taken him from PL 0 to 1 at once
+    from brain import gear_plan as gp
+    p = {"slots": {"head": {"worn": None, "worn_pl": None}, "body": {"worn": "Adventurer's Tunic", "worn_pl": 1},
+                   "legs": {"worn": "Adventurer's Leggings", "worn_pl": 0}}}
+    assert gp.pl_with(p, "head", 2) == 1 and gp.pl_with(p, "legs", 0) == 0

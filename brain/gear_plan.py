@@ -238,6 +238,13 @@ def _reachable_item(name: str, cat: dict, have: dict[str, int], unlocked: set[st
     return not _by_output().get(iid)  # a raw resource (gathered, dropped): no recipe at all
 
 
+def pl_with(p: dict, slot: str, pl: int) -> int:
+    """His power level with a piece of power level pl worn in this armour slot (the rest as worn now)."""
+    vals = [pl if s == slot else (int((p["slots"].get(s) or {}).get("worn_pl") or 0) if (p["slots"].get(s) or {}).get("worn") else 0)
+            for s in ARMOUR_SLOTS]
+    return math.floor(sum(vals) / len(ARMOUR_SLOTS))
+
+
 def lines(p: dict, max_opts: int = 3, compact: bool = False) -> list[str]:
     """Short perception lines (one for the summary, one per slot that can improve). compact: what he is short of but not
     the full cost or where the short inputs come from, and the slots with gear he already owns first (the one-line
@@ -255,8 +262,11 @@ def lines(p: dict, max_opts: int = 3, compact: bool = False) -> list[str]:
         parts = []
         for o in s["best"][:max_opts]:
             if o["status"] == "owned":
-                # "not on you": live 2026-11-02 gear_up run 5 crafted a Leather Cowl and carried it 400 s unworn
+                # "not on you" + what wearing it does now: live 2026-11-02 gear_up run 5 crafted a Leather Cowl and carried
+                # it 400 s unworn, waiting for the whole set
                 d = "you have one, not on you: " + "; ".join(o["where"][:2])
+                if slot in ARMOUR_SLOTS and o.get("pl") is not None:
+                    d += f"; wearing it now: PL {p['pl_now']} -> {pl_with(p, slot, int(o['pl']))}"
             elif o["status"] == "craftable_now":
                 d = f"craftable now at {o.get('station')} ({', '.join(o['needs'])})"
             else:
