@@ -930,3 +930,8 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
     - recovers its own grave after a failed leg.
   - Probe cost: the probe teleported onto the KillZ ledge and he died 3 times (08:55:40-08:56:00Z). Afterwards I recovered the grave, closed those deaths, picked up the spot-0 debris and recovered the crates grave.
   - Open (offline only, not deployed): his graves from the registry, in the mirror (scratchpad grave_patch.py / grave_patch2.py, test_skills 101/101). Also open: the say-then-stop controller item from rung4.
+
+## 2026-11-02 07:3x-09:0xZ rung4 (bow 3 in a row; wind-down)
+- Bow item PASS 3 in a row (x1.01-x1.08 against T_h 39.9 s, misses 0, truthful), with frozen client and brain code since 08:3xZ.
+- Fixed: gate spawn_near picked a wild kebbit (now the census row nearest the spawn point); the bow kept aiming at the corpse in loot (set_phase clears the ranged aim, so the loot walk is no longer refused "camera_taken"); the digest read Bone Bolts as bow ammo (situation.py: bolts are crossbow-only); gate shed never drops (stores into his ledger crates by the base, retries a pre-empted store, unequips a held copy, builds him a crate when all are full).
+- Open: spells item not run (wind-down); attack result has no weapon field (gate prints weapon=None); the say-then-stop chain end went to rung1; 63 Fang Arrows on the respawn dump are farming's to clear. His carry at the end: 161.4/400.
