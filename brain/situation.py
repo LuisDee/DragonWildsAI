@@ -930,6 +930,17 @@ def weapons_line(state: dict) -> str | None:
     return ("Your weapons: " + " | ".join(parts))[:LINE_CHARS] if parts else None
 
 
+def load_words(state: dict) -> str | None:
+    """'OVERLOADED 403/400 carry weight: walk only, no sprint or jumps' from the bag's encumbrance (skills.lua, the
+    game's PlayerEncumbranceComponent). Live 2026-11-02 00:2xZ he was 3 over after a grave run and never knew it."""
+    bag = state.get("bag") if isinstance(state.get("bag"), dict) else {}
+    if bag.get("encumbered") is not True:
+        return None
+    cur, mx = _num(bag.get("weight")), _num(bag.get("max_weight"))
+    amount = f" {cur:.0f}/{mx:.0f} carry weight" if cur is not None and mx is not None else ""
+    return f"OVERLOADED{amount}: walk only, no sprint or jumps"
+
+
 def enchant_words(state: dict) -> str | None:
     """'Fire enchant on your weapon, 212 s left' from combat's held_enchant (nil = none, so nothing is said)."""
     e = state.get("held_enchant") if isinstance(state.get("held_enchant"), dict) else None
@@ -949,9 +960,15 @@ def gear_line(state: dict) -> str | None:
         if p.get("enemy_pl") is None or p.get("pl_now", 0) >= p["enemy_pl"]:
             return None
         ls = gear_plan.lines(p, max_opts=1, compact=True)
+        whole = gear_plan.set_line(p, state)  # the whole job per style (live 2026-11-02: he stopped at one piece)
     except Exception:  # perception is best effort; never block a decision on it
         return None
-    return (ls[0] + (" Per slot: " + " | ".join(x.strip() for x in ls[1:]) if ls[1:] else ""))[:4 * LINE_CHARS] if ls else None  # 5 slots fit
+    if not ls:
+        return None
+    # with the whole-set bill, per slot only what it doesn't cover: a weapon / off-hand, or a piece he already owns
+    rest = [x.strip() for x in ls[1:] if not whole or not x.strip().startswith(("head:", "body:", "legs:"))
+            or "you have one" in x]
+    return (ls[0] + (f" {whole}." if whole else "") + (" Per slot: " + " | ".join(rest) if rest else ""))[:6 * LINE_CHARS]
 
 
 def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | None = None,
@@ -980,6 +997,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append(f"holding {state['held_actions'].get('item_name') or state['held_actions']['item']}")
     if ench := enchant_words(state):
         me.append(ench)
+    if load := load_words(state):
+        me.append(load)
     if state.get("following"):
         me.append(f"following {state['following']}")
     elif state.get("action"):

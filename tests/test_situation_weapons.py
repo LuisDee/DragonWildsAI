@@ -39,3 +39,11 @@ def test_the_gear_line_is_one_line_and_only_when_he_is_under_geared(monkeypatch)
     assert situation.gear_line({}) == "Gear vs this area: you are PL 0 Per slot: head: a | body: b"
     p["pl_now"] = 2
     assert situation.gear_line({}) is None
+
+
+def test_overloaded_is_in_the_you_line_with_the_weights():
+    st = {"health": 100, "max_health": 100, "bag": {"used": 30, "capacity": 32, "weight": 403.2, "max_weight": 400,
+                                                    "encumbered": True}}
+    assert "OVERLOADED 403/400 carry weight: walk only, no sprint or jumps" in situation.summary(st)[0]
+    assert situation.load_words({"bag": {"encumbered": False, "weight": 10, "max_weight": 400}}) is None
+    assert situation.load_words({}) is None
