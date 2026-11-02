@@ -1036,6 +1036,14 @@ local function lev(a, b)
     return prev[#b]
 end
 M._lev = lev
+-- Do two names share a run of 4+ letters ("firepit" / "campfire": "fire")? Rung 2 run 1 (05:0xZ): "Firepit" read
+-- unknown and nothing named the Campfire, so the item was never built.
+function M.share_run(a, b, n)
+    a, b = lower(a):gsub("[^%a]", ""), lower(b):gsub("[^%a]", "")
+    n = n or 4
+    for i = 1, #a - n + 1 do if b:find(a:sub(i, i + n - 1), 1, true) then return true end end
+    return false
+end
 function M.resolve(api, list, q)
     q = lower(q)
     local exact, typo, close = {}, {}, {}
@@ -1046,7 +1054,7 @@ function M.resolve(api, list, q)
         else
             local dist = math.min(lev(n, q), lev(id, q))
             if dist <= math.max(1, math.floor(#q / 6)) then typo[#typo + 1] = { d = d, p = p } end
-            if n:find(q, 1, true) or q:find(n, 1, true) then close[#close + 1] = p.name end
+            if n:find(q, 1, true) or q:find(n, 1, true) or M.share_run(n, q) then close[#close + 1] = p.name end
         end
     end
     if #exact == 1 then return exact[1].d, exact[1].p end
@@ -1079,12 +1087,19 @@ local function start_build(api, args, ctx)
     if not data then
         if code == "ambiguous_target" then
             local names = {}
-            for _, x in ipairs(more) do names[#names + 1] = x.p.name end
-            return api.fail("ambiguous_target", { piece = args.piece, candidates = names,
-                detail = "Which one: " .. table.concat(names, ", ") .. "?" })
+            -- the same name twice (rung 2 run 1: "Which one: Door, Door?"): the game's ids tell them apart
+            local seen, dup = {}, false
+            for _, x in ipairs(more) do if seen[x.p.name] then dup = true end; seen[x.p.name] = true end
+            for _, x in ipairs(more) do names[#names + 1] = dup and (x.p.name .. " (" .. tostring(x.p.id) .. (x.p.category and (", " .. x.p.category) or "") .. ")") or x.p.name end
+            return api.fail("ambiguous_target", { piece = args.piece, candidates = names, ids = (function()
+                    local ids = {}; for _, x in ipairs(more) do ids[#ids + 1] = x.p.id end; return ids end)(),
+                detail = "Which one: " .. table.concat(names, ", ") .. "?" .. (dup and " Pass its id as the piece." or "") })
         end
+        local close = {}
+        for i = 1, math.min(5, #(more or {})) do close[#close + 1] = more[i] end
         return api.fail("unknown_target", { piece = args.piece, close = more,
-            detail = "I can't build a " .. args.piece .. " (it isn't one of the pieces I've unlocked)." })
+            detail = "I can't build a " .. args.piece .. " (it isn't one of the pieces I've unlocked)."
+                .. (#close > 0 and (" Unlocked pieces with a name like it: " .. table.concat(close, ", ") .. ".") or "") })
     end
     if piece.host_only and priv("owner") ~= true then
         return api.fail("host_only", { piece = piece.id, detail = "Only the host can build the " .. piece.name .. "." })
@@ -1515,19 +1530,23 @@ end
 function M.batch_pick(api, b)
     local here = api.my_position()
     local best, bd
-    for k, it in ipairs(b.items) do
-        if not b.done[k] then
-            local r = ref_of(it.on)
-            local ready = not r or (b.results[r] and b.results[r].ok)
-            if ready then
-                local pos
-                if r then pos = b.results[r].data.position
-                elseif it.on then local a = W.actor_info(api, tostring(it.on):match("^([^:]+)")); pos = a and a.position
-                elseif type(it.at) == "table" then pos = it.at end
-                local d = (here and type(pos) == "table" and pos[1] and math.sqrt((pos[1] - here[1]) ^ 2 + (pos[2] - here[2]) ^ 2)) or 1e6 + k
-                if not bd or d < bd then best, bd = k, d end
+    local fo = b.failed_once or {}
+    for _, retry in ipairs({ false, true }) do -- the ones not yet failed first; then the second tries
+        for k, it in ipairs(b.items) do
+            if not b.done[k] and (fo[k] or false) == retry then
+                local r = ref_of(it.on)
+                local ready = not r or (b.results[r] and b.results[r].ok)
+                if ready then
+                    local pos
+                    if r then pos = b.results[r].data.position
+                    elseif it.on then local a = W.actor_info(api, tostring(it.on):match("^([^:]+)")); pos = a and a.position
+                    elseif type(it.at) == "table" then pos = it.at end
+                    local d = (here and type(pos) == "table" and pos[1] and math.sqrt((pos[1] - here[1]) ^ 2 + (pos[2] - here[2]) ^ 2)) or 1e6 + k
+                    if not bd or d < bd then best, bd = k, d end
+                end
             end
         end
+        if best then return best end
     end
     return best
 end
@@ -1583,6 +1602,12 @@ end
 function M.batch_next(api, job, res)
     local b = job.batch
     b.results[b.i], b.done[b.i] = res, true
+    -- a piece the game wouldn't take gets one more try once the others are up, as a player comes back to it (rung 2
+    -- run 1, 05:0xZ: the door in its frame failed in the batch at 3.1 m, then went in first time on its own)
+    b.failed_once = b.failed_once or {}
+    if not res.ok and b.keep_going and res.reason == "blocked" and not b.failed_once[b.i] then
+        b.failed_once[b.i], b.done[b.i] = true, nil
+    end
     -- a blueprint goes on past a piece the game wouldn't take (blocked); anything else (stopped, no materials,
     -- the menu, a timeout) ends it
     if not res.ok and not (b.keep_going and res.reason == "blocked") then b.over = true; return false end
@@ -2365,6 +2390,20 @@ local function read_json(path)
     local ok, d = pcall(function() return json_lib().decode(txt) end)
     return ok and type(d) == "table" and d or nil
 end
+-- What each blueprint costs, as the game's piece costs added up at its last run (costs.json beside the blueprints), so
+-- the tool's description can say it before any run (rung 2 run 1, 05:0xZ: the planner had 61 Ash Logs, didn't know the
+-- house costs 46, and gathered 40 more first: 191 s)
+function M.blueprint_costs()
+    local c = read_json(M.cfg.blueprints.dir .. "/costs.json")
+    return type(c) == "table" and c or {}
+end
+function M.blueprint_note_cost(id, words)
+    local c = M.blueprint_costs()
+    if c[id] == words then return end
+    c[id] = words
+    local f = io.open(M.cfg.blueprints.dir .. "/costs.json", "wb")
+    if f then f:write(json_lib().encode(c, { indent = true })); f:close() end
+end
 function M.blueprint_ids()
     local ix = read_json(M.cfg.blueprints.dir .. "/index.json")
     return type(ix) == "table" and type(ix.blueprints) == "table" and ix.blueprints or {}
@@ -2443,6 +2482,7 @@ M.HANDLERS.build_blueprint = function(log, args, ctx)
         if h < n.need then short[#short + 1] = { item = item, name = n.name, need = n.need, have = h } end
     end
     table.sort(total)
+    pcall(M.blueprint_note_cost, bp.id, table.concat(total, ", "))
     if #short > 0 then
         local w = {}
         for _, m in ipairs(short) do w[#w + 1] = string.format("%d %s (I have %d)", m.need, tostring(m.name), m.have) end
@@ -2515,7 +2555,10 @@ do
     local okb = pcall(function()
         for _, id in ipairs(M.blueprint_ids()) do
             local bp = M.blueprint_load(id)
-            if bp then known[#known + 1] = "'" .. bp.id .. "': " .. tostring(bp.name) .. ", " .. #bp.pieces .. " pieces, door on its " .. tostring(bp.door_side) .. " side. " .. tostring(bp.about or "") end
+            local cost = M.blueprint_costs()[id]
+            if bp then known[#known + 1] = "'" .. bp.id .. "': " .. tostring(bp.name) .. ", " .. #bp.pieces .. " pieces"
+                .. (cost and (", costs " .. cost .. " in all (the game's piece costs, read at its last build)") or "")
+                .. ", door on its " .. tostring(bp.door_side) .. " side. " .. tostring(bp.about or "") end
         end
     end)
     M.MANIFEST.build_blueprint = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 120, timeout_s = 2400,
@@ -2535,5 +2578,29 @@ do
         reasons = { "no_permission", "host_only", "unknown_target", "missing_materials", "blocked", "invalid_args", "too_far",
                     "path_blocked", "interrupted", "verification_failed", "timeout" } }
 end
+
+-- ground_check {at = [x, y, z], half_m = [hx, hy], step_m} (debug; the rung 2 harness): the ground under a rectangle
+-- by line traces, as P.spots reads a footprint -> {spread_m, lo, hi, n, missed}. Live 2026-11-02: the walked-points
+-- check passed two slopes where a stand-in foundation then rose 2 m / a wall stood 3 m low.
+M.HANDLERS.ground_check = function(log, args, ctx)
+    local api = ctx and ctx.api
+    if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
+    local at = type(args.at) == "table" and args.at or api.my_position()
+    if not (at and at[1]) then return api.fail("invalid_args", { detail = "at = [x, y, z]" }) end
+    local h = type(args.half_m) == "table" and args.half_m or { 4, 4 }
+    local step = math.max(0.5, tonumber(args.step_m) or 1.5)
+    local z0 = tonumber(at[3]) or (api.my_position() or { 0, 0, 0 })[3]
+    local lo, hi, n, missed = math.huge, -math.huge, 0, 0
+    for x = -h[1], h[1] + 1e-6, step do
+        for y = -h[2], h[2] + 1e-6, step do
+            local z = W.ground_at(api, at[1] + x, at[2] + y, z0 + 2)
+            if z then lo, hi, n = math.min(lo, z), math.max(hi, z), n + 1 else missed = missed + 1 end
+        end
+    end
+    if n == 0 then return api.fail("state_unavailable", { detail = "no trace hit the ground there", missed = missed }) end
+    return { ok = true, data = { spread_m = r1(hi - lo), lo = r1(lo), hi = r1(hi), n = n, missed = missed } }
+end
+M.MANIFEST.ground_check = { kind = "probe", llm = false, moves = false, timeout_s = 10,
+    description = "Ground heights under a rectangle (debug).", args = { type = "object", properties = obj() } }
 
 return M

@@ -75,9 +75,14 @@ def home(ledger: list[dict]) -> list[float] | None:
 
 def fresh_spot(pts: list[list[float]], base: list[float], nav: dict, clear_m: float = CLEAR_M,
                ring: tuple[float, float] = (40.0, 110.0), step: float = 4.0, level_m: float = 1.5,
-               stand: tuple[float, float] | None = None) -> list[float] | None:
+               stand: tuple[float, float] | None = None, avoid: list | None = None,
+               mine: list[bool] | None = None, mine_clear_m: float | None = None) -> list[float] | None:
     """A spot near the base (ring metres from it) at least clear_m from every built piece, on ground he has walked
-    (nav memory routes: >= 6 points within 8 m, level within 1.5 m), 20+ m from learned water. Nearest the base."""
+    (nav memory routes: >= 6 points within 8 m, level within 1.5 m), 20+ m from learned water. Nearest the base.
+    ``mine`` (a flag per piece, from his ledger): those need only ``mine_clear_m``; ``avoid``: [x, y(, z, r)] spots
+    tried already, kept 12 m (or their own r) off."""
+    mine = mine or [False] * len(pts)
+    mc = clear_m if mine_clear_m is None else mine_clear_m
     walk = [q for r in nav.get("routes") or [] for q in r.get("pts") or [] if len(q) >= 3]
     wc = 2.0
     water = [((int(a) + 0.5) * wc, (int(b) + 0.5) * wc) for a, b in (str(k).split(":") for k in nav.get("water_cells") or [])]
@@ -97,8 +102,10 @@ def fresh_spot(pts: list[list[float]], base: list[float], nav: dict, clear_m: fl
             d = math.dist(c, base[:2])
             if not ring[0] <= d <= ring[1] or (best and d >= best[0]):
                 continue
-            if any(math.dist(c, q[:2]) < clear_m for q in pts) or any(math.dist(c, w) < 20.0 for w in water):
+            if any(math.dist(c, q[:2]) < (mc if m else clear_m) for q, m in zip(pts, mine)) or any(math.dist(c, w) < 20.0 for w in water):
                 continue
+            if avoid and any(math.dist(c, q[:2]) < (q[3] if len(q) > 3 else 12.0) for q in avoid):
+                continue  # a spot already tried (not flat: the next one may be close by; hostiles: kept further off)
             near = walked(c[0], c[1], 8.0)
             zs = [q[2] for q in near]
             if len(near) < 6 or max(zs) - min(zs) > level_m:
@@ -163,27 +170,83 @@ RUNG2_LINE = ("claude, tear down my house here, then build yourself a house with
 FIXTURE_AT = (8.0, 0.0)  # the stand-in's centre foundation from the spot he stands on (its 3 x 3 cells span +-4.5 m)
 LEDGER = ROOT / "data" / "skills" / "dev" / "my_pieces.json"
 GUARD_M = 30.0  # main 2026-11-02: the stand-in and all he tears down stay this far from anything already built
+# ... and this far from his own pieces (his ledger): no flood from the stand-in can reach them across the gap. Live
+# 04:4xZ: 45 m clear of all 130 pieces (110 his own) left no spot within 250 m of his base; the one at 300 m was a
+# giant-rat nest and he died there mid-fixture
+MINE_GUARD_M = 12.0
 FIXTURE_HALF_M = 6.4  # half the 3 x 3 house's diagonal (9 m square)
 
 
-def guard(points: list[list[float]], pts: list[list[float]]) -> dict:
+def mine_pts(pts: list[list[float]], ledger: list[dict] | None = None) -> list[bool]:
+    """Which census points are his own (a piece of his placement ledger within 0.5 m), one flag per point."""
+    if ledger is None:
+        ledger = (json.loads(LEDGER.read_text(encoding="utf-8")).get("pieces") or []) if LEDGER.exists() else []
+    at = [e["at"] for e in ledger if isinstance(e.get("at"), list) and len(e["at"]) >= 2]
+    return [any(math.dist(c[:2], q[:2]) <= 0.5 for q in at) for c in pts]
+
+
+def guard(points: list[list[float]], pts: list[list[float]], mine: list[bool] | None = None) -> dict:
     """The nearest already-built piece (Luis's remaining foundations, stations, containers, plots, anyone's) to any of
-    ``points`` (2D) -> {ok, nearest_m, at, piece}: ok only when every point is GUARD_M or more from all of them."""
+    ``points`` (2D) -> {ok, nearest_m, at, piece}: ok only when every point is GUARD_M or more from all of them, and
+    MINE_GUARD_M from his own (``mine``: a flag per census point, from his ledger; the stand-ins struck from it count
+    as anyone's)."""
     if not pts:  # no census read: nothing is known to be clear
         return {"ok": False, "nearest_m": None, "why": "no census of built pieces"}
-    best = None
+    mine = mine or [False] * len(pts)
+    best, worst = None, None
     for q in points:
-        for c in pts:
+        for c, m in zip(pts, mine):
             d = math.dist(q[:2], c[:2])
-            if best is None or d < best[0]:
+            margin = d - (MINE_GUARD_M if m else GUARD_M)
+            if worst is None or margin < worst[0]:
+                worst = (margin, d, q, c, m)
+            if not m and (best is None or d < best[0]):
                 best = (d, q, c)
-    if best is None:
+    if worst is None:
         return {"ok": True, "nearest_m": None}
-    return {"ok": best[0] >= GUARD_M, "nearest_m": round(best[0], 1), "at": best[1], "piece": best[2]}
+    out = {"ok": worst[0] >= 0, "nearest_m": round(best[0], 1) if best else None, "at": best[1] if best else None,
+           "piece": best[2] if best else None}
+    if worst[4]:
+        out["nearest_mine_m"] = round(worst[1], 1)
+    return out
 
 
 FIXTURE_BLUEPRINT = "small_house"  # live 01:57Z: the 29-piece luis_house walled him in mid-build (9 of 29, "walls
 #                                    everywhere", go_to timeout); the 2-cell house went up whole in run 6 (+ its door 23:5xZ)
+# the ground under the stand-in (and his own house's spot) may rise at most this much over 8 x 8 m (live 04:2xZ, the
+# body's ground_check: the good spot 0.9 m, the slopes that failed 2.9-3.9 m)
+FLAT_M = 1.5
+
+
+HOSTILE_M = 45.0  # a fresh spot: no live hostile creature this near it (live 04:4xZ, the rat nest)
+
+
+def site_check(cli, spot: list[float], there: bool = False) -> dict:
+    """A rung 2 fresh spot, by the body's own reads: the ground under the stand-in's 8 x 8 m and his house's beside it
+    (build.lua ground_check; None = no trace hit, e.g. not loaded yet) and the hostile creatures in his census within
+    HOSTILE_M of the spot (from afar only those in sight). -> {flat, hostiles, why, avoid_m}: why is "not_flat",
+    "hostiles" or, ``there`` only, "ground_unread"; avoid_m keeps the next pick off it (a nest: further)."""
+    flat = {}
+    for name, c in (("stand_in", spot), ("his_house", [spot[0] - FIXTURE_AT[0], spot[1] - FIXTURE_AT[1], spot[2]])):
+        g = cli.request("ground_check", {"at": c, "half_m": [4, 4], "step_m": 1.5}, timeout=20) or {}
+        flat[name] = (g.get("data") or {}).get("spread_m") if g.get("ok") else None
+    cr = cli.request("census", {"radius_m": HOSTILE_M + 20 if there else 160, "max": 40, "kinds": {"creatures": True}},
+                     timeout=20) or {}
+    hostiles = []
+    for c in ((cr.get("data") or {}).get("creatures") or []) if cr.get("ok") else []:
+        at = c.get("position")
+        if (c.get("attitude") == "hostile" and not c.get("dead") and not c.get("follower") and isinstance(at, list)
+                and math.dist(at[:2], spot[:2]) <= HOSTILE_M):
+            hostiles.append(f"{c.get('name')} {math.dist(at[:2], spot[:2]):.0f} m")
+    why = None
+    if any(v is not None and v > FLAT_M for v in flat.values()):
+        why = "not_flat"
+    elif hostiles:
+        why = "hostiles"
+    elif there and any(v is None for v in flat.values()):
+        why = "ground_unread"
+    return {"flat": flat, "hostiles": hostiles, "census_ok": bool(cr.get("ok")), "why": why,
+            "avoid_m": 60.0 if why == "hostiles" else 12.0}
 
 
 def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str = FIXTURE_BLUEPRINT) -> dict:
@@ -199,7 +262,8 @@ def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str
     # (live 02:3xZ: 8 m off the spot it stood on a slope and 3 walls never settled)
     at = [round(spot[0], 2), round(spot[1], 2), spot[2]]
     # the guard, before anything is built: the stand-in's whole footprint (centre + its half diagonal) and the spot
-    pre = guard([spot, at, [spot[0] - FIXTURE_AT[0], spot[1] - FIXTURE_AT[1], spot[2]]], pts)
+    mine = mine_pts(pts)
+    pre = guard([spot, at, [spot[0] - FIXTURE_AT[0], spot[1] - FIXTURE_AT[1], spot[2]]], pts, mine)
     if pre["ok"] and pre["nearest_m"] is not None and pre["nearest_m"] - FIXTURE_HALF_M < GUARD_M:
         pre = {**pre, "ok": False, "why": f"footprint edge {pre['nearest_m'] - FIXTURE_HALF_M:.1f} m < {GUARD_M:.0f} m"}
     if not pre["ok"]:
@@ -233,7 +297,7 @@ def fixture_house(cli, spot: list[float], pts: list[list[float]], blueprint: str
         tmp.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
         tmp.replace(LEDGER)
     time.sleep(35.0)
-    post = guard([q["position"] for q in pieces], pts)  # every piece he may tear down, measured where it stands
+    post = guard([q["position"] for q in pieces], pts, mine)  # every piece he may tear down, measured where it stands
     return {"ok": bool(r.get("ok")) and post["ok"], "reason": r.get("reason") if post["ok"] else "guard",
             "guard_before": pre, "guard_after": post, "pieces": pieces, "n": len(pieces), "at": at,
             "s": round(time.time() - t0, 1), "granted": granted, "struck_from_ledger": struck,
@@ -326,45 +390,85 @@ def cmd_run(a) -> int:
             return 4
         cli = cl._debug_client()
         site = None
-        if a.at or a.fresh:  # harness setup, before the line and the clock: stand him on the fresh spot "here" means
-            census = all_pieces()
-            pts = census.get("pts") or []
-            if a.at:
-                spot, how = [float(v) for v in a.at.split(",")], "given"
-            else:
-                skills = ROOT / "data" / "skills" / a.nav_world
-                nav = json.loads((skills / "nav_memory.json").read_text(encoding="utf-8"))
-                mine = skills / "my_pieces.json"
-                base = (home(json.loads(mine.read_text(encoding="utf-8")).get("pieces") or []) if mine.exists() else None)                     or census.get("me") or [0, 0, 0]
-                # rung 2: the stand-in goes 8 m off the spot and spans 6.4 m more, and all of it stays GUARD_M clear
-                clear = GUARD_M + math.hypot(*FIXTURE_AT) + FIXTURE_HALF_M + 1.0 if a.rung2 else CLEAR_M
-                # rung 2: level within 1.0 m over 8 m (the stand-in on a slope never settled, 02:3xZ), a wider ring (the dev
-                # world near his base is built up: "no fresh spot" at 45 m clear within 110 m, 02:4xZ)
-                spot = (fresh_spot(pts, base, nav, clear, ring=(40.0, 220.0), level_m=1.0, stand=(-FIXTURE_AT[0], -FIXTURE_AT[1]))
-                        if a.rung2 else fresh_spot(pts, base, nav, clear))
-                how = f"census ({len(pts)} pieces), {clear:.0f}+ m clear, near his base {base}"
-                if spot is None:
-                    print("no fresh spot found near him")
-                    return 6
-            g = cli.request("go_to", {"target": spot}, timeout=150)
-            here = ((cli.request("me", {}, timeout=10) or {}).get("data") or {}).get("position")
-            site = {"spot": spot, "chosen": how, "nearest_piece": nearest_piece(spot, pts) if pts else None,
-                    "census_pieces": len(pts), "go_to_ok": g.get("ok"), "go_to_reason": g.get("reason"), "stands_at": here}
-            print(f"at: {json.dumps(site)}")
         fx = None
-        if a.rung2:
+        tried: list[list[float]] = []  # rung 2: fresh spots whose stand-in got no piece up (the ground there refused it)
+        tries = 16 if (a.rung2 and a.fresh) else 1
+        for attempt in range(tries):
+            last = attempt == tries - 1
+            if a.at or a.fresh:  # harness setup, before the line and the clock: stand him on the fresh spot "here" means
+                census = all_pieces()
+                pts = census.get("pts") or []
+                if a.at:
+                    spot, how = [float(v) for v in a.at.split(",")], "given"
+                else:
+                    skills = ROOT / "data" / "skills" / a.nav_world
+                    nav = json.loads((skills / "nav_memory.json").read_text(encoding="utf-8"))
+                    mine_file = skills / "my_pieces.json"
+                    ledger = (json.loads(mine_file.read_text(encoding="utf-8")).get("pieces") or []) if mine_file.exists() else []
+                    base = home(ledger) or census.get("me") or [0, 0, 0]
+                    # rung 2: the stand-in goes 8 m off the spot and spans 6.4 m more, and all of it stays GUARD_M clear
+                    # (MINE_GUARD_M of his own pieces)
+                    reach = math.hypot(*FIXTURE_AT) + FIXTURE_HALF_M + 1.0
+                    clear = GUARD_M + reach if a.rung2 else CLEAR_M
+                    # rung 2: level within 1.0 m over 8 m (the stand-in on a slope never settled, 02:3xZ), a wider ring (the
+                    # dev world near his base is built up: "no fresh spot" at 45 m clear within 110 m, 02:4xZ)
+                    spot = (fresh_spot(pts, base, nav, clear, ring=(40.0, 320.0), level_m=1.0, stand=(-FIXTURE_AT[0], -FIXTURE_AT[1]),
+                                       avoid=tried, mine=mine_pts(pts, ledger), mine_clear_m=MINE_GUARD_M + reach)
+                            if a.rung2 else fresh_spot(pts, base, nav, clear))
+                    how = f"census ({len(pts)} pieces), {clear:.0f}+ m clear ({MINE_GUARD_M + reach:.0f}+ of his own), near his base {base}"
+                    if spot is None:
+                        print("no fresh spot found near him")
+                        return 6
+                    if a.rung2:
+                        # from where he stands, before walking there (the body's traces and census reach that far): the
+                        # ground and any hostile in sight (live 04:4xZ: a spot 300 m out was a giant-rat nest; he fought
+                        # two, walked back at 32 hp and died to a third mid-fixture)
+                        chk = site_check(cli, spot)
+                        print(f"from afar: {json.dumps({'spot': spot, **chk})}")
+                        if chk["why"] and not last:
+                            tried.append(spot + [chk["avoid_m"]])
+                            continue
+                g = cli.request("go_to", {"target": spot}, timeout=150)
+                here = ((cli.request("me", {}, timeout=10) or {}).get("data") or {}).get("position")
+                site = {"spot": spot, "chosen": how, "nearest_piece": nearest_piece(spot, pts) if pts else None,
+                        "census_pieces": len(pts), "go_to_ok": g.get("ok"), "go_to_reason": g.get("reason"), "stands_at": here}
+                print(f"at: {json.dumps(site)}")
+            if not a.rung2:
+                break
             if not site:
                 print("--rung2 needs --fresh or --at (the stand-in goes beside the spot)")
                 return 7
+            if a.fresh:
+                # flat, by the body's own traces (build.lua ground_check), before anything is built: the stand-in's
+                # 8 x 8 m and his own house's beside it (live 04:1xZ / 04:5xZ: the walked-points check passed two slopes;
+                # one stand-in got 0 pieces up, the other 7 of 11 with a wall 3 m low, left standing), and no hostile
+                # near, now that he is there
+                spot = site["spot"]
+                chk = site_check(cli, spot, there=True)
+                print(f"there: {json.dumps(chk)}")
+                if chk["why"]:
+                    if not last:
+                        print(f"{chk['why']} at {spot}; trying another fresh spot (nothing built)")
+                        tried.append(spot + [chk["avoid_m"]])
+                        continue
+                    print(f"no fresh spot passed ({chk['why']}); not building")
+                    return 6
             fx = fixture_house(cli, site["spot"], pts)
             print(f"fixture: {json.dumps({k: v for k, v in fx.items() if k != 'pieces'})}")
             if fx.get("reason") == "guard":
                 print(f"guard: the stand-in is not {GUARD_M:.0f} m clear of every built piece; not sending the line")
                 return 9
+            if fx["n"] == 0 and a.fresh and not last:
+                # nothing went up (live 03:4xZ: the foundation's ground rose 2 m at a spot the walked-points check passed):
+                # nothing stands there, so another fresh spot, this one kept clear of
+                print(f"the stand-in got no piece up at {site['spot']}; trying another fresh spot")
+                tried.append(site["spot"])
+                continue
             if fx["n"] < 9:
                 print("the stand-in house did not go up; not sending the line")
                 return 8
             cli.request("go_to", {"target": [site["spot"][0] - FIXTURE_AT[0], site["spot"][1] - FIXTURE_AT[1], site["spot"][2]]}, timeout=60)
+            break
         before = structures(cli)
         spent0 = spend.spend_today()["spent_usd"]
         p, brain_file = cl.start_brain(a, spent0)

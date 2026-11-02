@@ -1103,6 +1103,14 @@ do
         br and not br.ok and tostring(br.data.detail):find("Built 2 of 4", 1, true) and tostring(br.data.detail):find("#2 (w1 on #1:N) failed: the preview was red there", 1, true)
         and tostring(br.data.detail):find("Not tried (they go on a piece that failed or the run stopped): #3", 1, true), br and br.data.detail)
 end
+check("names: Firepit shares 'fire' with Campfire", Bd.share_run("Campfire", "Firepit") and not Bd.share_run("Crate", "Wall"))
+-- a blueprint piece the game refused gets one more try once the others are up
+do
+    local b = { items = { { at = { 0, 0, 0 } }, { at = { 1, 0, 0 } }, { at = { 9, 0, 0 } } }, done = { true }, failed_once = { nil, true }, results = {} }
+    check("batch retry: a first try (the far one) before the second try", Bd.batch_pick(api, b) == 3, Bd.batch_pick(api, b))
+    b.done[3] = true
+    check("batch retry: then the refused one again", Bd.batch_pick(api, b) == 2, Bd.batch_pick(api, b))
+end
 -- shelter-only pieces: a covered spot (my house first), a covered place to stand, never open sky
 do
     -- a roof over x 10..14, y -2..2 (my house, its floor at z 0); open sky elsewhere
