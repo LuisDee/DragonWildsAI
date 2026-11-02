@@ -1,0 +1,3589 @@
+{
+ "schema": 1,
+ "build": "26161880",
+ "source": "live client data assets (farm_data_probe-20261101T235618Z.json)",
+ "settings": {
+  "DiseaseCycles": 0.20000000298023,
+  "CompostItemCategory": "Item.Equipment.Tool.Bucket.Compost",
+  "ShovelCategory": "Item.Equipment.Tool.Shovel",
+  "WeedsCycles": 1.0,
+  "GrowthTimes": [
+   4.5
+  ],
+  "RainWaterIndex": 2,
+  "WaterNeededForWatering": 50,
+  "DiggingChargesNeededForTilling": 5,
+  "WaterDataRef": [
+   "/Game/Gameplay/Farming/FWD_NoWater.FWD_NoWater",
+   "/Game/Gameplay/Farming/FWD_DirtyWater.FWD_DirtyWater",
+   "/Game/Gameplay/Farming/FWD_CleanWater.FWD_CleanWater"
+  ],
+  "CureDiseasePotionCategory": "Item.Farming.Potion.CurePlant",
+  "ShovelPlantDestructionActionDuration": 2.0,
+  "CompostNeededForFertilizing": 50,
+  "BerryBushXpReductionFactor": 0.050000000745058,
+  "CyclePeriod": 720.0,
+  "YieldXpFactor": 1.0,
+  "ComposterBuildingPieceData": "/Game/Gameplay/BaseBuilding_New/BuildingPieces/Farming/DA_BaseBuilding_Station_Composter.DA_BaseBuilding_Station_Composter",
+  "PlantingGracePeriodHours": 2.0,
+  "UnlockingRecipe": "/Game/Gameplay/Character/Player/Equipment/Held/Shovel/RECIPE_Tool_T1_Spade_Wood.RECIPE_Tool_T1_Spade_Wood",
+  "CompostDataRef": [
+   "/Game/Gameplay/Farming/FCD_NoCompost.FCD_NoCompost",
+   "/Game/Gameplay/Farming/FCD_Compost_1.FCD_Compost_1",
+   "/Game/Gameplay/Farming/FCD_Compost_2.FCD_Compost_2",
+   "/Game/Gameplay/Farming/FCD_Compost_3.FCD_Compost_3"
+  ]
+ },
+ "crops": [
+  {
+   "id": "FPD_Avantoe",
+   "name": "Avantoe",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Avantoe",
+    "name": "Avantoe Seeds"
+   },
+   "tier": 1.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Agility_Avantoe",
+   "harvest_name": "Avantoe",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Snapdragon_v2",
+     "mesh_diseased": "SM_Snapdragon_v2",
+     "mesh_dead": "SM_Snapdragon_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Snapdragon_v3",
+     "mesh_diseased": "SM_Snapdragon_v3",
+     "mesh_dead": "SM_Snapdragon_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Snapdragon_v3",
+     "mesh_diseased": "SM_Snapdragon_v3",
+     "mesh_dead": "SM_Snapdragon_v3"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Cabbage",
+   "name": "Cabbage",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Cabbage",
+    "name": "Cabbage Seeds"
+   },
+   "tier": 1.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Cabbage",
+   "harvest_name": "Cabbage",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cabbage_01v2",
+     "mesh_diseased": "SM_Cabbage_01v2",
+     "mesh_dead": "SM_Cabbage_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cabbage_01v3",
+     "mesh_diseased": "SM_Cabbage_01v3",
+     "mesh_dead": "SM_Cabbage_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cabbage_01",
+     "mesh_diseased": "SM_Cabbage_01",
+     "mesh_dead": "SM_Cabbage_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Flax",
+   "name": "Flax",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Flax",
+    "name": "Flax Seeds"
+   },
+   "tier": 1.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 3,
+   "harvest_item": "ITEM_Resources_Flax",
+   "harvest_name": "Flax",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.0,
+   "stage_texts": [],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Flax_02v2",
+     "mesh_diseased": "SM_Flax_02v2",
+     "mesh_dead": "SM_Flax_02v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Flax_02v3",
+     "mesh_diseased": "SM_Flax_02v3",
+     "mesh_dead": "SM_Flax_02v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Flax_01",
+     "mesh_diseased": "SM_Flax_01",
+     "mesh_dead": "SM_Flax_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Potato",
+   "name": "Potato",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Potato",
+    "name": "Potato Seeds"
+   },
+   "tier": 1.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Potato",
+   "harvest_name": "Potato",
+   "disease": 0.30000001192093,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Potato_Plant_01v2",
+     "mesh_diseased": "SM_Potato_Plant_01v2",
+     "mesh_dead": "SM_Potato_Plant_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Potato_Plant_01v3",
+     "mesh_diseased": "SM_Potato_Plant_01v3",
+     "mesh_dead": "SM_Potato_Plant_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Potato_Plant_01",
+     "mesh_diseased": "SM_Potato_Plant_01",
+     "mesh_dead": "SM_Potato_Plant_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Redberry",
+   "name": "Redberries",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Redberry",
+    "name": "Redberry Seeds"
+   },
+   "tier": 1.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Consumable_Fruit_Redberry",
+   "harvest_name": "Redberries",
+   "disease": 0.5,
+   "disease_not_preferred": 2.0,
+   "berry_bush": true,
+   "harvest_xp_factor": 1.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Berry_Bush_01v2",
+     "mesh_diseased": "SM_Berry_Bush_01v2",
+     "mesh_dead": "SM_Berry_Bush_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Berry_Bush_01v3",
+     "mesh_diseased": "SM_Berry_Bush_01v3",
+     "mesh_dead": "SM_Berry_Bush_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Berry_Bush_01",
+     "mesh_diseased": "SM_Berry_Bush_01",
+     "mesh_dead": "SM_Berry_Bush_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Weeds",
+   "name": "Weeds",
+   "seed": null,
+   "tier": 1.0,
+   "plot_tags": [],
+   "plots": [],
+   "base_yield": 3,
+   "harvest_item": "ITEM_Resources_Weeds",
+   "harvest_name": "Weeds",
+   "disease": 0.0,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.0,
+   "stage_texts": [],
+   "stages": [
+    {
+     "cycles": 2.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_BM_Weeds_01"
+    },
+    {
+     "cycles": 2.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_BM_Weeds_02"
+    },
+    {
+     "cycles": 2.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_BM_Weeds_03",
+     "mesh_diseased": "SM_Placeholder_Cube",
+     "mesh_dead": "SM_Item_Placeholder"
+    }
+   ],
+   "cycles_to_harvest": 6.0,
+   "minutes_to_harvest": 72.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Wheat",
+   "name": "Wheat",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Wheat",
+    "name": "Wheat Seeds"
+   },
+   "tier": 1.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Wheat",
+   "harvest_name": "Wheat",
+   "disease": 0.60000002384186,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Wheat_01v1",
+     "mesh_diseased": "SM_Wheat_01v1",
+     "mesh_dead": "SM_Wheat_01v1"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Wheat_01v3",
+     "mesh_diseased": "SM_Wheat_01v3",
+     "mesh_dead": "SM_Wheat_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Wheat_01",
+     "mesh_diseased": "SM_Wheat_01",
+     "mesh_dead": "SM_Wheat_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Harralander",
+   "name": "Harralander",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Harralander",
+    "name": "Harralander Seeds"
+   },
+   "tier": 1.5,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Herb_Harralander",
+   "harvest_name": "Harralander",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.5,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Harralander_v2",
+     "mesh_diseased": "SM_Harralander_v2",
+     "mesh_dead": "SM_Harralander_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Harralander_v3",
+     "mesh_diseased": "SM_Harralander_v3",
+     "mesh_dead": "SM_Harralander_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Harralander_v3",
+     "mesh_diseased": "SM_Harralander_v3",
+     "mesh_dead": "SM_Harralander_v3"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Kwuarm",
+   "name": "Kwuarm",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Kwuarm",
+    "name": "Kwuarm Seeds"
+   },
+   "tier": 1.5,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Herb_Kwuarm",
+   "harvest_name": "Kwuarm",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.5,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Kwuarm_v2",
+     "mesh_diseased": "SM_Kwuarm_v2",
+     "mesh_dead": "SM_Kwuarm_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Marrentil_v3",
+     "mesh_diseased": "SM_Marrentil_v3",
+     "mesh_dead": "SM_Marrentil_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Kwuarm",
+     "mesh_diseased": "SM_Kwuarm",
+     "mesh_dead": "SM_Kwuarm"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Marrentill",
+   "name": "Marrentill",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Marrentill",
+    "name": "Marrentill Seeds"
+   },
+   "tier": 1.5,
+   "plot_tags": [
+    "Farming.Tiers.Tier1_Brynmoor",
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier1_Brynmoor",
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Herb_Marrentill",
+   "harvest_name": "Marrentill",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 1.5,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Marrentil_v2",
+     "mesh_diseased": "SM_Marrentil_v2",
+     "mesh_dead": "SM_Marrentil_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Marrentil_v3",
+     "mesh_diseased": "SM_Marrentil_v3",
+     "mesh_dead": "SM_Marrentil_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Marrentil_v3",
+     "mesh_diseased": "SM_Marrentil_v3",
+     "mesh_dead": "SM_Marrentil_v3"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Dwellberry",
+   "name": "Dwellberries",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Dwellberry",
+    "name": "Dwellberry Seeds"
+   },
+   "tier": 2.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Consumable_Fruit_Dwellberry",
+   "harvest_name": "Dwellberries",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": true,
+   "harvest_xp_factor": 2.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Dwellberry_Bush_01v2",
+     "mesh_diseased": "SM_Dwellberry_Bush_01v2",
+     "mesh_dead": "SM_Dwellberry_Bush_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Dwellberry_Bush_01v3",
+     "mesh_diseased": "SM_Dwellberry_Bush_01v3",
+     "mesh_dead": "SM_Dwellberry_Bush_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Dwellberry_Bush_01",
+     "mesh_diseased": "SM_Dwellberry_Bush_01",
+     "mesh_dead": "SM_Dwellberry_Bush_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Onion",
+   "name": "Onion",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Onion",
+    "name": "Onion Seeds"
+   },
+   "tier": 2.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Onion",
+   "harvest_name": "Onion",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 2.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Onion_Plant_01v2",
+     "mesh_diseased": "SM_Onion_Plant_01v2",
+     "mesh_dead": "SM_Onion_Plant_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Onion_Plant_01v3",
+     "mesh_diseased": "SM_Onion_Plant_01v3",
+     "mesh_dead": "SM_Onion_Plant_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Onion_Plant_01",
+     "mesh_diseased": "SM_Onion_Plant_01",
+     "mesh_dead": "SM_Onion_Plant_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Tomato",
+   "name": "Tomato",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Tomato",
+    "name": "Tomato Seeds"
+   },
+   "tier": 2.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Tomato",
+   "harvest_name": "Tomato",
+   "disease": 0.30000001192093,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 2.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Tomato_01v1",
+     "mesh_diseased": "SM_Tomato_01v1",
+     "mesh_dead": "SM_Tomato_01v1"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Tomato_01v3",
+     "mesh_diseased": "SM_Tomato_01v3",
+     "mesh_dead": "SM_Tomato_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Tomato_01",
+     "mesh_diseased": "SM_Tomato_01",
+     "mesh_dead": "SM_Tomato_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_SnapDragon",
+   "name": "Snapdragon",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Snapdragon",
+    "name": "Snapdragon Seeds"
+   },
+   "tier": 2.5,
+   "plot_tags": [
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Herb_Snapdragon",
+   "harvest_name": "Snapdragon",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 2.5,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Snapdragon_v2",
+     "mesh_diseased": "SM_Snapdragon_v2",
+     "mesh_dead": "SM_Snapdragon_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Snapdragon_v3",
+     "mesh_diseased": "SM_Snapdragon_v3",
+     "mesh_dead": "SM_Snapdragon_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Snapdragon_v3",
+     "mesh_diseased": "SM_Snapdragon_v3",
+     "mesh_dead": "SM_Snapdragon_v3"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_SwampWeed",
+   "name": "Swamp Weed",
+   "seed": {
+    "id": "ITEM_Farming_Seed_SwampWeed",
+    "name": "Swamp Weed Seeds"
+   },
+   "tier": 2.5,
+   "plot_tags": [
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_SwampWeed",
+   "harvest_name": "Swamp Weed",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 2.5,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Snapdragon_v1",
+     "mesh_diseased": "SM_Snapdragon_v1",
+     "mesh_dead": "SM_Snapdragon_v1"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Swamp_Weed_01",
+     "mesh_diseased": "SM_Swamp_Weed_01",
+     "mesh_dead": "SM_Swamp_Weed_01"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Swamp_Weed_01",
+     "mesh_diseased": "SM_Swamp_Weed_01",
+     "mesh_dead": "SM_Swamp_Weed_01"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Toadflax",
+   "name": "Toadflax",
+   "seed": {
+    "id": "ITEM_Farming_Seed_ToadFlax",
+    "name": "Toadflax Seeds"
+   },
+   "tier": 2.5,
+   "plot_tags": [
+    "Farming.Tiers.Tier2_Ghornfell",
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier2_Ghornfell",
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Herb_Toadflax",
+   "harvest_name": "Toadflax",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 2.5,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Toadflax_v2",
+     "mesh_diseased": "SM_Toadflax_v2",
+     "mesh_dead": "SM_Toadflax_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Toadflax_v3",
+     "mesh_diseased": "SM_Toadflax_v3",
+     "mesh_dead": "SM_Toadflax_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Toadflax_v3",
+     "mesh_diseased": "SM_Toadflax_v3",
+     "mesh_dead": "SM_Toadflax_v3"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Cadavaberry",
+   "name": "Cadavaberries",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Cadavaberry",
+    "name": "Cadavaberry Seeds"
+   },
+   "tier": 3.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Consumable_Fruit_Cadavaberry",
+   "harvest_name": "Cadavaberries",
+   "disease": 0.60000002384186,
+   "disease_not_preferred": 2.0,
+   "berry_bush": true,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cadavaberry_Bush_v2",
+     "mesh_diseased": "SM_Cadavaberry_Bush_v2",
+     "mesh_dead": "SM_Cadavaberry_Bush_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cadavaberry_Bush_v3",
+     "mesh_diseased": "SM_Cadavaberry_Bush_v3",
+     "mesh_dead": "SM_Cadavaberry_Bush_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cadavaberry_Bush",
+     "mesh_diseased": "SM_Cadavaberry_Bush",
+     "mesh_dead": "SM_Cadavaberry_Bush"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_CorpseCotton",
+   "name": "Corpse Cotton",
+   "seed": {
+    "id": "ITEM_Farming_Seed_CorpseCotton",
+    "name": "Corpse Cotton Seeds"
+   },
+   "tier": 3.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 3,
+   "harvest_item": "ITEM_Resources_Corpse_Fur",
+   "harvest_name": "Corpse Cotton",
+   "disease": 0.75,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Corpse_Cotton_Plant_v2",
+     "mesh_diseased": "SM_Corpse_Cotton_Plant_v2",
+     "mesh_dead": "SM_Corpse_Cotton_Plant_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Corpse_Cotton_Plant_v3",
+     "mesh_diseased": "SM_Corpse_Cotton_Plant_v3",
+     "mesh_dead": "SM_Corpse_Cotton_Plant_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Corpse_Cotton_Plant_v4",
+     "mesh_diseased": "SM_Corpse_Cotton_Plant_v4",
+     "mesh_dead": "SM_Corpse_Cotton_Plant_v4"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Irit",
+   "name": "Irit",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Irit",
+    "name": "Irit Seeds"
+   },
+   "tier": 3.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Herb_Irit",
+   "harvest_name": "Irit",
+   "disease": 0.5,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Irit_v2",
+     "mesh_diseased": "SM_Irit_v2",
+     "mesh_dead": "SM_Irit_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Irit_v3",
+     "mesh_diseased": "SM_Irit_v3",
+     "mesh_dead": "SM_Irit_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Irit_v3",
+     "mesh_diseased": "SM_Irit_v3",
+     "mesh_dead": "SM_Irit_v3"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Pumpkin",
+   "name": "Pumpkin",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Pumpkin",
+    "name": "Pumpkin Seeds"
+   },
+   "tier": 3.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Pumpkin",
+   "harvest_name": "Pumpkin",
+   "disease": 0.30000001192093,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Pumpkin_02v2",
+     "mesh_diseased": "SM_Pumpkin_02v2",
+     "mesh_dead": "SM_Pumpkin_02v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Pumpkin_02v3",
+     "mesh_diseased": "SM_Pumpkin_02v3",
+     "mesh_dead": "SM_Pumpkin_02v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Pumpkin_02v4",
+     "mesh_diseased": "SM_Pumpkin_02v4",
+     "mesh_dead": "SM_Pumpkin_02v4"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Watermelon",
+   "name": "Watermelon",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Watermelon",
+    "name": "Watermelon Seeds"
+   },
+   "tier": 3.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier3_Fellhollow",
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier3_Fellhollow",
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 5,
+   "harvest_item": "ITEM_Resources_Watermelon",
+   "harvest_name": "Watermelon",
+   "disease": 0.40000000596046,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [
+    "Shoot",
+    "Stalk",
+    "Flower",
+    "Harvestable"
+   ],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Melon_01v2_v2",
+     "mesh_diseased": "SM_Melon_01v2_v2",
+     "mesh_dead": "SM_Melon_01v2_v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Melon_01v2_v3",
+     "mesh_diseased": "SM_Melon_01v2_v3",
+     "mesh_dead": "SM_Melon_01v2_v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Melon_01v2",
+     "mesh_diseased": "SM_Melon_01v2",
+     "mesh_dead": "SM_Melon_01v2"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Cactus_Barrel",
+   "name": "Barrel Cactus",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Cactus_Barrel",
+    "name": "Barrel Cactus Seeds"
+   },
+   "tier": 4.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 3,
+   "harvest_item": "ITEM_Consumable_Water_Cactus",
+   "harvest_name": "Cactus Water",
+   "disease": 0.75,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Bunny_01v1",
+     "mesh_diseased": "SM_Cactus_Bunny_01v1",
+     "mesh_dead": "SM_Cactus_Bunny_01v1"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Barrel_01v2",
+     "mesh_diseased": "SM_Cactus_Barrel_01v2",
+     "mesh_dead": "SM_Cactus_Barrel_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Barrel",
+     "mesh_diseased": "SM_Cactus_Barrel",
+     "mesh_dead": "SM_Cactus_Barrel"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Cactus_Bunny",
+   "name": "Bunny Cactus",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Cactus_Bunny",
+    "name": "Bunny Cactus Seeds"
+   },
+   "tier": 4.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 3,
+   "harvest_item": "ITEM_Resources_Steak_Cactus",
+   "harvest_name": "Cactus Steak",
+   "disease": 0.75,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Bunny_01v2",
+     "mesh_diseased": "SM_Cactus_Bunny_01v2",
+     "mesh_dead": "SM_Cactus_Bunny_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Bunny_01v2",
+     "mesh_diseased": "SM_Cactus_Bunny_01v2",
+     "mesh_dead": "SM_Cactus_Bunny_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Bunny",
+     "mesh_diseased": "SM_Cactus_Bunny",
+     "mesh_dead": "SM_Cactus_Bunny"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Weed_Desert",
+   "name": "Desert Weed",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Weed_Desert",
+    "name": "Desert Weed Seeds"
+   },
+   "tier": 4.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 3,
+   "harvest_item": "ITEM_Resources_Weed_Desert",
+   "harvest_name": "Desert Weed",
+   "disease": 0.75,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Desert_Weed_01v1",
+     "mesh_diseased": "SM_Desert_Weed_01v1",
+     "mesh_dead": "SM_Desert_Weed_01v1"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Desert_Weed_01v3",
+     "mesh_diseased": "SM_Desert_Weed_01v3",
+     "mesh_dead": "SM_Desert_Weed_01v3"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Desert_Weed",
+     "mesh_diseased": "SM_Desert_Weed",
+     "mesh_dead": "SM_Desert_Weed"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  },
+  {
+   "id": "FPD_Cactus_Pipe",
+   "name": "Pipe Cactus",
+   "seed": {
+    "id": "ITEM_Farming_Seed_Cactus_Pipe",
+    "name": "Pipe Cactus Seeds"
+   },
+   "tier": 4.0,
+   "plot_tags": [
+    "Farming.Tiers.Tier4_UmbralSands"
+   ],
+   "plots": [
+    "Tier4_UmbralSands"
+   ],
+   "base_yield": 3,
+   "harvest_item": "ITEM_Resources_Fibers_Cactus",
+   "harvest_name": "Cactus Fibres",
+   "disease": 0.75,
+   "disease_not_preferred": 2.0,
+   "berry_bush": false,
+   "harvest_xp_factor": 3.0,
+   "stage_texts": [],
+   "stages": [
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Pipe_01v2",
+     "mesh_diseased": "SM_Cactus_Pipe_01v2",
+     "mesh_dead": "SM_Cactus_Pipe_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Pipe_01v2",
+     "mesh_diseased": "SM_Cactus_Pipe_01v2",
+     "mesh_dead": "SM_Cactus_Pipe_01v2"
+    },
+    {
+     "cycles": 1.0,
+     "cycles_not_preferred": 3.0,
+     "disease": 1.0,
+     "disease_not_preferred": 2.0,
+     "mesh": "SM_Cactus_Pipe",
+     "mesh_diseased": "SM_Cactus_Pipe",
+     "mesh_dead": "SM_Cactus_Pipe"
+    }
+   ],
+   "cycles_to_harvest": 3.0,
+   "minutes_to_harvest": 36.0,
+   "seed_drop": null
+  }
+ ],
+ "compost": [
+  {
+   "id": "FCD_Compost_1",
+   "disease": 0.5,
+   "yield": 1.5,
+   "status": "Regular"
+  },
+  {
+   "id": "FCD_Compost_2",
+   "disease": 0.25,
+   "yield": 1.75,
+   "status": "Super"
+  },
+  {
+   "id": "FCD_Compost_3",
+   "disease": 0.125,
+   "yield": 2.5,
+   "status": "Ultra"
+  },
+  {
+   "id": "FCD_NoCompost",
+   "disease": 1.0,
+   "yield": 1.0,
+   "status": "None"
+  }
+ ],
+ "water": [
+  {
+   "id": "FWD_DirtyWater",
+   "disease": 0.30000001192093,
+   "yield": 1.1499999761581,
+   "status": "Watered (Dirty)"
+  },
+  {
+   "id": "FWD_CleanWater",
+   "disease": 0.20000000298023,
+   "yield": 1.1499999761581,
+   "status": "Watered (Clean)"
+  },
+  {
+   "id": "FWD_NoWater",
+   "disease": 0.80000001192093,
+   "yield": 1.0,
+   "status": "Dry"
+  }
+ ],
+ "composters": [
+  {
+   "name": "ComposterComponent /Game/Maps/World/L_World.L_World:PersistentLevel.BP_Station_Composter_New_C_2147422228.ComposterComponent",
+   "owner": "BP_Station_Composter_New_C_2147422228",
+   "output": "/Game/Gameplay/LiquidsAndOtherContent/CC_Compost_Regular.CC_Compost_Regular",
+   "pos": {
+    "X": 8166.0,
+    "Y": 184722.1,
+    "Z": -3188.8
+   },
+   "mult": 1.0,
+   "accepted": [
+    "Item.Farming.Compostable"
+   ],
+   "rate": 5.0,
+   "capacity": 1000
+  }
+ ],
+ "compostable": [
+  {
+   "item": "ITEM_Resources_AnimaInfusedBark",
+   "name": "Anima-infused Bark",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_AnimalBone",
+   "name": "Animal Bone",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.Bone"
+  },
+  {
+   "item": "ITEM_Resources_Animal_Horn",
+   "name": "Antler",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.Bone"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Ash",
+   "name": "Ash Logs",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Potato_Jacket",
+   "name": "Baked Potato",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Stew_BeefTomato",
+   "name": "Beef & Tomato Stew",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Berry_Compote_OLD",
+   "name": "Berry Compote",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_BerryDrizzle_Pan-Seared",
+   "name": "Berry Drizzle Pan-Seared Fish",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Mushroom",
+   "name": "Bittercap Mushroom",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Blightwood",
+   "name": "Blightwood",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Bloodwood_Sap",
+   "name": "Bloodwood Sap",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Scale_Dragon_Blue",
+   "name": "Blue Dragon Scale",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Ground_Scale_Dragon_Blue",
+   "name": "Blue Dragon Scale Dust",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Bread",
+   "name": "Bread",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Anchovies_Burnt",
+   "name": "Burnt Anchovies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Bread_Burnt",
+   "name": "Burnt Bread",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Cabbage_Burnt",
+   "name": "Burnt Cabbage",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Dwellberry_Burnt",
+   "name": "Burnt Dwellberries",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Egg_Burnt",
+   "name": "Burnt Egg",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Fillet_Burnt",
+   "name": "Burnt Fillet",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Beast_Flank_Burnt",
+   "name": "Burnt Flank",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Haunch_Burnt",
+   "name": "Burnt Haunch",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Herring_Burnt",
+   "name": "Burnt Herring",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Mushroom_Burnt",
+   "name": "Burnt Mushroom",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Onion_Burnt",
+   "name": "Burnt Onion",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Peach_Burnt",
+   "name": "Burnt Peach",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Potato_Burnt",
+   "name": "Burnt Potato",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Rat_Roast_Burnt",
+   "name": "Burnt Rat Roast",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Redberry_Burnt",
+   "name": "Burnt Redberries",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Salmon_Burnt",
+   "name": "Burnt Salmon",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Sardine_Burnt",
+   "name": "Burnt Sardine",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Shrimp_Burnt",
+   "name": "Burnt Shrimp",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Farm_Steak_Burnt",
+   "name": "Burnt Steak",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Tomato_Burnt",
+   "name": "Burnt Tomato",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Trout_Burnt",
+   "name": "Burnt Trout",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Trout_Burnt_QUEST",
+   "name": "Burnt Trout",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Steak_Undead_Burnt",
+   "name": "Burnt Undead Steak",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Cabbage",
+   "name": "Cabbage",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Steak_Undead",
+   "name": "Cauterised Undead Steak",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fryup_Cheeky",
+   "name": "Cheeky Fryup",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_divine_cabbage_OLD",
+   "name": "Divine Cabbage",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Dried_Dwellberry",
+   "name": "Dried Dwellberries",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Peach_Dried",
+   "name": "Dried Peach",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Dried_Redberry",
+   "name": "Dried Redberries",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Pie_Meat_Dubious",
+   "name": "Dubious Meat Pie",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Dwellberry",
+   "name": "Dwellberries",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Crunchies_Dwellberry",
+   "name": "Dwellberry Crunchies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Crunchies_Dwellberry_OLD",
+   "name": "Dwellberry Crunchies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Glazed_Dwellberry_Roast_Flank_OLD",
+   "name": "Dwellberry Glazed Roast Flank",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Glazed_Dwellberry_Roast_Meat_OLD",
+   "name": "Dwellberry Glazed Roast Meat",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Egg",
+   "name": "Egg",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Eggs_Royale",
+   "name": "Eggs Royale",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Feathers",
+   "name": "Feathers",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Fillet",
+   "name": "Fillet",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Beast_Flank",
+   "name": "Flank Steak",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Flax",
+   "name": "Flax",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Sandwich_Veggie",
+   "name": "Forager's Sandwich",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Crunchies_Fortifying_OLD",
+   "name": "Fortifying Crunchies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Soup_Fortifying_OLD",
+   "name": "Fortifying Soup",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Stew_Fortifying_OLD",
+   "name": "Fortifying Stew",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Cabbage_Fried",
+   "name": "Fried Cabbage",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Egg_Fried",
+   "name": "Fried Egg",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Onion_Fried",
+   "name": "Fried Onions",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Salmon",
+   "name": "Fried Salmon",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Sardine",
+   "name": "Fried Sardine",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Pie_Fruit",
+   "name": "Fruit Pie",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Sandwich_Glazed_Pumpkin_Roast",
+   "name": "Glazed Pumpkin Sandwich",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Mushroom_Grilled",
+   "name": "Grilled Mushrooms",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Tomato_Grilled",
+   "name": "Grilled Tomatoes",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Trout",
+   "name": "Grilled Trout",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Trout_QUEST",
+   "name": "Grilled Trout",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Herb_Harralander",
+   "name": "Harralander",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Haunch",
+   "name": "Haunch",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Crunchies_Hearty_OLD",
+   "name": "Hearty Crunchies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Soup_Hearty_Fortifying_OLD",
+   "name": "Hearty Fortifying Soup",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Soup_Hearty_OLD",
+   "name": "Hearty Soup",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Stew_Hearty_OLD",
+   "name": "Hearty Stew",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_HerbBaked_Trout",
+   "name": "Herb Baked Trout",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Herb_Kwuarm",
+   "name": "Kwuarm",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Mahogany",
+   "name": "Mahogany Logs",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Herb_Marrentill",
+   "name": "Marrentill",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Iconic_Pizza_Meat",
+   "name": "Meat Pizza",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Sandwich_Meat",
+   "name": "Meat Sandwich",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_v3_Stew_Meat",
+   "name": "Meat Stew",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Stew_Meat",
+   "name": "Meat Stew",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Sandwich_Meat_Double",
+   "name": "Meat Twist Sandwich",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Mixed_Grill",
+   "name": "Mixed Grill",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Mixed_Platter_OLD",
+   "name": "Mixed Platter",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Monstrous_Fang",
+   "name": "Monstrous Fang",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.Bone"
+  },
+  {
+   "item": "ITEM_Consumable_Iconic_Kebab",
+   "name": "Mushroom Kebab",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Oak",
+   "name": "Oak Logs",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Onion",
+   "name": "Onion",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Peach",
+   "name": "Peach",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Potato",
+   "name": "Potato",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Soup_Pumpkin",
+   "name": "Pumpkin Soup",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Omelette_Pungent",
+   "name": "Pungent Omelette",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Large_Animal_Horn",
+   "name": "Ram Horn",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.Bone"
+  },
+  {
+   "item": "ITEM_Consumable_Meat_Rat_Roast",
+   "name": "Rat Roast",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Redberry",
+   "name": "Redberries",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Crunchies_Redberry",
+   "name": "Redberry Crunchies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Crunchies_Redberry_OLD",
+   "name": "Redberry Crunchies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Glazed_Redberry_Roast_Flank_OLD",
+   "name": "Redberry Glazed Roast Flank",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Glazed_Redberry_Roast_Meat_OLD",
+   "name": "Redberry Glazed Roast Meat",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Redberry_Roast_Rat",
+   "name": "Redberry Roast Rat",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_RoastDinner",
+   "name": "Roast Dinner",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Sauteed_Sardines",
+   "name": "Sauteed Sardines",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Shrimp",
+   "name": "Sauteed Shrimp",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Anchovies",
+   "name": "Seared Anchovies",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Herb_Plant_Bulb_Shocking",
+   "name": "Shocking Plant Bulb",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Omelette_Shrimp",
+   "name": "Shrimp Omelette",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Fang",
+   "name": "Small Animal Fang",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.Bone"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Herring",
+   "name": "Smoked Herring",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Herb_Snapdragon",
+   "name": "Snapdragon",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Sausage_Squeaking",
+   "name": "Squeaking Sausage",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Farm_Steak",
+   "name": "Steak",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_SteakAndEggs",
+   "name": "Steak 'N' Eggs",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Sandwich_Steak",
+   "name": "Steak Sandwich",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_SwampWeed",
+   "name": "Swamp Weed",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Vegball_Sweet",
+   "name": "Sweet Veg Ball",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Herb_Toadflax",
+   "name": "Toadflax",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Tomato",
+   "name": "Tomato",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fryup_Vegan",
+   "name": "Vegan Fryup",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Soup_Vegetable",
+   "name": "Vegetable Soup",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Cake_VictoriaSpongeCake",
+   "name": "Victoria Sponge Cake",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Vine_Root",
+   "name": "Vine Root",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Farming.Compostable"
+  },
+  {
+   "item": "ITEM_Resources_Agility_Warped_Feathers",
+   "name": "Warped Feathers",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Weeds",
+   "name": "Weeds",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Wheat",
+   "name": "Wheat",
+   "compost": 10,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawIngredient"
+  },
+  {
+   "item": "ITEM_Consumable_Iconic_Pie_Wild",
+   "name": "Wild Pie",
+   "compost": 10,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Anchovies",
+   "name": "Pristine Anchovies",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Herring",
+   "name": "Pristine Herring",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Salmon",
+   "name": "Pristine Salmon",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Sardine",
+   "name": "Pristine Sardine",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Shrimp",
+   "name": "Pristine Shrimp",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Trout",
+   "name": "Pristine Trout",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Anchovies",
+   "name": "Raw Anchovies",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Meat_Bestial",
+   "name": "Raw Bestial Meat",
+   "compost": 1,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Meat_Bird",
+   "name": "Raw Bird Meat",
+   "compost": 1,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Meat_Farm",
+   "name": "Raw Farm Meat",
+   "compost": 1,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Meat_Game",
+   "name": "Raw Game Meat",
+   "compost": 1,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Herring",
+   "name": "Raw Herring",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Raw_Stringy_Meat",
+   "name": "Raw Rat Meat",
+   "compost": 1,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Salmon",
+   "name": "Raw Salmon",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Sardine",
+   "name": "Raw Sardine",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Shrimp",
+   "name": "Raw Shrimp",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Trout",
+   "name": "Raw Trout",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Consumable_TEST_Cake",
+   "name": "TEST_Cake",
+   "compost": 1,
+   "tier": "regular",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_UnusualTrout_Quest",
+   "name": "Unusual Trout",
+   "compost": 1,
+   "tier": "regular",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Agility_Avantoe",
+   "name": "Avantoe",
+   "compost": 10,
+   "tier": "super",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_ArmouredCatfish",
+   "name": "Braised Armoured Catfish",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_UndeadEel",
+   "name": "Braised Undead Eel",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_ArmouredCatfish_Burnt",
+   "name": "Burnt Armoured Catfish",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Cadavaberry_Burnt",
+   "name": "Burnt Cadavaberries",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_GiantKrill_Burnt",
+   "name": "Burnt Giant Krill",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_InfernalEel_Burnt",
+   "name": "Burnt Infernal Eel",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Lobster_Burnt",
+   "name": "Burnt Lobster",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Syrup_Maple_Burnt",
+   "name": "Burnt Maple Syrup",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Pumpkin_Burnt",
+   "name": "Burnt Pumpkin",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_UndeadBass_Burnt",
+   "name": "Burnt Undead Bass",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_UndeadEel_Burnt",
+   "name": "Burnt Undead Eel",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Watermelon_Burnt",
+   "name": "Burnt Watermelon",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Cadavaberry",
+   "name": "Cadavaberries",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Corpse_Fur",
+   "name": "Corpse Cotton",
+   "compost": 10,
+   "tier": "super",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Fruit_Dried_Cadavaberry",
+   "name": "Dried Cadavaberries",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_GiantKrill",
+   "name": "Dried Giant Krill",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Fry",
+   "name": "Fish Fry",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_UndeadBass",
+   "name": "Grilled Undead Bass",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Bark_Hollow",
+   "name": "Hollow Bark",
+   "compost": 10,
+   "tier": "super",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Herb_Irit",
+   "name": "Irit",
+   "compost": 10,
+   "tier": "super",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Maple",
+   "name": "Maple Logs",
+   "compost": 10,
+   "tier": "super",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Maple_Sap",
+   "name": "Maple Sap",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Farming.CompostableSuper"
+  },
+  {
+   "item": "ITEM_Consumable_Syrup_Maple",
+   "name": "Maple Syrup",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Toastie_Maple",
+   "name": "Maple Toastie",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Pumpkin",
+   "name": "Pumpkin",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Pumpkin_Roast",
+   "name": "Roast Pumpkin",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Lobster",
+   "name": "Roasted Lobster",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_InfernalEel",
+   "name": "Smoked Infernal Eel",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Stir-Fry",
+   "name": "Stir-Fry",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Stuffed_Catfish",
+   "name": "Stuffed Catfish",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Bone_Undead",
+   "name": "Undead Bone",
+   "compost": 10,
+   "tier": "super",
+   "category": "ItemFilter.Material.Bone"
+  },
+  {
+   "item": "ITEM_Consumable_Undead_Delight",
+   "name": "Undead Delight",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Watermelon",
+   "name": "Watermelon",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Watermelon_Jerky",
+   "name": "Watermelon Jerky",
+   "compost": 10,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Willow",
+   "name": "Willow Logs",
+   "compost": 10,
+   "tier": "super",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_ArmouredCatfish",
+   "name": "Pristine Armoured Catfish",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_GiantKrill",
+   "name": "Pristine Giant Krill",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_InfernalEel",
+   "name": "Pristine Infernal Eel",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Lobster",
+   "name": "Pristine Lobster",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_UndeadBass",
+   "name": "Pristine Undead Bass",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_UndeadEel",
+   "name": "Pristine Undead Eel",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_ArmouredCatfish",
+   "name": "Raw Armoured Catfish",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_GiantKrill",
+   "name": "Raw Giant Krill",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_InfernalEel",
+   "name": "Raw Infernal Eel",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Lobster",
+   "name": "Raw Lobster",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_UndeadBass",
+   "name": "Raw Undead Bass",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_UndeadEel",
+   "name": "Raw Undead Eel",
+   "compost": 1,
+   "tier": "super",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Meat_Undead",
+   "name": "Undead Meat",
+   "compost": 1,
+   "tier": "super",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Beltfish_Broth",
+   "name": "Beltfish Broth",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Beltfish_Burnt",
+   "name": "Burnt Beltfish",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Steak_Cactus_Burnt",
+   "name": "Burnt Cactus Steak",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_DesertSole_Burnt",
+   "name": "Burnt Desert Sole",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Monkfish_Burnt",
+   "name": "Burnt Monkfish",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Fibers_Cactus",
+   "name": "Cactus Fibres",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Farming.CompostableUltra"
+  },
+  {
+   "item": "ITEM_Resources_Steak_Cactus",
+   "name": "Cactus Steak",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Weed_Desert",
+   "name": "Desert Weed",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Tea_Dried",
+   "name": "Dried Tea Leaves",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.BuildingResource"
+  },
+  {
+   "item": "ITEM_Resources_Cactus_Pipe",
+   "name": "Fibrous Pipe Cactus",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Tea_Ground",
+   "name": "Ground Tea Leaves",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.BuildingResource"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Magic",
+   "name": "Magic Logs",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Monkfish",
+   "name": "Monkfish Fillets",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Monkfish_Skewers",
+   "name": "Monkfish Skewers",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Beltfish",
+   "name": "Pristine Beltfish",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_DesertSole",
+   "name": "Pristine Desert Sole",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Pristine_Monkfish",
+   "name": "Pristine Monkfish",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Beltfish",
+   "name": "Raw Beltfish",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_DesertSole",
+   "name": "Raw Desert Sole",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.PristineFish"
+  },
+  {
+   "item": "ITEM_Resources_Fish_Raw_Monkfish",
+   "name": "Raw Monkfish",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.RawFish"
+  },
+  {
+   "item": "ITEM_Consumable_Steak_Cactus_Cooked",
+   "name": "Seared Cactus Steak",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_Beltfish",
+   "name": "Steamed Beltfish",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Strong_Sweet",
+   "name": "Strong Sweet Tea",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Strong",
+   "name": "Strong Tea",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Fish_DesertSole",
+   "name": "Sun Baked Sole",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Consumable_Pie_Swabbie",
+   "name": "Swabbie Pie",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Tea_Leaves",
+   "name": "Tea Leaves",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Umbral_Kebab",
+   "name": "Umbral Kebab",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "Item.Food"
+  },
+  {
+   "item": "ITEM_Resources_Wood_Yew",
+   "name": "Yew Logs",
+   "compost": 10,
+   "tier": "ultra",
+   "category": "ItemFilter.Material.BasicMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Adhesive_Acrid",
+   "name": "Acrid Adhesive",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Magic",
+   "name": "Arcane Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Plank_Ash",
+   "name": "Ash Plank",
+   "compost": 10,
+   "tier": null,
+   "category": "Item.BuildingResource"
+  },
+  {
+   "item": "ITEM_Consumable_Water_Cactus",
+   "name": "Cactus Water",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Cadavaberry",
+   "name": "Cadavaberry Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Water_Clean",
+   "name": "Clean Water",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Magic_Cooling",
+   "name": "Cooling Arcane Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Dodge_Cooling",
+   "name": "Cooling Evasive Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Attack_Cooling",
+   "name": "Cooling Ferocious Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Sprint_Cooling",
+   "name": "Cooling Fleet-Footed Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Ranged_Cooling",
+   "name": "Cooling Relentless Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Cloth_Desert",
+   "name": "Desert Cloth",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Thread_Desert",
+   "name": "Desert Thread",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Water_Dirty",
+   "name": "Dirty Water",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Dwellberry",
+   "name": "Dwellberry Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Dwellberry_OLD",
+   "name": "Dwellberry Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Dodge",
+   "name": "Evasive Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Attack",
+   "name": "Ferocious Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Attack_Ranged_Magic",
+   "name": "Ferocious Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Sprint",
+   "name": "Fleet-Footed Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Cloth_Garou",
+   "name": "Garou Weave",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Ground_Gypsum",
+   "name": "Ground Gypsum",
+   "compost": 10,
+   "tier": null,
+   "category": "Item.BuildingResource"
+  },
+  {
+   "item": "ITEM_Resources_Ground_Obsidian",
+   "name": "Ground Obsidian",
+   "compost": 10,
+   "tier": null,
+   "category": "Item.BuildingResource"
+  },
+  {
+   "item": "ITEM_Resources_Wax_Gypsum",
+   "name": "Gypsum Wax",
+   "compost": 10,
+   "tier": null,
+   "category": "Item.BuildingResource"
+  },
+  {
+   "item": "ITEM_Resources_Cloth_Infinity",
+   "name": "Infinity Cloth",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Maple",
+   "name": "Maple Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Plank_Oak",
+   "name": "Oak Plank",
+   "compost": 10,
+   "tier": null,
+   "category": "Item.BuildingResource"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Pumpkin",
+   "name": "Pumpkin Spice Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Leather_Dragon_Red_Lesser",
+   "name": "Red Dragonhide Leather",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Redberry",
+   "name": "Redberry Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Refined_Obsidian",
+   "name": "Refined Obsidian",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Resource"
+  },
+  {
+   "item": "ITEM_Consumable_Tea_Stamina_Reduction_Ranged",
+   "name": "Relentless Infusion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Leather_Scorch",
+   "name": "Scorch Leather",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Ground_Kalphite_Wing",
+   "name": "Shimmerscale Powder",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Resources_Leather_Snake",
+   "name": "Snake Leather",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Material.ProcessedMaterial"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_T4_Antifire_Super",
+   "name": "Super Antifire Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_T4_Antipoison_Super",
+   "name": "Super Antipoison Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Artisan_Super",
+   "name": "Super Focused Artisan Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Attack_Super",
+   "name": "Super Focused Attack Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Construction_Super",
+   "name": "Super Focused Construction Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Cooking_Super",
+   "name": "Super Focused Cooking Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Farming_Super",
+   "name": "Super Focused Farming Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Fishing_Super",
+   "name": "Super Focused Fishing Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Mining_Super",
+   "name": "Super Focused Mining Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Runecrafting_Super",
+   "name": "Super Focused Runecrafting Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_Focused_T4_Woodcutting_Super",
+   "name": "Super Focused Woodcutting Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_T4_Lumberjack_Super",
+   "name": "Super Lumberjack Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Potion_T4_Quarrymaster_Super",
+   "name": "Super Quarrymaster Potion",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Potion"
+  },
+  {
+   "item": "ITEM_Consumable_Water_Wither",
+   "name": "Wither Water",
+   "compost": 10,
+   "tier": null,
+   "category": "ItemFilter.Type.Consumable.Drink"
+  },
+  {
+   "item": "ITEM_Resources_Plank_Yew",
+   "name": "Yew Plank",
+   "compost": 10,
+   "tier": null,
+   "category": "Item.BuildingResource"
+  }
+ ],
+ "clock": {
+  "real_minutes_per_game_day": 24,
+  "dawn_hour": 4.5,
+  "dusk_hour": 22.0,
+  "cycle_game_hours": 12.0,
+  "source": "farm_time_probe-20261101T230901Z.json"
+ },
+ "player_reports": [
+  {
+   "fact": "Crops grow fast when you sleep through the night, because sleeping skips in-game time.",
+   "source": "Luis (player), 2026-11-01",
+   "check": "Partly checked. Game data: a growth cycle is 12 in-game hours (720 real s at 24 real min per in-game day), each plot's next update is an in-game time, and sleeping fast-forwards the clock. Not yet measured on a growing crop."
+  }
+ ]
+}

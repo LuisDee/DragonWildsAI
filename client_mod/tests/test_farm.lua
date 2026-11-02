@@ -190,5 +190,12 @@ do
     check("no item ids in logic", not src:find("ITEM_", 1, true))
 end
 
+do -- growth from the plant mesh (the game's own stage meshes), pure
+    local map = { SM_Potato_02 = { plant = "Potato", stage = 2, of = 3 } }
+    local g = F.growth_of(map, "SM_Potato_02")
+    check("growth from a stage mesh", g and g.plant == "Potato" and g.stage == 2 and g.of == 3)
+    check("no growth for an unknown mesh", F.growth_of(map, "SM_Other") == nil and F.growth_of(map, nil) == nil and F.growth_of(nil, "x") == nil)
+end
+
 print(string.format("test_farm: %d passed, %d failed", pass, failn))
 if failn > 0 then os.exit(1) end

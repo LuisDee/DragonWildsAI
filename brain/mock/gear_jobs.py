@@ -238,6 +238,35 @@ def farm_bread_world(rig):
     g.add_buildable("Kiln", {STONE: 6}, kind="station", station="Kiln")
 
 
+POTATO_SEED, POTATO, CAN = "ITEM_Farming_Seed_Potato", "ITEM_Resources_Potato", "ITEM_WateringCan_Wood"
+
+
+def luis_farm_world(rig):
+    """Luis's farming scenario (docs/GOAL-2026-11-01.md, Rung 3): he showed Claude "the north farm" earlier (a
+    remembered place), where 6 of Claude's own ash plots stand (new, with weeds). Claude carries a wooden spade, a
+    watering can and potato seeds, Farming 1. The compost bin and bucket unlock at Farming 10 (wiki "Farming/Level up
+    table"; harness data, never told to the brain). Measured: does the Director research the method (lookup) before
+    planning, and does the plan keep the job going (loop) and bring the crop back?"""
+    g = rig.game
+    rig.store.remember_place("the north farm", [30.0, 0.0, 0.0])
+    g.set_skill("Farming", 1)
+    g.add_buildable("Ash Farming Plot", {ASH_LOGS: 8}, kind="plot", category="farming",
+                    crops={POTATO_SEED: (POTATO, 5), WHEAT_SEED: (WHEAT, 5)}, spade_tier=2, weed_layers=1)
+    g.add_buildable("Compost Bin", {ASH_LOGS: 8, STONE: 4}, kind="station", category="farming",
+                    unlock={"skill": "Farming", "level": 10})
+    home = list(g.pos)
+    g.pos = [30.0, 0.0, 0.0]
+    g.carry(ASH_LOGS, 48)
+    for _ in range(6):
+        g.build("Ash Farming Plot")
+    g.pos = home
+    g.carry(SPADE)
+    g.carry(CAN)
+    g.carry(POTATO_SEED, 8)
+    g.carry(ASH_LOGS, 10)
+    g.carry(STONE, 6)
+
+
 def _m3_world(target, means):
     """GOAL M3 initiative case: every frozen skill at 10 except ``target`` (1), plus the means for it."""
     def setup(rig):
@@ -285,4 +314,6 @@ JOBS = {
     "m3_agility_initiative": (M3_LINE, True, _m3_world("Agility", _agility_means)),
     "farm_and_process_crop": ("get a little farm going at home and bake us some bread from what you grow", False,
                               farm_bread_world),
+    "luis_farm": ("go to the north farm and farm potatoes, keep it going and bring me the crop", True,
+                  luis_farm_world),
 }

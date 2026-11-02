@@ -1,0 +1,153 @@
+{
+ "job": "luis_farm",
+ "chat": "go to the north farm and farm potatoes, keep it going and bring me the crop",
+ "open": true,
+ "model": "anthropic/claude-sonnet-5-5",
+ "recorded_at": "2026-11-01T23:21:24Z",
+ "requests": 3,
+ "responses": [
+  {
+   "content": null,
+   "usage": {
+    "prompt": 7878,
+    "completion": 120,
+    "cached": 0,
+    "cache_write": 7874,
+    "latency_ms": 4718,
+    "response_id": "chatcmpl-61421c45-0d2f-49c2-9800-26eb6f6949be",
+    "request_id": "req_011Cgd4onqewKPNfcYP1k8UY",
+    "cost_usd": 0.020893
+   },
+   "tool_calls": [
+    {
+     "name": "map_memory",
+     "arguments": {
+      "name": "the north farm"
+     },
+     "id": "toolu_013jnE3QQ4JFshHyFe5XPCAR"
+    },
+    {
+     "name": "recall",
+     "arguments": {
+      "query": "north farm potatoes"
+     },
+     "id": "toolu_01GT8aDNPemSjUneR4T3Hn6Y"
+    }
+   ]
+  },
+  {
+   "content": null,
+   "usage": {
+    "prompt": 8081,
+    "completion": 92,
+    "cached": 6355,
+    "cache_write": 0,
+    "latency_ms": 1172,
+    "response_id": "chatcmpl-4dd5a125-fbf6-4248-8d3c-07ca41682f22",
+    "request_id": "req_011Cgd4ow8ESD3wLHMtZts54",
+    "cost_usd": 0.0050075
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "query": "potato farming growth time watering"
+     },
+     "id": "toolu_012cnsSP9hHxWXxYKxD2XTQn"
+    }
+   ]
+  },
+  {
+   "content": "{\"description\":\"Go to the north farm, till and plant the 8 potato seeds, water them, then keep tending them through each growth cycle and bring the potatoes to Zezima. This first plan covers arriving, checking the plots, and planting and watering.\",\"explanation\":\"The farm location is known only as a place name, so I walk there first and read the plots with farm_plots. Potatoes take 3 growth cycles of 12 real minutes each, about 36 minutes. A plot not watered right after a stage change has a 30% chance of disease, so I water promptly. Later replans will harvest, replant and hand over the crop.\",\"facts\":[{\"fact\":\"The north farm is a known place, but no map memory of it exists yet\",\"for_step\":\"go to farm\",\"status\":\"known\",\"source\":\"job places list; map_memory returned nothing\",\"confidence\":\"medium\"},{\"fact\":\"I carry a Wooden Spade, a Wooden Watering Can and 8 Potato Seeds\",\"for_step\":\"plant\",\"status\":\"known\",\"source\":\"me.carried\",\"confidence\":\"high\"},{\"fact\":\"Potatoes take 3 cycles of 720 s each (about 36 min) and yield 5 potatoes per harvest. Disease chance is 0.3, and 2 in a plot that is not Brynmoor-tier\",\"for_step\":\"keep it going\",\"status\":\"known\",\"source\":\"game data: Potato Seeds\",\"confidence\":\"high\"},{\"fact\":\"A plot needs 50 water units to be fully watered. Tilling a weed layer takes 5 spade digs\",\"for_step\":\"till and water\",\"status\":\"known\",\"source\":\"game data: Farming mechanics\",\"confidence\":\"high\"},{\"fact\":\"Compost Bucket needs 5 Ash Logs at a Crafting Table and gives 50 Farming XP. Compost fertilizes plots (50 units for a full plot)\",\"for_step\":\"later improvement\",\"status\":\"known\",\"source\":\"curriculum recipes\",\"confidence\":\"medium\"},{\"fact\":\"The number of plots at the north farm, their state, and whether a water source is nearby are unknown\",\"for_step\":\"check plots\",\"status\":\"unknown\",\"source\":\"not perceived yet\",\"confidence\":\"high\"}],\"completion_mode\":\"state\",\"task_success\":null,\"steps\":[{\"checkpoint_id\":null,\"title\":\"Walk to the north farm\",\"why\":\"The job starts there\",\"hints\":\"go_to 'the north farm'\",\"success\":{\"near\":{\"place\":\"the north farm\",\"within_m\":15}},\"risk\":null,\"abort_if\":null,\"escape\":null,\"needs\":[\"go_to\"],\"group\":null,\"wait\":false,\"first_call\":{\"tool\":\"go_to\",\"args\":{\"target\":\"the north farm\"}}},{\"checkpoint_id\":null,\"title\":\"Inspect the farm plots\",\"why\":\"I need to know which plots are empty, weedy or planted before I plant\",\"hints\":\"farm_plots; note the plot ids and any water source\",\"success\":{\"near\":{\"place\":\"the north farm\",\"within_m\":20}},\"risk\":null,\"abort_if\":null,\"escape\":null,\"needs\":[\"farm_plots\"],\"group\":null,\"wait\":false,\"first_call\":{\"tool\":\"farm_plots\",\"args\":{}}},{\"checkpoint_id\":null,\"title\":\"Plant potato seeds in the empty plots\",\"why\":\"Planting starts the crop and gives Farming XP. Tend with the spade first if a plot has weeds\",\"hints\":\"tend each empty plot with item ITEM_Farming_Seed_Potato, one seed per plot, up to 8\",\"success\":{\"skill\":{\"name\":\"Farming\",\"at_least\":2}},\"risk\":null,\"abort_if\":null,\"escape\":null,\"needs\":[\"tend\"],\"group\":null,\"wait\":false,\"first_call\":null},{\"checkpoint_id\":null,\"title\":\"Water the planted plots\",\"why\":\"Watering prevents disease and helps growth\",\"hints\":\"tend each planted plot with the Wooden Watering Can. Refill it at nearby water if it runs empty\",\"success\":{\"lost\":{\"item\":\"Potato Seeds\",\"at_least\":1}},\"risk\":null,\"abort_if\":null,\"escape\":null,\"needs\":[\"tend\"],\"group\":null,\"wait\":false,\"first_call\":null}],\"loops\":{},\"add_tasks\":[],\"capability_gaps\":[{\"primitive\":\"farm_plots\",\"kind\":\"perception\",\"why\":\"Plot growth stage and disease may not be fully readable, and an exact water level may not be either\",\"workaround\":\"Re-run farm_plots each cycle (about 12 min) and water after each stage change\"}],\"ask_help\":null,\"done\":false}",
+   "usage": {
+    "prompt": 9800,
+    "completion": 1488,
+    "cached": 7874,
+    "cache_write": 1922,
+    "latency_ms": 10204,
+    "response_id": "chatcmpl-55fed5cb-24e2-4eeb-a61d-e859dd30045c",
+    "request_id": "req_011Cgd4p2SDQG4QYDoK4XG3x",
+    "cost_usd": 0.0204804
+   },
+   "tool_calls": []
+  }
+ ],
+ "outcome": {
+  "status": "active",
+  "success": null,
+  "steps": [
+   {
+    "title": "Walk to the north farm",
+    "success": {
+     "near": {
+      "place": "the north farm",
+      "within_m": 15
+     }
+    },
+    "risk": null,
+    "hints": "go_to 'the north farm'",
+    "group": null
+   },
+   {
+    "title": "Inspect the farm plots",
+    "success": {
+     "near": {
+      "place": "the north farm",
+      "within_m": 20
+     }
+    },
+    "risk": null,
+    "hints": "farm_plots; note the plot ids and any water source",
+    "group": null
+   },
+   {
+    "title": "Plant potato seeds in the empty plots",
+    "success": {
+     "skill": {
+      "name": "Farming",
+      "at_least": 2
+     }
+    },
+    "risk": null,
+    "hints": "tend each empty plot with item ITEM_Farming_Seed_Potato, one seed per plot, up to 8",
+    "group": null
+   },
+   {
+    "title": "Water the planted plots",
+    "success": {
+     "lost": {
+      "item": "Potato Seeds",
+      "at_least": 1,
+      "ids": [
+       "ITEM_Farming_Seed_Potato"
+      ]
+     }
+    },
+    "risk": null,
+    "hints": "tend each planted plot with the Wooden Watering Can. Refill it at nearby water if it runs empty",
+    "group": null
+   }
+  ],
+  "help": null,
+  "gaps": [
+   "farm_plots"
+  ],
+  "events": [
+   {
+    "ts": 1793575284.918,
+    "kind": "director_decision",
+    "task": "00ae4a87",
+    "decision": "curriculum",
+    "description": "Go to the north farm, till and plant the 8 potato seeds, water them, then keep tending them through each growth cycle and bring the potatoes to Zezima. This first plan covers arriving, checking the plots, and planting and watering.",
+    "explanation": "The farm location is known only as a place name, so I walk there first and read the plots with farm_plots. Potatoes take 3 growth cycles of 12 real minutes each, about 36 minutes. A plot not watered right after a stage change has a 30% chance of disease, so I water promptly. Later replans will harvest, replant and hand over the crop.",
+    "steps": [
+     "Walk to the north farm",
+     "Inspect the farm plots",
+     "Plant potato seeds in the empty plots",
+     "Water the planted plots"
+    ],
+    "ask_help": null
+   }
+  ]
+ }
+}

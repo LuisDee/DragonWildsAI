@@ -84,6 +84,14 @@ function M.plots(rows, me, radius_cm)
     return out
 end
 
+-- A plot's growth from its plant mesh: {plant, stage, of} via the stage map (mesh -> the game's own
+-- FarmPlantDataAsset stage, W.stage_map), or nil when the mesh is no stage's (an empty clear plot). Pure.
+function M.growth_of(map, mesh)
+    local g = mesh and map and map[mesh]
+    if not g then return nil end
+    return { plant = g.plant, stage = g.stage, of = g.of }
+end
+
 local function gains(c0, c1)
     local g, n = {}, 0
     for k, v in pairs(c1 or {}) do local d = v - ((c0 or {})[k] or 0); if d ~= 0 then g[k] = d; n = n + math.abs(d) end end
@@ -111,8 +119,47 @@ end
 function W.loc(a) return U.loc(a) end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
 function W.skills() local me = mcall("sense", "me"); return type(me) == "table" and me.skills or nil end
+-- mesh (asset name) -> {plant, stage, of} from every loaded FarmPlantDataAsset's Stages[i].Healthy /
+-- Diseased / Dead .Mesh (FFarmPlantStageVisData; live 2026-11-01: SM_Potato_Plant_01, SM_BM_Weeds_01). Built once.
+local function asset_name(o) local n = U.valid(o) and U.fullname(o) or nil; return n and n:match("([^%.]+)$") or nil end
+function W.stage_map()
+    local c = C()
+    if c.stage_map_v2 and next(c.stage_map_v2) then return c.stage_map_v2 end
+    local map = {}
+    for _, p in ipairs(U.find_all("FarmPlantDataAsset", { skip_defaults = true, valid_only = true }) or {}) do
+        local name = text(U.try(function() return p.DisplayName end)) or asset_name(p)
+        local stages = {}
+        U.each(U.try(function() return p.Stages end), function(st) stages[#stages + 1] = st end)
+        for i, st in ipairs(stages) do
+            -- Healthy first: a diseased stage mostly shows the same mesh (CanHealDisease says diseased)
+            for _, k in ipairs({ "Healthy", "Diseased", "Dead" }) do
+                local m = asset_name(U.try(function() return st[k].Mesh end))
+                if m and not map[m] then map[m] = { plant = name, stage = i, of = #stages } end
+            end
+        end
+    end
+    c.stage_map_v2 = map
+    return map
+end
+-- Plots I built: deconstruct's ledger of my pieces (the game keeps no owner per piece), matched by position.
+-- -> set of owner ids | nil (no ledger)
+function W.my_plot_spots()
+    local dm = mod("deconstruct")
+    if not (dm and dm.ledger) then return nil end
+    local ok, Lg = pcall(dm.ledger)
+    if not ok or type(Lg) ~= "table" or type(Lg.pieces) ~= "table" then return nil end
+    local spots = {}
+    for _, e in ipairs(Lg.pieces) do
+        if type(e.piece) == "string" and e.piece:find("FarmPlot", 1, true) and type(e.at) == "table" then
+            spots[#spots + 1] = { X = e.at[1] * 100, Y = e.at[2] * 100 }
+        end
+    end
+    return spots
+end
 function W.slots()
     local out = {}
+    local map = W.stage_map()
+    local spots = W.my_plot_spots()
     for _, c in ipairs(U.find_all(M.cfg.slot_class, { skip_defaults = true }) or {}) do
         local owner = U.try(function() return c:GetOwner() end)
         if U.alive(owner) then
@@ -120,13 +167,23 @@ function W.slots()
             local idx = U.try(function() return c.SlotIndex end)
             local ic = U.try(function() return c.InteractionComponent end)
             local function b(fn) local x = U.try(function() return c[fn](c) end); if x == nil then return nil end; return x == true end
-            out[#out + 1] = { id = tostring(U.short(owner)) .. "#" .. tostring(idx or 0), owner_id = U.short(owner),
+            local pm = U.try(function() return c.PlantMeshComponent end)
+            -- the StaticMesh property (live 2026-11-02: GetStaticMesh() on the instanced component gave an invalid wrapper)
+            local mesh = U.valid(pm) and (asset_name(U.try(function() return pm.StaticMesh end))
+                                          or asset_name(U.try(function() return pm:GetStaticMesh() end))) or nil
+            local at = U.loc(owner)
+            local mine
+            if spots and at then
+                mine = false
+                for _, s in ipairs(spots) do if d2(s, at) <= 150 then mine = true end end
+            end
+            out[#out + 1] = { growth = M.growth_of(map, mesh), mine = mine, id = tostring(U.short(owner)) .. "#" .. tostring(idx or 0), owner_id = U.short(owner),
                 pos = v and { X = v.X, Y = v.Y, Z = v.Z } or U.loc(owner),
                 soil = M.SOIL[U.try(function() return c:GetSoilState() end) or -1],
                 harvestable = b("CanHarvest"), diseased = b("CanHealDisease"), watered = b("IsFullyWatered"),
                 fertilized = b("IsFullyFertilized"), weeds_grown = b("AreWeedsFullyGrown"),
-                prompt = U.valid(ic) and text(U.try(function() return ic.InteractionPrompt end)) or nil,
-                status = U.valid(ic) and text(U.try(function() return ic.PlotStatusDisplayText end)) or nil }
+                prompt = U.valid(ic) and text(U.try(function() return ic.InteractionPrompt end)) or nil }
+            -- (PlotStatusDisplayText is only the widget's template "{Name} {Stage} - {Status}", live 2026-11-01: not read)
         end
     end
     return out
@@ -455,7 +512,8 @@ do
                         "verification_failed", "interrupted", "companion_down", "invalid_args" } },
         farm_plots = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 10,
             description = "Farm plots near you with the game's own state: soil (weeds/clear), harvestable, diseased, watered, "
-                .. "fertilized, and the plot's prompt. Read only.",
+                .. "fertilized, the plot's prompt, growth (what grows there and its stage, e.g. Potato stage 2 of 3, from the "
+                .. "plant the game shows; weeds count as a plant) and mine (true: a plot I built; false: someone else's). Read only.",
             args = { type = "object", properties = obj({
                 radius = { type = "number", minimum = 5, maximum = M.cfg.max_radius_m, default = 40, description = "Metres." } }) },
             reasons = { "companion_down" } },

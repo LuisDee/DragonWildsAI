@@ -1,0 +1,11 @@
+{
+ "schema": 1,
+ "note": "Game facts players reported, merged into data/farming_<build>.json by tools/build_farming.py. Each keeps its source and how far it is checked against the game.",
+ "reports": [
+  {
+   "fact": "Crops grow fast when you sleep through the night, because sleeping skips in-game time.",
+   "source": "Luis (player), 2026-11-01",
+   "check": "Partly checked. Game data: a growth cycle is 12 in-game hours (720 real s at 24 real min per in-game day), each plot's next update is an in-game time, and sleeping fast-forwards the clock. Not yet measured on a growing crop."
+  }
+ ]
+}

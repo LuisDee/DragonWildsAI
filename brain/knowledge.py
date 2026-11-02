@@ -35,7 +35,7 @@ from typing import Any, Iterable
 from .fileio import read_json
 from .paths import REPO_ROOT, _env_path
 
-SCHEMA = 11  # bump when the doc format changes (forces a rebuild)
+SCHEMA = 12  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
 POOL = 200  # BM25 candidates per tier for the title re-rank
 WALK_CHARS = 1600  # a quest walkthrough's length in a lookup result
@@ -68,8 +68,8 @@ def _stem(w: str) -> str:
     """Crude plural folding for the title re-rank (FTS5's porter does the real stemming)."""
     if len(w) <= 3 or w.endswith("ss"):
         return w
-    for suf, rep in (("ies", "y"), ("ves", "f"), ("xes", "x"), ("ches", "ch"), ("shes", "sh"), ("s", "")):
-        if w.endswith(suf):
+    for suf, rep in (("ies", "y"), ("ves", "f"), ("xes", "x"), ("ches", "ch"), ("shes", "sh"), ("oes", "o"), ("s", "")):
+        if w.endswith(suf) and (suf != "oes" or len(w) > 5):  # potatoes, tomatoes, heroes (not shoes, hoes)
             return w[: -len(suf)] + rep
     return w
 
@@ -353,12 +353,31 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
             body += f"; it unlocks the spell {spell_names.get(sp) or _humanize(str(sp).split('.')[-1])}"
         docs.append({"tier": 0, "kind": "perk", "title": pk["name"], "tags": "perk skill unlock", "body": body,
                      "ref": pid})
-    docs += farming_docs(data)
+    docs = merge_farming(docs, farming_docs(data))
     return docs, build
 
 
 def _fmt(x: Any) -> str:
     return f"{x:g}" if isinstance(x, (int, float)) and not isinstance(x, bool) else str(x)
+
+
+def merge_farming(docs: list[dict], farm: list[dict]) -> list[dict]:
+    """A crop's growing facts go on its seed's own item card (what a player plants), so the index gains no
+    near-duplicate "<Crop>" cards that crowd item lookups; a crop whose seed has no card keeps its own."""
+    by_ref = {d.get("ref"): d for d in docs if d.get("kind") == "item"}
+    for f in farm:
+        seed = by_ref.get(f.get("seed_ref")) if f.get("kind") == "crop" else None
+        if seed is None:
+            docs.append(f)
+            continue
+        seed["body"] = seed["body"] + NL + "Growing it (farming data): " + f["body"]
+        seed["tags"] = " ".join(x for x in (seed.get("tags"), f.get("tags")) if x)
+        seed["aliases"] = " | ".join(x for x in (seed.get("aliases"), f["title"]) if x)
+    return docs
+
+
+def _hhmm(h: float) -> str:
+    return f"{int(h):02d}:{int(round((h - int(h)) * 60)):02d}"
 
 
 def farming_docs(data: Path) -> list[dict]:
@@ -407,7 +426,8 @@ def farming_docs(data: Path) -> list[dict]:
         if cyc:
             parts.append(cyc.capitalize())
         docs.append({"tier": 0, "kind": "crop", "title": f"{name} (crop)", "aliases": " | ".join(x for x in (seed,) if x),
-                     "tags": "farming crop plant grow growth seed harvest plot", "body": NL.join(parts), "ref": c.get("id") or ""})
+                     "tags": "farming crop plant grow growth seed harvest plot", "body": NL.join(parts), "ref": c.get("id") or "",
+                     "seed_ref": (c.get("seed") or {}).get("id")})
     if st:
         labels = (("CyclePeriod", "Real seconds per growth cycle"), ("WaterNeededForWatering", "Water units to fully water a plot"),
                   ("CompostNeededForFertilizing", "Compost units to fully fertilize a plot"),
@@ -417,11 +437,20 @@ def farming_docs(data: Path) -> list[dict]:
                   ("PlantingGracePeriodHours", "Planting grace period (in-game hours)"),
                   ("YieldXpFactor", "Harvest XP per unit of yield factor"))
         parts = ["Farming rules from the game's FarmingSettings"]
+        ck = fd.get("clock") or {}
+        if ck.get("real_minutes_per_game_day"):
+            parts.append(f"Game clock: one in-game day = {_fmt(ck['real_minutes_per_game_day'])} real minutes"
+                         + (f"; dawn {_hhmm(ck['dawn_hour'])}" if ck.get("dawn_hour") is not None else "")
+                         + (f", dusk {_hhmm(ck['dusk_hour'])}" if ck.get("dusk_hour") is not None else "")
+                         + (f"; one growth cycle = {_fmt(ck['cycle_game_hours'])} in-game hours" if ck.get("cycle_game_hours") else ""))
+        for rp in fd.get("player_reports") or []:
+            parts.append(f"Player report ({rp.get('source') or 'a player'}): {rp['fact']}"
+                         + (f" Checked against the game: {rp['check']}" if rp.get("check") else ""))
         parts += [f"{lab}: {_fmt(st[k])}" for k, lab in labels if st.get(k) is not None]
         if st.get("GrowthTimes"):
             parts.append("Growth times: " + ", ".join(_fmt(x) for x in st["GrowthTimes"]))
         docs.append({"tier": 0, "kind": "mechanic", "title": "Farming mechanics", "aliases": "Farming rules | Growing crops",
-                     "tags": "farming plot weeds dig water watering growth time cycle compost fertilize disease harvest",
+                     "tags": "farming plot weeds dig water watering growth time cycle compost fertilize disease harvest sleep night day clock",
                      "body": NL.join(parts), "ref": "FarmingSettings"})
     tiers = fd.get("compost") or []
     bins = fd.get("composters") or []
@@ -431,10 +460,14 @@ def farming_docs(data: Path) -> list[dict]:
         for t in tiers:
             parts.append(f"{t.get('status') or t.get('id')}: disease chance x{_fmt(t.get('disease'))}, yield x{_fmt(t.get('yield'))}")
         for b in bins:
-            parts.append(f"Composter {b.get('owner') or b.get('name')}: makes {b.get('output')}, accepts items tagged "
+            parts.append(f"Composter {b.get('owner') or b.get('name')}: makes {str(b.get('output') or '?').rsplit('.', 1)[-1]}, accepts items tagged "
                          + (", ".join(b.get("accepted") or []) or "?"))
         if items:
-            parts.append("Compostable items (compost units each): " + ", ".join(f"{x['name']} {_fmt(x.get('compost'))}" for x in items[:80]))
+            by: dict[str, list[str]] = {}
+            for x in items:
+                by.setdefault(x.get("tier") or "untagged", []).append(f"{x['name']} {_fmt(x.get('compost'))}")
+            for t, xs in by.items():
+                parts.append(f"Compostable items, {t} compost (compost units each): " + ", ".join(xs[:60]))
         docs.append({"tier": 0, "kind": "mechanic", "title": "Compost", "aliases": "Composting | Compost Bin | Fertilizer",
                      "tags": "farming compost super ultra bin bucket fertilize compostable", "body": NL.join(parts), "ref": "FarmCompostData"})
     return docs
