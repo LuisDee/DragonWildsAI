@@ -834,6 +834,27 @@ do -- a flee it keeps hitting him through turns into a fight (21:50Z: bitten 100
 end
 
 reset_world()
+do -- caught while stuck is not "faster than me"; caught while really running is (measured 06:4xZ: rat 600 vs sprint 680)
+    for _, case in ipairs({ { fled = 0.5, want = nil, name = "stuck" }, { fled = 40, want = true, name = "ran" } }) do
+        Cm.guard_start(nil)
+        local enemy = new_creature("BP_AI_TestThreat_C_14", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+        multicast(pawn, enemy, 30); pawn.hp = 70
+        run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+        local f = Cm._state().fight
+        Cm._state().caught_by = {}
+        f.flee_hp0 = 70; f.t = T; f.phase_t = T - 8
+        f.flee_from = { X = pawn.loc.X - case.fled * 100, Y = pawn.loc.Y, Z = pawn.loc.Z }
+        Cm._state().attackers[f.target_id] = T
+        Cm._step_flee(f, pawn, { pos = pawn.loc, hp = 45, max_hp = 100 })
+        check("caught (" .. case.name .. "): turns to fight", f.phase == "approach", f.phase)
+        check("caught (" .. case.name .. "): remembered as faster only when he really ran",
+            (Cm._state().caught_by or {})["Threat"] == case.want, tostring((Cm._state().caught_by or {})["Threat"]))
+        Cm.guard_stop(nil); A.reset(nil)
+        reset_world()
+    end
+end
+
+reset_world()
 do -- at the flee's time limit with it still after him (beyond cornered_m) he fights, not hand his legs back
     Cm.guard_start(nil)
     local enemy = new_creature("BP_AI_TestThreat_C_13", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })

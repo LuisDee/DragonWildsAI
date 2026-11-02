@@ -2205,9 +2205,20 @@ local function step_flee(F, pawn, me)
         -- 40 HP over a 15 s flee that stuck against the ground for 9 s; he died fighting it at 60 HP after)
         local lost = (F.flee_hp0 and me.hp) and (F.flee_hp0 - me.hp) or 0
         if lost >= (me.max_hp or 100) * (M.cfg.flee_caught_frac or 0.2) then
-            local cb = C().caught_by or {}
-            C().caught_by = cb
-            cb[F.target_name or "?"] = true
+            -- "it is faster than me" is remembered only when he really ran: a flee stuck on the ground says nothing
+            -- about its speed (the 21:50 flee stuck 9 s and marked the Giant Rat uncatchable; measured 06:4xZ: its
+            -- MaxWalkSpeed 600 vs his sprint 680, and at 06:05 that memory alone kept him punching it bare-handed)
+            local el = math.max(F.t - (F.phase_t or F.t), 0.1)
+            local ran = (F.fled_m or 0) * 100 / el
+            local spr = num(U.try(function() return pawn.CharacterMovement:GetSprintingMaxSpeed() end)) or 680
+            if ran >= spr * (M.cfg.caught_ran_frac or 0.6) then
+                local cb = C().caught_by or {}
+                C().caught_by = cb
+                cb[F.target_name or "?"] = true
+            else
+                say(F.log, string.format("flee: hit while running at %.1f m/s (sprint %.1f): stuck, not outrun; not remembered as faster",
+                    ran / 100, spr / 100))
+            end
             return turn_to_fight(F, me, string.format("it kept hitting me while I ran (%d HP in %d s)", math.floor(lost), math.floor(F.t - F.phase_t)))
         end
         -- bounded: at the leash (or the time limit) with a threat still after him, it is as fast as he is. Handing his

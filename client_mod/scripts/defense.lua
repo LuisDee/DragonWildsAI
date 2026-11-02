@@ -44,6 +44,9 @@ D.cfg = {
     danger_frac = 0.3,      -- an attack expected to take this share of max HP is fully dangerous
     unknown_danger = 0.3,
     prior_strength = 4,     -- pseudo-observations behind the rule prior
+    prior_strength_guess = 2, -- ... and behind an ability's prior, a guess from its 'avoids' tags (live 2026-11-02 06:05:
+                            -- Windstep, a super-jump, 'fit' a rat's lunge on 'melee' and was picked twice in a row,
+                            -- hit for 40 each time and he died; 0 of 2 barely moved a 0.9 prior worth 4 observations)
     prior_rule = 0.75, prior_alt = 0.5, prior_fit = 0.6, prior_misfit = 0.3,
     danger_bonus = 0.3,     -- a fitting ability's prior grows by this x danger
     precast_danger = 0.5,   -- pre-cast only against attacks at least this dangerous (learned damage)
@@ -332,8 +335,9 @@ function D.plan(info, ctx, orders, rng)
     p.candidates = {}
     for resp, prior in pairs(cands) do
         local a = arm(key, resp)
-        local alpha = 1 + cfg.prior_strength * prior + a.s
-        local beta = 1 + cfg.prior_strength * (1 - prior) + a.f
+        local k = D.abilities()[(resp:gsub("_pre$", ""))] and cfg.prior_strength_guess or cfg.prior_strength
+        local alpha = 1 + k * prior + a.s
+        local beta = 1 + k * (1 - prior) + a.f
         local sample = tried > 0 and beta_sample(alpha, beta, rng()) or alpha / (alpha + beta)
         local cost = 0
         if D.abilities()[resp] then cost = cfg.ability_cost * (1 - th.danger) end -- "_pre" answers are already paid
