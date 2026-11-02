@@ -390,13 +390,42 @@ def serve(client: BridgeClient) -> None:
         authority.closed.set()
 
 
+def write_policy(server_pid: int, retired: list[int], mod_log_dir: Path | None = None) -> dict:
+    """The operator's recovery policy for a NEW dev server process: its identity and the bridge_started of its newest
+    mod log; the old helpers' pids retired. A server restart leaves the helper "recovering: server_identity_changed"
+    until this is written (live 2026-11-02 01:01-02:18Z: every go_to waited 40-60 s on an unresolved oracle)."""
+    server = windows_process(server_pid)
+    if not server:
+        raise RuntimeError(f"no process {server_pid}")
+    logs = sorted(Path(mod_log_dir or paths.REPO_ROOT / "logs" / "mod").glob("mod_*.jsonl"), key=lambda q: q.stat().st_mtime)
+    if not logs:
+        raise RuntimeError("no mod log")
+    start, _ = _bridge_log_state(logs[-1])
+    started_unix = int(server["creation_filetime"]) / 1e7 - 11644473600  # FILETIME (100 ns since 1601) -> unix
+    if logs[-1].stat().st_mtime < started_unix:  # the new server's mod log isn't written yet: never the old server's
+        raise RuntimeError("bridge_not_started_for_this_server")
+    policy = {"version": 1, "server": server, "bridge_log": str(logs[-1].resolve()), "bridge_started": start,
+              "retired_writers": [{"pid": p, "creation_filetime": "0"} for p in retired] or [{"pid": 1, "creation_filetime": "0"}],
+              "operator_confirms": {"no_other_nav_writers": True, "no_bridge_reload": True}}
+    if not _policy_valid(policy):
+        raise RuntimeError("recovery_policy_invalid")
+    (NAV_DIR / "recovery_policy.json").write_text(json.dumps(policy, indent=1), encoding="utf-8")
+    return policy
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("serve")
+    w = sub.add_parser("policy", help="write the recovery policy for a new server process (after a server restart)")
+    w.add_argument("server_pid", type=int)
+    w.add_argument("--retired", type=int, nargs="*", default=[], help="pids of the helpers that served the old server")
     q = sub.add_parser("query")
     q.add_argument("coords", nargs=6, type=float)
     a = ap.parse_args()
+    if a.cmd == "policy":
+        print(json.dumps(write_policy(a.server_pid, a.retired), indent=1))
+        return
     with single_instance(NAV_DIR / "oracle.lock") as owned:
         if not owned:
             raise SystemExit("navigation helper lock is already held")

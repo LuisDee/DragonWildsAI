@@ -9,6 +9,25 @@ $logFile = Join-Path $RepoRoot 'logs\watchdog.log'
 $dumpDir = Join-Path $ServerWin64 'ue4ss'
 function Log($msg) { "$(Get-Date -Format o) $msg" | Add-Content -Encoding utf8 $logFile }
 
+# After a restart the nav helper stays "recovering: server_identity_changed" until its recovery policy names the new
+# server process (live 2026-11-02: every go_to waited 40-60 s for 77 min). Write it once the new bridge has started, then
+# stop the helper: client_watchdog.ps1 restarts it, and it reads the policy at start.
+function Reset-NavOracle {
+    $proc = Get-ServerProcess | Where-Object Name -like '*Shipping*' | Select-Object -First 1
+    if (-not $proc) { return }
+    $python = Join-Path $RepoRoot '.venv\Scripts\python.exe'
+    $helpers = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'nav_oracle serve' })
+    for ($i = 0; $i -lt 24; $i++) { # the mod logs bridge_started a few seconds after the map loads
+        Start-Sleep -Seconds 5
+        Push-Location $RepoRoot
+        & $python -m tools.nav_oracle policy $proc.Id --retired @($helpers | ForEach-Object { $_.ProcessId }) *> $null
+        $ok = $LASTEXITCODE -eq 0
+        Pop-Location
+        if ($ok) { break }
+    }
+    $helpers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Log "nav oracle policy for server pid $($proc.Id): $(if ($ok) { 'written, helper restarted' } else { 'NOT written' })"
+}
 function Get-LatestDump { Get-ChildItem $dumpDir -Filter 'crash_*.dmp' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1 }
 
 $seen = (Get-LatestDump).FullName
@@ -21,7 +40,7 @@ while ($true) {
         $seen = $dump.FullName
         Log "crash dump $($dump.Name): killing hung server and restarting"
         & "$PSScriptRoot\stop_server.ps1" | Out-Null
-        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }
+        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }; Reset-NavOracle
         continue
     }
     # Game-thread hang with no crash dump: the mod's heartbeat (written every 10 s from the game
@@ -39,12 +58,12 @@ while ($true) {
                 Log "stacks: $out"
             }
             & "$PSScriptRoot\stop_server.ps1" | Out-Null
-            & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }
+            & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }; Reset-NavOracle
             continue
         }
     }
     if (-not (Get-ServerProcess) -and -not (Test-Path (Join-Path $RepoRoot 'logs\server.stopped'))) {
         Log 'server process missing: starting it'
-        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }
+        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }; Reset-NavOracle
     }
 }
