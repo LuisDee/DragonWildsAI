@@ -58,3 +58,19 @@ def test_dead_says_so_and_offers_no_need():
     assert situation.summary(st)[0].startswith("You: DEAD: respawning")
     assert needs.lines(st) == []
     assert not any(ln.startswith("Need ") for ln in situation.summary(st))
+
+
+def test_overloaded_is_a_need_with_the_heaviest_stacks_and_where_to_put_them():
+    """02:44Z: 423/400 on a flax hunt, every trip at walking pace; a player stores or drops the junk first."""
+    from brain import needs
+    cat = {"items": {"ITEM_Stone": {"weight": 2.0}, "ITEM_Fur": {"weight": 0.5}}}
+    st = {"bag": {"encumbered": True, "weight": 423, "max_weight": 400},
+          "inventory_items": [{"item": "ITEM_Stone", "name": "Stone", "count": 77, "where": "bag"},
+                              {"item": "ITEM_Fur", "name": "Fur", "count": 4, "where": "bag"}],
+          "interactables": [{"name": "Ash Chest", "kind": "storage", "distance": 12.0, "id": "c1"},
+                            {"name": "Player Gravestone", "kind": "storage", "distance": 1.0, "id": "g1"}]}
+    ln = needs.lines(st, cat)
+    assert len(ln) == 1 and ln[0].startswith("Need load (OVERLOADED 423/400, walk only")
+    assert "heaviest: Stone x77 (154); Fur x4 (2)" in ln[0] and "Ash Chest (12 m, id c1)" in ln[0]
+    assert "Gravestone" not in ln[0]
+    assert needs.lines({"bag": {"encumbered": False}}, cat) == []

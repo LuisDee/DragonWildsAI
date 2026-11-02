@@ -118,6 +118,9 @@ def pressing(state: dict) -> list[dict]:
     tool = state.get("tool_need") if isinstance(state.get("tool_need"), dict) else None
     if tool:
         out.append({"need": "tool", "kinds": [], "tool": tool})
+    bag = state.get("bag") if isinstance(state.get("bag"), dict) else {}
+    if bag.get("encumbered") is True:  # over the game's carry weight: walk only (UPlayerEncumbranceComponent)
+        out.append({"need": "load", "kinds": [], "weight": _num(bag.get("weight")), "max": _num(bag.get("max_weight"))})
     return sorted(out, key=lambda n: n.get("pct", 0) if n.get("pct") is not None else 0)
 
 
@@ -269,6 +272,28 @@ def _rest(state: dict) -> list[str]:
     return out[:MAX_OPTIONS]
 
 
+def _load(state: dict, cat: dict) -> list[str]:
+    """What weighs most in his bag (game data weight x count) and where it could go: storage in sight, chests he
+    remembers (live 2026-11-02 02:44Z: 423/400 at a flax hunt; every trip at walking pace and nothing said it)."""
+    items = cat.get("items") or {}
+    heavy = []
+    for r in state.get("inventory_items") or []:
+        w = _num((items.get(r.get("item")) or {}).get("weight")) if isinstance(r, dict) else None
+        if w and w > 0 and r.get("where") != "equipped":
+            heavy.append((w * (_num(r.get("count")) or 1), f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({w * (_num(r.get('count')) or 1):.0f})"))
+    heavy.sort(key=lambda x: -x[0])
+    out = ["heaviest: " + ("; ".join(t for _, t in heavy[:MAX_OPTIONS]) if heavy else "unknown")]
+    store = [f"{t.get('name')} ({t['distance']:.0f} m, id {t.get('id')})" for t in state.get("interactables") or []
+             if isinstance(t, dict) and t.get("kind") == "storage" and "Gravestone" not in str(t.get("name"))
+             and _num(t.get("distance")) is not None]
+    rem = state.get("containers_remembered")
+    if isinstance(rem, list):
+        store += [str(x) for x in rem[:2]]
+    out.append("store: " + ("; ".join(store[:MAX_OPTIONS]) if store else "no chest in sight or remembered (you can build one)"))
+    out.append("or drop/give what you don't need")
+    return out
+
+
 def _tool(state: dict, need: dict, cat: dict) -> list[str]:
     want = str(need.get("category") or need.get("need_category") or "").lower()
     if not want:
@@ -313,6 +338,10 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
             parts.append("restores: " + REST_FACTS)
         elif n["need"] == "tool":
             parts.extend(_tool(state, n["tool"], cat))
+        elif n["need"] == "load":
+            head = "Need load (" + (f"OVERLOADED {n['weight']:.0f}/{n['max']:.0f}, " if n.get("weight") and n.get("max") else
+                                    "OVERLOADED, ") + "walk only: no sprint or jumps until you're under)"
+            parts.extend(_load(state, cat))
         else:
             c = _carried(state, n["kinds"], cat, n.get("heal", False))
             parts.append("carried: " + ("; ".join(c) if c else "none"))
@@ -324,7 +353,7 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
                 parts.append("remembered: " + "; ".join(rem[:2]))
         if people:
             parts.append("players who could help: " + ", ".join(people))
-        if n["need"] not in ("rest", "tool"):
+        if n["need"] not in ("rest", "tool", "load"):
             craft = _craft(state, n["kinds"], cat, n.get("heal", False))
             if craft:
                 known = isinstance(state.get("recipes_unlocked"), list)
