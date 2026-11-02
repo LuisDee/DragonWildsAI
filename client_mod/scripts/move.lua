@@ -2216,6 +2216,11 @@ local function nav_response(f, pending)
         end
         if log then log(string.format("move: route came after %.1f s of walking; joining it at point %d/%d", t - (st.prov_t or t), st.wp, #pts)) end
         st.prov = nil
+        -- (the remembered route walked meanwhile gives way to a route that reaches the goal; one that ends short
+        -- hands the trip to memory below anyway)
+        if st.prov_mem and st.mode == "go_to" and reached(st, pts[#pts], goal) then st.mpath, st.mwp, st.msrc = nil, nil, nil end
+        st.prov_kept = st.prov_mem and st.mpath or nil
+        st.prov_mem = nil
     end
     local lastp = pts[#pts]
     if r.partial then st.nav_end = v(lastp) end
@@ -2223,12 +2228,15 @@ local function nav_response(f, pending)
         -- the route ends short (the NPC navmesh misses the church ramp a player walks): a remembered route that
         -- reaches the goal is this trip's authority, and the oracle is not asked again (re-asking every ~4 s
         -- re-admitted it and reset the route to its first point: live 20:46-20:48, ramp_up)
-        local mp = mem_goal_plan(st, me, goal)
+        -- (the remembered route he is already walking, when there is one: no second plan of it, and no restart at
+        -- its first point; live 03:39:25-27Z the re-plan cost 2 s standing at the temple lodestone)
+        local kept = st.prov_kept; st.prov_kept = nil
+        local mp = kept or mem_goal_plan(st, me, goal)
         if mp then
             st.path = nil
             route_fallback(st, "oracle route ends short; a remembered route reaches the goal", log)
             st.mem_checked = true
-            st.mpath, st.mwp, st.msrc = mp, 1, "memory"
+            if mp ~= kept then st.mpath, st.mwp, st.msrc = mp, 1, "memory" end
             st.use_nav = false
             if log then log(string.format("move: memory: remembered route reaches the goal (%d pts); the oracle's ends %.0f m short",
                 #mp, d2(lastp, goal) / 100)) end
@@ -2429,7 +2437,15 @@ local function route_tick(f)
             -- (killz); when the route comes it is re-anchored where he is now (nav_response). Stalled -> stand as before.
             if not st.prov then
                 st.prov, st.prov_t = true, t
-                if log then log(string.format("move: route pending (%.0f m trip); walking toward the goal meanwhile", dist / 100)) end
+                -- a remembered route that reaches the goal (walked before: out of the temple after a respawn) is the
+                -- way to walk meanwhile, not the straight line into the wall (live grave runs 02:40-03:03Z: 20 s
+                -- from respawn to a steady sprint, "walls everywhere" at the temple wall, then that same memory route)
+                local c0 = os.clock()
+                local mp = not st.mpath and st.mode == "go_to" and mem_goal_plan(st, f.me, f.goal) or nil
+                st.prov_mem_ms = math.floor((os.clock() - c0) * 1000 + 0.5)
+                if mp then st.mpath, st.mwp, st.msrc, st.prov_mem = mp, 1, "memory", true end
+                if log then log(string.format("move: route pending (%.0f m trip); walking %s meanwhile", dist / 100,
+                    mp and string.format("a remembered route that reaches the goal (%d pts, planned in %d ms)", #mp, st.prov_mem_ms) or "toward the goal")) end
             end
             return
         else
@@ -2910,14 +2926,15 @@ local function trail_entry(f)
                 if last and d2(last, c) < 100 then return false end
                 tests, last = tests + 1, c
                 local okc, clear = pcall(escape_line_clear, f.pawn, me, feet, c)
-                return okc and clear == true
+                return not (okc and clear == "wall") -- (a wall between; a dip or a rise is his own way on)
             end
             local pick
             if open(i0) then pick = i0 end
             for i = i0 + 1, math.min(#st.crumbs, i0 + 40) do if pick or tests >= 7 then break end; if open(i) then pick = i end end
             last = st.crumbs[i0]
             for i = i0 - 1, math.max(1, i0 - 40), -1 do if pick then break end; if open(i) then pick = i end end
-            if pick ~= i0 and log then
+            if pick ~= i0 and log and (pick or f.t - (st.trail_block_log_t or -100) > 3) then
+                if not pick then st.trail_block_log_t = f.t end
                 log(string.format("move: trail: the way to his nearest trail point (i=%d) is blocked; %s", i0,
                     pick and string.format("rejoining at i=%d, in the open", pick) or "walking on until it is in the open"))
             end

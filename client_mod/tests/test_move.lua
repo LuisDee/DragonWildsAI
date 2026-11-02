@@ -3261,6 +3261,33 @@ do
     M.stop(log); oracle = nil; pump_oracle()
 end
 
+-- a long go_to whose route is pending walks a remembered route that reaches the goal meanwhile, not the straight
+-- line into the wall (live grave runs 02:40-03:03Z: respawn at the temple lodestone, 20 s to a steady sprint)
+do
+    M.stop(log); frame_hook = nil; raised = {}; HOLES = nil; air = 0
+    walls = { { 1000, 1500, -800, 800, true } }
+    _G.DW_NAVMEM = nil; os.remove(memf)
+    local f = io.open(memf, "w")
+    f:write('{"v":1,"next_id":2,"traps":[],"taboos":[],"routes":[{"id":"r1","src":"self","n_ok":3,"n_fail":0,"n_used":0,"ts":1,'
+        .. '"pts":[[0,0,-0.9],[5,0,-0.9],[5,12,-0.9],[25,12,-0.9],[25,0,-0.9],[60,0,-0.9]]}]}'); f:close()
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = function() return nil end
+    offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no); pump_oracle()
+    local n0 = #logs
+    M.go_to(log, { 60, 0, 0 }, { tolerance_m = 1.5, timeout_s = 90 })
+    run(500)
+    local r = M.status().result
+    local mem_said, walls_said, stuck = false, false, 0
+    for i = n0 + 1, #logs do
+        if logs[i]:find("walking a remembered route that reaches the goal", 1, true) then mem_said = true end
+        if logs[i]:find("walls everywhere", 1, true) then walls_said = true end
+        if logs[i]:find("move: stuck n=", 1, true) then stuck = stuck + 1 end
+    end
+    check("route pending: a remembered route to the goal is walked meanwhile (no wall, no stuck)",
+        mem_said and not walls_said and stuck == 0 and r and r.status == "arrived",
+        tostring(mem_said) .. " walls=" .. tostring(walls_said) .. " stuck=" .. stuck .. " " .. tostring(r and r.status))
+    M.stop(log); walls = {}; oracle = nil; pump_oracle(); _G.DW_NAVMEM = nil; os.remove(memf)
+end
+
 -- WEDGED among placed pieces (live 23:42Z, Luis's church base: a Spinning Wheel, a bench, farm plots): the failure
 -- names them instead of a bare "stuck"
 do

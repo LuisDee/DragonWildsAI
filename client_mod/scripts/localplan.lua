@@ -113,6 +113,13 @@ local function cell_floors(trace, x, y, feet, lo_off, hi_off, depth, head, walk_
         zs[1] = hi
         return zs
     end
+    if lo_ok and hi_ok and hi > lo + head then
+        -- the top of a solid well above the low floor is no proof of headroom: a sloping overhang's underside can sit
+        -- 1.2 m over the floor under a 3 m-high top (live 02:54Z, a rock arch by his house: every plan walked under
+        -- it and he pushed into it for 54 s). Look up from the low floor: a ceiling inside head clearance = no room
+        local up = trace({ X = x, Y = y, Z = lo + 30 }, { X = x, Y = y, Z = lo + head - 10 })
+        if type(up) == "number" and up > lo + 10 and up < lo + head then lo_ok = false end
+    end
     if lo_ok then zs[#zs + 1] = lo end
     if hi_ok and (not lo_ok or hi > lo + head) then zs[#zs + 1] = hi end
     return zs

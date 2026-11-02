@@ -282,5 +282,40 @@ do
     check("leap: a tall wall is not leapt as a gap", not over, pw and #pw)
 end
 
+-- a sloping rock overhang: its top is 3.1 m over the floor, its underside only 1.2 m (live 02:54Z by his house, every
+-- plan walked under it): the floor under it is no walk cell; the open way round is the route
+do
+    local function rock(x, y) return x > 300 and x < 700 and y > -200 and y < 200 end
+    local function otrace(a, b, horizontal)
+        if horizontal then
+            for k = 0, 40 do
+                local t = k / 40
+                local x, y, z = a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t, a.Z
+                if rock(x, y) and z > 120 and z < 310 then return true end
+            end
+            return nil
+        end
+        local x, y = a.X, a.Y
+        if rock(x, y) then
+            if b.Z > a.Z then -- looking up from the floor: the underside
+                if a.Z < 120 and b.Z >= 120 then return 120, false end
+                return nil
+            end
+            if a.Z >= 120 and a.Z <= 310 then return 310, true end -- started inside the rock
+            if a.Z > 310 then return 310, false end -- its top
+        end
+        if b.Z > a.Z then return nil end
+        return 0, false
+    end
+    local Q = LP.new({ trace = otrace, center = { X = 0, Y = 0, Z = 90 }, radius_m = 12, cell_cm = 100,
+        env = { step = 45, jump = 120, djump = 120, drop = 600 } })
+    local s2 = "sampling"
+    while s2 ~= "ready" do s2 = Q:step(12) end
+    local qp = Q:plan({ X = 1000, Y = 0, Z = 90 })
+    local under = false
+    for _, p in ipairs(qp or {}) do if p.X > 300 and p.X < 700 and math.abs(p.Y) < 200 and p.Z < 100 then under = true end end
+    check("overhang: no walk under a rock whose underside is below head height", qp ~= nil and not under, qp and #qp)
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
