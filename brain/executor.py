@@ -323,12 +323,29 @@ class Executor:
         self.log.log("place_resolved", place=target, position=pos)
         return {**args, "target": pos}
 
+    def _go_to_lodestone_id(self, args: dict, target: str, failed: dict) -> dict:
+        """go_to(<an id from the lodestones tool>): its position from the same tool (chat ladder cl-20261101T234144Z:
+        go_to "lodestone:5E74..." came back unknown_target "not in sight" from the very list that named it)."""
+        lr = self.game.call("lodestones", {})
+        rows = ((lr.get("data") or {}).get("lodestones") or []) if lr.get("ok") else []
+        row = next((x for x in rows if isinstance(x, dict) and str(x.get("id")) == target and x.get("position")), None)
+        if row is None:
+            return failed
+        self.log.log("place_resolved", place=target, position=row["position"], source="lodestones")
+        result = self.game.call("go_to", {**args, "target": row["position"]})
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        took = f"{target} is the lodestone at {row['position']}" + (f", {row['distance']:.0f} m away"
+                                                                    if isinstance(row.get("distance"), (int, float)) else "")
+        return {**result, "data": {**data, "resolved": took}}
+
     def _go_to_game_place(self, task: Task, args: dict, now: dict, failed: dict) -> dict:
         """go_to(<a name the body can't see>) -> the place of that name in the game's map data (a landmark spot, or
         a region / province's best known point), walked to at once; the result says what the name was taken to be.
         The body's own answer stands when the name isn't in the data or matches only part of a name (the leading words
         of exactly one map name count as naming it)."""
         target = args.get("target")
+        if task.skill == "go_to" and isinstance(target, str) and target.strip().lower().startswith("lodestone:"):
+            return self._go_to_lodestone_id(args, target.strip(), failed)
         if task.skill not in ("go_to", "talk") or self.places is None or not isinstance(target, str):
             return failed
         try:

@@ -54,7 +54,7 @@ WORLD = "dev_rung1"
 STONE = "ITEM_Resources_Stone"
 RUNT = "BP_AI_RuntGoblin_Character_C"
 KIT = ("ITEM_Sword_Bronze", "ITEM_Shield_Bronze")  # his fighting kit in the 12:36 runt fights (DISCOVERIES)
-MELEE_RX = r"^ITEM_(Sword|GreatSword|Mace|Dagger|Battleaxe|Scimitar|Spear|Staff)_"
+MELEE_RX = r"^ITEM_(Sword|GreatSword|Mace|Dagger|Battleaxe|Scimitar|Spear|Staff|Club|Hammer|Warhammer)_"
 ENGAGE_M = 3.0  # the runt this close, or his HP dropping = the fight is on (the clock of "fight back when hit")
 # One food or drink use locks the next of its kind for the use animation (DISCOVERIES consumables #9). Measured on the
 # server recorder (his consumptions, the same item back to back, 31 pairs 2026-11-01): min 5.12 s, p10 5.41 s,
@@ -172,18 +172,24 @@ def check_fight(rec: dict, rows: list[dict]):
 
 
 def check_grave(rec: dict, rows: list[dict]):
+    """What went INTO the grave (carried at death minus what he kept through the respawn: runes stay on him, 8537 of
+    8746 items, so a whole-bag count passed at 3.6 s, live 20:59Z) is >= 90 % back in his bag."""
     tg = rec["target"]
     inv = rec.get("inv") or []
     if not inv:
         return False, "no inventory samples", None, {}
-    want, n0 = tg["carried"], sum(inv[0][1].values())
+    want, kept = tg["carried"], inv[0][1]
+    lost = {k: v - kept.get(k, 0) for k, v in want.items() if v - kept.get(k, 0) > 0}
+    n_lost = sum(lost.values())
+    if not n_lost:
+        return False, f"nothing went into the grave (he kept all {sum(want.values())} items through the respawn)", None, {}
+
+    def back_of(c):
+        return sum(min(max(c.get(k, 0) - kept.get(k, 0), 0), v) for k, v in lost.items())
     for t, c in inv[1:]:
-        back = sum(min(c.get(k, 0), v) for k, v in want.items())
-        if back >= 0.9 * sum(want.values()):
-            return True, f"{back} of the {sum(want.values())} items he died with are back in his bag", t, {"back": back}
-    back = sum(min(inv[-1][1].get(k, 0), v) for k, v in want.items())
-    return False, f"{back} of the {sum(want.values())} items he died with are back (bag {n0} -> {sum(inv[-1][1].values())})", \
-        None, {"back": back}
+        if back_of(c) >= 0.9 * n_lost:
+            return True, f"{back_of(c)} of the {n_lost} items that went into his grave are back in his bag", t,                 {"back": back_of(c), "lost": n_lost}
+    return False, f"{back_of(inv[-1][1])} of the {n_lost} items that went into his grave are back", None,         {"back": back_of(inv[-1][1]), "lost": n_lost}
 
 
 cp.CHECK_HOOKS.update({"r1_stat": check_stat, "r1_rest": check_stat, "r1_split": check_split, "r1_drop": check_drop,
@@ -316,6 +322,8 @@ def run_leg(ctx: Ctx, req: dict, line: str | None, target: dict, deadline_s: flo
         elif line and calls["calls"] and not open_prompt and not open_tools and quiet >= cl.QUIET_S \
                 and now - last_move >= cl.STILL_S and not done:
             why = "quiet"
+        elif getattr(ctx, "abort", None):
+            why = ctx.abort  # a harness guard ended the window (rung4 gear_up: a fall near a known drop)
         elif now - t0 > deadline_s:
             why = "deadline"
         if why:
@@ -401,12 +409,17 @@ def it_pickup(ctx: Ctx) -> dict:
 def it_fight_back(ctx: Ctx) -> dict:
     dev = cl._dev()
     kit = None
+    # on open ground by the base: a runt spawned beside him at the grave by the world-edge drop fell to its death in
+    # 2.4 s and scored a PASS with no hit of his (r1-20261101T222647Z, T224315Z)
+    from tools import travel_ladder as tl
+    tl.place(dev, ctx.cli, LUIS_SLEEP, harness_brain=True)
     if not any(re.match(MELEE_RX, str(r.get("item") or "")) for r in ctx.stacks()):
         # he lost his sword to an earlier death (live 16:04Z: bare hands, 34 damage in 38 s, died): the harness gives
         # his kit back, like the food top-up; he draws it himself (combat's equip phase)
-        for it in KIT:
+        have = {str(r.get("item")) for r in ctx.stacks()}
+        kit = [it for it in KIT if it not in have]  # never a second copy of gear he carries (his bag filled up: 18:3xZ)
+        for it in kit:
             dev.setup("grant", purpose="rung1 gate fight: his kit (lost to an earlier death)", item=it, count=1)
-        kit = list(KIT)
     m = ctx.me()
     if (m.get("health") or 0) < (m.get("max_health") or 100):
         dev.setup("set_health", purpose="rung1 gate fight: full HP", value=float(m.get("max_health") or 100))
@@ -454,8 +467,101 @@ def it_fight_back(ctx: Ctx) -> dict:
     row["response_s"] = round(started - t_eng, 1) if started else None  # engaged -> the body's fight began
     row["kit"] = kit
     t_h = 1.5 + unit("kill")
-    return finish(ctx, "fight_back", [row], t_h, allowed=1, work=work,
-                  note=f"spawn {res.get('id')}" + (f"; kit granted {kit}" if kit else ""))
+    out = finish(ctx, "fight_back", [row], t_h, allowed=1, work=work,
+                 note=f"spawn {res.get('id')}" + (f"; kit granted {kit}" if kit else ""))
+    ends = [r.get("event") or {} for r in brain if r.get("kind") == "event" and (r.get("event") or {}).get("kind") == "combat_end"]
+    mine = any((e.get("kills") or 0) >= 1 or (e.get("presses") or 0) >= 1 for e in ends)
+    if seen and seen[-1][1] != "alive" and not mine:  # it died, but not in a fight of his: no request was answered
+        out.update(**{"pass": False, "fails": ["setup"],
+                      "why": f"the runt died without a fight of his (combat_end rows {len(ends)}, no press or kill)"})
+    return out
+
+
+MY_PIECES = ROOT / "data" / "skills" / "dev" / "my_pieces.json"  # what he built (build telemetry): his crates
+ROOM_SLOTS = 6
+
+
+def bag_free(cli) -> tuple[int | None, dict]:
+    """Free slots of his bag's item page (InventoryItems): runes and ammo have pages of their own, so they never fill
+    it (raw inventory 18:4xZ: InventoryItems:32, InventoryRunes:32, InventoryAmmunition:32)."""
+    r = cli.request("inventory", {"raw": True}, timeout=20)
+    d = (r or {}).get("data") or {}
+    n = sum(int(str(x).split(":")[1]) for x in d.get("pages") or [] if str(x).startswith("InventoryItems:"))
+    used = sum(1 for x in d.get("bag") or [] if isinstance(x, dict) and x.get("slot_type") == "InventoryItems")
+    return (n - used if n else None), d
+
+
+def my_crates(cli) -> list[dict]:
+    """His own crates in sight (storage rows within 1.5 m of a crate in my_pieces.json), newest built first."""
+    try:
+        mine = [x for x in json.loads(MY_PIECES.read_text(encoding="utf-8")).get("pieces") or []
+                if "Crate" in str(x.get("name")) or "Chest" in str(x.get("name"))]
+    except (OSError, ValueError):
+        return []
+    mine.sort(key=lambda x: str(x.get("noted") or ""), reverse=True)
+    rows = [x for x in cp.census(cli, radius_m=40, max=40, kinds={"interactables": True}, foliage=False).get("interactables") or []
+            if x.get("kind") == "storage" and obs._xyz(x.get("position"))]
+    out = []
+    for m in mine:
+        for x in rows:
+            if obs.hdist(x["position"], m["at"]) < 1.5 and x not in out:
+                out.append(x)
+    return out
+
+
+def spare_gear(d: dict) -> list[tuple[str, str, int, bool]]:
+    """Copies of a piece of gear beyond the first (a row of 1 that he has more than one row of: swords, shields,
+    staffs, tools): [(item, name, spare, on_hotbar)]. Stacks (food, logs, runes) are never spare."""
+    rows = [dict(x, where=w) for w in ("hotbar", "bag") for x in d.get(w) or [] if isinstance(x, dict)
+            and (w == "hotbar" or x.get("slot_type") == "InventoryItems") and int(x.get("count") or 1) == 1]
+    by: dict[str, list] = {}
+    for x in rows:
+        by.setdefault(str(x.get("item")), []).append(x)
+    return [(it, str(xs[0].get("name") or it), len(xs) - 1, any(x["where"] == "hotbar" for x in xs))
+            for it, xs in by.items() if len(xs) > 1]
+
+
+def make_room(ctx: Ctx, need: int = ROOM_SLOTS) -> dict:
+    """At least `need` free bag slots, the way a player makes room: spare copies of his gear go into his own crate by
+    his own store skill (one of each stays on him; a hotbar piece goes back to the hotbar). Nothing is dropped or
+    destroyed. He must be by the base (his crates). -> {free_before, free, stored, crate, why?}"""
+    free, d = bag_free(ctx.cli)
+    out: dict = {"free_before": free, "free": free, "stored": []}
+    if free is None or free >= need:
+        return out
+    spare = sorted(spare_gear(d), key=lambda x: -x[2])
+    if not spare:
+        out["why"] = "bag short of room and no spare gear copies to store"
+        return out
+    crates = my_crates(ctx.cli)
+    if not crates:
+        out["why"] = "no crate of his in sight (data/skills/dev/my_pieces.json)"
+        return out
+    ci = 0
+    for item, name, n, on_hotbar in spare:
+        if free is not None and free >= need:
+            break
+        while ci < len(crates):
+            r = ctx.cli.request("store", {"item": item, "count": n, "container": crates[ci]["id"]}, timeout=120) or {}
+            if r.get("reason") == "container_full":
+                ci += 1
+                continue
+            out["stored"].append({"item": name, "count": n, "crate": crates[ci]["id"], "ok": r.get("ok"),
+                                  "reason": r.get("reason")})
+            break
+        if on_hotbar:  # the store takes the hotbar copy first: his kept one goes back where he had it
+            ctx.cli.request("move_item", {"item": item, "to": "hotbar"}, timeout=20)
+        free, _ = bag_free(ctx.cli)
+    out["free"] = free
+    if free is None or free < need:
+        out["why"] = f"only {free} free bag slots after storing"
+    return out
+
+
+def room_words(room: dict) -> str:
+    st = [f"{x['count']} {x['item']}" + ("" if x.get("ok") else f" (failed: {x.get('reason')})") for x in room.get("stored") or []]
+    return (f"bag room: {room.get('free_before')} -> {room.get('free')} free slots"
+            + (f", stored in his crate: {', '.join(st)}" if st else "") + (f"; {room['why']}" if room.get("why") else ""))
 
 
 def it_stat(ctx: Ctx, item: str, stats: dict, want: dict, t_h: float, deadline_s: float, check_text: str,
@@ -582,7 +688,8 @@ def choice_judge(rows: list[dict], says: list[str]) -> dict:
 def it_eat_drink(ctx: Ctx) -> dict:
     from tools import travel_ladder as tl
     dev = cl._dev()
-    tl.place(dev, ctx.cli, LUIS_SLEEP, harness_brain=True)  # by the base: a campfire 22 m off (Luis's, 89.6/1847.8)
+    tl.place(dev, ctx.cli, LUIS_SLEEP, harness_brain=True)  # by the base: a campfire 3 m off, his crates 11-16 m
+    room = make_room(ctx)  # the hotbar food has to fit in the bag (18:28Z: bag 32/32, every move inventory_full)
     have = {}
     for r in ctx.stacks():
         have[r.get("item")] = have.get(r.get("item"), 0) + int(r.get("count") or 1)
@@ -613,25 +720,74 @@ def it_eat_drink(ctx: Ctx) -> dict:
              f"fewest uses of what he carries for {EAT_PCT} -> 40 %: {picks}"
              + ("; NOT enough carried for " + ", ".join(k for k, v in n.items() if v is None) if None in n.values() else "")
              + (f"; still on the hotbar (move failed): {left}" if left else "")
-             + (f"; not granted: {no_grant}" if no_grant else ""))
+             + (f"; not granted: {no_grant}" if no_grant else "") + "; " + room_words(room))
 
     def judged(row):
         brain = cl.brain_rows([ctx.brain_file], row["rec"]["t0"] - 1, row["rec"]["t1"] + 1)
         ch = choice_judge(brain, row.get("says") or [])
         ch["his_tools"] = [r.get("tool") for r in brain if r.get("kind") == "tool_call"][:12]
+        t_set = min([float(v[0]) for v in (row["rec"]["target"].get("set_at") or {}).values()] or [row["rec"]["t0"]])
+        # what woke him first after the set: the broker's band-crossing review or the body's vitals_low (its brain-log
+        # time is when the brain polled it: during a chain turn that is late, live 20:23Z 19.7 s), then his first prompt
+        woke = next(((float(r["ts"]), r.get("kind") if r.get("kind") != "event" else r["event"].get("type"))
+                     for r in brain if float(r["ts"]) >= t_set and (r.get("kind") == "situation_review" or (
+                         r.get("kind") == "event" and isinstance(r.get("event"), dict) and r["event"].get("type") == "vitals_low"))),
+                    None)
+        first = next((float(r["ts"]) for r in brain if r.get("kind") == "prompt" and float(r["ts"]) >= t_set), None)
+        ch["woke"] = {"by": woke[1], "s": round(woke[0] - t_set, 1)} if woke else None
+        ch["first_prompt_s"] = round(first - t_set, 1) if first else None
         row["choice"] = ch
         # "chose": the model itself ate, drank or moved food (a reflex pass compared nothing: a "stays fed" check only)
         return {"choice": ch.get("sensible") is True,
                 "chose": any(t in ("consume", "move_item", "craft") for t in ch["his_tools"])}
 
+    if left:  # a choice test with his food still on the hotbar is a reflex test: not run
+        return {"item": "eat_drink", "pass": False, "fails": ["setup"], "room": room,
+                "why": f"his food/drink could not leave the hotbar ({left}); {room_words(room)}"}
     try:
-        return it_stat(ctx, "eat_drink", {"sustenance": EAT_PCT, "hydration": EAT_PCT}, {"sustenance": 40, "hydration": 40},
+        row = it_stat(ctx, "eat_drink", {"sustenance": EAT_PCT, "hydration": EAT_PCT}, {"sustenance": 40, "hydration": 40},
                        t_h, 150, f"his food (sustenance) and water (hydration), set to {EAT_PCT} % by the harness with his "
                        "food and drink in the bag (options of different value and risk), both come back to >= 40 % of "
                        "their max (his eat line)", need_told=False, note=basis, after=judged)
+        row["room"] = room
+        return row
     finally:  # his usual hotbar back, so the stay-fed reflex works for everyone else's runs
         for it in dict.fromkeys(moved):
             dev.body_call("move_item", {"item": it, "to": "hotbar"})
+
+
+GET_UP = ROOT / "client_mod" / "commands" / "get_up.lua"
+
+
+def get_up() -> dict:
+    """Up out of a bed or shelter the player's way (client_mod/commands/get_up.lua: an interact press ends a rest),
+    verified from his own rest component. The rest item ends while he still lies there (resting = done), and the next
+    agent's craft failed on it (main 19:59Z). -> {up, was_in, presses}"""
+    from tools.scenario_run import run_client_cmd
+
+    def read() -> dict:
+        return (run_client_cmd(GET_UP, "r1_get_up_read", {"press": False}, 15) or {}).get("result") or {}
+    out: dict = {"up": None, "was_in": None, "presses": 0}
+    r = read()
+    if not r.get("ok"):
+        out["why"] = r.get("reason") or "no answer"
+        return out
+    for _ in range(2):
+        if not r.get("resting_in"):
+            out["up"] = True
+            return out
+        out["was_in"] = r["resting_in"]
+        p_ = (run_client_cmd(GET_UP, "r1_get_up", None, 15) or {}).get("result") or {}
+        out["presses"] += 1
+        out["press"] = p_.get("press") if p_.get("pressed") else (p_.get("reason") or p_.get("press"))
+        t_end = time.time() + 4.0
+        while time.time() < t_end:
+            time.sleep(0.5)
+            r = read()
+            if not r.get("resting_in"):
+                break
+    out["up"] = not r.get("resting_in")
+    return out
 
 
 def it_rest(ctx: Ctx) -> dict:
@@ -642,11 +798,17 @@ def it_rest(ctx: Ctx) -> dict:
     tl.place(cl._dev(), ctx.cli, LUIS_SLEEP, harness_brain=True)
     t_h = luis_task_s("sleep") or 28.0
     before = _pct(ctx.me()).get("endurance")
+    row = None
     try:
-        return it_stat(ctx, "rest", {"endurance": 5}, {"endurance": 90}, t_h, 180,
-                       "his rest (endurance), set to 5 % by the harness, climbs by >= 8 points (a nap in a bed or a Summon "
-                       "Shelter: +1/s; a night's sleep refills it) or reaches 90 %")
+        row = it_stat(ctx, "rest", {"endurance": 5}, {"endurance": 90}, t_h, 180,
+                      "his rest (endurance), set to 5 % by the harness, climbs by >= 8 points (a nap in a bed or a Summon "
+                      "Shelter: +1/s; a night's sleep refills it) or reaches 90 %")
+        return row
     finally:
+        up = get_up()  # pass, fail or timeout: he leaves the bed before the lock goes (checked from his rest component)
+        print(f"  rest: got up {up}", flush=True)
+        if row is not None:
+            row["got_up"] = up
         # undo the harness's own exhaustion when he did not rest it off: it carried into the next run's fight (live
         # 17:35Z: max stamina 40 at endurance 0, he parried a 20-HP runt for 24 s without a swing)
         surv = ctx.me().get("survival") or {}
@@ -685,6 +847,8 @@ def it_grave(ctx: Ctx) -> dict:
     from tools import travel_ladder as tl
     dev = cl._dev()
     spot = GRAVE_SPOTS[ctx.a.run_index % len(GRAVE_SPOTS)]
+    tl.place(dev, ctx.cli, LUIS_SLEEP, harness_brain=True)  # by his crates: room for what comes back
+    room = make_room(ctx)
     tl.place(dev, ctx.cli, spot, harness_brain=True)
     carried = cp.counts({"bag": ctx.stacks()})
     if sum(carried.values()) < 3:
@@ -706,7 +870,9 @@ def it_grave(ctx: Ctx) -> dict:
                   "claude go get your stuff from your grave", {"carried": carried, "grave_at": grave_at, "dist_m": round(d, 1)},
                   deadline_s=300, sample=("me", "inv"))
     t_h = 1.5 + d / (ss.latest_baselines().get("travel_speed_mps") or 6.25) + 1.0
-    return finish(ctx, "grave", [row], t_h, allowed=1, note=f"grave {d:.0f} m from the respawn")
+    g = finish(ctx, "grave", [row], t_h, allowed=1, note=f"grave {d:.0f} m from the respawn; {room_words(room)}")
+    g["room"] = room
+    return g
 
 
 def finish(ctx: Ctx, item: str, legs: list[dict], t_h: float | None, allowed: int, misses: int | None = None, work=None,
@@ -810,12 +976,33 @@ def wait_preflight(a, max_s: float = 90.0) -> list[str]:
     """chat_ladder's preflight; a driver in the last 60 s or a brain still shutting down (the previous lock holder's,
     or this gate's own last one) is waited out while we hold the lock (live 15:5xZ: quests' brain was still up 5 s
     after its release and both items were skipped)."""
-    t_end = time.time() + max_s
+    t_claim = time.time()
+    t_end = t_claim + max_s
     while True:
         bad = cl.preflight(a)
+        if any("someone drove" in b for b in bad) and driver(t_claim) is None:
+            bad = [b for b in bad if "someone drove" not in b]
         if not bad or time.time() > t_end or any("someone drove" not in b and "already running" not in b for b in bad):
             return bad
         time.sleep(5.0)
+
+
+def driver(t_claim: float, window_s: float = 60.0) -> str | None:
+    """chat_ladder.recent_bridge_driver without the commands that can't be moving him now: pure reads (another agent's
+    `inventory` 25 s before the check, 18:29Z: a whole window skipped), this gate's own (rung1, e.g. live_lock's stop
+    at the claim), and a lock holder's sent before our claim (the claim's force stop ended them). Left: an unlocked
+    sender's body command, or anyone else's after we took the lock."""
+    now = time.time()
+    for name in ("debug_to_client.jsonl", "brain_to_client.jsonl"):
+        for r in reversed(cl._tail_rows(cl.CLIENT_BRIDGE / name)):
+            t = r.get("ts")
+            if not isinstance(t, (int, float)) or now - t > window_s:
+                break
+            owner = str(r.get("src") or "-").split(":")[0]
+            if r.get("tool") in ("ping", "capabilities", "me", *cl.READ_ONLY_TOOLS) or owner == "rung1" or                     (owner != "-" and t < t_claim):
+                continue
+            return f"{name}: {r.get('tool')} from {r.get('src') or '?'} {now - t:.0f} s ago"
+    return None
 
 
 def run_item(a, item: str, run_id: str) -> dict:
@@ -828,9 +1015,16 @@ def run_item(a, item: str, run_id: str) -> dict:
     ok, why = cl.ensure_sender()
     if not ok:
         return {"run_id": run_id, "item": item, "pass": False, "fails": ["infra"], "why": why}
+    up = get_up()  # never start an item lying in a bed someone else left him in
+    if up.get("presses"):
+        print(f"  {item}: he was lying in {up.get('was_in')}: got up {up}", flush=True)
     if item != "eat_drink":  # the coordinator's harness top-up (food/water, HP < 30); the eat/drink item runs without it
         from tools import supply
-        sup = supply.top_up(cl._dev(), 6, 6, heal=True, purpose=f"rung1 gate {item}")
+        try:
+            sup = supply.top_up(cl._dev(), 6, 6, heal=True, purpose=f"rung1 gate {item}")
+        except Exception as exc:  # noqa: BLE001  (fixtures refused, e.g. other_players_connected: a harness row, not a crash)
+            return {"run_id": run_id, "item": item, "pass": False, "fails": ["infra"],
+                    "why": f"supply top-up: {type(exc).__name__}: {exc}"[:400], "ts": round(time.time(), 1)}
         if not sup.get("ok"):
             print(f"  {item}: supply top-up failed: {sup.get('why')}")
     proc, bfile = cl.start_brain(a, spend.spend_today()["spent_usd"])
@@ -866,7 +1060,8 @@ def line(r: dict) -> str:
             f"${r.get('usd')}; {r.get('note') or ''}\n" +
             "".join(f"      {x.get('request')}: {x.get('how')} | said {x.get('says')} | tools {x.get('tools')}\n"
                     + (f"      choice sensible={x['choice'].get('sensible')} worse={x['choice'].get('clearly_worse')}: "
-                       f"{x['choice'].get('why')} | his tools {x['choice'].get('his_tools')}\n" if x.get("choice") else "")
+                       f"{x['choice'].get('why')} | his tools {x['choice'].get('his_tools')} | woke {x['choice'].get('woke')}, "
+                       f"first prompt {x['choice'].get('first_prompt_s')} s\n" if x.get("choice") else "")
                     for x in r.get("legs") or []))
 
 
@@ -876,7 +1071,7 @@ def cmd_report(a) -> int:
         print("no gate rows yet")
         return 1
     for r in rows:  # an eat_drink row without the choice bar is the old reflex variant: a "stays fed" check, not the item
-        if r.get("item") == "eat_drink" and "choice" not in (r.get("bars") or {}):
+        if r.get("item") == "eat_drink" and r.get("bars") and "choice" not in r["bars"]:
             r["item"] = "stays_fed"
     runs: dict[str, dict[str, dict]] = {}
     for r in rows:
@@ -887,7 +1082,7 @@ def cmd_report(a) -> int:
                                          for i in ITEMS))
     print("streaks (consecutive passes, newest back; need 3):")
     for i in (*ITEMS, "stays_fed"):
-        seq = [r for r in rows if r["item"] == i and "infra" not in (r.get("fails") or [])]
+        seq = [r for r in rows if r["item"] == i and not {"infra", "setup"} & set(r.get("fails") or [])]  # harness
         streak = next((k for k, r in enumerate(reversed(seq)) if not r.get("pass")), len(seq))
         last = seq[-1] if seq else {}
         print(f"  {i:<11} {streak} in a row ({len(seq)} runs); last: {('PASS' if last.get('pass') else ', '.join(last.get('fails') or []) or '-')}")

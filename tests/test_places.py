@@ -481,3 +481,23 @@ def test_go_to_a_quest_area_he_is_already_inside_walks_to_its_centre(tmp_path):
         assert out.ok and body.calls[-1] == {"target": [156.1, 1713.4, -3.5]}, (name, out, body.calls)
         assert f"{name!r} is the game map's Ratcatcher quest marker Windmill Area: you were already inside it (an area " \
                "of 80 m radius on the quest map); walking to its centre, 76 m away" == out.data["resolved"]
+
+
+def test_go_to_a_lodestone_id_from_the_lodestones_tool_walks_to_it(tmp_path):
+    from brain.state_store import Task
+
+    class _LodeBody(_Body):
+        def call(self, tool, args):
+            if tool == "lodestones":
+                return {"ok": True, "reason": None, "data": {"lodestones": [
+                    {"id": "lodestone:5E74", "position": [-50.0, 50.0, 1.0], "distance": 53}]}}
+            return super().call(tool, args)
+
+    body = _LodeBody(HERE)
+    out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "lodestone:5E74"}))
+    assert out.ok, out.reason
+    assert body.calls[:2] == [{"target": "lodestone:5E74"}, {"target": [-50.0, 50.0, 1.0]}]
+    assert out.data["resolved"].startswith("lodestone:5E74 is the lodestone at")
+    body = _LodeBody(HERE)  # an id the list doesn't have: the body's own answer stands
+    out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "lodestone:FFFF"}))
+    assert not out.ok and out.reason == "unknown_target"

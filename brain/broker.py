@@ -754,6 +754,21 @@ class EventBroker:
         cuts = REVIEW_BANDS[1:] if name in VITAL_NEEDS else REVIEW_BANDS
         return sum(1 for cut in cuts if pct < cut)
 
+    def _still_true(self, change: dict) -> dict | None:
+        """A stat change waits while he is busy or fighting: re-read it against the current state before it goes out.
+        Back up to (or above) the band of the last review: dropped; still down: the current level, in words and %
+        (live 2026-11-01 23:39:48: "health now dying, 100 -> 0", pending since his death at 23:35:47, while he read
+        64-76 HP)."""
+        if change.get("direction") != "down" or change.get("what") not in self._bands:
+            return change
+        b, pct = self._bands[change["what"]]
+        if b <= self._reviewed_bands.get(change["what"], 0):
+            self._log("situation_change_stale", change=change, now_pct=round(pct))
+            return None
+        if round(pct) != change.get("to_pct"):
+            return {**change, "now": sit.feel(change["what"], pct), "to_pct": round(pct)}
+        return change
+
     def _change(self, change: dict) -> None:
         self._pending = [c for c in self._pending if c.get("what") != change.get("what")] + [change]
 
@@ -807,6 +822,7 @@ class EventBroker:
             self._idle_reported = True
             self._change({"what": "idle", "for_s": round(now - last_busy),
                           "near": [str(p.get("name")) for p in near]})
+        self._pending = [c for c in (self._still_true(c) for c in self._pending) if c]
         if not self._pending:
             return None
         worse = any(c.get("direction") == "down" and self._bands.get(c["what"], (0, 0))[0] >

@@ -314,3 +314,24 @@ def test_gate_needs_80_percent_two_calls_and_truth():
     assert not cl.gate([good] * 4 + [{"success": True, "calls": 3, "truthful": True}])
     assert not cl.gate([good] * 4 + [{"success": False, "calls": 1, "truthful": False}])
     assert not cl.gate([good, {"success": False, "calls": 1, "truthful": True}])
+
+
+def test_action_check_expects_and_forbids_tools_and_the_gate_needs_it():
+    rows = [{"kind": "tool_call", "tool": "say"}, {"kind": "tool_call", "tool": "give"}, {"kind": "tool_result", "tool": "give"}]
+    assert cl.action_check(rows) is None  # a case without a behaviour bar
+    bad = cl.action_check(rows, forbid=("give", "drop"))
+    assert bad == {"ok": False, "called": ["give"], "missing": [], "forbidden": ["give"]}
+    assert cl.action_check(rows[:1], forbid=("give",))["ok"]  # only said something: no give
+    assert not cl.action_check(rows[:1], expect=("go_to",))["ok"]
+    good = {"success": True, "calls": 2, "truthful": True}
+    assert cl.gate([good, {**good, "action": {"ok": True}}])
+    assert not cl.gate([good] * 4 + [{**good, "action": bad}])
+
+
+def test_tell_fails_needs_a_line_after_each_failed_body_action():
+    failed = {"kind": "tool_result", "tool": "interact", "result": {"ok": False, "reason": "path_blocked"}}
+    quiet = {"kind": "tool_result", "tool": "go_to", "result": {"ok": False, "reason": "interrupted"}}
+    said = {"kind": "say", "text": "can't reach it, a drop right by it"}
+    assert cl.action_check([failed, said], tell_fails=True)["ok"]
+    out = cl.action_check([said, failed, quiet], tell_fails=True)
+    assert not out["ok"] and out["untold_failures"] == ["interact path_blocked"]  # interrupted is no can't-do
