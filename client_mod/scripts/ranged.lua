@@ -36,6 +36,7 @@ R.cfg = {
     scan_steps = 80,          -- bracket scan resolution over (0, max_time]
     aim_distance = 5000,      -- cm: the camera ray is aimed through muzzle + dir * this
     blend = 0.35,             -- learning rate toward measured parameters
+    max_speed_ratio = 2,      -- a fitted or learned speed beyond x2 / /2 of the profile (or the game data) is not trusted
     bias_blend = 0.3,
     max_bias_deg = 3.0,
     dist_buckets = { 10, 20, 35, 60 },   -- m
@@ -200,6 +201,12 @@ function R.profile(key, seed)
         st.profiles[key] = p
     elseif seed and p.n == 0 then
         for k, x in pairs(seed) do p[k] = x end
+    elseif seed and seed.source == "game_data" and seed.speed and p.speed
+        and (p.speed < seed.speed / R.cfg.max_speed_ratio or p.speed > seed.speed * R.cfg.max_speed_ratio) then
+        -- a learned speed this far from the game's own launch speed came from tracking the wrong actor (live
+        -- 2026-11-02: the arrow nocked on the bow, 1566 -> 461): start again from the game data
+        p.reset = { from = p.speed, n = p.n }
+        p.speed, p.gz, p.t0, p.n, p.pitch_bias, p.yaw_bias, p.source = seed.speed, seed.gz or p.gz, seed.t0 or 0, 0, 0, 0, "game_data"
     end
     return p
 end
@@ -225,7 +232,12 @@ function R.learn(key, fit, miss, shot)
     local p = R.profile(key)
     local k = R.cfg.blend
     if fit then
-        if fit.speed and fit.speed > 100 then p.speed = p.speed + k * (fit.speed - p.speed) end
+        -- a fit far off the profile is not this projectile's flight (a nocked arrow, a bounce): not learned
+        local r = R.cfg.max_speed_ratio
+        if not (fit.speed and fit.speed > 100 and fit.speed > p.speed / r and fit.speed < p.speed * r) then
+            return p, "fit_rejected"
+        end
+        p.speed = p.speed + k * (fit.speed - p.speed)
         if fit.gz and fit.gz < 0 and fit.gz > -10000 then p.gz = p.gz + k * (fit.gz - p.gz) end
         if fit.t0 then p.t0 = p.t0 + k * (fit.t0 - p.t0) end
         p.source = "learned"

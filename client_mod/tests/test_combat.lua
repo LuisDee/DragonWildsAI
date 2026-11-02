@@ -2798,5 +2798,43 @@ do
     check("record_fight: a death names who hit him last", mem.history["goblin runt"][1].killed_by == "Goblin Archer")
 end
 
+
+-- ================================================================ bow_ready: the draw runs from the nock (live 2026-11-02)
+do
+    local g = { comp = {}, seed = { full_accuracy_s = 1.25 }, aim_t0 = 10, flags = { loaded = true }, loaded_t = 9 }
+    local F = { t = 11.0 }
+    check("bow_ready: 1.0 s into the first draw is not ready", not Cm.bow_ready(F, g))
+    F.t = 11.3
+    check("bow_ready: 1.3 s into the first draw is ready", Cm.bow_ready(F, g))
+    F.last_press_t = 11.3; F.t = 12.7
+    check("bow_ready: after a release, no new arrow nocked yet -> not ready (the old aim start does not count)", not Cm.bow_ready(F, g))
+    g.flags.loaded = false
+    check("bow_ready: nothing on the bow -> not ready", not Cm.bow_ready(F, g))
+    g.flags.loaded, g.loaded_t = true, 12.4
+    check("bow_ready: nocked 0.3 s ago -> still drawing", not Cm.bow_ready(F, g))
+    F.t = 13.7
+    check("bow_ready: nocked 1.3 s ago -> ready", Cm.bow_ready(F, g))
+    g.flags.loaded = nil
+    F.t = 13.0
+    check("bow_ready: unreadable nock -> release + nock_s + draw", not Cm.bow_ready(F, g))
+    F.t = 13.9
+    check("bow_ready: unreadable nock, 2.6 s after the release -> ready", Cm.bow_ready(F, g))
+    g.flags = { loaded = true, aim = false }
+    check("bow_ready: aim mode off (a dodge dropped it) -> not ready", not Cm.bow_ready(F, g))
+    g.flags.aim, g.aim_on_t = true, 13.5
+    check("bow_ready: the draw runs from when aim mode came back", not Cm.bow_ready(F, g))
+    F.t = 14.8
+    check("bow_ready: 1.3 s after aim came back -> ready", Cm.bow_ready(F, g))
+    -- the same arrow shown on the bow all along (no nock change seen): never stuck, the usual nock time instead
+    local g2 = { comp = {}, seed = { full_accuracy_s = 1.25 }, aim_t0 = 0, flags = { loaded = true, aim = true }, loaded_t = 0, aim_on_t = 0 }
+    local F2 = { t = 2.0, last_press_t = 1.0 }
+    check("bow_ready: no nock change seen, 1 s after the release -> not yet", not Cm.bow_ready(F2, g2))
+    F2.t = 3.6
+    check("bow_ready: no nock change seen, 2.6 s after the release -> ready (never a stall)", Cm.bow_ready(F2, g2))
+    local g3 = { comp = {}, seed = { full_accuracy_s = 1.25 }, aim_t0 = 0, flags = { loaded = true, aim = true }, aim_on_t = 0 }
+    check("bow_ready: a kebbit 3 m off -> 0.5 s of draw is enough", Cm.bow_ready({ t = 0.5, dist_m = 3 }, g3))
+    check("bow_ready: 14 m off -> 0.5 s is not", not Cm.bow_ready({ t = 0.5, dist_m = 14 }, g3))
+end
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

@@ -108,5 +108,21 @@ do
     check("metrics: by target speed bucket", m.by_speed["0.5-3m/s"] or m.by_speed["3-7m/s"])
 end
 
+
+-- ---------------------------------------------------------------- 9. a wrong actor's track is not learned (live 2026-11-02)
+do
+    local key = "TEST_bow|nocked"
+    local p = R.profile(key, { speed = 1500, gz = -100, t0 = 0, source = "game_data" })
+    local _, why = R.learn(key, { speed = 26, gz = 86, t0 = 0 }, nil, nil)
+    check("learn: a 26 cm/s fit (the arrow on the bow) is rejected", why == "fit_rejected" and p.speed == 1500, p.speed)
+    R.learn(key, { speed = 1700, gz = -120, t0 = 0 }, nil, nil)
+    check("learn: a plausible fit still blends in", p.speed > 1500 and p.speed < 1700, p.speed)
+    p.speed, p.n = 461, 30 -- poisoned by earlier sessions
+    local q = R.profile(key, { speed = 1500, gz = -100, t0 = 0, source = "game_data" })
+    check("profile: a learned speed 3x off the game data starts again from it", q.speed == 1500 and q.n == 0 and q.reset and q.reset.from == 461, q.speed)
+    q.speed, q.n = 1300, 5
+    check("profile: a learned speed near the game data is kept", R.profile(key, { speed = 1500, source = "game_data" }).speed == 1300)
+end
+
 print(string.format("ranged tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

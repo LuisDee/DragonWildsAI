@@ -74,3 +74,13 @@ def test_overloaded_is_a_need_with_the_heaviest_stacks_and_where_to_put_them():
     assert "heaviest: Stone x77 (154); Fur x4 (2)" in ln[0] and "Ash Chest (12 m, id c1)" in ln[0]
     assert "Gravestone" not in ln[0]
     assert needs.lines({"bag": {"encumbered": False}}, cat) == []
+
+
+def test_weapons_line_names_the_slotted_arrows_and_the_better_ones_carried():
+    """03:47Z: he crafted Fang Arrows and shot his 2 Stone ones; the line said only "2 in its ammo slot"."""
+    st = {"weapons_known": {"Ash Shortbow": {"kind": "ranged", "per_hit": 4, "from": "learned", "ammo_slot": "Ammo", "ammo": 2,
+                                             "ammo_name": "Stone Arrow", "ammo_carried": [{"name": "Fang Arrow", "count": 33}]}}}
+    ln = situation.weapons_line(st)
+    assert "2 Stone Arrow (PL 1, 5-12 dmg) in its ammo slot; also carried: 33 Fang Arrow (PL 2, 10-24 dmg)" in ln
+    st["weapons_known"]["Ash Shortbow"].update(ammo=0, ammo_carried=None)
+    assert "ammo slot EMPTY" in situation.weapons_line(st)

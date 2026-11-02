@@ -946,6 +946,22 @@ def extras_lines(state: dict) -> list[str]:
     return out
 
 
+@lru_cache(maxsize=64)
+def ammo_facts(name: str) -> str | None:
+    """'PL 2, 10-24 dmg' for an arrow or bolt from its wiki page (power, basedmg), or None."""
+    try:
+        from .knowledge import wiki_dir
+        root = wiki_dir()
+        page = ((json.loads((root / "manifest.json").read_text(encoding="utf-8")).get("pages") or {}).get(name) or {}).get("file")
+        doc = json.loads((root / page).read_text(encoding="utf-8")) if page else {}
+    except (OSError, ValueError):
+        return None
+    text = " ".join(str(x.get("text") or "") for x in doc.get("sections") or [] if x.get("heading") in (None, "Stats"))
+    pl, dmg = re.search(r"power: *(\d+)", text), re.search(r"basedmg: *([\d-]+)", text)
+    bits = ([f"PL {pl.group(1)}"] if pl else []) + ([f"{dmg.group(1)} dmg"] if dmg else [])
+    return ", ".join(bits) or None
+
+
 def weapons_line(state: dict) -> str | None:
     """'Your weapons: Stone Club (melee) ~16.8/hit, 16/s (learned) | Ash Shortbow (ranged) ~4/hit (learned), ammo slot
     EMPTY: can't shoot' from combat's weapons_known: each weapon's real damage beside the others (live 22:05Z he took
@@ -961,7 +977,16 @@ def weapons_line(state: dict) -> str | None:
         if w.get("types"):
             bit += f", {'/'.join(str(t).rsplit('.', 1)[-1] for t in w['types'])} damage"
         if w.get("ammo_slot"):
-            bit += (f", {w['ammo']:g} in its ammo slot" if _num(w.get("ammo")) else ", ammo slot EMPTY: can't use it")
+            # which arrows are slotted and which others he carries, with the wiki's power and damage (live 2026-11-02
+            # 03:47 he crafted Fang Arrows and shot his 2 Stone ones without seeing either)
+            an = w.get("ammo_name")
+            af = ammo_facts(an) if an else None
+            bit += ((f", {w['ammo']:g} {an or ''}".rstrip() + (f" ({af})" if af else "") + " in its ammo slot")
+                    if _num(w.get("ammo")) else ", ammo slot EMPTY: can't use it")
+            more = [f"{_num(a.get('count')) or 0:g} {a.get('name')}" + (f" ({ammo_facts(a['name'])})" if ammo_facts(str(a.get("name"))) else "")
+                    for a in (w.get("ammo_carried") or []) if isinstance(a, dict) and a.get("name")]
+            if more:
+                bit += "; also carried: " + ", ".join(more)
         parts.append(bit.strip())
     return ("Your weapons: " + " | ".join(parts))[:LINE_CHARS] if parts else None
 

@@ -2760,7 +2760,7 @@ local function ranged_setup(F, pawn, pc)
     local seed = prm.speed and { speed = prm.speed, gz = prm.gz or Rg.cfg.default_gz, t0 = prm.t0 or 0, source = "game_data" } or nil
     F.rg = { R = Rg, comp = comp, key = key, aimer = Rg.new_aimer(key, seed), seed = prm, shots = 0, hits = 0, misses = 0, magic = magic }
     F.reach, F.follow = M.cfg.ranged_max_m, M.cfg.ranged_keep_m
-    say(F.log, string.format("ranged: %s speed %s gz %s t0 %s (%s) full-accuracy %ss ammo ok %s", key, tostring(F.rg.aimer.p.speed),
+    say(F.log, string.format("ranged: %s speed %s (game data %s) gz %s t0 %s (%s) full-accuracy %ss ammo ok %s", key, tostring(F.rg.aimer.p.speed), tostring(prm.speed),
         tostring(F.rg.aimer.p.gz), tostring(F.rg.aimer.p.t0), tostring(F.rg.aimer.p.source), tostring(prm.full_accuracy_s), tostring(prm.has_ammo)))
     if prm.has_ammo == false then return false, magic and "no_runes" or "no_ammo" end
     return true
@@ -2811,6 +2811,26 @@ local function ranged_frame(F, pawn)
     local g = F.rg
     if not g then return end
     local Rg, aimer = g.R, g.aimer
+    -- the bow's own state, read every frame (logged on change): aim mode, full accuracy, an arrow nocked
+    if g.comp and not g.magic then
+        local comp = g.comp
+        local aim = U.try(function() return comp:IsAimModeActive() end)
+        local full = U.try(function() return comp.HasReachedFullAccuracy end)
+        local wa = U.try(function() return comp.RangedWeaponActor end)
+        local lp = U.valid(wa) and U.try(function() return wa.LoadedProjectile end) or nil
+        local loaded = U.valid(wa) and (U.valid(lp) and true or false) or nil
+        g.flags = { aim = aim, full = full, loaded = loaded }
+        -- a new arrow on the bow (another actor, or the same one shown again after the release)
+        if loaded == true and (g.loaded_id ~= U.short(lp) or g.prev_loaded ~= true) then g.loaded_id, g.loaded_t = U.short(lp), F.t end
+        if aim == true and g.prev_aim ~= true then g.aim_on_t = F.t end
+        g.prev_loaded, g.prev_aim = loaded, aim
+        g.loaded_actor = loaded and lp or nil
+        local st = string.format("aim=%s full=%s loaded=%s held=%s", tostring(aim), tostring(full), tostring(loaded), tostring(F.hold ~= nil))
+        if st ~= g.bow_state then
+            g.bow_state = st
+            say(F.log, string.format("ranged: bow %s (%.2f s since the release, phase %s)", st, F.t - (F.last_press_t or F.t), tostring(F.phase)))
+        end
+    end
     if g.aiming and F.target then
         local muzzle = Rg.muzzle(pawn, g.comp)
         local cam = Rg.camera_location(F.pc)
@@ -2824,16 +2844,47 @@ local function ranged_frame(F, pawn)
     local shot = aimer.shot
     if shot then
         if not shot.proj and (F.frame_n or 0) % 2 == 0 then
+            -- the arrow that flies is the one that was nocked at the release (so it is in ids_before); the next arrow
+            -- the bow nocks ~1 s later is a new projectile actor too, but it sits on the bow (live 2026-11-02 04:55:
+            -- tracking that one scored every miss at the target's range, fitted 9-114 cm/s and taught the profile
+            -- 1566 -> 461). So: never the arrow on the bow now, and only one that moves or has left the muzzle.
+            local cands = {}
+            if shot.arrow and U.valid(shot.arrow) then cands[#cands + 1] = shot.arrow end
             for id, a in pairs(Rg.projectile_ids()) do
                 -- only his own shot: Luis's sceptre bolts and his summon's spit are projectiles too (live 2026-11-01
                 -- 22:07: two "staff shots" tracked 10 m off were someone else's, and taught the aimer a wrong speed)
-                if not shot.ids_before[id] and M.own_projectile(a, pawn, F.pc) then shot.proj, shot.proj_id = a, id; break end
+                if not shot.ids_before[id] and M.own_projectile(a, pawn, F.pc) then cands[#cands + 1] = a end
+            end
+            local on_bow = g.loaded_actor and U.valid(g.loaded_actor) and U.short(g.loaded_actor) or nil
+            for _, a in ipairs(cands) do
+                local id = U.short(a)
+                if id ~= on_bow then
+                    local vel = U.try(function() return a:GetVelocity() end)
+                    local sp = vel and math.sqrt((vel.X or 0) ^ 2 + (vel.Y or 0) ^ 2 + (vel.Z or 0) ^ 2) or 0
+                    local p = U.loc(a)
+                    local off = (p and shot.muzzle) and U.dist(p, shot.muzzle) or 0
+                    if g.magic or sp > 500 or off > 150 then shot.proj, shot.proj_id = a, id; break end
+                end
             end
         end
         local pp = shot.proj and U.alive(shot.proj) and U.loc(shot.proj) or nil
         local tp = U.alive(F.target) and U.loc(F.target) or nil
+        -- an arrow that has stopped (stuck in the ground or in the target: a live actor until MaxSimulationTime,
+        -- live 2026-11-02 05:07: every shot "flew" 4.5 s, fits of 0 cm/s) ends the shot; its resting samples are not flight
+        -- (from its positions: the client reads ~0 from a flying arrow's GetVelocity, live 05:19)
+        local stopped = false
+        local sm = shot.samples or {}
+        if pp and not g.magic and #sm >= 2 then
+            local a, b = sm[#sm - 1].pos, sm[#sm].pos
+            local still = function(p, q) return math.abs(p.X - q.X) + math.abs(p.Y - q.Y) + math.abs(p.Z - q.Z) < 3 end
+            if still(b, pp) and still(a, b) then
+                stopped, pp = true, nil
+                while #sm >= 2 and still(sm[#sm].pos, sm[#sm - 1].pos) do table.remove(sm) end -- resting samples are not flight
+            end
+        end
         local done = aimer:sample(F.t, pp, tp)
         if shot.proj and not pp then done = true end
+        if stopped then done = true end
         -- a staff's spell bolt is not a projectile actor the client sees (every staff cast since 2026-10-26: "no
         -- projectile", even 3 casts / 3 hits on a runt): its outcome is the target's HP, read for the bolt's flight
         if g.magic and not shot.proj and F.t - shot.t > (M.cfg.magic_verdict_s or 1.6) then
@@ -2858,9 +2909,9 @@ local function ranged_frame(F, pawn)
             if F.t - shot.gone_t < 0.3 then done = false end
         end
         if done then
-            local hit = false
+            local hit, dmg = false, 0
             for _, h in ipairs(C().my_hits) do
-                if h.seq > (shot.hit_seq0 or 0) and h.victim == F.target_id then hit = true end
+                if h.seq > (shot.hit_seq0 or 0) and h.victim == F.target_id then hit = true; dmg = dmg + (tonumber(h.amount) or 0) end
             end
             if shot.no_projectile then
                 F.unverified_run = F.unverified_run + 1
@@ -2877,7 +2928,7 @@ local function ranged_frame(F, pawn)
                            lateral_cm = mi and math.floor(mi.lateral_cm or 0), fit = res and res.fit and { speed = res.fit.speed, gz = res.fit.gz, t0 = res.fit.t0 },
                            profile = { speed = aimer.p.speed, gz = aimer.p.gz, t0 = aimer.p.t0, pitch_bias = aimer.p.pitch_bias, yaw_bias = aimer.p.yaw_bias } }
                 say(F.log, string.format("ranged shot %d %s miss %s cm (v %s, lat %s) fit speed %s gz %s -> profile %.0f/%.0f/%.2f",
-                    g.shots, hit and "HIT" or "miss", tostring(g.last.miss_cm), tostring(g.last.vertical_cm), tostring(g.last.lateral_cm),
+                    g.shots, hit and string.format("HIT %.0f dmg", dmg) or "miss", tostring(g.last.miss_cm), tostring(g.last.vertical_cm), tostring(g.last.lateral_cm),
                     tostring(res and res.fit and math.floor(res.fit.speed or 0)), tostring(res and res.fit and math.floor(res.fit.gz or 0)),
                     aimer.p.speed, aimer.p.gz, aimer.p.t0))
             end
@@ -2885,6 +2936,56 @@ local function ranged_frame(F, pawn)
     end
 end
 M._ranged_frame = ranged_frame
+
+-- Is the bow drawn? After a release the bow nocks the next arrow (~1.0-1.25 s, live 2026-11-02 04:55) and the
+-- draw (TimeBeforeFullAccuracy) runs from then; the game's HasReachedFullAccuracy never turned true on his client,
+-- so it is time since the later of "aim started" and "this arrow nocked". A staff: time since aim start.
+function M.bow_ready(F, g)
+    local fa = (g.seed and g.seed.full_accuracy_s) or M.cfg.ranged_aim_s
+    -- spread matters with range: at point blank a part draw hits (live 2026-11-02 05:19: a kebbit on him attacked
+    -- every 3.1 s and left ~1.0 s of each 1.25 s draw, so 35 s went without a shot)
+    local d = F.dist_m
+    if d and not g.magic then fa = fa * math.max(M.cfg.min_draw_frac or 0.35, math.min(1, d / (M.cfg.ranged_keep_m or 12))) end
+    if not g.aim_t0 then return false end
+    if g.magic or not g.comp then return (F.t - g.aim_t0) >= fa end
+    local fl = g.flags or {}
+    if fl.loaded == false or fl.aim == false then return false end
+    local from = math.max(g.aim_t0, (fl.aim == true and g.aim_on_t) or g.aim_t0)
+    if F.last_press_t then
+        -- the arrow nocked since the release, else (unreadable, or no change seen) the usual nock time after it
+        if (g.loaded_t or -1) > F.last_press_t then from = math.max(from, g.loaded_t)
+        else from = math.max(from, F.last_press_t + (M.cfg.nock_s or 1.25)) end
+    end
+    return (F.t - from) >= fa
+end
+
+-- Release the drawn shot (primary) and start following it.
+local function loose(F, pawn, me, acts, tgt, d, why)
+    local cfg, g = M.cfg, F.rg
+    local fl = g.flags or {}
+    say(F.log, string.format("ranged: release%s at %.2f s since the last, %.2f s aimed, %.2f s since nocked; aim=%s loaded=%s",
+        why and (" " .. why) or "", F.t - (F.last_press_t or g.aim_t0), F.t - g.aim_t0, F.t - (g.loaded_t or g.aim_t0), tostring(fl.aim), tostring(fl.loaded)))
+    tap(F, acts.primary, cfg.tap_frames, "shoot")
+    local shot = g.aimer:fired(F.t, g.sol, g.R.projectile_ids(), g.muzzle)
+    shot.arrow = g.loaded_actor
+    shot.hits0, shot.hit_seq0 = F.hits, C().counts.hits
+    F.last_press_t = F.t
+    -- what each shot was taken at (hit vs miss: distance, the target's speed, how far off his facing was)
+    shot.dist_m = d
+    local vel = U.alive(F.target) and U.try(function() return F.target:GetVelocity() end)
+    if vel then shot.target_speed = math.floor(math.sqrt((vel.X or 0) ^ 2 + (vel.Y or 0) ^ 2) / 10) / 10 end
+    local yaw = U.try(function() return pawn:K2_GetActorRotation().Yaw end)
+    if yaw and me.pos and tgt and tgt.pos then
+        local want = math.deg(math.atan(tgt.pos.Y - me.pos.Y, tgt.pos.X - me.pos.X))
+        shot.yaw_off = math.floor(math.abs(((want - yaw + 540) % 360) - 180))
+    end
+    F.presses = F.presses + 1
+    C().counts.presses = C().counts.presses + 1
+    local prof = F.profile or {}
+    F.next_press = F.t + (prof.reload_s or 1.0) + 0.3 + jitter(cfg.press_jitter_ms)
+    return true
+end
+M._loose = loose
 
 local function step_ranged(F, pawn, me, acts, tgt)
     local cfg = M.cfg
@@ -2896,7 +2997,18 @@ local function step_ranged(F, pawn, me, acts, tgt)
             local a = id == F.target_id and F.target or find_creature(id)
             local p = a and U.loc(a)
             if p and me.pos and U.dist(p, me.pos) <= cfg.telegraph_m * 100 then
-                g.aiming, F.hold = false, nil
+                -- a drawn arrow goes first (its dodge is planned ~1 s ahead of the impact; live 2026-11-02 03:49 every
+                -- telegraph dropped a full draw and the kebbit attacked every 3 s, so most draws were thrown away)
+                local loosed = false
+                if not g.magic and g.aiming and g.sol and not g.aimer.shot and F.t >= (F.next_press or 0) and M.bow_ready(F, g) then
+                    loosed = M._loose(F, pawn, me, acts, tgt, F.dist_m or 99, "before the dodge")
+                end
+                g.aiming = false
+                -- the aim key stays held through a release: letting go 0.15-0.2 s after the tap lost the arrow
+                -- (live 2026-11-02 05:19:43 and 05:20:18: "no projectile")
+                local since = F.t - (F.last_press_t or -9)
+                if since < (cfg.release_hold_s or 0.4) then F.hold_until = (F.last_press_t or F.t) + (cfg.release_hold_s or 0.4)
+                else F.hold = nil end
                 return M._start_defend(F, me, id, tt, (c.tele_info or {})[id])
             end
         end
@@ -2913,8 +3025,19 @@ local function step_ranged(F, pawn, me, acts, tgt)
     if F.following then mcall("move", "stop", F.log); F.following = false end
     -- hold aim (IA_SecondaryAction for crossbows/bows) while engaged; a staff/wand has no aim hold
     -- (its secondary is another action)
-    if acts.secondary and not g.magic then F.hold, F.hold_until = acts.secondary, F.t + 0.3 end
     if not g.aiming then g.aiming, g.aim_t0 = true, F.t end
+    if acts.secondary and not g.magic then
+        -- aim held but the bow not drawing (after a dodge the held key did not bring aim mode back, live 2026-11-02
+        -- 05:07:40, and he stood 77 s): let go of it and press it again, as a player does
+        local fl = g.flags or {}
+        if fl.aim == false and F.t - g.aim_t0 > 0.8 and F.t - (g.repress_t or -9) > 1.5 then
+            g.repress_t, F.hold = F.t, nil
+            g.represses = (g.represses or 0) + 1
+            say(F.log, string.format("ranged: aim held %.1f s but the bow is not drawing; pressing aim again", F.t - g.aim_t0))
+        elseif F.t - (g.repress_t or -9) > 0.15 then
+            F.hold, F.hold_until = acts.secondary, F.t + 0.3
+        end
+    end
     if g.aimer.shot then return end -- a bolt is in the air
     if F.unverified_run >= cfg.verify_presses then
         if g.magic then
@@ -2932,8 +3055,7 @@ local function step_ranged(F, pawn, me, acts, tgt)
     end
     if F.t < (F.next_press or 0) or not g.sol then return end
     local prm = (g.comp and not g.magic) and (g.R.read_weapon_params(pawn) or {}) or {}
-    local ready = prm.full_accuracy or (F.t - g.aim_t0) >= (g.seed.full_accuracy_s or cfg.ranged_aim_s)
-    if not ready then return end
+    if not M.bow_ready(F, g) then return end
     if g.magic and F.t - (F.rune_check_t or -9) > 3 then
         F.rune_check_t = F.t
         local l = mcall("inventory", "list", F.log) or {}
@@ -2948,23 +3070,7 @@ local function step_ranged(F, pawn, me, acts, tgt)
     if prm.has_ammo == false then
         return finish(F, result_of(F, false, "not_enough_resources", { why = "no_ammo", detail = "no ammunition equipped for this weapon" }))
     end
-    tap(F, acts.primary, cfg.tap_frames, "shoot")
-    local shot = g.aimer:fired(F.t, g.sol, g.R.projectile_ids(), g.muzzle)
-    shot.hits0, shot.hit_seq0 = F.hits, C().counts.hits
-    F.last_press_t = F.t
-    -- what each shot was taken at (hit vs miss: distance, the target's speed, how far off his facing was)
-    shot.dist_m = d
-    local vel = U.alive(F.target) and U.try(function() return F.target:GetVelocity() end)
-    if vel then shot.target_speed = math.floor(math.sqrt((vel.X or 0) ^ 2 + (vel.Y or 0) ^ 2) / 10) / 10 end
-    local yaw = U.try(function() return pawn:K2_GetActorRotation().Yaw end)
-    if yaw and me.pos and tgt and tgt.pos then
-        local want = math.deg(math.atan(tgt.pos.Y - me.pos.Y, tgt.pos.X - me.pos.X))
-        shot.yaw_off = math.floor(math.abs(((want - yaw + 540) % 360) - 180))
-    end
-    F.presses = F.presses + 1
-    C().counts.presses = C().counts.presses + 1
-    local prof = F.profile or {}
-    F.next_press = F.t + (prof.reload_s or 1.0) + 0.3 + jitter(cfg.press_jitter_ms)
+    loose(F, pawn, me, acts, tgt, d)
 end
 M._step_ranged = step_ranged
 
