@@ -117,6 +117,8 @@ Recipe catalog (read-only, a few seconds; the new dump must exist first because 
 .venv\Scripts\python.exe -m tools.build_recipes --build $NEW --wiki-check   # data\recipes_$NEW.json + mod\body\recipe_data.lua
 ```
 
+Then rebuild the brain's knowledge index once, before any gate: `.venv\Scripts\python.exe -c "from brain.knowledge import open_knowledge; print(open_knowledge().stats())"`. New catalogs change its signature, the first brain start rebuilds it, and on a cold disk that outlasts the gates' 90 s brain-start window (2026-11-15: rung1 grave read "the brain did not start").
+
 `catalog-diff` then lists added/removed/changed recipes. If any changed, deploy the regenerated `recipe_data.lua` (restart) and re-run the crafting drift check with Luis doing one real craft: `.venv\Scripts\python.exe -m tools.craft_drift run` (exit 0 = the catalog still matches the game; the report also lists the RPCs his craft sent, so a renamed crafting RPC shows up here).
 
 If `gen_attack_data` changed `mod/body/attack_data.lua`, redeploy (`tools\deploy_mod.ps1`) and restart after the checks.
