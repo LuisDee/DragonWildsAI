@@ -168,7 +168,11 @@ function Invoke-BootOnce([datetime]$t0) {
         Start-ClientProcess
         $d = (Get-Date).AddSeconds(120)
         while ((Get-Date) -lt $d -and -not ($proc = Get-ClientProcess)) { Start-Sleep 2 }
-        if (-not $proc) { return New-Result $false 'down' 'launch_timeout' $null $t0 }
+        if (-not $proc) {
+            $block = Get-SteamLaunchBlock
+            if ($block) { BLog "steam did not launch the game: $block" }
+            return New-Result $false 'down' $(if ($block) { $block } else { 'launch_timeout' }) $null $t0
+        }
         BLog "client pid $($proc.Id) started"
     }
     $procStart = $proc.StartTime
@@ -340,7 +344,7 @@ try {
         $res.attempt = $a
         BLog ("attempt ${a}: ok=$($res.ok) state=$($res.state) reason=$($res.reason)")
         if ($res.ok -or $DryRun) { break }
-        if ($res.reason -in @('low_memory', 'no_secrets_file', 'steam_not_logged_in', 'client_not_running')) { break }   # retrying won't help
+        if ($res.reason -in @('low_memory', 'no_secrets_file', 'steam_not_logged_in', 'client_not_running', 'steam_eula_pending', 'steam_update_disk_full')) { break }   # retrying won't help
         if ($a -lt $Attempts) { $w = $BackoffS * [math]::Pow(2, $a - 1); BLog "retry in ${w}s"; Start-Sleep -Seconds $w }
     }
     $res.ts = (Get-Date).ToUniversalTime().ToString('o')

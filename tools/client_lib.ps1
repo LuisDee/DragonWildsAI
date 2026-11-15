@@ -59,6 +59,24 @@ function Get-SteamState {
     [ordered]@{ running = [bool]$p; pid = if ($p) { $p.Id } else { $null }; logged_in = ($u -ne 0); account_id = $u }
 }
 
+# Why Steam did not start the game after -applaunch, read from Steam's own logs (2026-11-15: three days of
+# "launch_timeout" were a patch Steam could not stage on a full disk, then a EULA dialog waiting for a click).
+# Returns a reason, or $null when the logs name none.
+function Get-SteamLaunchBlock {
+    if ($env:DW_CLIENT_STEAM) { return $null }   # offline tests fake Steam
+    $logs = Join-Path (Split-Path $SteamExe) 'logs'
+    try {
+        $last = Select-String -Path (Join-Path $logs 'console_log.txt') -Pattern "AppID $ClientAppId, ActionID \d+\] : LaunchApp" -ErrorAction Stop | Select-Object -Last 1
+        if ($last -and $last.Line -match 'waiting for user response to ShowEula') { return 'steam_eula_pending' }
+    } catch {}
+    try {
+        $last = Select-String -Path (Join-Path $logs 'content_log.txt') -Pattern "AppID $ClientAppId state changed" -ErrorAction Stop | Select-Object -Last 1
+        if ($last -and $last.Line -match 'Not enough disk space') { return 'steam_update_disk_full' }
+        if ($last -and $last.Line -match 'Update Required|Update Queued|Update Running|Update Paused') { return 'steam_update_pending' }
+    } catch {}
+    $null
+}
+
 # Never let the world password reach a log: the game log's Browse/LoadMap lines carry ?p=<base64 pw>.
 # Every target file (server.txt, server_<name>.txt) is redacted, not only the default one.
 function Protect-Secret([string]$s) {
