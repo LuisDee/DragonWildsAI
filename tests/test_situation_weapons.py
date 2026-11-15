@@ -91,6 +91,6 @@ def test_no_weapon_says_so_and_where_weapons_are():
     st = {"weapons_known": [], "nearby_items": [{"name": "Stone Dagger", "id": "x1", "distance": 21.0},
                                                 {"name": "Oak Logs", "id": "x2", "distance": 18.0}],
           "graves_remembered": [{"distance": 214, "lost": ["Fillet x16", "Clean Water x13", "Ash Shortbow x1"]}]}
-    assert situation.weapons_line(st) == ("Your weapons: NONE in hand or bag (bare hands); on the ground: Stone Dagger 21 m; "
+    assert situation.weapons_line(st) == ("Your weapons: NONE in hand or bag (bare hands); lying loose nearby (not yours, free to take): Stone Dagger 21 m; "
                                           "in your graves: Ash Shortbow (214 m)")
     assert situation.weapons_line({}) is None  # nothing known about weapons: no claim

@@ -998,7 +998,7 @@ def weapons_line(state: dict) -> str | None:
 
 
 def no_weapon_line(state: dict) -> str:
-    """'Your weapons: NONE in hand or bag (bare hands); on the ground: Stone Dagger 21 m; in your graves: Ash Shortbow
+    """'Your weapons: NONE in hand or bag (bare hands); lying loose nearby (not yours, free to take): Stone Dagger 21 m; in your graves: Ash Shortbow
     (214 m)'. Live 2026-11-02 06:05: respawned with nothing, he walked to a vent and punched a PL2 rat to death
     (his), with a dagger and staffs lying 16-21 m off and his bow in his grave, and no line said he had no weapon."""
     weapon_names = {str(e.get("name")) for e in item_stats.catalog().values() if isinstance(e, dict) and e.get("role") == "weapon"}
@@ -1022,7 +1022,9 @@ def no_weapon_line(state: dict) -> str:
                     graves.append(f"{is_weapon(c)} ({gv['distance']:.0f} m)" if isinstance(gv.get("distance"), (int, float)) else str(is_weapon(c)))
     out = "Your weapons: NONE in hand or bag (bare hands)"
     if ground:
-        out += "; on the ground: " + ", ".join(ground[:4])
+        # loose items are anyone's: "on the ground" under "Your weapons" read as his own (live 2026-11-15: 12 of 12
+        # back from the grave, then "my club and spades are still lying back at the spot", fixture leftovers)
+        out += "; lying loose nearby (not yours, free to take): " + ", ".join(ground[:4])
     if graves:
         out += "; in your graves: " + ", ".join(graves[:4])
     return out[:LINE_CHARS]
