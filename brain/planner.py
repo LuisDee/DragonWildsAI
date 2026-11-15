@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient
 from .llm_json import DecisionError, extract_json, json_decision
+from .situation import asked_line, bases_line
 from .state_store import SkillRegistry, Task, TaskTree
 
 SYSTEM = """You are the planner for an AI companion in RuneScape: Dragonwilds.
@@ -71,6 +72,18 @@ def _trim_state(state: dict) -> dict:
     return {k: state[k] for k in keep if k in state}
 
 
+def _where(state: dict) -> dict:
+    """What the Controller's situation says about places, in its own words: where he stood when asked ("here") and
+    his own bases. Live 2026-11-16 (rung 2): the plan gathered 60 m away and built "near me" on a 3 m slope; the
+    Planner saw neither line."""
+    lines = {"asked": asked_line(state), "your_bases": bases_line(state)}
+    return {k: v for k, v in lines.items() if v}
+
+
+def _done_row(t: Task) -> dict:
+    return t.model_dump(include={"skill", "args"}) | ({"result": t.detail} if t.detail else {})
+
+
 class Planner:
     def __init__(self, llm: LLMClient, skills: SkillRegistry, logger: JsonlLogger, max_repairs: int = 1):
         self.llm = llm
@@ -82,14 +95,18 @@ class Planner:
         return {"role": "system", "content": SYSTEM.format(skills=json.dumps(self.skills.describe(), indent=1))}
 
     def plan(self, goal: str, state: dict, notes: dict) -> PlanResult:
-        user = {"goal": goal, "notes": notes, "state": _trim_state(state)}
+        user = {"goal": goal, **_where(state), "notes": notes, "state": _trim_state(state)}
         return self._ask([self._system(), {"role": "user", "content": json.dumps(user)}])
 
     def replan(self, tree: TaskTree, failed: Task, reason: str | None, state: dict, notes: dict) -> PlanResult:
         user = {
             "goal": tree.goal,
-            "completed": [t.model_dump(include={"skill", "args"}) for t in tree.tasks if t.done],
-            "failed_task": {"skill": failed.skill, "args": failed.args, "reason": reason, "attempts": failed.attempts},
+            **_where(state),
+            # each step with what the body said happened (2026-11-16: the replan got "blocked" and nothing of "the
+            # preview kept sliding ... 0.05 m from the flush spot", nor where the gather had left him)
+            "completed": [_done_row(t) for t in tree.tasks if t.done],
+            "failed_task": {"skill": failed.skill, "args": failed.args, "reason": reason, "attempts": failed.attempts}
+            | ({"result": failed.detail} if failed.detail else {}),
             "remaining": [t.model_dump(include={"skill", "args"}) for t in tree.tasks if not t.done and t is not failed],
             "replans_so_far": tree.replans,
             "notes": notes,

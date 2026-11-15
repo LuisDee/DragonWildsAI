@@ -255,7 +255,10 @@ M.cfg.build = {
     -- speed (Luis's recording: he placed 11 walls from one spot, 0-0.3 m apart, 1-3 s each; MaxPlacementDistance 7 m):
     -- stay where I am when the aim point is within stay_m, my view of it is clear and I'm not in the piece's way
     stay_m = 4.5, stay_clear_m = 0.5, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
-    snap_jump_m = 0.3, snap_jump_tol_m = 0.15, -- the cursor jumped from my aim onto the flush spot = a seen snap
+    -- the cursor jumped from my aim onto the flush spot = a seen snap. Under edge_in_m: live 2026-11-16 a door frame's
+    -- cursor sat 0.01 m from the flush spot, green, and was called off target: its cursor target is edge_in_m from the
+    -- flush spot, 0.29999999999999716 in floats, and the rule asked for >= 0.3 (false on 21 % of positions)
+    snap_jump_m = 0.25, snap_jump_tol_m = 0.15,
     ceiling_below_m = 0.2, ceiling_stand_m = 0.8, -- a ceiling/roof off a wall top: aim at the wall face this far below
     -- its top, standing this far past the middle of the cell it covers
     -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
@@ -855,6 +858,46 @@ function W.ground_at(api, x, y, z) -- the floor under (x, y) from z + 1.5 m (und
     local zi = hit and o and o.ImpactPoint and tonumber(o.ImpactPoint.Z)
     return zi and zi / 100 or nil
 end
+-- How the ground lies round a standing floor piece: 8 traces just outside its box (corners and edge middles; under
+-- it a trace hits the piece itself) -> {lo_m, hi_m (ground below its top, nearest and furthest), fall_m, low_side,
+-- words} | nil. Live 2026-11-15 (rung 2): a foundation "near me" went up on a 3 m slope 60 m from the spot asked for,
+-- its walls never seated, and its reply said nothing of the ground falling away under it.
+function W.ground_round(api, s)
+    if s and s.id and not s.box then -- a census row carries no size: the piece's own
+        local okb, info = pcall(W.actor_info, api, s.id)
+        if okb and info and info.box then s = info end
+    end
+    if not (s and s.position and s.box and s.box.extent) then return nil end
+    local yaw = math.rad(tonumber(s.yaw) or 0)
+    local fx, fy = { math.cos(yaw), math.sin(yaw) }, { -math.sin(yaw), math.cos(yaw) }
+    local o, e = s.box.origin or { 0, 0, 0 }, s.box.extent
+    local cx = s.position[1] + fx[1] * o[1] + fy[1] * o[2]
+    local cy = s.position[2] + fx[2] * o[1] + fy[2] * o[2]
+    local top = s.position[3] + o[3] + e[3]
+    local lo, hi, n, low_at = math.huge, -math.huge, 0, nil
+    for _, k in ipairs({ { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }) do
+        local a, b = k[1] * (e[1] + 0.4), k[2] * (e[2] + 0.4)
+        local x, y = cx + fx[1] * a + fy[1] * b, cy + fx[2] * a + fy[2] * b
+        local hit, out = W.trace(api, { X = x * 100, Y = y * 100, Z = (top + 1.0) * 100 }, { X = x * 100, Y = y * 100, Z = (top - 12) * 100 })
+        local zi = hit and out and out.ImpactPoint and tonumber(out.ImpactPoint.Z)
+        if zi then
+            local d = top - zi / 100
+            n = n + 1
+            if d < lo then lo = d end
+            if d > hi then hi, low_at = d, { x - cx, y - cy } end
+        end
+    end
+    if n < 5 then return nil end
+    local fall = hi - lo
+    local words
+    if fall < 0.6 then
+        words = string.format("The ground round it is level (%.1f to %.1f m below its top).", lo, hi)
+    else
+        words = string.format("The ground round it is not level: it lies %.1f m below its top on one side and %.1f m below on its %s side, a fall of %.1f m across the piece.",
+            lo, hi, compass(low_at[1], low_at[2]) or "far", fall)
+    end
+    return { lo_m = r1(lo), hi_m = r1(hi), fall_m = r1(fall), low_side = compass(low_at[1], low_at[2]), words = words }
+end
 function W.covered_at(api, p)
     local function up(a, b) return (W.trace(api, { X = p[1] * 100, Y = p[2] * 100, Z = (p[3] + a) * 100 }, { X = p[1] * 100, Y = p[2] * 100, Z = (p[3] + b) * 100 })) end
     return up(2.2, 10) == true and up(0.3, 2.0) ~= true
@@ -1044,7 +1087,11 @@ function M.share_run(a, b, n)
     for i = 1, #a - n + 1 do if b:find(a:sub(i, i + n - 1), 1, true) then return true end end
     return false
 end
-function M.resolve(api, list, q)
+-- have(p) (optional): do I hold what p costs? Several pieces share a name across tiers (live 2026-11-16: "Square
+-- Foundation" is DA_T1 and DA_T2, "Wall" / "WALL"; each cost him a turn): the one spelled exactly as asked, else the
+-- only one he can pay for, is the one meant; the reply names what was built.
+function M.resolve(api, list, q, have)
+    local raw = q
     q = lower(q)
     local exact, typo, close = {}, {}, {}
     for _, d in ipairs(list) do
@@ -1055,6 +1102,13 @@ function M.resolve(api, list, q)
             local dist = math.min(lev(n, q), lev(id, q))
             if dist <= math.max(1, math.floor(#q / 6)) then typo[#typo + 1] = { d = d, p = p } end
             if n:find(q, 1, true) or q:find(n, 1, true) or M.share_run(n, q) then close[#close + 1] = p.name end
+        end
+    end
+    for _, narrow in ipairs({ function(x) return x.p.name == raw or x.p.id == raw end, have and function(x) return have(x.p) end or false }) do
+        if #exact > 1 and narrow then
+            local keep = {}
+            for _, x in ipairs(exact) do if narrow(x) then keep[#keep + 1] = x end end
+            if #keep >= 1 then exact = keep end
         end
     end
     if #exact == 1 then return exact[1].d, exact[1].p end
@@ -1083,13 +1137,18 @@ local function start_build(api, args, ctx)
     end
     local list, why = W.unlocked(api)
     if not list then return api.fail("state_unavailable", { why = why, detail = "I can't read what I can build right now." }) end
-    local data, piece, code, more = M.resolve(api, list, args.piece)
+    local counts, stored
+    local data, piece, code, more = M.resolve(api, list, args.piece, function(p)
+        counts, stored = counts or api.counts() or {}, stored or W.storage_counts(api, 15)
+        local ok, miss = pcall(M.missing, p, counts, stored)
+        return ok and type(miss) == "table" and #miss == 0
+    end)
     if not data then
         if code == "ambiguous_target" then
             local names = {}
-            -- the same name twice (rung 2 run 1: "Which one: Door, Door?"): the game's ids tell them apart
-            local seen, dup = {}, false
-            for _, x in ipairs(more) do if seen[x.p.name] then dup = true end; seen[x.p.name] = true end
+            -- the same name twice (rung 2 run 1: "Which one: Door, Door?"): the game's ids tell them apart (always
+            -- given: "Which one: Wall, WALL?" left him to look the ids up)
+            local dup = true
             for _, x in ipairs(more) do names[#names + 1] = dup and (x.p.name .. " (" .. tostring(x.p.id) .. (x.p.category and (", " .. x.p.category) or "") .. ")") or x.p.name end
             return api.fail("ambiguous_target", { piece = args.piece, candidates = names, ids = (function()
                     local ids = {}; for _, x in ipairs(more) do ids[#ids + 1] = x.p.id end; return ids end)(),
@@ -1454,6 +1513,12 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
                 or " I couldn't confirm a roof over it after all.")
         end
     end
+    local ground -- a floor put on the ground: how the ground lies round it
+    local pid = tostring(job.piece.id or "")
+    if s and s.position and not job.on and (pid:find("Foundation", 1, true) or pid:find("_Floor_", 1, true)) then
+        local okg, g = pcall(W.ground_round, api, s)
+        if okg and g then ground, line = g, line .. " " .. g.words end
+    end
     -- mine: the game keeps no owner per piece (dump 26161880: FBuildingReplicatedEntry, FClientVisible/ServerOnly
     -- BuildingPieceState and ABaseBuildingActor carry none), so his own ledger (deconstruct.lua my_pieces.json) is what
     -- marks get_state.structures mine. The build-complete telemetry fills it too, but missed pieces placed in quick
@@ -1533,7 +1598,9 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         facing_off_deg = att and att.facing_off_deg, snap_moved_m = att and att.snap_moved_m,
         rejected_previews_before_placing = #rej > 0 and rej or nil,
         placed_after_s = job.place_aim_s, placed_trail = job.place_trail,
-        fit = fit or (s and ("It stands at " .. where .. "." .. (floor_words and (" " .. floor_words) or ""))) or nil,
+        fit = fit or (s and ("It stands at " .. where .. "." .. (floor_words and (" " .. floor_words) or "")
+            .. (ground and (" " .. ground.words) or ""))) or nil,
+        ground_fall_m = ground and ground.fall_m or nil,
         stayed = job.stayed or nil }, RESULT_MT) }
 end
 M._success = success
@@ -2639,6 +2706,17 @@ end
 M.HANDLERS.ground_check = function(log, args, ctx)
     local api = ctx and ctx.api
     if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
+    if type(args.structure) == "string" then -- the ground round a standing piece, as its build reply words it
+        local okr, rows = pcall(W.structures, api, true)
+        for _, st in ipairs(okr and type(rows) == "table" and rows or {}) do
+            if st.id == args.structure then
+                local okg, g = pcall(W.ground_round, api, st)
+                return { ok = okg and g ~= nil, reason = (not (okg and g)) and "state_unavailable" or nil,
+                         data = okg and g or { detail = tostring(g), box = st.box or api.null, yaw = st.yaw or api.null, position = st.position } }
+            end
+        end
+        return api.fail("unknown_target", { detail = "no such structure in my census" })
+    end
     local at = type(args.at) == "table" and args.at or api.my_position()
     if not (at and at[1]) then return api.fail("invalid_args", { detail = "at = [x, y, z]" }) end
     local h = type(args.half_m) == "table" and args.half_m or { 4, 4 }

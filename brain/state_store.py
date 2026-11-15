@@ -39,6 +39,7 @@ class Task(BaseModel):
     status: TaskStatus = "pending"
     attempts: int = 0
     last_reason: str | None = None
+    detail: str | None = None  # what the body said happened (its result's detail), for the Planner's replan
 
     @computed_field  # still written to task_tree.json for readers of the file
     @property

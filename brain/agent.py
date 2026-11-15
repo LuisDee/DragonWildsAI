@@ -42,6 +42,8 @@ MAX_TURNS = 8
 # (agent._hand_on), each a fresh run in which the model sees how its last calls went.
 CHAIN_BUDGET = "chain_budget"
 MAX_HAND_ONS = 2
+WORK_DETAIL_CHARS = 220  # a call's own result words kept in a hand-on's done_so_far
+WORK_ROWS = 40
 # The no-progress breaker parked a step (brain/progress.py): the model's last turn of this request.
 PARKED_NOTE = ("A step is parked (results above): the same call failed the same way with no progress. If the player "
                "hasn't heard why, tell him in one short plain line; this request ends after this reply.")
@@ -91,6 +93,7 @@ OPEN_JOB_NOTE = ("He asked {request!r}. This request ends here unless you act: i
                  "route exists (your situation lists them), take it now or hand the rest to {tool}; if you are truly "
                  "blocked, reply with no text at all.")
 LONG_JOB_TOOLS = ("add_task", "start_goal")
+TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
@@ -102,6 +105,21 @@ POST_ACTION_REUSE_S = 1.0  # the executor's own verification read is this fresh:
 def _task_label(t: Task) -> str:
     bits = [str(v) for k, v in t.args.items() if k in ("resource", "item", "target", "player", "count") and v is not None]
     return f"{t.skill} {' '.join(bits)}".strip()
+
+
+def _work_rows(d, t: dict, chars: int, unrun: bool = False) -> list[dict]:
+    """One model turn's calls as short rows {tool, args, ok, reason, detail}: what a hand-on tells the fresh run.
+    unrun: a call with no result (after a failure) is listed too."""
+    rows = []
+    for c in d.actions:
+        r = t["results"].get(c.id) or t["results"].get(c.name)
+        if r is None and not unrun:
+            continue
+        r = r or {}
+        data = r.get("data") if isinstance(r.get("data"), dict) else {}
+        rows.append({"tool": c.name, "args": c.arguments, "ok": r.get("ok"), "reason": r.get("reason"),
+                     "detail": str(data.get("detail") or data.get("built") or data.get("why") or "")[:chars] or None})
+    return rows
 
 
 class Agent:
@@ -399,6 +417,8 @@ class Agent:
         self.broker.action_started(task.skill, task.args, continuing=bool(continues and continues(task)))
         self.broker.note_busy()
         outcome = self.executor.run_task(task)
+        detail = (outcome.data or {}).get("detail") if isinstance(outcome.data, dict) else None
+        task.detail = str(detail)[:TASK_DETAIL_CHARS] if detail else None
         self._killed_note(task, outcome)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
         if self._directed is not None:
@@ -484,10 +504,13 @@ class Agent:
         fail_checked = False
         failed_any, handed, open_checked = False, False, False  # OPEN_JOB_NOTE: an open failure, a long-job tool, the check
         last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
+        # every call this request ran and how it went, for a hand-on's fresh run (a handed-on request carries its own on)
+        work: list[dict] = [*(body_ctx.get("done_so_far") or []), *(body_ctx.get("last_results") or [])]             if isinstance(body_ctx, dict) and body_ctx.get("type") == CHAIN_BUDGET else []
         while True:
             if d.interrupts and self.active_goal:
                 self._cancelled = True
             t = self._run_turn(d, state, event)
+            work.extend(_work_rows(d, t, WORK_DETAIL_CHARS))
             nonbody_success = not t["ran"] and any(r.get("ok", True) for r in t["results"].values())
             acted = acted or bool(t["ran"]) or nonbody_success
             ran_all.extend(t["ran"])
@@ -571,7 +594,7 @@ class Agent:
                              why="the player spoke" if spoke else "deadline" if late else "budget")
                 if self._directed is not None and spoke:
                     self._directed_end = "chat"
-                if not spoke and not late and self._hand_on(event, d, t, body_events):
+                if not spoke and not late and self._hand_on(event, d, t, body_events, work):
                     break  # the model hears the last results in a fresh run (live 17:2xZ: he stood 194 s here)
                 if t["failure"] and not spoke:  # the model never saw this failure; when he spoke, he has the
                     self.controller.report_failure(*t["failure"])  # floor (the next run's body_status has it)
@@ -640,7 +663,8 @@ class Agent:
         if self.pending_goal:
             self._goal_episode = self.log.episode_id  # the goal's rows stay in the episode that asked for it
 
-    def _hand_on(self, event: CommandReceived, d, t: dict, body_events: list[dict] | None) -> bool:
+    def _hand_on(self, event: CommandReceived, d, t: dict, body_events: list[dict] | None,
+                 work: list[dict] | None = None) -> bool:
         """The turn budget ended a request with work still open (its last turn ran tools whose results the model
         never saw). Live 17:2xZ: the 8th turn cast Summon Shelter "to rest", the chain stopped, and he stood 194 s,
         silent, to the run's end. The request is handed on as a body situation: a fresh run (fresh context) in which
@@ -652,20 +676,19 @@ class Agent:
         n = int(prev.get("hand_on") or 0) + 1 if prev else 1
         if n > MAX_HAND_ONS:
             return False
-        last = []
-        for c in d.actions:
-            r = t["results"].get(c.id) or t["results"].get(c.name) or {}
-            data = r.get("data") if isinstance(r.get("data"), dict) else {}
-            last.append({"tool": c.name, "args": c.arguments, "ok": r.get("ok"), "reason": r.get("reason"),
-                         "detail": str(data.get("detail") or data.get("why") or "")[:300] or None})
+        last = _work_rows(d, t, 300, unrun=True)
+        # live 2026-11-16 (rung 2): the fresh run knew only its last call; with his house torn down and four of his
+        # own pieces up it asked the player "which one's yours?"
+        done = (work or [])[:max(0, len(work or []) - len(_work_rows(d, t, 1)))][-WORK_ROWS:]
         request = (prev or {}).get("request") or event.text or None
         self._situations.append({
             "type": CHAIN_BUDGET, "hand_on": n, "of": MAX_HAND_ONS, "request": request, "asked_at": self._asked,
             "from": (prev or {}).get("from") or (event.player if event.text else None),
             "about": (f"your work on this request stopped at the turn limit ({MAX_TURNS + 1} turns) before you had "
-                      "seen how your last calls went; their results are in last_results"
+                      "seen how your last calls went; their results are in last_results, and every call the request "
+                      "ran before them is in done_so_far, in order"
                       + ("; this is the last hand-on, the request ends after this run" if n == MAX_HAND_ONS else "")),
-            "last_results": last})
+            "done_so_far": done, "last_results": last})
         self.log.log("chain_handed_on", hand_on=n, request=request, last=[x["tool"] for x in last])
         return True  # the next pump's flush_situations runs it (never nested inside this run's own wrap-up)
 
@@ -1043,9 +1066,10 @@ class Agent:
 
     def _run_goal(self, goal: str, given: list[Task] | None = None) -> GoalResult:
         self.store.progress("goal started", goal=goal, from_skill=given is not None)
+        asked = self._asked  # the request this goal came from (a body-only run in between clears self._asked)
         if given is None:
             try:
-                plan = self.planner.plan(goal, self.executor.state(), self._planner_notes())
+                plan = self.planner.plan(goal, sit.with_asked(self.executor.state(), asked), self._planner_notes())
             except PlanError as exc:
                 return self._stuck(goal, None, str(exc))
             if not plan.tasks:
@@ -1077,7 +1101,8 @@ class Agent:
                 return self._stuck(goal, task, outcome.reason)
             tree.replans += 1
             try:
-                new = self.planner.replan(tree, task, outcome.reason, self.executor.state(), self._planner_notes())
+                new = self.planner.replan(tree, task, outcome.reason, sit.with_asked(self.executor.state(), asked),
+                                          self._planner_notes())
             except PlanError as exc:
                 return self._stuck(goal, task, str(exc))
             self.store.progress("replanned", goal=goal, explanation=new.explanation, ask_help=new.ask_help)
