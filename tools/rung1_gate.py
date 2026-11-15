@@ -216,8 +216,14 @@ def check_grave(rec: dict, rows: list[dict]):
             if t is None or ts <= t:
                 used[name] = used.get(name, 0) + 1
         return sum(min(max(c.get(k, 0) + used.get(k, 0) - kept.get(k, 0), 0), v) for k, v in lost.items())
-    for t, c in inv[1:]:
+    # the bag is sampled every ~2 s: the things were his from the moment the body reported the take that this sample
+    # confirms (r1-20261115T223115Z: Take All's result at 31.6 s, the sample at 33.1 s)
+    # (only the press itself: r1-20261115T223958Z had go_to's result at 17.4 s in the window, the take at 19.3 s)
+    took = [float(r["ts"]) for r in rows or [] if r.get("kind") == "tool_result" and r.get("tool") == "interact"
+            and (r.get("result") or {}).get("ok") and isinstance(r.get("ts"), (int, float))]
+    for (t_prev, _), (t, c) in zip(inv, inv[1:]):
         if back_of(c, t) >= 0.9 * n_lost:
+            t = max((x for x in took if t_prev < x <= t), default=t)
             return True, f"{back_of(c)} of the {n_lost} items that went into his grave ({item_words(lost)}) are back in his bag", t,                 {"back": back_of(c, t), "lost": n_lost}
     return False, f"{back_of(inv[-1][1])} of the {n_lost} items that went into his grave ({item_words(lost)}) are back", None,         {"back": back_of(inv[-1][1]), "lost": n_lost}
 

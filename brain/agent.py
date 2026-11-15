@@ -95,6 +95,7 @@ LONG_JOB_TOOLS = ("add_task", "start_goal")
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
 FRESH_REUSE_S = 0.75  # get_state reuse window between body reads with no action in between (see _fresh_state)
+POST_ACTION_REUSE_S = 1.0  # the executor's own verification read is this fresh: the next prompt reads it
 
 
 
@@ -268,7 +269,7 @@ class Agent:
 
     # ---------------------------------------------------------------- body situations (broker)
 
-    def _fresh_state(self, reuse: bool = False) -> dict:
+    def _fresh_state(self, reuse: bool = False, after_action: bool = False) -> dict:
         try:
             # reuse = a read before a model call on the wake path (each event's triage, still_valid, flush, the
             # controller's first read: back to back, 0.3-0.5 s each; live r1-20261102T065157Z: 1.9 s of get_state
@@ -278,7 +279,10 @@ class Agent:
             ex_cache = getattr(self.executor, "_cache", None)
             if reuse and c is not None and now - c[0] <= FRESH_REUSE_S and c[1] is ex_cache and ex_cache is not None:
                 return c[2]
-            state = self.executor.state()
+            # after_action = the read between a turn's tools and the next model call: the executor read the state a
+            # moment ago to verify the last action, and nothing ran since (live r1-20261115T223115Z: two get_state back
+            # to back, 0.6 s + 0.8 s, between arriving at his grave and the prompt that pressed Take All)
+            state = self.executor.state(max_age=POST_ACTION_REUSE_S if after_action else None)
             self._wake_state = (now, getattr(self.executor, "_cache", None), state)
         except StateUnavailable as exc:
             return {"unavailable": str(exc)}
@@ -578,7 +582,7 @@ class Agent:
                     said = bool(line) and self.controller.say(line, kind=kind) is not None
                 break
             turn += 1
-            before, state = state, sit.with_asked(self._fresh_state(), self._asked)
+            before, state = state, sit.with_asked(self._fresh_state(after_action=True), self._asked)
             parked = self._note_progress(t, before, state, event.player)
             self.request_parked = parked or self.request_parked
             news = self._news()
