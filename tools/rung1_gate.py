@@ -175,6 +175,20 @@ def check_fight(rec: dict, rows: list[dict]):
     return done, how, when, m
 
 
+def grave_lost(carried: dict, kept: dict) -> dict:
+    """What his bag lost when he died (what the grave holds): carried, minus what stayed on him through the respawn."""
+    return {k: v - kept.get(k, 0) for k, v in carried.items() if v - kept.get(k, 0) > 0}
+
+
+def item_words(d: dict) -> str:
+    return ", ".join(f"{v} {k}" for k, v in sorted(d.items()))
+
+
+def grave_check_text(went: dict, dist_m: float) -> str:
+    return (f"everything his bag lost when he died went into his grave: {item_words(went)} ({sum(went.values())} items, "
+            f"nothing else was in it). The check: >= 90 % of those are back in his bag (his newest grave is {dist_m:.0f} m away)")
+
+
 def check_grave(rec: dict, rows: list[dict]):
     """What went INTO the grave (carried at death minus what he kept through the respawn: runes stay on him, 8537 of
     8746 items, so a whole-bag count passed at 3.6 s, live 20:59Z) is >= 90 % back in his bag. What he ate or drank
@@ -185,7 +199,7 @@ def check_grave(rec: dict, rows: list[dict]):
     if not inv:
         return False, "no inventory samples", None, {}
     want, kept = tg["carried"], inv[0][1]
-    lost = {k: v - kept.get(k, 0) for k, v in want.items() if v - kept.get(k, 0) > 0}
+    lost = grave_lost(want, kept)
     n_lost = sum(lost.values())
     if not n_lost:
         return False, f"nothing went into the grave (he kept all {sum(want.values())} items through the respawn)", None, {}
@@ -204,8 +218,8 @@ def check_grave(rec: dict, rows: list[dict]):
         return sum(min(max(c.get(k, 0) + used.get(k, 0) - kept.get(k, 0), 0), v) for k, v in lost.items())
     for t, c in inv[1:]:
         if back_of(c, t) >= 0.9 * n_lost:
-            return True, f"{back_of(c)} of the {n_lost} items that went into his grave are back in his bag", t,                 {"back": back_of(c, t), "lost": n_lost}
-    return False, f"{back_of(inv[-1][1])} of the {n_lost} items that went into his grave are back", None,         {"back": back_of(inv[-1][1]), "lost": n_lost}
+            return True, f"{back_of(c)} of the {n_lost} items that went into his grave ({item_words(lost)}) are back in his bag", t,                 {"back": back_of(c, t), "lost": n_lost}
+    return False, f"{back_of(inv[-1][1])} of the {n_lost} items that went into his grave ({item_words(lost)}) are back", None,         {"back": back_of(inv[-1][1]), "lost": n_lost}
 
 
 cp.CHECK_HOOKS.update({"r1_stat": check_stat, "r1_rest": check_stat, "r1_split": check_split, "r1_drop": check_drop,
@@ -995,8 +1009,10 @@ def it_grave(ctx: Ctx) -> dict:
         grave_at = newest["position"]
     off = obs.hdist(died_at, grave_at)
     d = obs.hdist(ctx.me()["position"], grave_at)
-    row = run_leg(ctx, {"id": "grave", "kind": "r1_grave", "check_text": f"the items he carried when he died ({sum(carried.values())}) "
-                        f"are >= 90 % back in his bag (his newest grave is {d:.0f} m away)"},
+    # the judge reads this: what the grave holds, by name (2026-11-15: told only "the items he carried (8295)", it
+    # called "no weapon in the grave" false on a grave of 6 Clean Water and 6 Fillet; re-judged, 2 of 12 true lines false)
+    went = grave_lost(carried, cp.counts({"bag": ctx.stacks()}))
+    row = run_leg(ctx, {"id": "grave", "kind": "r1_grave", "check_text": grave_check_text(went, d)},
                   "claude go get your stuff from your grave", {"carried": carried, "grave_at": grave_at, "died_at": died_at,
                                                                "dist_m": round(d, 1)},
                   deadline_s=300, sample=("me", "inv"))

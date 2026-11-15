@@ -55,6 +55,26 @@ def _clean(monkeypatch):
 
 
 # ------------------------------------------------------------------ prompt assembly
+def test_facts_carry_the_bag_at_the_request_and_each_change_after_it():
+    """2026-11-15 grave: with no bag in the facts "my bronze sword is in my bag again" was unverifiable (3 of 3)."""
+    a, b = {"Fire Rune": 465}, {"Fire Rune": 465, "Fillet": 6}
+    f = tj.facts(window(), CTX | {"bag": [[T0 + 1, a], [T0 + 3, a], [T0 + 22, b], [T0 + 24, b]]})
+    assert f["bag"] == [{"t": 1.0, "items": a}, {"t": 22.0, "items": b}]
+    many = [[T0 + i, {"Stone": i}] for i in range(20)]
+    got = tj.facts(window(), CTX | {"bag": many})["bag"]
+    assert len(got) == tj.BAG_MAX and got[0]["items"] == {"Stone": 0} and got[-1]["items"] == {"Stone": 19}
+    assert "bag" not in tj.facts(window(), CTX)
+
+
+def test_the_grave_check_names_what_the_grave_holds():
+    """2026-11-15: told "the items he carried (8295)", the judge called "no weapon in the grave" false."""
+    from tools import rung1_gate as g
+    went = g.grave_lost({"Fire Rune": 465, "Fillet": 6, "Clean Water": 6}, {"Fire Rune": 465})
+    assert went == {"Fillet": 6, "Clean Water": 6}
+    text = g.grave_check_text(went, 93.2)
+    assert "6 Clean Water, 6 Fillet (12 items, nothing else was in it)" in text and "93 m" in text and "465" not in text
+
+
 def test_facts_put_where_he_was_beside_each_claim_and_times_relative_to_the_request():
     f = tj.facts(window(), CTX)
     c0, c1 = f["claims"]

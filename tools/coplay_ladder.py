@@ -400,7 +400,7 @@ def score(rec: dict, root=None, judge: bool | None = None) -> dict:
     v = tc.analyse_window(root, t0 - 1, t1 + 1, goal, tol, positions=[(s[0], list(_pos(s))) for s in rec.get("me") or []])
     tg = rec.get("target") or {}
     v = tj.apply(v, {"request": rec.get("line"), "kind": rec["kind"], "place": tg.get("place") or tg.get("player"),
-                     "goal": goal, "tol_m": tol, "t0": t0, "places": cl.known_places(),
+                     "goal": goal, "tol_m": tol, "t0": t0, "places": cl.known_places(), "bag": rec.get("inv"),
                      "outcome": {"check": rec.get("check_text") or CHECKS.get(rec["kind"]), "done": done, "how": how,
                                  "target": {k: tg.get(k) for k in ("name", "player", "place") if tg.get(k)}}},
                  use=judge)
