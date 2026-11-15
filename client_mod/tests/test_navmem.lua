@@ -133,5 +133,39 @@ do
     check("compass: +Y is south", NM.compass({ 0, 0 }, { 0, 10 }) == "S" and NM.compass({ 0, 0 }, { 10, -10 }) == "NE")
 end
 
+-- the roadmap graph is kept between plans: every change to the memory must show in the next plan
+do
+    local km = NM.new_mem("keep")
+    NM.add_route(km, line(0, 0, 3000, 0, 30))
+    local a, b = P(0, 100, 0), P(3000, 100, 0)
+    local _, i1 = NM.plan(km, a, b, {})
+    local _, i1b = NM.plan(km, a, b, {})
+    check("kept graph: the same plan twice", i1 and i1b and i1.cost_cm == i1b.cost_cm, i1 and i1.cost_cm)
+    -- the same trip walked again along a dog-leg replaces the route's points
+    local leg = line(0, 0, 1500, 2500, 25)
+    for _, q in ipairs(line(1500, 2500, 3000, 0, 25)) do leg[#leg + 1] = q end
+    local _, how = NM.add_route(km, leg)
+    local p2, i2 = NM.plan(km, a, b, {})
+    local via = false
+    for _, q in ipairs(p2 or {}) do if q.Y > 1000 then via = true end end
+    check("kept graph: an updated route replaces its old points", how == "updated" and via and i2.cost_cm > i1.cost_cm, how)
+    NM.add_route(km, line(0, 800, 3000, 800, 30))
+    local _, i3 = NM.plan(km, a, b, {})
+    check("kept graph: a new route is used at once", i3 and i3.cost_cm < i2.cost_cm, i3 and i3.cost_cm)
+    NM.mark_water(km, P(1500, 800, 0))
+    local _, i4 = NM.plan(km, a, b, {})
+    check("kept graph: water marked since costs at once", i4 and i4.cost_cm > i3.cost_cm, i4 and i4.cost_cm)
+    NM.clear_water(km, P(1500, 800, 0))
+    NM.taboo(km, P(1000, 800, 0), P(1500, 800, 0), "test")
+    local _, i5 = NM.plan(km, a, b, {})
+    check("kept graph: a new taboo costs at once", i5 and i5.cost_cm > i3.cost_cm, i5 and i5.cost_cm)
+    km.routes[2].disabled = true
+    km.taboos = {}
+    local _, i6 = NM.plan(km, a, b, {})
+    check("kept graph: a disabled route is not walked", i6 and math.abs(i6.cost_cm - i2.cost_cm) < 1, i6 and i6.cost_cm)
+    km.routes = {}
+    check("kept graph: forgotten routes are gone", NM.plan(km, a, b, {}) == nil)
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

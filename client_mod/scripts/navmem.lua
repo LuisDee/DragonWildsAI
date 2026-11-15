@@ -430,110 +430,169 @@ function NM.is_taboo(mem, a, b)
 end
 
 -- ------------------------------------------------------------------ graph + Dijkstra
--- links: optional list of learned traversal links {from={x,y,z} m (feet), to=..., move, usable=bool}
-function NM.plan(mem, from, to, opts)
-    opts = opts or {}
-    local nodes, adj = {}, {}
-    local function add_node(p, tag) nodes[#nodes + 1] = { p = p, tag = tag }; adj[#nodes] = {}; return #nodes end
-    local function edge(i, j, c) adj[i][#adj[i] + 1] = { j, c } end
-    -- (NM.is_taboo / NM.is_water, with the taboo points converted once and each point's water looked up once:
-    -- cost runs for every edge, ~10^5 of them on a big memory)
-    local tab = {}
-    for _, tb in ipairs(mem.taboos) do tab[#tab + 1] = { at = cm(tb.at), toward = cm(tb.toward) } end
-    local wet = {}
-    local function cost(a, b, base)
-        local c = base or d3(a, b)
-        for k = 1, #tab do
-            local tb = tab[k]
-            if d3(b, tb.toward) < NM.cfg.taboo_r_cm and d2(a, tb.at) < NM.cfg.taboo_from_cm then c = c * NM.cfg.taboo_cost; break end
+-- The roadmap (route points, route edges, join edges) is built once and kept; a plan only searches it. Building
+-- it was the whole cost of a plan (live 2026-11-15: 11,700 points and 244,000 join edges, 2.4 s a plan on the
+-- game thread, twice at the start of a trip: he stood 6 s at the respawn before walking to his grave). It is
+-- brought up to date per plan by comparing each route with what was built from it: a changed route's points are
+-- struck out and added again. Water is priced at search time (water marks change during a walk).
+local GRAPH = setmetatable({}, { __mode = "k" }) -- mem -> graph
+local NO_EDGES = {}
+
+local function graph_new(mem)
+    local g = { nodes = {}, adj = {}, grid = {}, dead = {}, n_dead = 0, n_live = 0, by_route = {}, taboo_n = #mem.taboos,
+                tab = {}, tnear = setmetatable({}, { __mode = "k" }) }
+    for _, tb in ipairs(mem.taboos) do g.tab[#g.tab + 1] = { at = cm(tb.at), toward = cm(tb.toward) } end
+    return g
+end
+-- NM.is_taboo's price of walking a -> b, with the taboos an edge INTO b can hit found once per point (checking
+-- every taboo for every edge was most of the build)
+local function g_cost(g, a, b, base)
+    local c = base or d3(a, b)
+    local near = g.tnear[b]
+    if near == nil then
+        near = false
+        for k = 1, #g.tab do
+            if d3(b, g.tab[k].toward) < NM.cfg.taboo_r_cm then near = near or {}; near[#near + 1] = g.tab[k] end
         end
-        local w = wet[b]
-        if w == nil then w = NM.is_water(mem, b); wet[b] = w end
-        if w then c = c * NM.cfg.water_cost end
-        return c
+        g.tnear[b] = near
     end
-    -- route polylines (both directions; jump points only upward along the recorded direction)
-    local route_nodes = {}
-    for _, r in ipairs(mem.routes) do
-        if not r.disabled then
-            local prev
-            for k, q in ipairs(r.pts) do
-                local p = cm(q)
-                p.act = q[4]
-                local id = add_node(p, r.id)
-                route_nodes[#route_nodes + 1] = id
-                if prev then
-                    local pen = 1 + (r.n_fail or 0) * 0.5
-                    edge(prev, id, cost(nodes[prev].p, p) * pen)
-                    if not (p.act == "jump" or p.act == "djump") then edge(id, prev, cost(p, nodes[prev].p) * pen) end
-                end
-                prev = id
-            end
+    if near then
+        for k = 1, #near do
+            if d2(a, near[k].at) < NM.cfg.taboo_from_cm then c = c * NM.cfg.taboo_cost; break end
         end
     end
-    -- learned links as directed edges
-    for _, L in ipairs(opts.links or {}) do
-        if L.usable ~= false then
-            local a, b = add_node(cm(L.from), "link"), add_node(cm(L.to), "link")
-            nodes[b].p.act = (L.move == "drop") and "drop" or "jump"
-            nodes[b].link = L
-            edge(a, b, cost(nodes[a].p, nodes[b].p) + (L.penalty_m or 5) * 100)
-            route_nodes[#route_nodes + 1] = a
-            route_nodes[#route_nodes + 1] = b
-        end
-    end
-    -- join edges between nearby points of different routes/links. A uniform grid of join_cm cells: a pair closer
-    -- than join_cm lies in the same or a neighbouring cell, so the same edges as comparing every pair, without
-    -- the O(n^2) (live 2026-11-01: 4560 remembered points made this plan take 9-11 s on the game thread, every
-    -- follow/go_to over mem_min_trip_cm froze the client and a fight's arbiter lease expired: "lease_expired")
+    return c
+end
+local function g_node(g, p, tag)
+    local id = #g.nodes + 1
+    g.nodes[id] = { p = p, tag = tag }; g.adj[id] = {}; g.n_live = g.n_live + 1
+    return id
+end
+local function g_edge(g, i, j, c) local a = g.adj[i]; a[#a + 1] = { j, c } end
+-- join edges between nearby points of different routes/links. A uniform grid of join_cm cells: a pair closer
+-- than join_cm lies in the same or a neighbouring cell, so the same edges as comparing every pair, without
+-- the O(n^2) (live 2026-11-01: 4560 remembered points made this plan take 9-11 s on the game thread, every
+-- follow/go_to over mem_min_trip_cm froze the client and a fight's arbiter lease expired: "lease_expired")
+local function g_join(g, j)
     local jc = NM.cfg.join_cm
     local jc2 = jc * jc
-    local grid = {}
-    for y = 1, #route_nodes do
-        local j = route_nodes[y]
-        local pj, tj = nodes[j].p, nodes[j].tag
-        local cx, cy = math.floor(pj.X / jc), math.floor(pj.Y / jc)
-        for gx = cx - 1, cx + 1 do
-            for gy = cy - 1, cy + 1 do
-                local bucket = grid[gx * 1000003 + gy]
-                if bucket then
-                    for b = 1, #bucket do
-                        local i = bucket[b]
-                        local ni = nodes[i]
-                        if ni.tag ~= tj or ni.tag == "link" then
-                            local pi = ni.p
-                            local dx, dy, dz = pi.X - pj.X, pi.Y - pj.Y, pi.Z - pj.Z
-                            if dz < 120 and dz > -120 then
-                                local s = dx * dx + dy * dy + dz * dz
-                                if s < jc2 then
-                                    local dd = math.sqrt(s)
-                                    edge(i, j, cost(pi, pj, dd * 1.2)); edge(j, i, cost(pj, pi, dd * 1.2))
-                                end
+    local nodes, grid, dead = g.nodes, g.grid, g.dead
+    local pj, tj = nodes[j].p, nodes[j].tag
+    local cx, cy = math.floor(pj.X / jc), math.floor(pj.Y / jc)
+    for gx = cx - 1, cx + 1 do
+        for gy = cy - 1, cy + 1 do
+            local bucket = grid[gx * 1000003 + gy]
+            if bucket then
+                for b = 1, #bucket do
+                    local i = bucket[b]
+                    local ni = nodes[i]
+                    if not dead[i] and (ni.tag ~= tj or ni.tag == "link") then
+                        local pi = ni.p
+                        local dx, dy, dz = pi.X - pj.X, pi.Y - pj.Y, pi.Z - pj.Z
+                        if dz < 120 and dz > -120 then
+                            local s = dx * dx + dy * dy + dz * dz
+                            if s < jc2 then
+                                local dd = math.sqrt(s)
+                                g_edge(g, i, j, g_cost(g, pi, pj, dd * 1.2)); g_edge(g, j, i, g_cost(g, pj, pi, dd * 1.2))
                             end
                         end
                     end
                 end
             end
         end
-        local k = cx * 1000003 + cy
-        local bucket = grid[k]
-        if not bucket then bucket = {}; grid[k] = bucket end
-        bucket[#bucket + 1] = j
     end
-    if #route_nodes == 0 then return nil, "empty" end
-    local S = add_node(cm(from), "start")
-    local G = add_node(cm(to), "goal")
-    local direct = d3(nodes[S].p, nodes[G].p)
+    local k = cx * 1000003 + cy
+    local bucket = grid[k]
+    if not bucket then bucket = {}; grid[k] = bucket end
+    bucket[#bucket + 1] = j
+end
+-- a route's polyline (both directions; jump points only upward along the recorded direction), then its joins
+local function g_add_route(g, r)
+    local ids, prev = {}, nil
+    local pen = 1 + (r.n_fail or 0) * 0.5
+    for _, q in ipairs(r.pts) do
+        local p = cm(q)
+        p.act = q[4]
+        local id = g_node(g, p, r.id)
+        ids[#ids + 1] = id
+        if prev then
+            g_edge(g, prev, id, g_cost(g, g.nodes[prev].p, p) * pen)
+            if not (p.act == "jump" or p.act == "djump") then g_edge(g, id, prev, g_cost(g, p, g.nodes[prev].p) * pen) end
+        end
+        prev = id
+    end
+    for _, id in ipairs(ids) do g_join(g, id) end
+    g.by_route[r] = { pts = r.pts, n_fail = r.n_fail or 0, ids = ids }
+end
+local function g_drop_route(g, r)
+    for _, id in ipairs(g.by_route[r].ids) do
+        g.dead[id], g.adj[id] = true, NO_EDGES
+        g.n_dead, g.n_live = g.n_dead + 1, g.n_live - 1
+    end
+    g.by_route[r] = nil
+end
+-- the graph of mem's routes as they are now (`private`: a fresh one for the caller to add to, not kept)
+local function graph_of(mem, private)
+    local g = not private and GRAPH[mem] or nil
+    if not g or g.taboo_n ~= #mem.taboos or g.n_dead > g.n_live then
+        g = graph_new(mem)
+        if not private then GRAPH[mem] = g end
+    end
+    local now = {}
+    for _, r in ipairs(mem.routes) do
+        now[r] = true
+        local rec = g.by_route[r]
+        if rec and (r.disabled or rec.pts ~= r.pts or rec.n_fail ~= (r.n_fail or 0)) then g_drop_route(g, r); rec = nil end
+        if not rec and not r.disabled then g_add_route(g, r) end
+    end
+    for r in pairs(g.by_route) do if not now[r] then g_drop_route(g, r) end end
+    return g
+end
+
+-- links: optional list of learned traversal links {from={x,y,z} m (feet), to=..., move, usable=bool}
+function NM.plan(mem, from, to, opts)
+    opts = opts or {}
+    local links = opts.links or {}
+    local g = graph_of(mem, #links > 0)
+    local nodes, adj, dead = g.nodes, g.adj, g.dead
+    -- learned links as directed edges
+    for _, L in ipairs(links) do
+        if L.usable ~= false then
+            local a, b = g_node(g, cm(L.from), "link"), g_node(g, cm(L.to), "link")
+            nodes[b].p.act = (L.move == "drop") and "drop" or "jump"
+            nodes[b].link = L
+            g_edge(g, a, b, g_cost(g, nodes[a].p, nodes[b].p) + (L.penalty_m or 5) * 100)
+            g_join(g, a); g_join(g, b)
+        end
+    end
+    if g.n_live == 0 then return nil, "empty" end
+    -- a point in known water costs water_cost times as much to walk into (looked up once per point and plan)
+    local WC = NM.cfg.water_cost
+    local wet = {}
+    local function wet_at(v)
+        local w = wet[v]
+        if w == nil then w = NM.is_water(mem, nodes[v].p); wet[v] = w end
+        return w
+    end
+    -- start and goal are this plan's own: S's edges in s_adj, the edges into G in to_goal (the graph is kept)
+    local S, G = #nodes + 1, #nodes + 2
+    local ps, pg = cm(from), cm(to)
+    local g_wet = NM.is_water(mem, pg) and WC or 1
+    local s_adj, to_goal = {}, {}
+    local direct = d3(ps, pg)
     -- entry edges are walked straight and unseen, so only on the walker's level: rise <= entry_dz_cm + entry_grade x run
     -- (live 2026-10-31: the terrace outside the church "connected" to the lodestone floor 4-6 m below, through the wall)
     local function level(a, b)
         return math.abs(a.Z - b.Z) <= NM.cfg.entry_dz_cm + NM.cfg.entry_grade * math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2)
     end
-    for _, i in ipairs(route_nodes) do
-        local ds = d3(nodes[S].p, nodes[i].p)
-        if ds < NM.cfg.entry_cm and level(nodes[S].p, nodes[i].p) then edge(S, i, cost(nodes[S].p, nodes[i].p, ds * NM.cfg.entry_factor)) end
-        local dg = d3(nodes[i].p, nodes[G].p)
-        if dg < NM.cfg.entry_cm and level(nodes[i].p, nodes[G].p) then edge(i, G, cost(nodes[i].p, nodes[G].p, dg * NM.cfg.entry_factor)) end
+    for i = 1, #nodes do
+        if not dead[i] then
+            local p = nodes[i].p
+            local ds = d3(ps, p)
+            if ds < NM.cfg.entry_cm and level(ps, p) then s_adj[#s_adj + 1] = { i, g_cost(g, ps, p, ds * NM.cfg.entry_factor) } end
+            local dg = d3(p, pg)
+            if dg < NM.cfg.entry_cm and level(p, pg) then to_goal[i] = g_cost(g, p, pg, dg * NM.cfg.entry_factor) * g_wet end
+        end
     end
     -- Dijkstra with a binary heap (stale entries skipped): the graph has thousands of nodes now, and a linear scan
     -- for the next node was O(n^2) on its own
@@ -574,11 +633,17 @@ function NM.plan(mem, from, to, opts)
         if not done[u] and best <= dist[u] then
             if u == G then break end
             done[u] = true
-            for _, e in ipairs(adj[u]) do
-                local v, c = e[1], e[2]
-                local nd = best + c
-                if not dist[v] or nd < dist[v] then dist[v], prev[v] = nd, u; push(nd, v) end
+            local es = u == S and s_adj or adj[u]
+            for k = 1, #es do
+                local e = es[k]
+                local v = e[1]
+                if not dead[v] then
+                    local nd = best + (wet_at(v) and e[2] * WC or e[2])
+                    if not dist[v] or nd < dist[v] then dist[v], prev[v] = nd, u; push(nd, v) end
+                end
             end
+            local cg = to_goal[u]
+            if cg and (not dist[G] or best + cg < dist[G]) then dist[G], prev[G] = best + cg, u; push(best + cg, G) end
         end
     end
     if not dist[G] then return nil, "no_connection" end
@@ -590,7 +655,7 @@ function NM.plan(mem, from, to, opts)
         k = prev[k]
     end
     if #out == 0 then return nil, "no_memory_edge" end
-    out[#out + 1] = { X = nodes[G].p.X, Y = nodes[G].p.Y, Z = nodes[G].p.Z }
+    out[#out + 1] = { X = pg.X, Y = pg.Y, Z = pg.Z }
     return out, { cost_cm = dist[G], direct_cm = direct, n = #out }
 end
 
