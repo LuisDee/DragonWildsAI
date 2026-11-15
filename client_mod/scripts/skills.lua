@@ -960,6 +960,12 @@ local function episode_poll(api, e, t, owner_token)
                 if e.secondary then data.detail = "Collected all: " .. first .. also .. "."
                 else data.detail = (data.detail and (data.detail:gsub("%.%s*$", "")) or ("Picked up " .. first)) .. also .. "." end
             end
+            -- a Take All that made the thing vanish emptied it (a grave, a loot bag): say so, or he guesses at what is
+            -- "still in there" (live 2026-11-15: 12 of 12 back, and "my weapons are still missing, they should be in there")
+            if item and gone and data.prompt == "Take All" then
+                data.detail = (data.detail or ("Picked up " .. (gain_words(api, all, item)) .. "."))
+                    .. " That was everything in it: the " .. tostring(e.label) .. " is empty and gone now."
+            end
             return { ok = true, data = data }
         end
         if t >= e.verify_until then

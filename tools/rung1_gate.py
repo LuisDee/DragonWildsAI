@@ -177,7 +177,9 @@ def check_fight(rec: dict, rows: list[dict]):
 
 def check_grave(rec: dict, rows: list[dict]):
     """What went INTO the grave (carried at death minus what he kept through the respawn: runes stay on him, 8537 of
-    8746 items, so a whole-bag count passed at 3.6 s, live 20:59Z) is >= 90 % back in his bag."""
+    8746 items, so a whole-bag count passed at 3.6 s, live 20:59Z) is >= 90 % back in his bag. What he ate or drank
+    of it since counts as back (2026-11-15: he arrives hungry, the stay-fed reflex uses a Fillet and a Clean Water the
+    second they are his again, and a bag sample after that read 10 of 12 = fail; before it, 11 or 12 = pass)."""
     tg = rec["target"]
     inv = rec.get("inv") or []
     if not inv:
@@ -188,11 +190,21 @@ def check_grave(rec: dict, rows: list[dict]):
     if not n_lost:
         return False, f"nothing went into the grave (he kept all {sum(want.values())} items through the respawn)", None, {}
 
-    def back_of(c):
-        return sum(min(max(c.get(k, 0) - kept.get(k, 0), 0), v) for k, v in lost.items())
+    uses = []  # (ts, name): the reflex's own report of each use (brain log `event` rows)
+    for r in rows or []:
+        ev = r.get("event") if r.get("kind") == "event" else None
+        if isinstance(ev, dict) and ev.get("kind") == "reflex_use" and ev.get("ok") and ev.get("name") in lost:
+            uses.append((float(ev.get("ts") or r.get("ts") or 0), ev["name"]))
+
+    def back_of(c, t=None):
+        used = {}
+        for ts, name in uses:
+            if t is None or ts <= t:
+                used[name] = used.get(name, 0) + 1
+        return sum(min(max(c.get(k, 0) + used.get(k, 0) - kept.get(k, 0), 0), v) for k, v in lost.items())
     for t, c in inv[1:]:
-        if back_of(c) >= 0.9 * n_lost:
-            return True, f"{back_of(c)} of the {n_lost} items that went into his grave are back in his bag", t,                 {"back": back_of(c), "lost": n_lost}
+        if back_of(c, t) >= 0.9 * n_lost:
+            return True, f"{back_of(c)} of the {n_lost} items that went into his grave are back in his bag", t,                 {"back": back_of(c, t), "lost": n_lost}
     return False, f"{back_of(inv[-1][1])} of the {n_lost} items that went into his grave are back", None,         {"back": back_of(inv[-1][1]), "lost": n_lost}
 
 
