@@ -3550,6 +3550,17 @@ function M._wf.way(st, me, goal)
     pts[#pts + 1] = { X = goal.X, Y = goal.Y }
     return pts, src
 end
+-- the point `cm` along the way from me (its end when the way is shorter)
+function M._wf.at(me, way, cm)
+    local prev = { X = me.X, Y = me.Y }
+    for _, q in ipairs(way) do
+        local dx, dy = q.X - prev.X, q.Y - prev.Y
+        local l = math.sqrt(dx * dx + dy * dy)
+        if l >= cm and l > 0 then return { X = prev.X + dx / l * cm, Y = prev.Y + dy / l * cm } end
+        cm, prev = cm - l, q
+    end
+    return { X = prev.X, Y = prev.Y }
+end
 -- along the way (from me), the first water and the first dry spot after it, within the lookahead
 function M._wf.stretch(me, way, wet, look)
     -- the target past it: up to 10 m on along the way while it stays dry (aiming at the shore point itself made
@@ -3892,8 +3903,12 @@ local function probe(f)
     if not st.lpath and not st.in_water and not st.wade and dist > 1000 and not st.trail_i and not st.doorway_used then
         local mem, NMm = nav_mem()
         if mem and next(mem.water or {}) then
+            -- along the way he is on (trail, remembered or nav route), not straight on past its next turn: a
+            -- remembered route that turns at a pond's shore stood for a "water_ahead" plan on every trip, lost its
+            -- sprint and walked back to the route after (live 2026-11-15: 96 m to a grave in 30 s, twice)
+            local way = M._wf.way(st, me, f.goal)
             for _, k in ipairs({ 300, 600, 900 }) do
-                local q = { X = fe.X + dx * k, Y = fe.Y + dy * k }
+                local q = M._wf.at(fe, way, k)
                 if NMm.is_water(mem, q) and not water_false_mark(st, pawn, fe, q, mem, NMm, log) then
                     if t - (st.water_plan_t or -100) > 5 and lp_begin(st, pawn, me, far_goal(f), "water_ahead", log) then
                         st.water_plan_t = t
