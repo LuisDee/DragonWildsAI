@@ -2613,7 +2613,9 @@ do
                 .. ", door on its " .. tostring(bp.door_side) .. " side. " .. tostring(bp.about or "") end
         end
     end)
-    M.MANIFEST.build_blueprint = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 120, timeout_s = 2400,
+    -- not offered to the model (Luis, 2026-11-15: no canned house; he designs it himself from buildables + build).
+    -- Still callable over the debug channel (tools/build_run.py stand-ins).
+    M.MANIFEST.build_blueprint = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 120, timeout_s = 2400,
         detail_is_speech = true,
         description = "Build a whole saved blueprint, piece by piece, the build screen kept open: its first foundation at the spot, "
             .. "then each piece on the one before it the way the blueprint says (foundations, walls on their edges, the door in "

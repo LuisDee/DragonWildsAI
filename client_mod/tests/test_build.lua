@@ -1126,7 +1126,7 @@ do
     check("build_blueprint: a piece not unlocked -> says which", r and r.ok == false and tostring(r.data.detail):find("isn't among the pieces I can build", 1, true))
     Bd.HANDLERS.buildables = b0
     check("build_blueprint: in the manifest, its description naming the blueprints", Bd.MANIFEST.build_blueprint
-        and Bd.MANIFEST.build_blueprint.description:find("'luis_house'", 1, true) and Bd.MANIFEST.build_blueprint.llm == true)
+        and Bd.MANIFEST.build_blueprint.description:find("'luis_house'", 1, true) and Bd.MANIFEST.build_blueprint.llm == false)
     -- a blueprint batch goes on past a piece the game wouldn't take; what goes on it is not tried
     local bb = { items = { { piece = "F", key = "f1" }, { piece = "W", key = "w1", on = "#1:N" }, { piece = "R", key = "r1", on = "#2:S" }, { piece = "W", key = "w2", on = "#1:E" } },
                  results = { { ok = true, data = { structure = "BP_1", name = "F", fit = "It stands at [0, 0, 0]." } },
