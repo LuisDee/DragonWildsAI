@@ -34,7 +34,7 @@ from typing import Any
 from brain import item_stats
 
 REPO = Path(__file__).resolve().parents[1]
-RECIPES = REPO / "data" / "recipes_26161880.json"
+RECIPES = REPO / "data" / "recipes_26574459.json"
 ARMOUR_SLOTS = ("head", "body", "legs")  # these set his power level
 KIT_SLOTS = ("right_hand", "left_hand")  # weapon, shield: not in PL, still his kit
 WORN_KEYS = {"head": ("Head",), "body": ("Body",), "legs": ("Legs",), "right_hand": ("HeldRight", "held_right"),
