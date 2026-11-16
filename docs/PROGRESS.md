@@ -1104,3 +1104,9 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - Where the debug run's 45 s goes: tree down at 8.0 s, 4.3 s until its pieces lie still, then per piece ~1 s approach + 0.6 s aim + 2.2 s (split) or 7.8 s (log) of swings, and 9 pick-ups of 0.3-4.9 s each (one took 4.9 s).
 - Not fixed: the split log that takes no damage (the 90.0 s run of 03:14Z) did not show in these runs; the give_up_swings guard is still the only answer to it.
 - Rung 3 now: axe, pickaxe, chop, mine, boil, cook at standard. Open: wheel/thread/spade (parked on the shelter rule), plots (need Growing Pains).
+
+## 2026-11-16 05:2xZ rung 4: spells 3 in a row (11.9 / 8.2 / 11.8 s against T_h 21.3 s)
+- `tools.rung4_gate run --confirm --only spells`, three runs, no code change. Each: a Goblin Runt spawned by the fixture, the line "claude kill that goblin with your attack spells", he equips the Ash Battlestaff (run 1) or already holds it, one `attack` call, the goblin read dead, 3 / 2 / 5 Air Runes spent, HP 100 throughout, 2 Haiku calls ($0.0018-0.0025).
+- Honest limits: the kill is the staff's own rune casts, not a spell picked from the spellbook; T_h is Luis's general kill unit (19.84 s + 1.5 s), because no staff fight of his is recorded; the staff and runes are a fixture grant.
+- Fixture fault seen: after run 1 the staff was not put back ("the only Ash Battlestaff I have is the one in my hand"), so runs 2 and 3 began with it held.
+- Rung 4 gate now: tannery 3, bow 3, spells 3 in a row; armour never run; gear_up 0 (5 runs), bag 0 (1 run).
