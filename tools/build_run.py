@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 import subprocess
 import sys
 import time
@@ -51,7 +52,9 @@ CLEAR_M = 40.0  # a fresh spot: this far from every built piece (his, Luis's, ot
 def all_pieces() -> dict:
     """Every built piece the client knows (client_mod/commands/build_pieces_all.lua: the GlobalBuildingManager
     census) -> {"me": [x, y, z], "pts": [[x, y, z], ...]} | {} when the probe fails."""
-    p = subprocess.run(["sh", "tools/client_cmd.sh", "client_mod/commands/build_pieces_all.lua", "30"], cwd=str(ROOT),
+    # sh by its full path: a run started from PowerShell has no Git on its PATH (run 20261116-015416 died here)
+    sh = shutil.which("sh") or "C:/Program Files/Git/bin/sh.exe"
+    p = subprocess.run([sh, "tools/client_cmd.sh", "client_mod/commands/build_pieces_all.lua", "30"], cwd=str(ROOT),
                        capture_output=True, text=True, timeout=60)
     try:
         r = json.loads(p.stdout.strip().splitlines()[-1]).get("result") or {}
