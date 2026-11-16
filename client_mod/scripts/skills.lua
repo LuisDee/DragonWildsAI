@@ -756,6 +756,9 @@ local function episode_poll(api, e, t, owner_token)
         -- (move's water avoidance halts him at the edge, 0.9 m short of a wet spot: live too_far x10)
         -- (not with a shore_point stand: that IS the waterline spot where the game reads the water, live 18:3x)
         if e.water and not e.shore and not e.wading and here and e.ipoint and dist2d(here, e.ipoint) <= M.cfg.water_reach_m then near = true end
+        -- a shore stand: where move ended the walk wading over it (its "arrived, in_water", up to 1 m past its
+        -- tolerance) is there too, as long as he still stands there
+        if e.water and e.shore and e.wet_at and here and dist2d(here, e.wet_at) <= 0.3 then near = true end
         if e.wading then near = d and d <= 0.6 end
         if near and not on_top then
             if not episode_cleanup(api, e, owner_token) then return nil end
@@ -806,6 +809,9 @@ local function episode_poll(api, e, t, owner_token)
         -- a wade step ends where move let him go (its water avoidance may stop him at the very edge): face from there
         if e.wading then e.phase, e.face_until = "face", t + M.cfg.face_s; W.face(api, e.ipoint, true); return nil end
         local res = type(st.result) == "table" and st.result or {}
+        -- (live 2026-11-16 12:24:18Z: move said "arrived" in the pond 1.3 m from the stand, this said not near; three
+        -- more go_tos each ended at once, then too_far, twice in a row)
+        if res.status == "arrived" and res.in_water and e.water and e.shore then e.wet_at = api.my_position() end
         if res.status == "arrived" then return nil end -- re-check the distance next tick
         if res.status == "stopped" then return nil end -- e.g. suspended by a reflex and resumed: walk again
         e.last_move_why = res.reason or res.why or e.last_move_why

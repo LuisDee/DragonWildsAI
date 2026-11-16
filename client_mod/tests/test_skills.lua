@@ -1031,6 +1031,41 @@ test("interact on a shelter: walk to the INTERACTION point's open side (not the 
     assert(B.module("move") and true)
 end)
 
+test("water: move ends the walk in the water 1.3 m off the shore stand (arrived, in_water) -> he uses it from there", function()
+    -- live 2026-11-16 12:24:18Z (chain 122336): stuck on the way, a local plan took him into the pond from the side,
+    -- move's wade rule said "arrived" 1.3 m from the stand, the episode's 0.8 m said no; three more go_tos each
+    -- "arrived" at once, then too_far, twice
+    reset()
+    local sk = B.module("skills")
+    local pond = { id = "BP_WaterVolume_C_UAID_2", class = "BP_WaterVolume_C", name = "Water Volume", kind = "interactable",
+                   position = { 40, 40, -3 } }
+    table.insert(F.world.interactables, pond)
+    local mv = B.module("move")
+    local sp0, st0 = mv.shore_point, mv.status
+    mv.shore_point = function() return { ok = true, how = "channel", stand = { 35, 40, 1.5 }, edge = { 36, 40, 0 } } end
+    mv.status = function()
+        if F.move.mode == "go_to" then
+            F.move.mode, F.move.position = "idle", { 36.3, 40, 0.2 }
+            F.move.result = { status = "arrived", in_water = true, dist_m = 1.3 }
+        end
+        return { mode = F.move.mode, status = F.move.status, result = F.move.result, ticks = 1 }
+    end
+    local det0, sig0 = sk.W.detector, sk.W.press_signals
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    local used = false
+    sk.W.detector = function() return { actor = pond.id, prompt = "Drink", class = pond.class } end
+    inv.press_interact = function() used = true; return { ok = true } end
+    sk.W.press_signals = function() return { sleeping = used } end
+    local auto = F.auto_arrive
+    F.auto_arrive = false
+    local _, id = rpc("interact", { target = pond.id })
+    local r = run(id, 80)
+    F.auto_arrive = auto
+    sk.W.detector, sk.W.press_signals, inv.press_interact, mv.shore_point, mv.status = det0, sig0, p0, sp0, st0
+    assert(r and r.ok and used, json.encode(r))
+end)
+
 test("interact: a pond (water volume) -> walk to its shore and face the surface, not its deep origin", function()
     reset()
     local sk = B.module("skills")
