@@ -806,6 +806,48 @@ test("DW_PAUSE: no game work, actions end companion_down, get_state paused; clea
     assert(rpc("get_state").ok)
 end)
 
+-- live 20261116-201438: Epic's lobby answered 503, the game left the server for the front end mid-gather; no pause
+-- of ours was set (only disconnect.lua / join_server.lua set one), the loops ran on in the front end and the client
+-- died in a Lua call on an object of the world that was gone (crash_2026_11_16_21_15_33).
+test("a map travel the game starts itself pauses the loops before the world goes: hooked once a process, the hook makes no game call", function()
+    local hooks = {}
+    _G.DW_TRAVEL_HOOKED = nil
+    _G.RegisterLoadMapPreHook = function(fn) hooks[#hooks + 1] = fn; return 1, 2 end
+    assert(B.hook_travel() == true and #hooks == 1, "registered: " .. #hooks)
+    assert(B.hook_travel() == true and #hooks == 1, "once a process (a reloaded bridge finds it there): " .. #hooks)
+    B._supervise(true)
+    local _, _, gid = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.move.calls = {}
+    -- UE4SS hands the hook the engine, the world context, the URL, the pending game and the error: none is touched
+    local touched = 0
+    local param = setmetatable({}, { __index = function() touched = touched + 1 end, __newindex = function() touched = touched + 1 end })
+    assert(select("#", hooks[1](param, param, param, param, "")) == 0, "no return value: a bool would replace LoadMap's own")
+    assert(touched == 0 and #FAKE.move.calls == 0, "the hook only sets the flag")
+    assert(_G.DW_PAUSE == true, "paused before the world is torn down")
+    FAKE.frontend = true
+    step()
+    local g = results(drain(), gid)[1]
+    assert(g and g.reason == "companion_down", "the running action ends: " .. json.encode(g))
+    assert(#FAKE.move.calls == 0, "no cancel call into the game while paused")
+    assert(B.status().pause and B.status().pause.by == "map_travel", "the status says what paused him: " .. json.encode(B.status().pause))
+    T = T + B.PAUSE_SETTLE_S + 1; step()
+    assert(_G.DW_PAUSE == true, "front end: stays paused")
+    FAKE.frontend = nil
+    T = T + 1; step(); T = T + B.PAUSE_CLEAR_S; step()
+    assert(_G.DW_PAUSE == nil and rpc("get_state").ok, "back in the world: cleared")
+    -- our own disconnect / join set the flag first: the hook leaves their reason alone
+    _G.DW_PAUSE = true
+    hooks[1]()
+    FAKE.frontend = true
+    step(); drain()
+    assert(B.status().pause and B.status().pause.by == "command", json.encode(B.status().pause))
+    FAKE.frontend = nil
+    T = T + B.PAUSE_SETTLE_S + 1; step(); T = T + B.PAUSE_CLEAR_S + 1; step(); T = T + 1; step()
+    assert(_G.DW_PAUSE == nil, "cleared again")
+    step(); drain()
+    _G.RegisterLoadMapPreHook = nil
+end)
+
 test("gather module: async via HANDLERS, flat failure keeps why/detail, gather.jsonl -> gather_progress", function()
     install("gather", [[
 local G = {}

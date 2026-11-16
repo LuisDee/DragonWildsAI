@@ -1980,9 +1980,29 @@ M.PAUSE_SAFE_TOOLS = { ping = true, capabilities = true, bridge_status = true }
 local function paused() return rawget(_G, "DW_PAUSE") == true end
 M._paused = paused
 
+-- A travel the GAME starts sets no pause of ours. Live 20261116-201438: Epic's lobby service answered 503, the game
+-- called the internet gone and went to the front end mid-gather; the loops ran on there and the client died in a Lua
+-- UFunction call on an object of the world that was gone (crash_2026_11_16_21_15_33, 1.3 s after LoadMap(L_FrontEnd)).
+-- UE4SS calls this hook on the game thread at the start of every UEngine::LoadMap, before the old world is torn down.
+-- It only sets the flag: no game call, the hook's params untouched, and NO return value (a bool would replace
+-- LoadMap's own). The pause is lifted as for a join: a pawn in the game world for PAUSE_CLEAR_S. Registered once a
+-- client process (a LoadMap hook cannot be taken off; a reloaded bridge finds DW_TRAVEL_HOOKED set).
+function M.hook_travel()
+    if rawget(_G, "DW_TRAVEL_HOOKED") == true then return true end
+    if type(RegisterLoadMapPreHook) ~= "function" then return false end
+    local ok, err = pcall(RegisterLoadMapPreHook, function()
+        if rawget(_G, "DW_PAUSE") ~= true then _G.DW_PAUSE_BY = "map_travel" end
+        _G.DW_PAUSE = true
+    end)
+    if ok then _G.DW_TRAVEL_HOOKED = true end
+    text_log("bridge: map-travel pause hook " .. (ok and "registered" or ("NOT registered: " .. tostring(err))))
+    return ok
+end
+
 local function on_pause_start()
-    S.pause = { since = now_s() }
-    ev("client_paused", {})
+    S.pause = { since = now_s(), by = rawget(_G, "DW_PAUSE_BY") or "command" }
+    _G.DW_PAUSE_BY = nil
+    ev("client_paused", { by = S.pause.by })
     local a = S.action
     if a then
         if a.pause_cleanup then pcall(a.pause_cleanup) end
@@ -2160,6 +2180,7 @@ function M.start(opts)
         end })
     end
     install(bridge)
+    M.hook_travel()
     -- The DEBUG channel: the same tools on a second file pair (debug_to_client.jsonl ->
     -- client_to_debug.jsonl), for people and tools testing live (tools/bridge_cmd --channel debug), so
     -- their replies never land in the live brain's file. Events (chat, attacked, ...) go only to the
