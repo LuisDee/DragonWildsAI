@@ -1222,3 +1222,22 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Seen in those lines, not fixed:** the local plan keeps choosing a jump onto that 3 m ledge that falls short (2 of 4 walks, about 8 s each time). A failed jump is left out of the rest of that trip only (`st.jump_fail`); the next trip tries it again.
 - **Tried and binned: the craft description.** Getting Started's one miss is `craft` Stone Club with 0 Ash Logs carried, right after Doric said it needs them. Replayed that turn (12 Haiku calls): craft first 4 of 6 with the live description ("Safe to try straight away") and 4 of 6 with one that says a failed try is avoidable with craft_plan. No movement, wording left as it was. The failed call takes 0.3 s and stays a miss (inside the bar of 1).
 - Chain 2 of the streak launched 10:37Z (pid 15960).
+
+## 2026-11-16 10:37-11:25Z rung 5: chain 103757 (three quests pass, Rune Mysteries stood to the deadline); cause found and fixed by replay in live order
+- **Chain 103757:**
+
+  | quest | time | ratio | misses | result |
+  |---|---|---|---|---|
+  | First Steps | 31.1 s | 0.40x | 0 | PASS |
+  | Getting Started | 52.6 s | 0.96x | 1 (craft before the materials, again) | PASS |
+  | Ratcatcher | 208.7 s | 1.01x | 0 | PASS |
+  | Rune Mysteries | 901.4 s (deadline) | 2.49x | 0 | FAIL: not done, 622.5 s standing |
+
+- **Streak state over chains 085113, 091005, 094732, 101313, 103757:** First Steps P P P P P; Getting Started F F F P P; Ratcatcher F P F P P; Rune Mysteries F F P P F (the P of 101313 only by the leftover rule of 5df4488).
+- **Cause of the Rune Mysteries stop (brain-live-20261116-114618-17240.jsonl, episode situation-0002-24fb):** he handed part 1 to the Planner ("Chop 46 ash logs ... bring 50 to Zanik"), the goal ended, and the run that heard it read the quest log, said "Talked to Zanik, the log step's done. Next up is mining rune essence and making air and astral runes." with no call. The one promise turn replied nothing (85 tokens of thinking, no text, no call). Nothing later woke him: reviews fire on state changes only, and the three that came (183, 263, 390 s later) ate, drank and stayed.
+- **Live history of that promise turn:** empty in chain 073129, `gather` in 0851xx, empty in 103757: 2 of 3 fail.
+- **The replay was hiding it.** That turn replayed alone acted 36 of 36 times, with the same prompt tokens, persona, tools and settings as live. Replayed after the episode's earlier calls, so that the prompt cache is in the live state (`cached` 23945 against live 23934), it failed 4 of 18. A later turn replayed cold is not the live call. New tool `tools/replay_episode.py` replays an episode's calls in order, each run under its own cache nonce.
+- **Fix (159a42d):** the promise turn of a run that hears a goal end now names what the player asked ("Tester asked '...': if that is not finished, call the tool(s) for its next step now ... If it is finished, reply with no text at all"). Measured in live order: old note 4 of 18 no call, new note 0 of 24 (all `gather rune_essence` or `start_goal`). Negative test, the same run edited to show the quest finished: old note 7 of 7 silent, new note 8 of 8 silent. Unit test extended first and seen failing.
+- **Binned:** a "Last request: ..." line in `body_status` for later review turns: 0 of 12 resumed without a persona sentence; 9 of 12 with one, but a finished stone request then drew "what next?" 3 of 9. Not built: a review 3 minutes later cannot pass the 5 s stand bar anyway.
+- Replay spend for this: about 330 Haiku calls, roughly $0.9.
+- Chain 3 launched 11:23Z (pid 16008) on 159a42d.
