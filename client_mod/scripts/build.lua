@@ -261,7 +261,7 @@ M.cfg.build = {
     -- stay where I am when the aim point is within stay_m, my view of it is clear and I'm not in the piece's way
     stay_m = 6.0, stay_clear_m = 0.5, stay_off_floor_m = 0.15, stay_ceiling_m = 0.2,
     -- can't place from here: walk to the nearest spot whose predicted view lands on the aim point (camrig.stands)
-    stand_search = true, stand_radii_m = { 2.5, 4.0, 5.5 }, stand_walk_s = 15, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
+    stand_search = true, stand_radii_m = { 2.5, 4.0, 5.5 }, stand_walk_s = 15, stand_arrive_m = 0.4, stand_view_every_s = 0.2, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
     -- the cursor jumped from my aim onto the flush spot = a seen snap. Under edge_in_m: live 2026-11-16 a door frame's
     -- cursor sat 0.01 m from the flush spot, green, and was called off target: its cursor target is edge_in_m from the
     -- flush spot, 0.29999999999999716 in floats, and the rule asked for >= 0.3 (false on 21 % of positions)
@@ -1726,13 +1726,26 @@ function M.batch_args(b, k)
     end
     return a
 end
+-- A failure that would meet every other piece too ends a batch; any other one fails its own piece (and what goes on
+-- it) and the rest go up. Rung 2 run 20261116-013406: a roof tried first stayed 1.4 m off, and the two walls and
+-- the door listed with it were never tried ("Built 0 of 4").
+M.BATCH_ENDS = { interrupted = true, cancelled = true, companion_down = true, no_permission = true, state_unavailable = true,
+                 body_error = true, lease_expired = true }
+function M.batch_goes_on(res) return not (res and M.BATCH_ENDS[tostring(res.reason)]) end
+local function built_n(b)
+    local n = 0
+    for _, r in pairs(b.results) do if type(r) == "table" and r.ok then n = n + 1 end end
+    return n
+end
 function M.batch_pick(api, b)
     local here = api.my_position()
     local best, bd
     local fo = b.failed_once or {}
+    local bn = built_n(b)
     for _, retry in ipairs({ false, true }) do -- the ones not yet failed first; then the second tries
         for k, it in ipairs(b.items) do
-            if not b.done[k] and (fo[k] or false) == retry then
+            -- a second try only once something else went up since (the same piece from the same spot fails the same)
+            if not b.done[k] and (fo[k] ~= nil) == retry and (not retry or fo[k] == true or bn > fo[k]) then
                 local r = ref_of(it.on)
                 local ready = not r or (b.results[r] and b.results[r].ok)
                 if ready then
@@ -1770,21 +1783,13 @@ function M.batch_result(api, b, last, t_s)
     local n = #b.items
     local head = string.format("Built %d of %d pieces in %d s", #built, n, math.floor((t_s or 0) + 0.5))
     local text = head .. (#lines > 0 and (": " .. table.concat(lines, " ")) or ".")
-    if fail and b.keep_going then -- a blueprint goes on past a piece that wouldn't sit; what stands on it can't
-        for _, f in ipairs(fails) do
-            local it = b.items[f.k]
-            text = text .. " #" .. f.k .. " (" .. tostring(it.key or it.piece) .. (it.on and (" on " .. tostring(it.on)) or "") .. ") failed: "
-                .. tostring((f.r.data or {}).detail or f.r.reason)
-        end
-        if #untried > 0 then text = text .. " Not tried (they go on a piece that failed or the run stopped): " .. table.concat(untried, ", ") .. "." end
-    else
-        if fail then
-            local it = b.items[fail.k]
-            text = text .. " Stopped at #" .. fail.k .. " (" .. tostring(it.piece) .. (it.on and (" on " .. tostring(it.on)) or "") .. "): "
-                .. tostring((fail.r.data or {}).detail or fail.r.reason)
-        end
-        if #untried > 0 then text = text .. " Not tried: " .. table.concat(untried, ", ") .. "." end
+    -- a batch goes on past a piece that failed; what stands on it can't
+    for _, f in ipairs(fails) do
+        local it = b.items[f.k]
+        text = text .. " #" .. f.k .. " (" .. tostring(it.key or it.piece) .. (it.on and (" on " .. tostring(it.on)) or "") .. ") failed: "
+            .. tostring((f.r.data or {}).detail or f.r.reason)
     end
+    if #untried > 0 then text = text .. " Not tried (they go on a piece that failed or the run stopped): " .. table.concat(untried, ", ") .. "." end
     local data = { built_pieces = built, spent = api.object(spent), presses = last and last.data and last.data.presses or nil }
     if fail or #built < n then
         data.detail, data.why = text, fail and (fail.r.data or {}).why or "not_all_built"
@@ -1804,12 +1809,10 @@ function M.batch_next(api, job, res)
     -- a piece the game wouldn't take gets one more try once the others are up, as a player comes back to it (rung 2
     -- run 1, 05:0xZ: the door in its frame failed in the batch at 3.1 m, then went in first time on its own)
     b.failed_once = b.failed_once or {}
-    if not res.ok and b.keep_going and res.reason == "blocked" and not b.failed_once[b.i] then
-        b.failed_once[b.i], b.done[b.i] = true, nil
+    if not res.ok and res.reason == "blocked" and b.failed_once[b.i] == nil then
+        b.failed_once[b.i], b.done[b.i] = built_n(b), nil
     end
-    -- a blueprint goes on past a piece the game wouldn't take (blocked); anything else (stopped, no materials,
-    -- the menu, a timeout) ends it
-    if not res.ok and not (b.keep_going and res.reason == "blocked") then b.over = true; return false end
+    if not res.ok and not M.batch_goes_on(res) then b.over = true; return false end
     local k, args, nj
     repeat
         k = M.batch_pick(api, b)
@@ -1819,7 +1822,7 @@ function M.batch_next(api, job, res)
         nj = start_build(api, args, b.ctx)
         if nj.ok == false then
             b.results[k], b.done[k] = nj, true
-            if not (b.keep_going and nj.reason == "blocked") then b.over = true; return false end
+            if not M.batch_goes_on(nj) then b.over = true; return false end
         end
     until nj.ok ~= false
     -- the same job table goes on: the poll closure, the arbiter token and the open build screen stay with it
@@ -1921,7 +1924,25 @@ local function step(api, job, t)
                     c[1], c[2], job.piece.name, math.abs(here[3] - job.stand_at[3]), here[3] > job.stand_at[3] and "above" or "below",
                     here[3] > job.stand_at[3] + 3 and " (on top of the building; its door may be shut)" or "") })
         end
-        if (job.stand_at and ds and ds <= 1.2 and not (job.shelter and math.abs(here[3] - job.stand_at[3]) > cfg.shelter_up_m)) or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5) then
+        local there
+        if job.stand_list then
+            -- a spot from the stand search: there = the predicted view from where I stand lands on the aim point and
+            -- I'm not where the piece goes. Rung 2 run 20261116-013406: spots 1.2 and 1.5 m away counted as reached
+            -- at once (the old 1.2 m rule), so he placed from where the check had just said in_the_way /
+            -- view_blocked: a red door-frame wall 0.30 m off its edge, a roof 1.4 m off
+            if here and (not job.view_t or t >= job.view_t) then
+                job.view_t = t + cfg.stand_view_every_s
+                job.view_ok = W.stay_ok(api, job, here) and true or false
+            end
+            there = job.view_ok
+        else
+            there = (job.stand_at and ds and ds <= 1.2 and not (job.shelter and math.abs(here[3] - job.stand_at[3]) > cfg.shelter_up_m))
+                or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5)
+        end
+        if there then
+            if job.stand_list then
+                job.stay_log[#job.stay_log + 1] = string.format("  -> placing from spot %d (%.1f m from it, view %.2f m off)", job.stand_i, ds or -1, job.stay_off_m or -1)
+            end
             to_open(); return nil
         end
         if not job.moving and job.stand_list and (job.approaches or 0) >= 1 then
@@ -1937,7 +1958,7 @@ local function step(api, job, t)
                 return api.fail("too_far", { piece = job.piece.id, distance = d, detail = "I can't get to a spot to build the " .. job.piece.name .. " from." })
             end
             local goal = job.stand_at or stand_point(here or job.center, job.center, job.standoff + 0.5)
-            local mr = api.call("move", "go_to", goal, { tolerance_m = 0.8, timeout_s = job.stand_list and cfg.stand_walk_s or 60, allow_unstuck = false, owner_token = job.token })
+            local mr = api.call("move", "go_to", goal, { tolerance_m = job.stand_list and cfg.stand_arrive_m or 0.8, timeout_s = job.stand_list and cfg.stand_walk_s or 60, allow_unstuck = false, owner_token = job.token })
             if not mr.ok then return mr end
             job.moving, job.approaches = true, (job.approaches or 0) + 1
             return nil
@@ -1946,6 +1967,7 @@ local function step(api, job, t)
         if st.mode == "go_to" then return nil end
         job.moving = false
         local res = type(st.result) == "table" and st.result or {}
+        if job.stand_list then job.view_t = nil; return nil end -- the view from where the walk ended, then the next spot
         if res.status ~= "arrived" and res.status ~= "stopped" then
             local sk = api.module("skills")
             local words = sk and sk.why_words and sk.why_words(res.reason) or "I can't find a way there"
@@ -2436,10 +2458,14 @@ M.HANDLERS.build = function(log, args, ctx)
         args = M.batch_args(batch, batch.i)
     end
     local job = start_build(api, args, ctx)
-    if job.ok == false then
+    while job.ok == false do
         if not batch then return job end
-        batch.results[batch.i] = job
-        return M.batch_result(api, batch, job, 0)
+        batch.results[batch.i], batch.done[batch.i] = job, true
+        local k = M.batch_goes_on(job) and M.batch_pick(api, batch)
+        if not k then return M.batch_result(api, batch, job, 0) end
+        batch.i = k
+        args = M.batch_args(batch, k)
+        job = start_build(api, args, ctx)
     end
     job.batch = batch
     job.rotation = tonumber(args.rotation) or job.rotation
@@ -2508,9 +2534,13 @@ M.HANDLERS.build = function(log, args, ctx)
                 job.batch.results[job.batch.i], job.batch.done[job.batch.i], job.batch.over = job.final, true, true
             end
         end
-        if res and job.batch and ph ~= "leave" then -- a piece of a batch failed outside leave_then: record it, then leave
-            if not job.batch.over then job.batch.results[job.batch.i], job.batch.done[job.batch.i], job.batch.over = res, true, true end
-            job.final, job.phase, res = job.final or res, "leave", nil
+        if res and job.batch and ph ~= "leave" then -- a piece of a batch failed outside leave_then: record it, then go on or leave
+            if not job.batch.over and not job.stopped and res.ok == false and M.batch_next(api, job, res) then
+                res = nil
+            else
+                if not job.batch.over then job.batch.results[job.batch.i], job.batch.done[job.batch.i], job.batch.over = res, true, true end
+                job.final, job.phase, res = job.final or res, "leave", nil
+            end
         end
         if res then release(res.ok and "done" or tostring(res.reason)) end
         if res then

@@ -832,8 +832,17 @@ do
     da = r and r.data or {}
     check("batch: the second's side is taken -> not ok, says what was built and where it stopped, build screen closed",
         r and not r.ok and r.reason == "blocked" and tostring(da.detail):find("Built 1 of 2 pieces", 1, true)
-        and tostring(da.detail):find("Stopped at #2", 1, true) and tostring(da.detail):find("BP_X", 1, true)
+        and tostring(da.detail):find("#2 (campfire on #1:E) failed", 1, true) and tostring(da.detail):find("BP_X", 1, true)
         and da.failed_item == 2 and G.mode == "None", r and (tostring(r.reason) .. " " .. tostring(da.detail)))
+    -- a piece that can't start (a name I don't know) fails alone: the one after it still goes up (rung 2 run
+    -- 20261116-013406: "Roof" stopped the batch with three pieces untried)
+    batch_game()
+    r = build({ pieces = { { piece = "nosuchpiece", on = "BP_Foundation_C_A:N" }, { piece = "campfire", on = "BP_Foundation_C_A:E" } } }, 800)
+    da = r and r.data or {}
+    check("batch: an unknown piece fails alone, the next one is built",
+        r and not r.ok and r.reason == "unknown_target" and tostring(da.detail):find("Built 1 of 2 pieces", 1, true)
+        and tostring(da.detail):find("#1 (nosuchpiece on BP_Foundation_C_A:N) failed", 1, true) and da.built_pieces and #da.built_pieces == 1
+        and G.mode == "None", r and (tostring(r.reason) .. " " .. tostring(da.detail)))
     local br = Bd.batch_result(api, { items = { { piece = "Door", on = "#2:in" } },
         results = { { ok = false, reason = "blocked", data = { detail = "x", why = "not_snapped", ghost_off_m = 3.63, preview_reads = { { off_m = 3.63 } } } } } }, nil, 9)
     check("batch: a failed piece's own preview reads and ghost offset come back with the batch (live 21:15Z: none did)",

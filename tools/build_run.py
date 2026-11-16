@@ -521,6 +521,10 @@ def cmd_run(a) -> int:
             print("sender:", how)
             return 4
         cli = cl._debug_client()
+        # he sets off watered, fed and rested, as each chat ladder leg does (cl.top_vitals): run 20261116-003814 began
+        # at rest 0 (max stamina 40, no sprint) and he broke off the house to summon a shelter and nap. Rest is the
+        # rung 1 gate's own item; Luis's build baseline was played rested.
+        print("vitals:", cl.top_vitals(a, cli), flush=True)
         site = None
         fx = None
         tried: list[list[float]] = []  # rung 2: fresh spots whose stand-in got no piece up (the ground there refused it)
@@ -776,6 +780,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--rung2", action="store_true", help="the Rung 2 streak run: a stand-in of Luis's house goes up beside "
                    "the spot first (harness fixture), then the line (default RUNG2_LINE) asks for all of rung 2")
     r.add_argument("--keep", action="store_true", help="rung 2: leave what he built standing (no harness clean-up)")
+    r.add_argument("--vitals", type=int, default=100, help="water, food and rest set to this %% before the line (0 = leave them)")
     cu = sub.add_parser("cleanup")
     cu.add_argument("--rows", required=True, help='";"-separated JSON rows {"structure", "name", "position"} he built')
     cu.add_argument("--wait", type=float, default=1800.0)

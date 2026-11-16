@@ -556,7 +556,7 @@ function W.press_signals(api)
     local tod = s and type(s.time_of_day) == "function" and select(2, pcall(s.time_of_day)) or nil
     local wi = W.open_container(api)
     return { sleeping = type(tod) == "table" and tod.sleeping or nil, container = wi and wi.owner or nil,
-             conversation = W.conversation_npc(api), station = W.open_station(api) }
+             conversation = W.conversation_npc(api), station = W.open_station(api), resting = W.resting_in(api) }
 end
 
 -- The station whose crafting / processing screen the game has open for him (crafting.W.open_station), or nil.
@@ -921,6 +921,10 @@ local function episode_poll(api, e, t, owner_token)
         if not e.need_gain then
             local sig = W.press_signals(api)
             if sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
+            -- lying in it now (PlayerRestComponent.CurrentRestingAreaActor). By day the game's sleeping flag stays
+            -- off: live 2026-11-16 00:40Z he pressed Sleep on his Summon Shelter, lay down, his rest climbed 0 -> 75,
+            -- and the reply was "I can't get to the Magic Summon Shelter" (the retries found him rooted)
+            if not changed and sig.resting and sig.resting ~= (e.sig_before and e.sig_before.resting) then changed = "resting" end
             -- a chest / storage: the game opened ITS screen (deposit and withdraw: move_item with the container)
             if not changed and (sig.container == th.id and not (e.sig_before and e.sig_before.container == th.id)
                 or sig.station == th.id and not (e.sig_before and e.sig_before.station == th.id)) then
@@ -949,6 +953,10 @@ local function episode_poll(api, e, t, owner_token)
                 data.took = e.took
                 data.detail = string.format("The game highlighted another %s right beside that one, so I took it: +%d %s.",
                     tostring(e.took_name or e.label), n, tostring(e.took_name or e.label))
+            end
+            if changed == "resting" and not data.detail then
+                data.resting_in = W.resting_in(api)
+                data.detail = "I'm lying in the " .. tostring(e.label) .. " now, resting: my rest climbs while I stay, and I can't move until I get up (interact with it again)."
             end
             local kinds = 0
             for _ in pairs(all or {}) do kinds = kinds + 1 end
