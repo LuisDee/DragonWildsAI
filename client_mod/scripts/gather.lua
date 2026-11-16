@@ -247,6 +247,41 @@ function W.ground_near(p, r_cm, ground_at)
     if not read then return nil end
     return best or false
 end
+-- The height a tool's swing covers about his middle, from the game's own damage shape for that attack (the shared
+-- reach service, mod/body/reach.lua; `action` is the tool's attack class path, weapons_data prim.action).
+-- -> { lo, hi } cm; nil when it can't be read.
+local REACH
+function W.swing_band(action)
+    if type(action) ~= "string" or action == "" then return nil end
+    if REACH == nil then
+        package.loaded["body.util"] = package.loaded["body.util"] or U -- reach.lua require()s the util this file loaded
+        REACH = U.try(function() return assert(loadfile(ROOT .. "/mod/body/reach.lua"))() end) or false
+    end
+    if not REACH then return nil end
+    local cls = U.find_object(action)
+    local cdo = cls and U.try(function() return cls:GetCDO() end) or nil
+    local ad = U.valid(cdo) and U.try(function() return cdo.AttackData end) or nil
+    if not U.valid(ad) then return nil end
+    local _, _, _, sh = REACH.shape_of(ad)
+    return REACH.band_of(sh)
+end
+-- A thing's colliding bounds -> { mid = {X, Y, Z}, half = {X, Y, Z} } cm; nil when they can't be read.
+function W.bounds(a)
+    local b = U.try(function() local o, e = {}, {}; a:GetActorBounds(true, o, e, false); return { o.X, o.Y, o.Z, e.X, e.Y, e.Z } end)
+    if type(b) ~= "table" then return nil end
+    for i = 1, 6 do if type(b[i]) ~= "number" then return nil end end
+    if b[6] <= 0 then return nil end
+    return { mid = { X = b[1], Y = b[2], Z = b[3] }, half = { X = b[4], Y = b[5], Z = b[6] } }
+end
+-- The floor under a point (cm), by move's own downward trace -> Z in cm; false when there is none within a safe
+-- fall; nil when it can't be read.
+function W.floor_at(p)
+    local mv = mod("move")
+    if not (mv and type(mv.ground_at) == "function") then return nil end
+    local g = U.try(mv.ground_at, nil, { p.X / 100, p.Y / 100, p.Z / 100 })
+    if type(g) ~= "table" or not g.ok then return nil end
+    return g.floor_z and g.floor_z * 100 or false
+end
 function W.actions(pawn) return mcall("combat", "actions", pawn) or {} end
 function W.inject(action)
     local cb = mod("combat")
@@ -465,11 +500,11 @@ local function contested(pos, t)
     end
 end
 M._contested = contested
-local function mark_bad(J, T, why)
+local function mark_bad(J, T, why, no_streak) -- no_streak: left for what it is, not for something that went wrong
     local until_t = J.t + M.cfg.bad_ttl_s
     C().bad_why = C().bad_why or {}
     for _, k in ipairs({ T.key, T.alias }) do if k then C().bad[k] = until_t; C().bad_why[k] = why end end
-    J.bad_streak = (J.bad_streak or 0) + 1
+    if not no_streak then J.bad_streak = (J.bad_streak or 0) + 1 end
     J.last_bad = why
     say(J.log, "target " .. tostring(T.key) .. " given up: " .. tostring(why))
 end
@@ -776,6 +811,85 @@ local function stand_point(T, me, deg)
 end
 M._stand_point = stand_point
 
+-- The swing has a height as well as a depth. A tool's damage shape covers a band about his middle (stone pickaxe: a
+-- box 100 cm tall, so 40 to 140 cm over his feet; hatchet: a wedge 200 cm tall) and stays level whatever the camera
+-- does. A rock set in a rise is under that band from its high side: live 2026-11-16, runs 154701 and 155233, 27
+-- swings each at ..._1366033383 from ground level with its top, hp 60 throughout; probe ClaudeP161704 held the camera
+-- at -71 deg for 27 more, nothing. So for a rock or tree whose bounds and whose tool's swing can both be read, the
+-- stand is the nearest place round it where the floor puts the thing inside the swing.
+M.cfg.band_overlap_cm = 15 -- this much of the thing inside the band counts as covered (bounds are a box, a rock is not)
+M.cfg.stand_offsets = { 0, 45, -45, 90, -90, 135, -135, 180 } -- places round it, his own side first
+M.cfg.overhang_cm = 300    -- a "floor" this far over the thing's top is a branch or a roof, not where he would stand
+local function swing_band(J, T)
+    if T.kind ~= "actor" or T.stage ~= "root" or (T.attack or "primary") ~= "primary" then return nil end
+    if J.band == nil then
+        J.band = W.swing_band(((J.tool_profile or {}).prim or {}).action) or false
+        if J.band then
+            say(J.log, string.format("my %s's swing covers %.0f to %.0f cm about my middle", J.tool and J.tool.name or "tool", J.band.lo, J.band.hi))
+        end
+    end
+    return J.band or nil
+end
+-- How much of the thing the swing covers with his middle at mid_z: cm of the band inside the thing's bounds (zero or
+-- less: it passes over or under by that much), its bounds, and which way it misses. nil when either can't be read.
+local function swing_overlap(J, T, mid_z)
+    local band = swing_band(J, T)
+    local box = band and W.bounds(T.actor) or nil
+    if not box then return nil end
+    local bottom, top = box.mid.Z - box.half.Z, box.mid.Z + box.half.Z
+    return math.min(mid_z + band.hi, top) - math.max(mid_z + band.lo, bottom), box, (mid_z + band.lo >= top) and "below_swing" or "above_swing"
+end
+-- which of eight places round the thing a point is at
+local function stand_key(T, p) return math.floor(math.deg(math.atan(p.Y - T.pos.Y, p.X - T.pos.X)) / 45 + 0.5) % 8 end
+-- Where to stand for a swing: stand_point, and when the swing's height and the thing's bounds are known, the first
+-- place round it (from `deg` off his own side) whose floor puts the thing inside the swing; failing that, the place
+-- with the most of it inside. Places he already swung from with no effect (T.stands) are not offered again.
+-- -> goal, note (nil for his own side)  |  nil, why: "below_swing" / "above_swing" (the swing passes over / under it
+--    from every place beside it) or "swing_no_effect" (every place that could reach it was tried).
+local function stand_for(J, T, me, deg)
+    local base = stand_point(T, me, deg)
+    local _, box = swing_overlap(J, T, me.Z)
+    if not box then return base end
+    local half, top = M.cfg.capsule_half_cm, box.mid.Z + box.half.Z
+    local tried_all = T.stands or {}
+    local best, best_ov, best_off, near_ov, near_way, tried, unread
+    for _, off in ipairs(M.cfg.stand_offsets) do
+        local p = stand_point(T, me, deg + off)
+        local f
+        -- (a point over the thing itself reads the thing, not the floor beside it)
+        if math.abs(p.X - box.mid.X) > box.half.X or math.abs(p.Y - box.mid.Y) > box.half.Y then
+            f = W.floor_at({ X = p.X, Y = p.Y, Z = top })
+            if f and f > top + M.cfg.overhang_cm then f = nil end
+        end
+        if f == nil then
+            if off == 0 then return base end -- his own side can't be read: as before, the swings tell
+            unread = true
+        elseif f then
+            local ov, _, way = swing_overlap(J, T, f + half)
+            if not near_ov or ov > near_ov then near_ov, near_way = ov, way end
+            if tried_all[stand_key(T, p)] then tried = true
+            elseif ov >= M.cfg.band_overlap_cm then
+                if off == 0 then return base end
+                p.Z = f + half
+                say(J.log, string.format("standing %d deg round it, where my swing covers %.0f cm of it", off, ov))
+                return p, "by_height"
+            elseif ov > 0 and (not best_ov or ov > best_ov) then
+                best, best_ov, best_off = { X = p.X, Y = p.Y, Z = f + half }, ov, off
+            end
+        end
+    end
+    if best then
+        say(J.log, string.format("standing %d deg round it: only %.0f cm of it is inside my swing there, the most from any side", best_off, best_ov))
+        return best, "by_height"
+    end
+    if tried then return nil, "swing_no_effect" end
+    if unread then return base end -- some places beside it could not be read: not called out of the swing's reach
+    say(J.log, string.format("target %s: my swing passes %s it from every side (nearest %.0f cm)", tostring(T.key),
+        near_way == "below_swing" and "over" or "under", near_ov and -near_ov or 0))
+    return nil, near_way or "below_swing"
+end
+M._stand_for = stand_for
+
 -- The foliage instance we walked to became an actor (the server's converter / our swing): adopt it.
 -- Pickups: the NEAREST matching actor within pick_adopt_cm. Stones and branches lie 0.5-2 m apart, so "the first one
 -- within 2 m" adopted a neighbour (live 2026-11-01 14:08Z: the press took the real one, the adopted neighbour was then
@@ -951,12 +1065,24 @@ local function step_scan(J, me)
     end
     if J.aside and #J.aside > 0 then
         extra.left_alone = J.aside
-        local noeff = 0
-        for _, x in ipairs(J.aside) do if x.why == "swing_no_effect" then noeff = noeff + 1 end end
+        local noeff, low, high = 0, 0, 0
+        for _, x in ipairs(J.aside) do
+            if x.why == "swing_no_effect" then noeff = noeff + 1
+            elseif x.why == "below_swing" then low = low + 1
+            elseif x.why == "above_swing" then high = high + 1 end
+        end
         if noeff > 0 then
             parts[#parts + 1] = string.format("%d took no damage from any swing I tried, so I left %s", noeff, noeff == 1 and "it" or "them")
         end
-        if #J.aside > noeff then parts[#parts + 1] = string.format("%d I couldn't get to or use just now", #J.aside - noeff) end
+        -- (stand_for: the tool's swing passes over or under it from every place beside it)
+        for _, v in ipairs({ { low, "low" }, { high, "high" } }) do
+            if v[1] > 0 then
+                parts[#parts + 1] = string.format("%d %s too %s for my %s to hit from anywhere I can stand beside %s", v[1],
+                    v[1] == 1 and "sits" or "sit", v[2], J.tool and J.tool.name or "tool", v[1] == 1 and "it" or "them")
+            end
+        end
+        local rest = #J.aside - noeff - low - high
+        if rest > 0 then parts[#parts + 1] = string.format("%d I couldn't get to or use just now", rest) end
     end
     if #parts > 0 then
         local what = table.concat(parts, ", and ") .. "."
@@ -975,6 +1101,18 @@ local function step_scan(J, me)
         math.floor(J.radius_cm / 100), of) .. tail, extra)
 end
 
+-- a thing no swing hurt is left; three of them in a row end the job
+local function leave_unhurt(J, T)
+    mark_bad(J, T, "swing_no_effect")
+    J.T = nil
+    J.moving = false
+    if J.bad_streak >= M.cfg.bad_streak then
+        return fail(J, "path_blocked", "swing_no_effect", string.format(
+            "My %s swings aren't hurting the %s; I tried %d different ones.", J.tool and J.tool.name or "tool", tostring(J.key), J.bad_streak))
+    end
+    return set_phase(J, "scan", "swing_no_effect")
+end
+
 local approach_failed -- (J, T, st, res): below, shared with step_sweep
 local function step_approach(J, pawn, me)
     local T = J.T
@@ -983,19 +1121,35 @@ local function step_approach(J, pawn, me)
     if done then return on_done(J, T, how) end
     local d = U.dist2d(me, T.pos)
     local reach = T.reach_cm or 130
-    if d <= reach + 10 and not T.reposition then
-        mcall("move", "stop", J.log)
-        return set_phase(J, "aim", string.format("%.2f m", d / 100))
+    -- Near enough already: swing from here. Not while he is walking to a stand chosen for a reason (T.to_stand: the
+    -- other side, or the side the swing reaches it from; before, a walk to the other side was stopped on its first
+    -- tick because he was still within reach, so "the other side" was the same side), and not from a floor where the
+    -- swing passes over or under the thing.
+    if d <= reach + 10 and not T.reposition and not T.to_stand then
+        local ov = not T.stood and swing_overlap(J, T, me.Z) or nil
+        if not ov or ov >= M.cfg.band_overlap_cm then
+            mcall("move", "stop", J.log)
+            J.moving = false -- the walk is over: the next target's approach starts its own
+            return set_phase(J, "aim", string.format("%.2f m", d / 100))
+        end
     end
     if not J.moving then
-        local goal = stand_point(T, me, T.reposition or 0)
+        local rep = T.reposition
+        local goal, note = stand_for(J, T, me, rep or 0)
         T.reposition = nil
+        if not goal then
+            if note == "swing_no_effect" then return leave_unhurt(J, T) end
+            mark_bad(J, T, note, true) -- no swing spent on it; the result says how many were left this way
+            J.T = nil
+            return set_phase(J, "scan", note)
+        end
         if not start_move(J, goal, 0.35) then
             mark_bad(J, T, "move refused")
             J.T = nil
             return set_phase(J, "scan", "move refused")
         end
         J.moving = true
+        T.to_stand = (rep ~= nil or note ~= nil) or nil
         return
     end
     local ms, st = move_state()
@@ -1003,10 +1157,12 @@ local function step_approach(J, pawn, me)
     if ms == "moving" and walk_stalled(J, st) then return approach_failed(J, T, st, {}) end
     if ms == "moving" and J.t - (J.move_started or J.t) <= M.cfg.approach_timeout_s + 5 then return end
     J.moving = false
+    T.to_stand = nil
     local res = st and st.result or {}
     -- "close" is 2D; a target far above or below him (a ledge) is not in reach from under it
     local level = not (T.pos.Z and math.abs((T.pos.Z + 90) - me.Z) > M.cfg.stand_dz_cm)
     if res.status == "arrived" or (level and d <= reach + M.cfg.near_enough_cm) then
+        T.stood = true -- the stand was chosen and walked to: swing from it, whatever the floor turned out to be
         return set_phase(J, "aim", string.format("%.2f m", d / 100))
     end
     return approach_failed(J, T, st, res)
@@ -1365,6 +1521,10 @@ local function step_swing(J, pawn, me, acts)
         -- misses on a split log ended in a false inputs_not_reaching_game): a press reading less than the press before
         -- proves that swing ran, so the inputs reach the game and the miss is the aim's
         if not spent and pp.stamina and pp.prev_stamina and pp.stamina < pp.prev_stamina - 0.5 then spent = true end
+        -- and so does a press he had to wait for stamina to make: presses that reach nothing spend none, so it would
+        -- have climbed back. There a press reads no lower than the one before (he presses as soon as there is enough),
+        -- so the rule above cannot see it (two full rounds of aims at each of three trees, test 5b).
+        if not spent and pp.waited then spent = true end
         local hp = T.kind == "actor" and W.hp(T.actor) or nil
         -- damage: HP fell since the press (or, for a tree that was still foliage, it now exists damaged)
         local hit = (hp and pp.hp and hp < pp.hp - 0.01)
@@ -1411,15 +1571,9 @@ local function step_swing(J, pawn, me, acts)
             if T.aim_i > #offsets(J) then
                 T.aim_i = 1
                 T.side = T.side + 1
-                if T.side >= cfg.sides then
-                    mark_bad(J, T, "swing_no_effect")
-                    J.T = nil
-                    if J.bad_streak >= cfg.bad_streak then
-                        return fail(J, "path_blocked", "swing_no_effect", string.format(
-                            "My %s swings aren't hurting the %s; I tried %d different ones.", J.tool and J.tool.name or "tool", tostring(J.key), J.bad_streak))
-                    end
-                    return set_phase(J, "scan", "swing_no_effect")
-                end
+                if T.side >= cfg.sides then return leave_unhurt(J, T) end
+                T.stands = T.stands or {}
+                T.stands[stand_key(T, me)] = true -- swung from here with every aim: stand_for offers another place
                 T.reposition = 90 * T.side
                 J.moving = false
                 return set_phase(J, "approach", "other side")
@@ -1437,6 +1591,7 @@ local function step_swing(J, pawn, me, acts)
     local st = W.stamina(pawn)
     if st and st < (prim.stam or 5) + cfg.stamina_margin then
         J.next_press = J.t + 0.5 -- let stamina come back
+        J.stam_waited = true
         return
     end
     -- a style the model chose (one of the held tool's own actions, combat.check_style), else the
@@ -1459,9 +1614,10 @@ local function step_swing(J, pawn, me, acts)
     J.swings = J.swings + 1
     C().counts.swings = C().counts.swings + 1
     local rot = T.stage ~= "root" and U.try(function() return J.pc:GetControlRotation() end) or nil -- for diag_piece
-    J.pending = { t = J.t, stamina = st, prev_stamina = J.press_stamina, hp = T.kind == "actor" and W.hp(T.actor) or nil,
+    J.pending = { t = J.t, stamina = st, prev_stamina = J.press_stamina, waited = J.stam_waited, hp = T.kind == "actor" and W.hp(T.actor) or nil,
                   kind = T.kind, verify_at = J.t + (prim.dmg_ms or 600) / 1000 + 0.45, pitch = rot and rot.Pitch or nil }
     J.press_stamina = st
+    J.stam_waited = nil
     J.next_press = J.t + (prim.next_ms or 1300) / 1000 + jitter(cfg.press_jitter_ms)
 end
 

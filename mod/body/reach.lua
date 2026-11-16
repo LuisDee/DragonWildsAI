@@ -46,11 +46,33 @@ function M.window_of(sh)
     return M.DEFAULT
 end
 
+-- Pure: the height a shape covers about the attacker's middle (his capsule centre), cm -> { lo, hi }; nil for a shape
+-- whose height is not known. Box: Extents.Z about Pivot.Z; wedge: ZHeight about Pivot.Z (0.5 = centred, the default);
+-- sphere: its radius. Offset.Z moves it. The shape stays level: it does not tilt with the camera's pitch.
+-- Read live 2026-11-16 (build 26574459, DISCOVERIES "The swing has a height"): stone pickaxe, Box Extents
+-- [110, 30, 100], Pivot [0, 0.5, 0.5] -> -50..+50; hatchet, Wedge ZHeight 200 -> -100..+100.
+function M.band_of(sh)
+    if not sh then return nil end
+    local k = (sh.kind or ""):lower()
+    local oz = tonumber((sh.Offset or {}).Z) or 0
+    local pz = tonumber((sh.Pivot or {}).Z) or 0.5
+    local h
+    if k:find("box") then h = tonumber((sh.Extents or {}).Z)
+    elseif k:find("wedge") then h = tonumber(sh.ZHeight)
+    elseif k:find("sphere") then
+        local r = tonumber(sh.Radius)
+        return r and r > 0 and { lo = oz - r, hi = oz + r } or nil
+    end
+    if not h or h <= 0 then return nil end
+    return { lo = oz - pz * h, hi = oz + (1 - pz) * h }
+end
+
 -- Read the first timed damage shape of an attack class (UClass of a UPlayerAttackData). Cached.
--- Returns window (M.window_of), key (for M.sign/M.flip), t_s (TimeOffset) or the default window.
+-- Returns window (M.window_of), key (for M.sign/M.flip), t_s (TimeOffset), the shape as read (for M.band_of; nil
+-- when it could not be read), or the default window.
 function M.shape_of(attack_class)
     local key = U.fullname(attack_class) or tostring(attack_class)
-    if cache[key] then return cache[key].win, key, cache[key].t end
+    if cache[key] then return cache[key].win, key, cache[key].t, cache[key].sh end
     local cdo = U.try(function() return attack_class:GetCDO() end)
     local sh, t
     if cdo then
@@ -63,9 +85,12 @@ function M.shape_of(attack_class)
                     t = num(e, "TimeOffset")
                     local off = U.try(function() return s.Offset end)
                     local ex = U.try(function() return s.Extents end)
+                    local pv = U.try(function() return s.Pivot end)
                     sh = { kind = U.class_word(s) or ((U.fullname(U.try(function() return s:GetClass() end)) or ""):match("([%w_]+)$")),
                            Depth = num(s, "Depth"), MinDepth = num(s, "MinDepth"), TopAngle = num(s, "TopAngle"),
                            AngleOffset = num(s, "AngleOffset"), Radius = num(s, "Radius"), ArcCircleRadius = num(s, "ArcCircleRadius"),
+                           ZHeight = num(s, "ZHeight"),
+                           Pivot = pv and { X = num(pv, "X"), Y = num(pv, "Y"), Z = num(pv, "Z") } or nil,
                            Offset = off and { X = num(off, "X"), Y = num(off, "Y"), Z = num(off, "Z") } or nil,
                            Extents = ex and { X = num(ex, "X"), Y = num(ex, "Y"), Z = num(ex, "Z") } or nil }
                 end
@@ -73,8 +98,8 @@ function M.shape_of(attack_class)
         end)
     end
     local win = M.window_of(sh)
-    cache[key] = { win = win, t = t }
-    return win, key, t
+    cache[key] = { win = win, t = t, sh = sh }
+    return win, key, t, sh
 end
 
 function M.sign(key) return G[key] or 1 end

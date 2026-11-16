@@ -117,7 +117,18 @@ local function swing()
         local rel = wrap(math.deg(math.atan(c.pos.Y - me.Y, c.pos.X - me.X)) - Wd.pawn.yaw)
         if d <= 160 and math.abs(rel - (Wd.aim_rel or 35)) <= 25 and (not bd or d < bd) then best, bd = c, d end
     end
+    Wd.sw_from = Wd.sw_from or {}
+    Wd.sw_from[#Wd.sw_from + 1] = { X = me.X, Y = me.Y, Z = me.Z }
     if not best or Wd.no_effect then return end
+    -- the swing covers a band about his middle (Wd.band), level whatever the camera does: a thing whose bounds lie
+    -- wholly under or over it takes nothing (live 2026-11-16, probes ClaudeP161652 and ClaudeP161704)
+    if best.a and Wd.band and best.a.bounds then
+        local b = best.a.bounds
+        if math.min(me.Z + Wd.band.hi, b.mid.Z + b.half.Z) - math.max(me.Z + Wd.band.lo, b.mid.Z - b.half.Z) <= 0 then
+            Wd.whiffs = (Wd.whiffs or 0) + 1
+            return
+        end
+    end
     if best.a and Wd.immune_fam and best.a.fams[1] == Wd.immune_fam then return end -- a piece no swing hurts (live 21:03Z)
     local a = best.a or convert(best.f)
     Wd.pending[#Wd.pending + 1] = { t = T + 0.55, fn = function() damage(a, 68) end }
@@ -188,6 +199,7 @@ local function step_move(dt)
     local stepc = math.min(450 * dt, d)
     local dx, dy = (MV.goal.X - me.X) / d, (MV.goal.Y - me.Y) / d
     me.X, me.Y = me.X + dx * stepc, me.Y + dy * stepc
+    if Wd.floor then local f = Wd.floor(me); if type(f) == "number" then me.Z = f + 88 end end -- his middle, 88 cm over the floor
     Wd.pawn.yaw = math.deg(math.atan(dy, dx))
 end
 
@@ -306,6 +318,9 @@ end
 W.loc = function(a) return a and a.pos and { X = a.pos.X, Y = a.pos.Y, Z = a.pos.Z } end
 local real_ground_near = W.ground_near
 W.ground_near = function(p) if Wd.ground then return Wd.ground(p) end return 0 end -- a flat world unless a test says otherwise
+W.swing_band = function() return Wd.band end           -- no band unless a test gives one: the stand is chosen as before
+W.bounds = function(a) return a and a.bounds end
+W.floor_at = function(p) if Wd.floor then return Wd.floor(p) end return nil end
 W.alive = function(a) return a ~= nil and a._alive == true end
 W.id = function(a) return a.id end
 W.class = function(a) return a.cls end
@@ -756,8 +771,96 @@ do
     local res6 = run_job({ resource = "rune essence", count = 1 }, 600)
     local d6 = tostring(res6.data and res6.data.detail)
     Wd.immune_fam = nil
+    -- "the other side" is another side: the second round of aims is swung from somewhere else round the rock (before,
+    -- the walk round was stopped on its first tick because he was still within reach)
+    do
+        local a, b = Wd.sw_from[1], Wd.sw_from[#Wd.sw_from]
+        local turn = math.abs(wrap(math.deg(math.atan(a.Y, a.X - 400)) - math.deg(math.atan(b.Y, b.X - 400))))
+        check("essence rock no swing hurts: the second round is swung from another side", turn >= 60, string.format("%.0f deg apart", turn))
+    end
+    -- and the rock after it is not called unreachable (before: the walk flag of the stopped "other side" walk was left
+    -- set, so the next target's approach read the stopped move as a failed one: "unreachable: stuck")
+    do
+        reset()
+        fake_pc.Pawn = Wd.pawn
+        Wd.immune_fam = "DestructibleMiningRock"
+        new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 400, Y = 0, Z = 0 }, 40, { item = "ITEM_Rune_Essence" })
+        new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 1400, Y = 0, Z = 0 }, 40, { item = "ITEM_Rune_Essence" })
+        local r2 = run_job({ resource = "rune essence", count = 1 }, 600)
+        Wd.immune_fam = nil
+        local d2s = tostring(r2.data and r2.data.detail)
+        check("two rocks no swing hurts: both were swung at, neither called unreachable", r2.ok == false
+            and d2s:find("2 took no damage from any swing I tried", 1, true) ~= nil and d2s:find("couldn't get to", 1, true) == nil, d2s)
+    end
     check("essence rock no swing hurts: left, and said", res6.ok == false and d6:find("1 took no damage from any swing I tried, so I left it", 1, true) ~= nil
         and type(res6.data.left_alone) == "table" and res6.data.left_alone[1].why == "swing_no_effect", tostring(res6.reason) .. " " .. d6)
+    -- A rock set in a rise. The pickaxe's swing is a box 100 cm tall about his middle and does not tilt with the camera:
+    -- from the high side it passes over the rock, from the low side it lands. Live 2026-11-16, runs 154701 and 155233:
+    -- 27 swings each from the high side of ..._1366033383, hp 60 throughout; probes ClaudeP161652 and ClaudeP161704.
+    local function rise_rock(floor)
+        reset()
+        fake_pc.Pawn = Wd.pawn
+        Wd.band = { lo = -50, hi = 50 }
+        Wd.floor = floor
+        Wd.pawn.pos.Z = (floor(Wd.pawn.pos) or -88) + 88
+        return new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 400, Y = 0, Z = 0 }, 40,
+            { item = "ITEM_Rune_Essence", bounds = { mid = { X = 400, Y = 0, Z = 0 }, half = { X = 50, Y = 50, Z = 60 } } })
+    end
+    -- he comes from the west, where the ground is level with the rock's top; east of it the ground is a metre lower
+    local rk = rise_rock(function(p) return p.X < 330 and 60 or -40 end)
+    local res7 = run_job({ resource = "rune essence", count = 1 }, 300)
+    check("rock in a rise: mined", res7.ok == true and rk.hp <= 0, tostring(res7.reason) .. " " .. tostring(res7.data and res7.data.detail))
+    check("rock in a rise: no swing passed over it", (Wd.whiffs or 0) == 0, tostring(Wd.whiffs))
+    check("rock in a rise: he swung from the low side", Wd.sw_from and Wd.sw_from[1] and Wd.sw_from[1].X >= 330,
+        Wd.sw_from and Wd.sw_from[1] and tostring(Wd.sw_from[1].X))
+    -- level ground: his own side, as before
+    local flat = rise_rock(function() return -60 end)
+    local res7b = run_job({ resource = "rune essence", count = 1 }, 300)
+    check("rock on level ground with a readable swing: mined from his own side", res7b.ok == true and flat.hp <= 0 and (Wd.whiffs or 0) == 0
+        and Wd.sw_from[1].X < 300, tostring(res7b.reason) .. " " .. tostring(Wd.sw_from and Wd.sw_from[1] and Wd.sw_from[1].X))
+    -- the ground is as high as its top on every side: no swing is spent, and the result says why it was left
+    rise_rock(function() return 60 end)
+    local res8 = run_job({ resource = "rune essence", count = 1 }, 300)
+    local d8 = tostring(res8.data and res8.data.detail)
+    check("rock under the swing from every side: left without a swing", res8.ok == false and (Wd.swings or 0) == 0, tostring(Wd.swings))
+    check("rock under the swing from every side: the result says so",
+        d8:find("1 sits too low for my Mithril Pickaxe to hit from anywhere I can stand beside it", 1, true) ~= nil
+        and type(res8.data.left_alone) == "table" and res8.data.left_alone[1].why == "below_swing", tostring(res8.reason) .. " " .. d8)
+    -- a ledge over his head on every side: too high, said the same way
+    rise_rock(function() return -260 end)
+    local res8b = run_job({ resource = "rune essence", count = 1 }, 300)
+    check("rock over the swing from every side: left without a swing, and said", res8b.ok == false and (Wd.swings or 0) == 0
+        and tostring(res8b.data and res8b.data.detail):find("1 sits too high for my Mithril Pickaxe to hit", 1, true) ~= nil,
+        tostring(Wd.swings) .. " " .. tostring(res8b.data and res8b.data.detail))
+    -- only a sliver of it is inside the swing, and from one side only: tried there, one round of aims, then left
+    rise_rock(function(p) return p.X > 500 and 17 or 60 end)
+    Wd.immune_fam = "DestructibleMiningRock"
+    local res9 = run_job({ resource = "rune essence", count = 1 }, 600)
+    Wd.immune_fam = nil
+    local d9 = tostring(res9.data and res9.data.detail)
+    local east = true
+    for _, s in ipairs(Wd.sw_from or {}) do if s.X <= 500 then east = false end end
+    check("a sliver inside the swing from one side: tried there only, one round of aims", res9.ok == false and (Wd.swings or 0) > 0
+        and (Wd.swings or 0) <= 12 and east, tostring(Wd.swings) .. " east=" .. tostring(east))
+    check("a sliver inside the swing: left as a rock no swing hurt", d9:find("1 took no damage from any swing I tried", 1, true) ~= nil, d9)
+    -- the floor beside it can't be read (a roof, a branch): his own side, the swings tell, as before
+    local roofed = rise_rock(function() return nil end)
+    Wd.pawn.pos.Z = 0
+    local res9b = run_job({ resource = "rune essence", count = 1 }, 300)
+    check("floor beside the rock unreadable: he goes and swings as before", res9b.ok == true and roofed.hp <= 0, tostring(res9b.reason))
+    -- the swing's height, from the game's own shape (the shared reach service)
+    do
+        package.loaded["body.util"] = package.loaded["body.util"] or G.U
+        local R = dofile(here .. "/../../mod/body/reach.lua")
+        local b = R.band_of({ kind = "DominionShape_Box", Extents = { X = 110, Y = 30, Z = 100 }, Pivot = { X = 0, Y = 0.5, Z = 0.5 } })
+        check("reach.band_of: the pickaxe's box covers 50 cm either side of his middle", b and b.lo == -50 and b.hi == 50, b and (b.lo .. " " .. b.hi))
+        b = R.band_of({ kind = "DominionShape_Wedge", Depth = 115, ZHeight = 200, Pivot = { X = 0, Y = 0.5, Z = 0.5 } })
+        check("reach.band_of: the hatchet's wedge covers a metre either side", b and b.lo == -100 and b.hi == 100, b and (b.lo .. " " .. b.hi))
+        b = R.band_of({ kind = "DominionShape_Wedge", Depth = 170, ZHeight = 200, Offset = { X = 0, Y = 0, Z = -40 } })
+        check("reach.band_of: an offset moves the band, a missing pivot is centred", b and b.lo == -140 and b.hi == 60, b and (b.lo .. " " .. b.hi))
+        check("reach.band_of: a shape with no known height gives none", R.band_of({ kind = "DominionShape_Arc", ArcCircleRadius = 150 }) == nil
+            and R.band_of(nil) == nil and R.band_of({ kind = "DominionShape_Box" }) == nil)
+    end
     -- the real reader: the highest floor of the four points, nothing more than 3 m above the thing, by move's own trace
     do
         local floors = { 100, 250, nil, 900 } -- cm / 100 below; the fourth is a branch 6.5 m above the thing
