@@ -234,6 +234,10 @@ M.cfg.build = {
     verify_s = 6.0, leave_presses = 3, leave_wait_s = 0.5, timeout_s = 110, match_m = 1.5, rotate_step_deg = 15,
     budget_s = 25,
     settle_s = 4.0, -- a cursor read while it still closes on the spot is not a check, up to this long (placement.lua)
+    -- the one-step aim (camrig.lua, issue B16): the rotation is solved from the camera boom's pivot, so the cursor is
+    -- on the aim point 2 frames later and stands. Read aim_wait_s after the aim (>= 4 frames at 30 fps); a cursor read
+    -- at least aim_settle_s after an exact aim counts as settled. false = the old aim from where the camera stands.
+    aim_exact = true, aim_wait_s = 0.15, aim_settle_s = 0.12,
     red_probe_s = 2.0, -- every spot red: press once and wait this long for the game's own reason (0 = off)
     shelter_up_m = 2.0, -- ... and standing more than this above / below its floor is not in it (on the roof)
     shelter_reach_m = 25, -- a shelter-only piece: my own covered floors this close to where it was asked count
@@ -354,6 +358,18 @@ function W.select(api, data)
     local ok, err = pcall(function() ui:CallOnBuildingItemSelected(data) end)
     return ok, (not ok) and tostring(err) or nil
 end
+local CR
+local function camrig()
+    CR = CR or assert(loadfile((debug.getinfo(1, "S").source:match("^@(.*)[/\\]") or (ROOT .. "/client_mod/scripts")) .. "/camrig.lua"))()
+    return CR
+end
+function W.rig(api)
+    local sm = api.module("sense")
+    local pc, pawn = W.pc(api), sm and sm.local_pawn and sm.local_pawn()
+    if not (pc and pawn) then return nil end
+    local okr, rig = pcall(function() return camrig().rig(sense_U(api), pc, pawn) end)
+    return okr and rig or nil
+end
 function W.camera(api)
     local U = sense_U(api)
     local pc = W.pc(api)
@@ -361,9 +377,17 @@ function W.camera(api)
     local ok, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
     if ok and type(x) == "number" then return { x / 100, y / 100, z / 100 } end
 end
+-- Aim the screen centre at pos. -> distance camera -> pos (m), exact (true: solved from the camera boom's pivot, the
+-- centre ray passes through pos once the camera has swung, 2 frames; issue B16).
 function W.aim(api, pos)
     local U = sense_U(api)
     local pc = W.pc(api)
+    local sm = api.module("sense")
+    local pawn = sm and sm.local_pawn and sm.local_pawn()
+    if pc and pawn and pos and M.cfg.build.aim_exact then
+        local okr, dist = pcall(function() return (camrig().aim(U, pc, pawn, pos)) end)
+        if okr and dist then return dist, true end
+    end
     local cam = W.camera(api) or api.my_position()
     if not (pc and cam and pos) then return nil end
     local dx, dy, dz = pos[1] - cam[1], pos[2] - cam[2], (pos[3] or cam[3]) - cam[3]
@@ -1384,7 +1408,7 @@ local function preview_reader(api, job)
                 -- cursor wandered 1-7 m while the camera settled): aim again from where it is now, then wait
                 local cam = W.camera(api)
                 local ac = job.aim_cam
-                if cam and ac and job.aim_raw and job.env and math.sqrt((cam[1] - ac[1]) ^ 2 + (cam[2] - ac[2]) ^ 2 + (cam[3] - ac[3]) ^ 2) > cfg.reaim_cam_m
+                if not job.aim_exact and cam and ac and job.aim_raw and job.env and math.sqrt((cam[1] - ac[1]) ^ 2 + (cam[2] - ac[2]) ^ 2 + (cam[3] - ac[3]) ^ 2) > cfg.reaim_cam_m
                     and (job.on.reaims or 0) < cfg.reaims_max then
                     job.on.reaims = (job.on.reaims or 0) + 1
                     job.env.aim(job.aim_raw)
@@ -1393,6 +1417,9 @@ local function preview_reader(api, job)
                 end
                 local prev = job.on.prev_cursor
                 local moved = prev and math.sqrt((m.position[1] - prev[1]) ^ 2 + (m.position[2] - prev[2]) ^ 2) or math.huge
+                -- an exact aim: the cursor answers within 2 frames and then stands (live trace 2026-11-16, 40 aims),
+                -- so one read aim_settle_s after the aim is the settled cursor
+                if job.aim_exact and job.aim_t and api.now() - job.aim_t >= cfg.aim_settle_s then moved = 0 end
                 job.on.prev_cursor = m.position
                 -- where the cursor must sit: the flush spot for a tile; for a wall the point just inside the edge on the
                 -- anchor's top (its z too: a cursor on the side face below would snap it to the bottom edge)
@@ -1941,7 +1968,9 @@ local function step(api, job, t)
                 if c then p = { p[1] + c[1], p[2] + c[2], p[3] + (c[3] or 0) } end
                 job.aim_seq, job.last_aim = W.hook_seq(), p
                 job.aim_cam = W.camera(api) -- the rotation is worked out from here; the camera swings after it
-                return W.aim(api, p)
+                local dist, exact = W.aim(api, p)
+                job.aim_exact, job.aim_t = exact == true, api.now()
+                return dist
             end,
             read = preview_reader(api, job),
         }
@@ -2071,9 +2100,11 @@ local function step(api, job, t)
             end
         end
         local checks = (job.on and job.on.mode == "cursor" and cfg.cursor_checks) or (job.on and 4) or 3
+        local exact = cfg.aim_exact and W.rig(api) ~= nil
         job.checker = P.checker(env, spots, { match_m = function(sp) return sp.match_m or cfg.match_m end, checks = checks,
                                               budget_s = cfg.budget_s, compare = "2d",
-                                              settle_s = cfg.settle_s })
+                                              wait_s = exact and cfg.aim_wait_s or nil,
+                                              settle_s = exact and 0 or cfg.settle_s })
         job.phase = "check"
         return nil
     elseif job.phase == "check" then
