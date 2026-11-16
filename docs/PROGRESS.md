@@ -1097,3 +1097,10 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **What is left between him and Luis's 15 s:** first press at 6.4-7.1 s against Luis's 2.9 s (state reads 0.85 s, Haiku 1.0-2.3 s, walk and aim 3.7 s against 2.1 s), then about the same swing time.
 - Tests: test_gather 142, test_move ALL OK, pytest controller_loop/executor/agent/rung1/rung3/quest_run 52.
 - Open: chop (90 s against a 70.5 s bar: 23 logs taken when 13 were asked, 12 swings on a split log that takes no damage).
+
+## 2026-11-16 05:0xZ rung 3: chop at standard, 3 in a row (63.6 / 65.5 / 62.1 s against Luis's 47 s, bar 70.5)
+- No chop-specific change: the three runs came with the mine session's cuts (held line, state reuse, due-frame press, the chat clock). Debug chop without the brain: 45.2 s for 15 logs, 14 swings, 11 hits.
+- 0 misses, no stand, lines judged true, 1-2 Haiku calls per run. He took 20 / 16 / 16 logs for 13 asked (a felled tree's pieces come in fives).
+- Where the debug run's 45 s goes: tree down at 8.0 s, 4.3 s until its pieces lie still, then per piece ~1 s approach + 0.6 s aim + 2.2 s (split) or 7.8 s (log) of swings, and 9 pick-ups of 0.3-4.9 s each (one took 4.9 s).
+- Not fixed: the split log that takes no damage (the 90.0 s run of 03:14Z) did not show in these runs; the give_up_swings guard is still the only answer to it.
+- Rung 3 now: axe, pickaxe, chop, mine, boil, cook at standard. Open: wheel/thread/spade (parked on the shelter rule), plots (need Growing Pains).
