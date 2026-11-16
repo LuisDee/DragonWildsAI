@@ -1349,3 +1349,22 @@ Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the 
 - **Live (probe ClaudeP161729, 17:31Z):** the same rock, hp 60, from the same start: "standing 135 deg round it: only 7 cm of it is inside my swing there, the most from any side", then five hits in five swings and the rock broke; 14.6 s, 5 essence. Before: 27 swings and 53 s for nothing, four times over. Runs 154701 and 155233 are tagged fixed.
 - **Limits.** One live trial at one rock. The second part of the probe (a geyser-J rock approached from its high side) did not run: that rock was not in look's capped list. The "too low" and "too high" wording has not been seen live. If the walk's 35 cm arrival tolerance ends on the high side of a sharp step he swings from there first and goes round only after a round of aims. The height check is for rocks and trees, not yet for log pieces. Reports were not judged for truth.
 - **Open, each with one run:** `craft` before the materials and a give to an NPC (Getting Started, 3 runs, 1 open); talk that opened no conversation (cause not found); gather's "used up" wording (c28130d, not yet seen live); cooking at startup across the first request.
+
+## 2026-11-16 17:33Z-18:10Z: Rune Mysteries from `rm_part2`: 2 passes, then three trials at spent rocks (void); the step runner now moves the game clock on before each trial (de1e6c5)
+**Window 20261116-173343, K=5** (Controller Haiku 5.5, Planner Sonnet 5.5, about $0.05; the first window on d064ed8):
+
+| trial | result | time | misses | what happened |
+|---|---|---|---|---|
+| a 173635 | pass | 79.3 s, 0.91 times the human time | 0 | gather 10 essence in 37.6 s, 5 Air and 5 Astral Runes, Zanik |
+| b 174026 | pass | 74.1 s, 0.84 times | 0 | the same, gather 35.7 s |
+| c 174414 | fail, void | 76.4 s, 0.93 times | 2 | gather: "I got 5 but there's no more rune_essence I can take within 90 m of me: 8 there are used up for now"; he asked again with a smaller radius (second miss); quest done with the 5 |
+| d 174806 | fail, void | 73.5 s, 1.07 times | 2 | the same |
+| e 175155 | fail, void | 602 s, deadline | 0 | look showed the two near rocks spent; "the two essence rocks nearby are already mined out. need to find a live one or wait for them to respawn"; then a 249 s stand |
+
+- **First thing that went wrong in c, d, e: the harness.** Trials a and b had mined the rocks. An essence rock grows back after 2 game days and only with no player within 100 m, and the forks play 29 m from them, so nothing grows back inside a window. Tagged `harness`, void (rule 3). gather's "used up" wording (c28130d) was seen live here, so run 155833 is tagged fixed.
+- **Rates:** Rune Mysteries from `rm_part2` 5 of 10, 3 of its last 5; the chain guard wants 4 of 5.
+- **The fix, tested first by hand (probe ClaudeP161806, DISCOVERIES "Moving the game clock on"):** with ClaudeDev 215 m away the dev clock was moved on 3 days; three minutes later both spent rocks read health 60. `quest_run step` now does this before each trial (`clock_on`, the existing bench fixture `set_time`, three calls of just under a day so the time of day stays; `--regrow-days 0` turns it off). Each trial's row carries what the clock did. Two tests (the hour wraps across midnight; a clock that did not move is said and does not raise). A dev-world fixture only.
+- **Seen in the void trials, not fixed (they are his, in a world a real server will also show him when someone else has mined):**
+  - After a true "none within 90 m, 8 used up" he asked gather again with a smaller radius (c, d).
+  - In e the turn's three reads were spent (quests, look, look) before any action; told to act or reply he said what he needed and the request closed as done with the quest open. He did not go looking further and did not try the Anima Vents the step names.
+- **Limits.** Trials a and b are the only ones at whole rocks; neither needed the new stand-by-height code path's far rock. Reports were not judged for truth.
