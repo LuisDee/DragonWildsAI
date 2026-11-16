@@ -630,7 +630,9 @@ class Agent:
                                               OPEN_JOB_NOTE.format(request=event.text, tool=job_tool) if open_check else
                                               PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else
                                               STOP_NOTE.format(line=stop_line) if stop_check else None,
-                                              news=news)
+                                              news=news, request=(event.player, event.text) if event.text else next(
+                                                  ((e.get("from"), e["request"]) for e in body_events or []
+                                                   if e.get("type") == "goal_done" and e.get("request")), None))
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
                 if t["failure"]:

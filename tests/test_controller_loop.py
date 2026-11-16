@@ -543,3 +543,17 @@ def test_a_goal_from_a_players_words_that_ends_with_talk_only_gets_one_more_turn
         assert len(rig.calls("gather")) == 2
     else:
         assert len(calls) == 1 and len(rig.calls("gather")) == 1
+
+
+def test_continue_note_carries_the_request_the_run_is_for(rig):
+    """Chain 20261116-091005: a need met mid-run, then "no new request, I'll stay quiet" with the request open."""
+    from brain.controller import Decision
+    from brain.llm import ToolCall, assistant_message
+    for request, want in (((("Tester", "do her quest")), "Tester asked 'do her quest': continue with the next step of that"),
+                          (None, "Continue with the next step, or stop.")):
+        prior = FakeLLM.say("", ToolCall("consume", {"item": "Clean Water"}, "c1"))
+        decision = Decision(messages=[{"role": "user", "content": "original request"}, assistant_message(prior)])
+        rig.controller_llm.push(FakeLLM.say(""))
+        rig.controller.next_turn(decision, {"c1": {"ok": True}}, {}, request=request)
+        last = rig.controller_llm.calls[-1]["messages"][-1]["content"]
+        assert last.startswith("Your tools ran (results above). ") and want in last, last

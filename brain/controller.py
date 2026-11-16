@@ -379,6 +379,13 @@ def _map_names(rows: list, places, about: str | None) -> bool | None:
     return hit if (got and q) else None
 
 
+# Fresh chain 20261116-091005 (Rune Mysteries): the run that heard part 1 end was thirsty, so it fetched, boiled and
+# drank water (3 turns), then "No new request from Tester, so I'll stay quiet" with the quest's next part open, and he
+# stood until the run's end. Replayed on that turn: 8/8 stop with "Continue with the next step, or stop.", 0/8 with the
+# player's words in the same sentence (3/8 with them only put in front of it). The model still decides to stop.
+CONTINUE_FOR = "{player} asked {request!r}: continue with the next step of that, or stop if it is done."
+
+
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
                  name: str = "Claude", player: str = "Luis", recent_events: int = 10,
@@ -847,9 +854,11 @@ class Controller:
         return {}
 
     def next_turn(self, d: Decision, results: dict[str, dict], state: dict | None = None,
-                  failed: bool = False, note: str | None = None, news: list[str] | None = None) -> Decision:
+                  failed: bool = False, note: str | None = None, news: list[str] | None = None,
+                  request: tuple[str, str] | None = None) -> Decision:
         """The standard agent loop: the results of the turn's tool calls go back to the model, which
-        continues its plan (more tools), reports, or stops (an empty reply). Reads run inline again."""
+        continues its plan (more tools), reports, or stops (an empty reply). Reads run inline again.
+        request: (player, his words) this run is for (his chat line, or the request a finished goal came from)."""
         msgs = list(d.messages)
         calls = (msgs[-1].get("tool_calls") or []) if msgs else []
         for tc in calls:  # every tool call of the turn needs a result
@@ -872,7 +881,8 @@ class Controller:
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
             "tell the player in one short plain line what's wrong and what you need." if failed else
-            "Your tools ran (results above). Continue with the next step, or stop. Say something only if the "
+            "Your tools ran (results above). " + (CONTINUE_FOR.format(player=request[0] or self.player, request=request[1]) if request
+                                                 else "Continue with the next step, or stop.") + " Say something only if the "
             "player needs to hear it (an answer he asked for, a result he can't see, a problem); otherwise "
             "reply with no text at all. A line saying you'll do something comes with its tool call in this same "
             "reply.")})
