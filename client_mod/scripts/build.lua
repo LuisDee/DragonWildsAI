@@ -250,7 +250,7 @@ M.cfg.build = {
     -- flush spot: the game's magnet (SnappingRadius 80 cm, 200 cm in Basic mode, live probe) pulls a snapping ghost
     -- onto it, a free one stays where I aimed. So "colour 2 AND the ghost sits on the flush spot (snap_tol_m)" is the
     -- positive snap signal colour 2 alone can't give (Valid vs NeedsSnapping). flush_tol_m: the census check after.
-    snap_aim_m = 0.25, snap_tol_m = 0.06, snap_tol_z_m = 0.12, flush_tol_m = 0.06, stand_extra_m = 1.5, taken_m = 0.5,
+    free_tol_m = 0.15, free_tol_z_m = 0.3, snap_aim_m = 0.25, snap_tol_m = 0.06, snap_tol_z_m = 0.12, flush_tol_m = 0.06, stand_extra_m = 1.5, taken_m = 0.5,
     preview_waits = 6, edge_aim_m = 0.3,
     -- no preview actor (instance-only pieces): the cursor must stop gliding (settle_m between reads) within
     -- cursor_tol_m of the flush spot; up to cursor_checks reads per aim (live: ~1 m/s glide, reads every 0.35 s). Reads
@@ -378,10 +378,11 @@ function W.view_tol(on, pos)
     local cfg = M.cfg.build
     local a = on.anchor
     local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
-    local tol = cfg.stay_clear_m + ((on.mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
+    local mount = on.mount or {} -- none: a piece on a top (a station on a foundation)
+    local tol = cfg.stay_clear_m + ((mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
     -- a roof off a wall top snaps from the wall face on the roof's side only (live 2026-11-16: a view 0.95 m off
     -- passed the old loose rule and the preview came no nearer than 1.75 m)
-    if on.mount.ceiling then return cfg.stay_ceiling_m end
+    if mount.ceiling then return cfg.stay_ceiling_m end
     local on_floor = on.side == "in" or math.abs((pos[3] - 0.88) - top) <= 0.6
     return on_floor and tol or math.min(tol, cfg.stay_off_floor_m)
 end
@@ -399,14 +400,14 @@ function W.stands(api, job, here)
     local cfg = M.cfg.build
     local on = job.on
     local rig = cfg.aim_exact and W.rig(api)
-    if not (rig and here and on and on.mount and on.anchor and on.anchor.box) then return nil end
+    if not (rig and here and on and on.anchor and on.anchor.box) then return nil end
     local spot, axis = M.flush_spot(on.anchor, on.side, on.box)
     local aim = M.aim_point(on, spot, axis)
     if not (spot and aim) then return nil end
     local okc, list = pcall(function()
         return camrig().stands(rig, here, aim, trace_m(api), { max = 3, radii = cfg.stand_radii_m,
             tol_for = function(pos) return W.view_tol(on, pos) end,
-            ok = function(pos) return not M.in_the_way(pos, spot, on.box, on.mount.yaw or 0) end })
+            ok = function(pos) return not M.in_the_way(pos, spot, on.box, (on.mount or {}).yaw or 0) end })
     end)
     return okc and list or nil
 end
@@ -726,7 +727,8 @@ function M.flush_spot(anchor, side, new_box)
     local p = anchor.position
     local top = p[3] + ab.origin[3] + ab.extent[3]
     if side == "top" then
-        return { p[1], p[2], top - (nb.origin[3] - nb.extent[3]) }, nil
+        local o = anchor.top_off or { 0, 0 } -- beside what already stands on its middle (M.top_free)
+        return { p[1] + o[1], p[2] + o[2], top - (nb.origin[3] - nb.extent[3]) }, nil
     end
     if side == "in" then -- into a frame (a door in a door-frame wall): the frame's own spot and facing, bottoms level
         local bottom = p[3] + ab.origin[3] - ab.extent[3]
@@ -788,6 +790,26 @@ function M.in_the_way(here, spot, box, yaw)
     if math.abs(lx - (box.origin[1] or 0)) > box.extent[1] + r or math.abs(ly - (box.origin[2] or 0)) > box.extent[2] + r then return false end
     local zlo, zhi = spot[3] + box.origin[3] - box.extent[3], spot[3] + box.origin[3] + box.extent[3]
     return here[3] - 0.88 < zhi and here[3] + 0.88 > zlo
+end
+-- A floor's top already has a piece on its middle: the free quarter of the top nearest me, as an offset from the
+-- middle (candidates in, the free ones out, the nearest taken; a player puts a crate beside the table, not on it).
+-- rows: census. -> { dx, dy } | nil (no free quarter)
+function M.top_free(anchor, new_box, rows, here)
+    local ab = anchor.box
+    if not (ab and new_box and anchor.position) or M.thin_axis(ab) then return nil end
+    local c = math.rad(anchor.yaw or 0)
+    local z = anchor.position[3] + ab.origin[3] + ab.extent[3] - (new_box.origin[3] - new_box.extent[3])
+    local best, bd
+    for _, q in ipairs({ { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }) do
+        local lx, ly = q[1] * ab.extent[1] / 2, q[2] * ab.extent[2] / 2
+        local off = { lx * math.cos(c) - ly * math.sin(c), lx * math.sin(c) + ly * math.cos(c) }
+        local p = { anchor.position[1] + off[1], anchor.position[2] + off[2], z }
+        if #M.standing_in(rows, p, new_box, anchor.yaw, { [anchor.id] = true }, 0.2) == 0 then
+            local d = here and math.sqrt((p[1] - here[1]) ^ 2 + (p[2] - here[2]) ^ 2) or 0
+            if not bd or d < bd then best, bd = off, d end
+        end
+    end
+    return best
 end
 -- Where the camera must point for an attach (the rotate phase aims there): a wall's top face just inside the edge,
 -- a frame's lintel, a wall's face just under its top (a ceiling), else the flush spot itself.
@@ -1048,16 +1070,20 @@ end
 function W.stay_ok(api, job, here)
     local cfg = M.cfg.build
     local on = job.on
-    if not (here and on and on.mount and on.anchor and on.anchor.box) then return false, "no_mount" end
+    if not (here and on and on.anchor and on.anchor.box) then return false, "no_anchor" end
+    -- no mount = a piece on a top (a station on a foundation): the same view rule. Rung 2 run 20261116-010103: it
+    -- had none, so he aimed from wherever he stood, the view landed on a wall of the room (the preview 1.7-2.1 m
+    -- off, "Blocked") and the crafting table, crate and campfire each failed twice
+    local mount = on.mount or {}
     local spot, axis = M.flush_spot(on.anchor, on.side, on.box)
     local aim = M.aim_point(on, spot, axis)
     if not (spot and aim) then return false, "no_aim" end
     if math.sqrt((aim[1] - here[1]) ^ 2 + (aim[2] - here[2]) ^ 2) > cfg.stay_m then return false, "far" end
     local a = on.anchor
     local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
-    local on_floor = on.mount.ceiling or on.side == "in" or math.abs((here[3] - 0.88) - top) <= 0.6
-    if M.in_the_way(here, spot, on.box, on.mount.yaw or 0) then return false, "in_the_way" end
-    local tol = cfg.stay_clear_m + ((on.mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
+    local on_floor = mount.ceiling or on.side == "in" or math.abs((here[3] - 0.88) - top) <= 0.6
+    if M.in_the_way(here, spot, on.box, mount.yaw or 0) then return false, "in_the_way" end
+    local tol = cfg.stay_clear_m + ((mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
     -- from where the camera WILL stand once I aim there (it swings round its pivot, camrig.lua), not where it is now.
     -- Off the anchor's floor (on the ground beside a foundation) the view must land ON the aim point: just under
     -- the edge is its side face, and the piece doesn't snap from there
@@ -1331,9 +1357,15 @@ local function start_build(api, args, ctx)
         end
         if side then
             local t = taken(side)
+            if t and side == "top" and not provisional then
+                anchor.top_off = M.top_free(anchor, box0, W.structures(api, true), here)
+                if anchor.top_off then t = nil end
+            end
             if t then
                 return api.fail("blocked", { on = args.on, why = "side_taken", taken_by = t.id,
-                    detail = "The " .. side .. " side of the " .. anchor.name .. " already has a " .. tostring(t.name) .. " (" .. t.id .. ")." })
+                    detail = side == "top" and ("The top of the " .. anchor.name .. " already has a " .. tostring(t.name) .. " (" .. t.id
+                            .. ") on its middle and I see no free quarter of it for the " .. piece.name .. ".")
+                        or ("The " .. side .. " side of the " .. anchor.name .. " already has a " .. tostring(t.name) .. " (" .. t.id .. ").") })
             end
         else
             local best, bd
@@ -1516,6 +1548,9 @@ local function preview_reader(api, job)
                 job.on.corr, job.on.prev_cursor = c, nil
             elseif green and off <= cfg.snap_tol_m and dz <= cfg.snap_tol_z_m then
                 return { valid = true, snapped = true, position = at, fresh = fresh, colour = 2 }
+            elseif green and job.on.free and job.last_aim
+                and math.sqrt((at[1] - job.last_aim[1]) ^ 2 + (at[2] - job.last_aim[2]) ^ 2) <= cfg.free_tol_m and dz <= cfg.free_tol_z_m then
+                return { valid = true, snapped = "free", position = at, fresh = fresh, colour = 2 } -- green where I aimed
             end
             local why = (h and h.v ~= 0 and (M.STATES[h.v] or tostring(h.v))) or (job.short_materials and "MissingMaterials")
                 or (m.index == 2 and (job.on.mode == "cursor" and "preview_off_target" or "not_snapped"))
@@ -1843,7 +1878,7 @@ local function step(api, job, t)
         job.phase = "leave"
         return nil
     end
-    if job.phase == "approach" and job.on and job.on.mount and not job.stand_at and not job.stay_checked then
+    if job.phase == "approach" and job.on and not job.stand_at and not job.stay_checked then
         -- in reach, a clear view, not in its way: place from here (a player turns, he doesn't walk)
         job.stay_checked = true
         local ok_stay, why = W.stay_ok(api, job, api.my_position())
@@ -2174,7 +2209,16 @@ local function step(api, job, t)
                     add({ edge[1] + axis[1] * o, edge[2] + axis[2] * o, top }, 2 * box.extent[i] + 1.5)
                 end
             end
-            if pa and job.on.side ~= "in" then
+            if pa and job.on.side == "top" and not mount and not axis and W.snap_only(api, pa) == false
+                and not M.roof_hint(a0.box, box, nil, false, prof and prof.profile) then
+                -- a piece that doesn't snap, on a top (a station on a foundation; never a roof or floor tile, which
+                -- would land on the floor inside the walls): its preview sits where I aim, so
+                -- aim at the spot itself, then beside it toward me. Live 2026-11-16: aimed 0.25 m outside to watch
+                -- for a snap, a crafting table's green preview stayed there and was never pressed ("not_snapped")
+                job.on.free = true
+                add(spot, 1.0)
+                for _, o in ipairs({ 0.4, -0.4 }) do add({ spot[1] + out[1] * o, spot[2] + out[2] * o, spot[3] }, 1.0) end
+            elseif pa and job.on.side ~= "in" then
                 for _, k in ipairs({ 1, 2 }) do
                     local o = cfg.snap_aim_m * k
                     add({ spot[1] + out[1] * o, spot[2] + out[2] * o, spot[3] }, 2 * cfg.snap_aim_m + 0.5)

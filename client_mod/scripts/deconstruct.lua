@@ -52,6 +52,7 @@ M.cfg = {
     link_h_m = 3.15, link_z_m = 4.65, on_h_m = 1.6, on_z_m = 0.6,
     mine_match_m = 0.3, pending_s = 60, ledger_every_s = 30,
     collect_s = 90, -- picking the refund up off the ground afterwards, at most this long
+    collect_look_s = 0.3, -- how often I look whether it still lies there while fetching it
 }
 M.ACTIONS = {
     destroy = "/Game/Gameplay/Inputs/Actions/Building/IA_Building_DestroyObject.IA_Building_DestroyObject",
@@ -1124,27 +1125,20 @@ local function step(api, job, t)
         local hk = mem().hk.destroyed
         P.telemetry = P.telemetry or (hk and hk.seq > (P.seq0 or 0) and hk) or nil
         if gone then
+            -- gone = done: on to the next piece at once, as a player does. Its refund lands about 1.1 s later (in my
+            -- bag or on the ground beside it) and is counted once for the whole job, before I leave (settled, below).
+            -- Waiting for it piece by piece was 16.7 s of a 64 s teardown of 11 (rung 2 run 20261116-003814)
             P.gone_t = P.gone_t or t
-            -- the refund: up to settle_s for it to land (inventory and/or the ground); all of its cost in my bag
-            -- already = landed (it was a flat 1.2 s a piece)
-            local counts = api.counts() or {}
-            local gained = {}
-            for k, v in pairs(counts) do local d = v - (P.counts0[k] or 0); if d > 0 then gained[k] = d end end
-            local all_back = P.cost ~= nil and next(P.cost) ~= nil
-            for item, n in pairs(P.cost or {}) do if (gained[item] or 0) < n then all_back = false end end
-            if not all_back and t - P.gone_t < cfg.settle_s then return nil end
-            local ground = W.ground(api, P.position, cfg.drop_r_m)
-            local dropped = {}
-            for id, g in pairs(ground) do if not P.ground0[id] then dropped[#dropped + 1] = g end end
             P.done = true
-            P.vt = { gone_s = r2(P.gone_t - P.press_t), back_s = r2(t - P.gone_t), in_bag = all_back }
-            local row = { id = P.id, name = P.name, s = r1(t - P.t0), refund = gained, dropped = (#dropped > 0) and dropped or nil,
+            P.vt = { gone_s = r2(P.gone_t - P.press_t) }
+            local row = { id = P.id, name = P.name, s = r1(t - P.t0),
                           cost = P.cost, telemetry = P.telemetry and { res = P.telemetry.res, pid = P.telemetry.pid } or nil }
             local hk = mem().hk
             if hk.interact and hk.interact.seq > (P.seq0 or 0) then row.sent = { pid = hk.interact.pid, type = hk.interact.type } end
             job.removed[#job.removed + 1] = row
-            sum_into(job.refund, gained)
-            for _, g in ipairs(dropped) do job.dropped[#job.dropped + 1] = g end
+            job.unsettled = job.unsettled or {}
+            job.unsettled[#job.unsettled + 1] = P
+            job.last_gone_t = t
             if P.mine then pcall(function() local L = M.ledger(job.world); if M.forget_mine(L, P) then M.save_ledger(L) end end) end
             job.phase = "next"
             return nil
@@ -1170,6 +1164,21 @@ local function step(api, job, t)
             return finish()
         end
         job.c_tried, job.collected = job.c_tried or {}, job.collected or {}
+        -- nothing of it lies there any more = collected: done at once. Live 2026-11-16: the refund was in my bag on
+        -- the way to it, and the fetch then pressed interact at 6 spots, 2 s each, on a pile that was gone (14 s of
+        -- a 30 s teardown)
+        if not job.c_look_t or t >= job.c_look_t then
+            job.c_look_t = t + cfg.collect_look_s
+            local lying = false
+            for _, h in ipairs(job.dropped) do
+                if W.ground(api, h.position, 1.5)[h.id] then lying = true; break end
+            end
+            if not lying then
+                if job.cfetch or job.c_moving then api.call("move", "stop") end
+                job.cfetch, job.c_moving = nil, false
+                return finish()
+            end
+        end
         if job.c_moving then -- the plain walk-over (no fetch to hand): the game's magnet may take it
             local st = api.move_status()
             if st.mode == "go_to" then return nil end
@@ -1218,7 +1227,28 @@ local function step(api, job, t)
         return finish()
     else -- leave: Cancel until the mode reads None twice (build.lua's rule)
         local mode = W.mode(api)
+        -- the refunds of the pieces I took down: up to settle_s after the last one went for them to land (all of the
+        -- cost in my bag already = landed), then what lies beside each piece that didn't before my press
+        local function settled()
+            if not job.unsettled or #job.unsettled == 0 then return true end
+            local now_c = api.counts() or {}
+            local all_back = next(job.expected) ~= nil
+            for item, n in pairs(job.expected) do
+                if (now_c[item] or 0) - ((job.counts_start or {})[item] or 0) < n then all_back = false end
+            end
+            if not all_back and not job.stopped and t - (job.last_gone_t or t) < cfg.settle_s then return false end
+            local seen = {}
+            for _, g in ipairs(job.dropped) do seen[g.id] = true end
+            for _, p in ipairs(job.unsettled) do
+                for id, g in pairs(W.ground(api, p.position, cfg.drop_r_m)) do
+                    if not (p.ground0 or {})[id] and not seen[id] then seen[id] = true; job.dropped[#job.dropped + 1] = g end
+                end
+            end
+            job.unsettled = nil
+            return true
+        end
         local function done(closed)
+            if not settled() then return nil end
             if i then i.release("build") end
             if not job.final and not job.stopped and not job.collect_done and #job.dropped > 0 then -- walk over what still lies there
                 job.closed, job.phase, job.collect_t0 = closed, "collect", t
