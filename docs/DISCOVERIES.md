@@ -3471,3 +3471,16 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 - So the regrowth is counted in game time read from the server's time actor (`RespawnTimeIsInGameTime`), and the server checks it within a few minutes at most. The 100 m player rule still holds: the clock was moved while he was 215 m away.
 - Used by `quest_run step` since de1e6c5 (`clock_on`, `--regrow-days`, default 3): the clock goes on before each trial, while the new fork stands where it came in.
 - Not known: how often the server checks; whether a node within 100 m of a player catches up later or waits a whole new term.
+
+## Moving the game clock on ages the player who is on the server (2026-11-16 18:38Z, build 26574459, dev world; hand probe ClaudeP161838, no model)
+- A fork stood parked with sustenance 41.2, hydration 47.1, endurance 89.4, health 100. The fixture `set_time` moved the clock on 3 days (71.85 h). 0.9 s later: sustenance 0.0, hydration 0.0, endurance 35.4. Health went 100, 90, 70 within 6 s (starving), until his stay-fed reflex ate and drank from the bag.
+- `set_stat` put the three back to what was read before the clock moved (89.4, 41.2, 47.1), and over the next 33 s they fell only at the normal rate. So the ageing is one catch-up at the moment the clock jumps, not a lasting state.
+- The regrowth check: in window 20261116-181015 the clock was moved by hand as each fork came in (0.8 to 0.9 s a call), and the trial that followed found whole rocks four times of four, the first mining within about 18 s of the clock call. So the server's check runs at least that often.
+- Used by `quest_run step` since d9fb450: the clock goes on after a trial, on the fork that played and is thrown away, and its three bars are put back at once.
+- Not known: whether the catch-up also ages what a player carries or has cooking (food that spoils, a fire's fuel).
+
+## get_state's lists are the 20 nearest of a category within 50 m (2026-11-16 19:10Z, build 26574459; read from the code and from chain 20261116-184351's state)
+- `client_bridge.lua` asks `sense.census` for 50 m and 20 rows a category (`NEARBY_M`, `NEARBY_MAX`); standing trees and ground pickups get a third of that each. The census describes everything in the radius first and cuts after sorting, so what is cut costs nothing more to tell.
+- In the chain, standing 13.5 m from Zanik at [278.1, 1819.5], all 20 resource rows were Ash Log, Ash Logs and Stone within 12.3 m. The two nearest essence rocks (40.6 m and 43.2 m, health 60) were inside the radius and in no list.
+- Since e26090d the census names the kinds it cut (`beyond`, one row a kind: category, name, count, nearest distance, verb, tool; at most 12) and get_state carries them as `further_off`.
+- Callers of `census_things` that look for one kind of thing must pass `keep` (it chooses before the cap). collect_water and explore do. Not yet checked: skills.lua 1012, 1028, 1434, 1544, 2680; crafting.lua 1741, 1842; deconstruct.lua 616; build.lua 120; spells.lua 811.

@@ -1368,3 +1368,36 @@ Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the 
   - After a true "none within 90 m, 8 used up" he asked gather again with a smaller radius (c, d).
   - In e the turn's three reads were spent (quests, look, look) before any action; told to act or reply he said what he needed and the request closed as done with the quest open. He did not go looking further and did not try the Anima Vents the step names.
 - **Limits.** Trials a and b are the only ones at whole rocks; neither needed the new stand-by-height code path's far rock. Reports were not judged for truth.
+
+## 2026-11-16 18:10Z-19:37Z: the clock fixture drained the forks (fixed, d9fb450); one chain window (2 of 4 by the bars); a job dropped at a drink (fixed, d061d6d); things in sight that no list showed (fixed, e26090d)
+**Step window 20261116-181015, Rune Mysteries from `rm_part2`, K=5** (Controller Haiku 5.5, Planner Sonnet 5.5; the first window on de1e6c5):
+
+| trial | result | wall time | misses | what happened |
+|---|---|---|---|---|
+| a 181342 | pass | 91.0 s | 0 | whole rocks; the clock had not moved (below) |
+| b 181752 | pass | 106.7 s | 1 | began thirsty; `collect_water` cut by the request (still_running) |
+| c 182213 | fail, void | 241.1 s | 1 | began thirsty at 21 %; after step 3 of 6 he fetched water and cooked, the job ended as "interrupted" with craft, craft and talk left; a 42.3 s stand to the end |
+| d 182858 | fail, void | 128.0 s | 2 | began thirsty; `collect_water` cut, then `go_to` an unknown target; quest complete |
+| e 183353 | pass | 88.8 s | 1 | began drained; a `craft` cut by the request; quest complete |
+
+- **The clock fixture refused all five calls** ("other_players_connected"): its guard wants the guid of the one player on the server, and the runner named ClaudeDev's while a fork was on. Fixed in 9ffdc20 (the fork's own guid). For this window the clock was moved by hand as each fork came in (a watcher on the window's log; four calls, each ok, 71.85 h).
+- **First thing that went wrong in b to e: the harness.** Moving the clock ages the player on the server: food and water to 0 and rest to 35 % within a second (probe ClaudeP161838, DISCOVERIES). His reflex then ate and drank from the bag, so the trials began thirsty with the water gone. c and d are tagged `harness`, void. b and e passed although they began drained; they stay counted.
+- **Fix d9fb450:** the clock now goes on after each trial, on the fork that has played and is thrown away, and that fork's food, water and rest are put back to what `get_state` read just before. Tests: the three bars go back; one that will not set is said and the others still go back.
+- **Trial c showed a fault of his own under the harness fault:** an action taken about a body event beside a running job set the job's cancel flag, so the job ended silently with three steps left. **Fix d061d6d:** only a player's words, a stop, a follow or a new job of his own replace the job; what he does about a need or a fight holds it up, and the job goes on from its next step. Two scenario tests (the job goes on after the drink; his own stop still ends it).
+
+**Chain window 20261116-184351 (`quest_run fresh`, clone ClaudeQ161843), about $0.10:**
+
+| quest | result | time | ratio | misses | what happened |
+|---|---|---|---|---|---|
+| First Steps | pass | 34.9 s | 0.46 | 0 | |
+| Getting Started | pass | 104.1 s | 0.80 | 1 | `give` to Doric: unknown_target (an NPC is not a player) |
+| Ratcatcher | fail by the bars | 199.9 s | 0.94 | 2 | quest complete; `attack` gave up after 24.1 s on a rat that kept moving away (best 8.8 m, `cant_catch`), the second attack worked; `craft` with input and fuel loaded the Campfire and it did not start, the retry by item name worked |
+| Rune Mysteries | fail | 405.2 s, deadline | | 1 | part 2 open; a 149.5 s stand by the grader's count |
+
+- **Rune Mysteries, the first thing that went wrong:** after Zanik gave part 2 he stood 13.5 m from her. The state's 20 resource rows were all logs and stones within 12.3 m; the two nearest essence rocks, 40.6 m and 43.2 m away and inside the 50 m radius, were in no list. The Planner wrote "The Essence Area location isn't in my notes, so I'll search for it" and put an `explore` before the `gather`. explore's own match read only the 40 nearest of a category, and its legs prefer ground he has not walked. It ran 136 s to the deadline. Tagged `skill`.
+- **Fix e26090d (perception, nothing about quests):** the census names the kinds its caps cut off, get_state carries them as `further_off`, the Controller reads them in a "Further off, also in sight" line and can name them, the Planner and the Director are given them, and explore's match reads its whole radius. Negative tests first: explore with 45 logs nearer than the rock set off walking before the fix and answers `already_in_sight` after; checks on the census digest; get_state; the situation line; the Planner's and the Director's state.
+- **Ratcatcher** is tagged `skill` and open: the chase that gives up on a moving rat, and a craft with input and fuel that loads a fire without lighting it.
+- **Two test rigs that had gone stale** since 30fb791 and de1e6c5 are true again (a8bfc68). The full Python suite: 1531 tests, those two were its only failures.
+- **Ledger:** 37 failed runs, none untagged, 7 void. Open by count: craft before the materials and a give to an NPC (Getting Started, 1 open of 3), talk with no conversation (1), the Ratcatcher pair (1), the startup cooking cut by the first request (1).
+- **Rates:** First Steps 10 of 10; Getting Started 4 of 10 chained, 4 of 5 from `gs_start`; Ratcatcher 7 of 10; Rune Mysteries 3 of 10 chained, 6 of 10 from `rm_part2`.
+- **Limits.** None of d9fb450, d061d6d, e26090d had been tried live when this was written. The after-trial clock rests on the catch-up being one moment (33 s watched). explore's path in the chain was not recorded, so where its legs went is read from its rule, not seen. Reports were not judged for truth. `further_off` has no ids: a tool that takes a name finds the thing only if its own search reaches that far.
