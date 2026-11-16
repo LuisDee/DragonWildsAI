@@ -664,7 +664,9 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
             local d = goal and here and dist2d(here, goal)
             local z = goal and here and type(goal[3]) == "number" and type(here[3]) == "number" and math.abs(here[3] - goal[3]) or nil
             local vp = verified.data.position
-            if not (d and z and vp and type(vp[3]) == "number") or d > self.tol or math.abs(here[3] - vp[3]) > 0.1
+            -- (the verifier's own tolerance when it is the wider one: 1 m more in the water over a spot on its bed)
+            local tol = math.max(self.tol, tonumber(verified.data.tolerance_m) or 0)
+            if not (d and z and vp and type(vp[3]) == "number") or d > tol or math.abs(here[3] - vp[3]) > 0.1
                 or dist2d(here, vp) > 0.1 or (self.target_position and
                     (dist2d(self.target_position, goal) > 0.01 or math.abs(self.target_position[3] - goal[3]) > 0.01)) then
                 return fail("verification_failed", { detail = "fresh position does not confirm arrival", position = here, target_position = goal })
@@ -676,6 +678,7 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
             end
             return { ok = true, data = { target_position = goal, target = tdesc ~= nil and tostring(tdesc) or nil, trip = res.trip,
                                          position = here, arrive_tolerance = self.tol, dist_m = res.dist_m,
+                                         detail = res.detail, -- what the walk said of an arrival that is not on the spot
                                          vertical_distance_m = verified.data.vertical_distance_m,
                                          vertical_tolerance_m = verified.data.vertical_tolerance_m } }
         end

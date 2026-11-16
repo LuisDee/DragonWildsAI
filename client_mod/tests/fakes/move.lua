@@ -19,10 +19,12 @@ function M.verify_arrival()
     if S.move.unknown_life or S.move.airborne then return { ok = false, reason = "verification_failed", detail = "state unavailable" } end
     if not (p and g and p[3] and g[3]) then return { ok = false, reason = "verification_failed", detail = "position unavailable" } end
     local d = math.sqrt((p[1] - g[1]) ^ 2 + (p[2] - g[2]) ^ 2)
-    if d > S.move.tolerance or math.abs(p[3] - g[3]) > 1.8 then
+    local over = S.move.over == true and p[3] > g[3] -- in the water over a spot on its bed (move.lua over_ok)
+    local tol = S.move.tolerance + (over and 1 or 0)
+    if d > tol or (not over and math.abs(p[3] - g[3]) > 1.8) then
         return { ok = false, reason = "verification_failed", detail = "destination not reached" }
     end
-    return { ok = true, position = p, target_position = g, tolerance_m = S.move.tolerance,
+    return { ok = true, over = over or nil, position = p, target_position = g, tolerance_m = tol,
         vertical_distance_m = math.abs(p[3] - g[3]), vertical_tolerance_m = 1.8 }
 end
 function M.follow(log, player_name, distance_m, opts)

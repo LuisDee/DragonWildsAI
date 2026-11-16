@@ -2078,6 +2078,30 @@ if os.getenv("WET_DEBUG") then for i = nlog46 + 1, #logs do if logs[i]:find("wat
 check("water goal: arrives in the pond (known water), no dry detour", first46 and first46.status == "arrived" and s.result and s.result.status == "arrived" and said46,
     tostring(first46 and first46.status) .. " " .. tostring(s.result and s.result.status) .. " said=" .. tostring(said46))
 MZ.stop(log)
+-- 46b. a spot on the BED of the pond (the model took a water volume's own position from look; runs 20261116-214249
+-- and -222242): wading over it is the arrival, and the arrival's verifier says so too. It said "position differs from
+-- requested destination" with him in the water 2.4 m from the spot and 3.4 m above it: a miss for a walk that got there
+do
+MZ.go_to(log, { 2, 0, 0 }, { tolerance_m = 1.0 }); run(100)
+MZ.go_to(log, { 7, 0, -3.4 }, { tolerance_m = 1.0, timeout_s = 60 })
+run(300)
+s = MZ.status()
+local va46 = MZ.verify_arrival()
+check("water goal on the pond's bed: arrived in the water over it", s.result and s.result.status == "arrived" and s.result.in_water == true
+    and tostring(s.result.detail):find("under water, 3.4 m below me", 1, true) ~= nil, tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.detail))
+check("water goal on the pond's bed: the verifier agrees he is over it", va46.ok == true and va46.over == true and va46.vertical_distance_m == 3.4,
+    tostring(va46.reason) .. " " .. tostring(va46.detail))
+local x46 = pawn.loc.X
+pawn.loc.X = x46 - 300 -- 3 m further from it: no longer over the spot
+va46 = MZ.verify_arrival()
+check("water goal on the pond's bed: 3 m off is not over it, and the verifier says how far", va46.ok == false
+    and tostring(va46.detail):find("m from the spot", 1, true) ~= nil and tostring(va46.detail):find("3.4 m above it", 1, true) ~= nil, tostring(va46.detail))
+pawn.loc.X = x46
+MZ.go_to(log, { 2, 0, 0 }, { tolerance_m = 1.0 }); run(100) -- the next walk starts clean: a dry spot is judged as before
+va46 = MZ.verify_arrival()
+check("water goal on the pond's bed: the next walk's arrival is the plain one", va46.ok == true and va46.over == nil, tostring(va46.detail))
+MZ.stop(log)
+end
 
 -- 47. shore_point: the WATERLINE on Claude's side of the pond, from real traces (live 18:3x: the game's
 --     interact target reads the water only from there, not from the dry bank)

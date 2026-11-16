@@ -1985,9 +1985,20 @@ function M.verify_arrival()
     local below = near == false and type(bo) == "table" and d2(here, goal) <= st.tol_cm and here.Z < goal.Z
         and math.abs(bo.X - goal.X) < 1 and math.abs(bo.Y - goal.Y) < 1 and math.abs(bo.Z - goal.Z) < 1
     if below then near = true end
-    if near ~= true then return { ok = false, reason = "verification_failed", detail = near == false and "position differs from requested destination" or "position or destination unavailable" } end
-    return { ok = true, below = below or nil, position = { here.X / 100, here.Y / 100, here.Z / 100 },
-        target_position = { goal.X / 100, goal.Y / 100, goal.Z / 100 }, tolerance_m = st.tol_cm / 100,
+    -- in the water over a spot on its bed (the stop rule of the walk itself, live 22:12:07Z): that is the arrival too.
+    -- Runs 20261116-214249 and -222242: the walk ended "arrived" over a pond's own position and this said it had not
+    local oo = st.over_ok
+    local over = near == false and type(oo) == "table" and d2(here, goal) <= st.tol_cm + 100 and here.Z > goal.Z
+        and math.abs(oo.X - goal.X) < 1 and math.abs(oo.Y - goal.Y) < 1 and math.abs(oo.Z - goal.Z) < 1
+    if over then near = true end
+    if near == false then -- how far and which way, in his words (it said only "position differs from requested destination")
+        local dz = (here.Z - goal.Z) / 100
+        return { ok = false, reason = "verification_failed", detail = string.format("I stopped %.1f m from the spot%s", d2(here, goal) / 100,
+            math.abs(dz) >= 0.5 and string.format(" and %.1f m %s it", math.abs(dz), dz > 0 and "above" or "below") or "") }
+    end
+    if near ~= true then return { ok = false, reason = "verification_failed", detail = "position or destination unavailable" } end
+    return { ok = true, below = below or nil, over = over or nil, position = { here.X / 100, here.Y / 100, here.Z / 100 },
+        target_position = { goal.X / 100, goal.Y / 100, goal.Z / 100 }, tolerance_m = (st.tol_cm + (over and 100 or 0)) / 100,
         vertical_distance_m = math.abs(here.Z - goal.Z) / 100, vertical_tolerance_m = 2 * st.half_h / 100 }
 end
 
@@ -2747,6 +2758,7 @@ local function arrival(f)
         -- a goal under water (the bed of a pond he was sent to drink from): swimming or wading over it IS the arrival
         -- (live 22:12:07Z: 1 cm from it on the surface, 3 m above it, then 21 s of circles in the water)
         if at_goal == false and (st.in_water or st.wade) and goal.Z < me.Z and d2(me, goal) <= st.tol_cm + 100 then
+            st.over_ok = { X = goal.X, Y = goal.Y, Z = goal.Z } -- (verify_arrival: the same rule, for this goal only)
             return stop(st, { status = "arrived", in_water = true, below_m = math.floor((me.Z - goal.Z) / 10 + 0.5) / 10,
                 dist_m = dist / 100, s = t - st.t0,
                 detail = string.format("the spot is under water, %.1f m below me; I'm in the water over it", (me.Z - goal.Z) / 100) }, log)
@@ -4919,7 +4931,7 @@ local function start(log, mode, opts)
     end
     st.owner_token, st.owner_implicit = candidate, implicit
     st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped, st.nav_jumped = {}, {}, 0, {}, {}
-    st.below_ok, st.ovh, st.cam, st.jump_fail = nil, nil, nil, nil
+    st.below_ok, st.over_ok, st.ovh, st.cam, st.jump_fail = nil, nil, nil, nil, nil
     st.half_h = half_height
     st.t0 = now(pawn)
     if not (fresh() and admitted()) then return abort_start() end

@@ -293,6 +293,22 @@ test("go_to rejects false arrival on another floor or while airborne", function(
     assert(rpc("go_to", { target = { 10, 0 } }).reason == "invalid_args")
 end)
 
+test("go_to: in the water over a spot on a pond's bed is the arrival, said in the walk's own words", function()
+    -- runs 20261116-214249 and -222242: go_to a pond's own position ended verification_failed, a miss, in the water over it
+    local said = "the spot is under water, 3.4 m below me; I'm in the water over it"
+    local _, _, id = rpc("go_to", { target = { 10, 0, -3.4 }, tolerance = 0.5 })
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", in_water = true, detail = said }, { 11.2, 0, 0 }
+    FAKE.move.over = true
+    step(); local r = results(drain(), id)[1]
+    FAKE.move.over = nil
+    assert(r and r.ok, json.encode(r))
+    assert(r.data.detail == said and r.data.vertical_distance_m == 3.4, json.encode(r.data))
+    _, _, id = rpc("go_to", { target = { 10, 0, -3.4 }, tolerance = 0.5 }) -- dry and 3.4 m above a spot: no arrival
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived" }, { 11.2, 0, 0 }
+    step(); r = results(drain(), id)[1]
+    assert(r and not r.ok and r.reason == "verification_failed", json.encode(r))
+end)
+
 test("go_to rejects a projected endpoint and dead pawn", function()
     local _, _, id = rpc("go_to", { target = { 10, 0, 0 } })
     FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived" }, { 10, 0, 3 }
