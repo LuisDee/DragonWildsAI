@@ -92,6 +92,53 @@ def test_interrupted_by_luis_stop(rig):
     assert ctx["command"]["text"] == "stop" and ctx["active_goal"] == "bring Luis 3 logs"
 
 
+def _thirsty_after_gather(rig):
+    """The body says he is thirsty in the first batch of events after the gather, as the live body did."""
+    from brain.interface import VitalsLow
+    poll, told = rig.game.poll_events, []
+
+    def poll_then_thirst():
+        evs = poll()
+        if not told and rig.calls("gather"):
+            told.append(1)
+            evs.append(VitalsLow(stat="hydration", value=16.0, max=100.0, has_drink=False))
+        return evs
+    rig.game.poll_events = poll_then_thirst
+
+
+def test_a_need_dealt_with_beside_a_job_holds_it_up_and_the_job_goes_on(rig):
+    """Live 20261116-182213 (Rune Mysteries from rm_part2): thirsty after step 3 of 6, he fetched water and cooked; that
+    action ended the job as "interrupted", its last three steps never ran and nothing said so."""
+    water = rig.game.add_ground_item("water", 1, [2.0, 1.0, 0.0])
+    _thirsty_after_gather(rig)
+    rig.planner_llm.push(FakeLLM.plan([
+        T("gather", resource="log", count=3), T("go_to", target="Luis"),
+        T("give", player="Luis", item="log", count=3),
+    ]))
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("pickup", target=water)), *[""] * 6)
+    assert rig.agent.run_goal("bring Luis 3 logs") == "done"
+
+    order = [name for name, _ in rig.game.calls if name in ("gather", "pickup", "go_to", "give")]
+    assert order == ["gather", "pickup", "go_to", "give"], order
+    assert rig.game.players["Luis"].inventory == {"log": 3} and rig.store.tree.status == "done"
+    ctxs = [json.loads(c["messages"][1]["content"]) for c in rig.controller_llm.calls]
+    need = next(c for c in ctxs if (c.get("body_event") or {}).get("type") == "vitals_low")
+    assert need["active_goal"] == "bring Luis 3 logs"  # he saw the job and its steps while he dealt with the need
+    assert [s["status"] for s in need["goal_tasks"]] == ["done", "pending", "pending"]
+    assert any((c.get("body_event") or {}).get("type") == "goal_done" for c in ctxs)  # and he heard it end
+
+
+def test_a_stop_of_his_own_beside_a_job_still_ends_it(rig):
+    _thirsty_after_gather(rig)
+    rig.planner_llm.push(FakeLLM.plan([
+        T("gather", resource="log", count=3), T("go_to", target="Luis"),
+        T("give", player="Luis", item="log", count=3),
+    ]))
+    rig.controller_llm.push(FakeLLM.say("too thirsty to carry on, need water first", FakeLLM.call("stop")), *[""] * 6)
+    assert rig.agent.run_goal("bring Luis 3 logs") == "interrupted"
+    assert rig.calls("stop") and not rig.calls("give") and rig.store.tree.status == "interrupted"
+
+
 def test_luis_chat_does_not_interrupt(rig):
     rig.game.script_failure("gather", "interrupted", text="nice, keep going")
     rig.planner_llm.push(FakeLLM.plan([T("gather", resource="log", count=3)]))

@@ -536,7 +536,7 @@ class Agent:
         # every call this request ran and how it went, for a hand-on's fresh run (a handed-on request carries its own on)
         work: list[dict] = [*(body_ctx.get("done_so_far") or []), *(body_ctx.get("last_results") or [])]             if isinstance(body_ctx, dict) and body_ctx.get("type") == CHAIN_BUDGET else []
         while True:
-            if d.interrupts and self.active_goal:
+            if d.interrupts and self.active_goal and self._replaces_job(d, event):
                 self._cancelled = True
             t = self._run_turn(d, state, event)
             work.extend(_work_rows(d, t, WORK_DETAIL_CHARS))
@@ -1081,6 +1081,15 @@ class Agent:
                                  "reason": reason, "question": question, **self._goal_request()})
         self.flush_situations()
         return "stuck"
+
+    @staticmethod
+    def _replaces_job(d, event) -> bool:
+        """Does this decision end the job now running? A player's words do (what he asks for now takes over), and so
+        does a stop, a follow or a new job of his own. What he does about a body event beside the job (a drink, a
+        fight) only holds it up: _run_goal goes on from its next step when that run is over. Live 20261116-182213:
+        thirsty after step 3 of 6 he fetched and boiled water and ate, the job ended as "interrupted" with craft,
+        craft and talk left, nothing said it had, and he stood with the quest open until the trial ran out."""
+        return bool(event.text) or bool(d.goal or d.skill) or any(a.name in STANDING for a in d.actions)
 
     def _goal_request(self) -> dict:
         """The player's own words the running goal came from, for the run that hears how the goal ended. The goal is
