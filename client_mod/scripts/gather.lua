@@ -467,7 +467,8 @@ end
 M._contested = contested
 local function mark_bad(J, T, why)
     local until_t = J.t + M.cfg.bad_ttl_s
-    for _, k in ipairs({ T.key, T.alias }) do if k then C().bad[k] = until_t end end
+    C().bad_why = C().bad_why or {}
+    for _, k in ipairs({ T.key, T.alias }) do if k then C().bad[k] = until_t; C().bad_why[k] = why end end
     J.bad_streak = (J.bad_streak or 0) + 1
     J.last_bad = why
     say(J.log, "target " .. tostring(T.key) .. " given up: " .. tostring(why))
@@ -564,6 +565,7 @@ local function roots_near(J, me, radius_cm)
     local root = J.profile.root
     local out, actors_at = {}, {}
     J.floating = nil
+    J.spent, J.aside = nil, nil -- what is there and can't be taken now: used up, or left earlier (and why)
     for _, a in ipairs(W.actors(root.class)) do
         local cls = W.class(a)
         local p = W.loc(a)
@@ -604,6 +606,14 @@ local function roots_near(J, me, radius_cm)
                     if J.profile.mode == "pickup" then T.item = W.item_of(a) end
                     T.d = U.dist2d(me, T.pos); out[#out + 1] = T
                 end
+            elseif J.profile.mode ~= "pickup" and not usable then
+                local d = U.dist2d(me, p)
+                J.spent = J.spent or { n = 0 }
+                J.spent.n = J.spent.n + 1
+                if not J.spent.nearest_cm or d < J.spent.nearest_cm then J.spent.nearest_cm = d end
+            elseif J.profile.mode ~= "pickup" and is_bad(W.id(a), J.t) then
+                J.aside = J.aside or {}
+                J.aside[#J.aside + 1] = { id = W.id(a), why = (C().bad_why or {})[W.id(a)] }
             end
         end
     end
@@ -930,12 +940,39 @@ local function step_scan(J, me)
         tail = string.format(" Some lie where the game offers %s instead, so I can't pick those (%d spot%s).", tostring(J.contested_what),
             J.contested, J.contested == 1 and "" or "s") .. tail
     end
+    -- What is there and can't be taken now is said, not "I can't find any" (live 2026-11-16, runs 154701 to 155833:
+    -- with every essence rock around mined out and one left after 27 swings that did nothing, the result read
+    -- "I can't find any rune_essence within 90 m"; look showed the rocks, and he took it for a fault of his tool).
+    local parts, extra = {}, { known_spots = known }
+    if J.spent and J.spent.n > 0 then
+        extra.used_up, extra.used_up_nearest_m = J.spent.n, math.floor(J.spent.nearest_cm / 100 + 0.5)
+        parts[#parts + 1] = string.format("%d there %s used up for now (the nearest %d m away)", J.spent.n, J.spent.n == 1 and "is" or "are",
+            extra.used_up_nearest_m)
+    end
+    if J.aside and #J.aside > 0 then
+        extra.left_alone = J.aside
+        local noeff = 0
+        for _, x in ipairs(J.aside) do if x.why == "swing_no_effect" then noeff = noeff + 1 end end
+        if noeff > 0 then
+            parts[#parts + 1] = string.format("%d took no damage from any swing I tried, so I left %s", noeff, noeff == 1 and "it" or "them")
+        end
+        if #J.aside > noeff then parts[#parts + 1] = string.format("%d I couldn't get to or use just now", #J.aside - noeff) end
+    end
+    if #parts > 0 then
+        local what = table.concat(parts, ", and ") .. "."
+        if (J.gained or 0) > 0 then
+            return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I got %d but there's no more %s I can take within %d m of %s: %s",
+                J.gained, J.key, math.floor(J.radius_cm / 100), of, what) .. tail, extra)
+        end
+        return fail(J, "nothing_in_range", "no_resource_nearby", string.format("There's no %s I can take within %d m of %s: %s", J.key,
+            math.floor(J.radius_cm / 100), of, what) .. tail, extra)
+    end
     if (J.gained or 0) > 0 then
         return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I got %d but there's no more %s within %d m of %s.",
-            J.gained, J.key, math.floor(J.radius_cm / 100), of) .. tail, { known_spots = known })
+            J.gained, J.key, math.floor(J.radius_cm / 100), of) .. tail, extra)
     end
     return fail(J, "nothing_in_range", "no_resource_nearby", string.format("I can't find any %s within %d m of %s.", J.key,
-        math.floor(J.radius_cm / 100), of) .. tail, { known_spots = known })
+        math.floor(J.radius_cm / 100), of) .. tail, extra)
 end
 
 local approach_failed -- (J, T, st, res): below, shared with step_sweep
@@ -1198,6 +1235,21 @@ local function diag_piece(J, T, pawn, me, pp, tag)
                 yaw_err = r0(wrap(W.yaw(pawn) - bearing(me, c))), pitch_press = pp and pp.pitch and r0(pp.pitch) }
     local o = U.loc(a)
     if o then d.origin = { r0(o.X), r0(o.Y), r0(o.Z) } end
+    if o and T.stage == "root" then -- where the ground is around it, against its origin: +X, -X, +Y, -Y at 1.2 m and at 2 m
+        local mv = mod("move")
+        if mv and type(mv.ground_at) == "function" then
+            d.floors_dz = {}
+            for _, r in ipairs({ 120, 200 }) do
+                for _, v in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+                    local g = U.try(mv.ground_at, nil, { (o.X + v[1] * r) / 100, (o.Y + v[2] * r) / 100, o.Z / 100 })
+                    d.floors_dz[#d.floors_dz + 1] = (type(g) == "table" and g.ok and g.floor_z) and r0(g.floor_z * 100 - o.Z) or "none"
+                end
+            end
+        end
+        local b = U.try(function() local o2, e2 = {}, {}; a:GetActorBounds(true, o2, e2, false); return { o2.X, o2.Y, o2.Z, e2.X, e2.Y, e2.Z } end)
+        if type(b) == "table" and type(b[1]) == "number" then d.bounds_mid = { r0(b[1]), r0(b[2]), r0(b[3]) }; d.bounds_half = { r0(b[4]), r0(b[5]), r0(b[6]) } end
+        d.feet_dz_cm = r0((me.Z - 88) - o.Z) -- his feet against its origin
+    end
     local rot = U.try(function() return J.pc:GetControlRotation() end)
     d.pitch_now = rot and r0(rot.Pitch)
     local rc = U.prop(a, "RootComponent")
@@ -1333,6 +1385,11 @@ local function step_swing(J, pawn, me, acts)
         end
         say(J.log, string.format("swing %d on %s: hp %s->%s stamina %s->%s %s (pressed at %.2f s)", J.swings, tostring(T.key), tostring(pp.hp), tostring(hp),
             tostring(pp.stamina), tostring(st), hit and "HIT" or (spent and "no effect" or "unverified"), pp.t - (J.t0 or 0)))
+        if T.stage == "root" and T.kind == "actor" then
+            -- a rock or tree that takes no damage: one snapshot too (live 2026-11-16, runs 154701 and 155233: 27 swings
+            -- at one essence rock from two sides, hp 60 throughout, and nothing said where he stood against it)
+            if spent and T.noeff_run == cfg.diag_swings then pcall(diag_piece, J, T, pawn, me, pp, "nohit") end
+        end
         if T.stage ~= "root" and T.kind == "actor" then -- a log piece: the unhittable-piece snapshots (diag_piece)
             -- (a new piece's first read is the previous thing's HP, e.g. the felled tree's 85 on an 80 hp log: not a hit)
             if hit and not T.diag_hit and pp.hp <= (T.max_hp or pp.hp) then T.diag_hit = true; pcall(diag_piece, J, T, pawn, me, pp, "hit")

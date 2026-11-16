@@ -421,6 +421,19 @@ test("look: every census category as things, ranked by match, matched flag, radi
     assert(B.match_score({ name = "Ash Branches" }, "branch") == 1 and B.match_score({ name = "Oak" }, "an oak tree") == 0.5)
 end)
 
+test("look: a mined-out rock is marked used up and offers no action; a whole one offers its verb", function()
+    local res = B.CATS[4]
+    assert(res.key == "resources")
+    local spent = B._thing_of(res, { id = "rock_1", kind = "destructible", verb = "mine", health = 0.0, max_health = 60.0 })
+    assert(spent.used_up == true and spent.actions == nil, json.encode(spent))
+    local whole = B._thing_of(res, { id = "rock_2", kind = "destructible", verb = "mine", health = 60.0, max_health = 60.0 })
+    assert(whole.used_up == nil and whole.actions[1] == "mine", json.encode(whole))
+    local node = B._thing_of(res, { id = "node_1", kind = "destructible", verb = "mine", has_resources = false })
+    assert(node.used_up == true and node.actions == nil, json.encode(node))
+    local geyser = B._thing_of(res, { id = "node_2", kind = "destructible", verb = "mine", has_resources = true })
+    assert(geyser.used_up == nil and geyser.actions[1] == "mine", json.encode(geyser))
+end)
+
 test("match_one: a thing is what the words ask for only when it answers one of the things they name", function()
     local ess = { name = "Rune Essence", class = "BP_RuneEssence_Node_C", kind = "resource", verb = "mine", drops = "Rune Essence" }
     -- Rune Mysteries chain 20261116-065203: explore ended on Rune Essence for "Air Altar or Rune Altar"

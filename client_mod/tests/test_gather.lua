@@ -735,6 +735,29 @@ do
     local res4 = run_job({ resource = "rune essence", count = 1 }, 200)
     check("essence over no floor: floating, said without a made-up height", res4.data and res4.data.why == "floating_only" and not tostring(res4.data.detail):find("nil", 1, true),
         tostring(res4.data and res4.data.detail))
+    -- every rock there is mined out: said so, with how many and how near (live 2026-11-16, run 155833: "I can't find
+    -- any rune_essence within 90 m" with spent rocks around him)
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    Wd.ground = nil
+    for i = 1, 3 do
+        local r = new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 400 * i, Y = 0, Z = 0 }, 40)
+        r.hp = 0
+    end
+    local res5 = run_job({ resource = "rune essence", count = 1 }, 200)
+    local d5 = tostring(res5.data and res5.data.detail)
+    check("essence all mined out: said, with the count and the nearest", res5.reason == "nothing_in_range" and res5.data.used_up == 3
+        and d5:find("3 there are used up for now (the nearest 4 m away)", 1, true) ~= nil and not d5:find("I can't find any", 1, true), d5)
+    -- a rock no swing hurts is left, and the result says so
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    Wd.immune_fam = "DestructibleMiningRock"
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 400, Y = 0, Z = 0 }, 40)
+    local res6 = run_job({ resource = "rune essence", count = 1 }, 600)
+    local d6 = tostring(res6.data and res6.data.detail)
+    Wd.immune_fam = nil
+    check("essence rock no swing hurts: left, and said", res6.ok == false and d6:find("1 took no damage from any swing I tried, so I left it", 1, true) ~= nil
+        and type(res6.data.left_alone) == "table" and res6.data.left_alone[1].why == "swing_no_effect", tostring(res6.reason) .. " " .. d6)
     -- the real reader: the highest floor of the four points, nothing more than 3 m above the thing, by move's own trace
     do
         local floors = { 100, 250, nil, 900 } -- cm / 100 below; the fourth is a branch 6.5 m above the thing

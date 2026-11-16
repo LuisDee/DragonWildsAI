@@ -847,6 +847,12 @@ local function thing_of(cat, row)
             t.actions = t.verb == "gather" and { "interact", "gather" } or { "gather" }
         else
             t.actions = t.kind == "gatherable" and { "interact" } or { t.verb or "hit" }
+            -- a rock or tree with nothing left offers nothing until it grows back: gather's own rule for a usable
+            -- root (live 2026-11-16, run 155833: look listed mined-out essence rocks at health 0 with "mine"; he
+            -- tried them, took it for a fault of his tool and asked the player)
+            if t.kind == "destructible" and ((tonumber(t.health) or 1) <= 0 or t.has_resources == false or t.hidden == true) then
+                t.used_up, t.actions = true, nil
+            end
         end
     else
         t.actions = cat.actions
@@ -858,6 +864,7 @@ local function thing_of(cat, row)
     end
     return t
 end
+M._thing_of = thing_of
 
 -- The share of the player's words found as whole tokens (camelCase split, simple plurals, stop words
 -- dropped) in the thing's name, class, prompt, drops, item id, kind and verb. Whole tokens because a
