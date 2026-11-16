@@ -495,7 +495,9 @@ def cmd_fresh(a) -> int:
             made = sw.ensure(name, create=False, wait_s=150)
             out["made"] = {**made, "s": round(time.time() - t0, 1)}
             print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
-            for quest, line, deadline in FRESH_PLAN:
+            names = [q for q, _, _ in FRESH_PLAN]
+            plan = FRESH_PLAN[names.index(a.start):] if a.start in names else FRESH_PLAN
+            for quest, line, deadline in plan:
                 left = a.window_s - a.reserve_s - (time.time() - t0)
                 if left < 90:
                     out["runs"].append({"quest": quest, "skipped": f"window: {left:.0f} s left"})
@@ -522,7 +524,7 @@ def cmd_fresh(a) -> int:
                 print("STUCK: the client is not back on ClaudeDev; keeping the lock and retrying every 2 min")
                 time.sleep(120)
                 back = _on_main(sw, cli, tries=1)
-    return 0 if all(r.get("rc") == 0 for r in out["runs"]) and len(out["runs"]) == len(FRESH_PLAN) else 1
+    return 0 if all(r.get("rc") == 0 for r in out["runs"]) and out["runs"] and out["runs"][-1].get("quest") == FRESH_PLAN[-1][0] else 1
 
 
 def cmd_report(a) -> int:
@@ -568,6 +570,7 @@ def main(argv: list[str] | None = None) -> int:
     fr.add_argument("--name", help="the clone's name (default ClaudeQ<ddhhmm>; made by tools/quest_clone.py if its save does not exist)")
     fr.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
     fr.add_argument("--window-s", type=float, default=1200.0, help="the whole window, switch back included")
+    fr.add_argument("--from", dest="start", default=None, help="start the chain at this quest (a clone that already did the ones before)")
     fr.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")
     fr.add_argument("--max-haiku", type=int, default=60)
     fr.add_argument("--usd", type=float, default=0.1, help="each run's spend cap on top of today's spend")

@@ -822,6 +822,39 @@ function M.shelter_words(sh, name)
     return "the " .. tostring(name) .. " only works outside, not under a roof" .. quote
 end
 
+-- A station a recipe needs and none is near: is it a piece he has unlocked and can build himself? From buildables
+-- (the game's own unlocks and costs), by the station's name. Rune Mysteries part 2, 2026-11-16: craft answered
+-- "there's no Air Altar or Rune Altar near here" and he explored 370 m for one; a Rune Altar is his to build.
+-- -> {name, cost = "4 Stone + 2 Rune Essence", can_build_now, short = "3 Stone" | nil, text} | nil
+function W.buildable_station(api, rid)
+    local b = api.module("build")
+    if not (b and b.HANDLERS and type(b.HANDLERS.buildables) == "function") then return nil end
+    for _, s in ipairs((recipe_of(rid) or {}).stations or {}) do
+        local name = station_name(s)
+        local ok, r = pcall(b.HANDLERS.buildables, nil, { about = name, max = 5 }, { api = api })
+        for _, p in ipairs(ok and type(r) == "table" and r.ok and (r.data or {}).pieces or {}) do
+            if lower(p.name) == lower(name) then
+                local cost, short, stored = {}, {}, {}
+                for _, c in ipairs(p.cost or {}) do cost[#cost + 1] = tostring(c.count) .. " " .. tostring(c.name) end
+                for _, m in ipairs(p.missing or {}) do -- what my bag lacks; my storage may hold it
+                    local lack = (m.need or 0) - (m.have or 0)
+                    local row = tostring(lack) .. " " .. tostring(m.name or m.item)
+                    if (m.in_storage or 0) >= lack then stored[#stored + 1] = row else short[#short + 1] = row end
+                end
+                local out = { name = p.name, cost = table.concat(cost, " + "), can_build_now = p.can_build_now == true,
+                              short = #short > 0 and table.concat(short, " + ") or nil,
+                              in_storage = #stored > 0 and table.concat(stored, " + ") or nil, blocked_by = p.blocked_by }
+                local have = out.short and ("I'm short of " .. out.short) or nil
+                if out.in_storage then have = (have and (have .. ", and ") or "") .. out.in_storage .. " of it is in my storage, not on me" end
+                out.text = "a " .. p.name .. " is a piece I have unlocked and can build (" .. out.cost .. "; "
+                    .. (have or (out.can_build_now and "I have that" or "I can't place it right now")) .. ")"
+                return out
+            end
+        end
+    end
+    return nil
+end
+
 -- What his unlock rules count (UProgressComponent, dump 26161880): ItemsPickedUp (TSet<UItemData*>, "ITEMS[...]")
 -- and ActorsInteractedWith (TSet<TSubclassOf<AActor>>, "ACTORS[...]": a station used at least once).
 -- -> {items = {item_id = true}, actors = {class_short = true}} | nil
@@ -1481,8 +1514,10 @@ local function start_craft(api, args, ctx0)
             mrow.gathered_before = known_spots(api, mrow.item)
             if mrow.gathered_before and not instead then detail = detail .. ". " .. mrow.gathered_before:gsub("%.%s*$", "") end
         end
+        local own = best.status == "no_station" and not instead and W.buildable_station(api, best.recipe) or nil
+        if own then detail = detail .. "; " .. own.text end
         return api.fail(reason, { recipe = best.recipe, item = best.item, missing = (#best.missing > 0) and best.missing or nil,
-            unlock = best.unlock, unlock_status = best.unlock_status, station = best.station_name,
+            unlock = best.unlock, unlock_status = best.unlock_status, station = best.station_name, station_buildable = own,
             candidates = (#list > 1) and cand_wire(list) or nil,
             ready_instead = instead and { recipe = instead.recipe, name = instead.name, inputs = instead.inputs } or nil,
             detail = detail .. "." })

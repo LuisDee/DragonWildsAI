@@ -161,6 +161,7 @@ class Agent:
         self.repeats = RepeatWatch()  # the no-progress breaker (brain/progress.py)
         self.request_calls = 0  # model calls of the last _command_run (a board step's call budget)
         self._asked: dict | None = None  # where he stood when the open request was asked (situation "Asked:")
+        self._goal_asked: dict | None = None  # the same for the goal now running (_goal_request)
         self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -1032,9 +1033,23 @@ class Agent:
         if self._quiet_goal:
             return "stuck"  # the board hears it from run_directed's records and decides
         self._situations.append({"type": "stuck", "goal": goal, "failed": task.skill if task else None,
-                                 "reason": reason, "question": question})
+                                 "reason": reason, "question": question, **self._goal_request()})
         self.flush_situations()
         return "stuck"
+
+    def _goal_request(self) -> dict:
+        """The player's own words the running goal came from, for the run that hears how the goal ended. The goal is
+        the model's wording of them and may cover less: fresh chain 20261116-065203, "go and see Zanik and do her
+        quest" became the goal "chop 50 Ash Logs ... bring them to Zanik"; that goal ended 290 s after the line (the
+        rolling chat keeps 240 s), so the run that heard goal_done knew only the goal, and he stopped with the
+        quest's next part open (583 s standing)."""
+        a = self._goal_asked
+        if not (isinstance(a, dict) and a.get("request")):
+            return {}
+        # the words alone: replayed on that turn 10 times each, he stopped or went looking for a bed 9/10 without
+        # them, went on with the quest 10/10 with them, and stopped 6/10 with a note beside them saying what a
+        # goal's end means
+        return {"request": a["request"], "from": a.get("player"), "asked_at": a}
 
     def _planner_notes(self) -> dict:
         notes = dict(self.store.prompt_notes())
@@ -1070,6 +1085,7 @@ class Agent:
     def _run_goal(self, goal: str, given: list[Task] | None = None) -> GoalResult:
         self.store.progress("goal started", goal=goal, from_skill=given is not None)
         asked = self._asked  # the request this goal came from (a body-only run in between clears self._asked)
+        self._goal_asked = asked
         if given is None:
             try:
                 plan = self.planner.plan(goal, sit.with_asked(self.executor.state(), asked), self._planner_notes())
@@ -1124,6 +1140,6 @@ class Agent:
         self.store.progress("goal done", goal=goal)
         if self._quiet_goal:
             return "done"
-        self._situations.append({"type": "goal_done", "goal": goal, "steps": len(tree.tasks)})
+        self._situations.append({"type": "goal_done", "goal": goal, "steps": len(tree.tasks), **self._goal_request()})
         self.flush_situations()
         return "done"

@@ -225,6 +225,19 @@ function M.summary(rows, opts)
         elseif r.state == "complete" then complete[#complete + 1] = r.quest
         else ungiven[#ungiven + 1] = r.quest end
     end
+    -- the game gives a quest's parts one name: a part that is complete while another of that name is given is not
+    -- "the quest complete". Listed bare it read as done and he stopped with the next part open (fresh chain
+    -- 20261116-045722: complete = [..., "Rune Mysteries"] beside the active Rune Mysteries, "Rune Mysteries is
+    -- done", then 503 s standing). The active row says an earlier part is done; complete keeps the finished ones
+    local given = {}
+    for _, a in ipairs(active) do given[tostring(a.quest)] = a end
+    local over, seen = {}, {}
+    for _, q in ipairs(complete) do
+        local a = given[tostring(q)]
+        if a then a.earlier_part_complete = true
+        elseif not seen[tostring(q)] then over[#over + 1] = q; seen[tostring(q)] = true end -- both parts done: one name
+    end
+    complete = over
     table.sort(active, function(x, y) if (x.main or false) ~= (y.main or false) then return x.main == true end return tostring(x.quest) < tostring(y.quest) end)
     table.sort(complete)
     local out = { active = active, complete = complete, counts = { active = #active, complete = #complete, ungiven = #ungiven } }
