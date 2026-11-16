@@ -178,6 +178,7 @@ local function step_move(dt)
     -- and move's progress tracker says why
     if MV.goal.Z - me.Z > 200 then
         MV.progress = { verdict = "stalled", why = "target_above_jump_height" }
+        if Wd.walks_on then return end -- the move keeps trying until the caller ends it (live 2026-11-16 09:51Z)
         if T - MV.t0 > 3.0 then MV.mode, MV.result = "idle", { status = "failed", reason = "timeout" } end
         return
     end
@@ -968,6 +969,21 @@ do
         tostring(res.reason) .. " move=" .. tostring(res.data and res.data.move))
     check("ledge: said in words", res.data and tostring(res.data.detail):find("they're higher up than I can jump", 1, true), res.data and res.data.detail)
     check("ledge: no swing/pick from under it", (Wd.inv.ITEM_Resources_Wood_Ash or 0) == 0)
+    -- the walk itself never ends (quest chain 094732: 41 s on one branch under a rock, to the 45 s cap, while move's
+    -- watchdog had said "stalled" for 29 of them): the stalled verdict ends the approach
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    Wd.walks_on = true
+    for i = 1, 3 do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Up:" .. i, class = "BP_Spawner_AshBranch_01_C", _pos = { X = 300 * i, Y = 0, Z = 400 }, name = "Ash Logs",
+                                        kind = "pickup", visible = true, item = "ITEM_Resources_Wood_Ash" }
+    end
+    local t0 = T
+    res = run_job({ resource = "sticks", count = 1 }, 300)
+    Wd.walks_on = nil
+    check("stalled walk: ends on move's verdict, not the 45 s cap", res.ok == false and res.reason == "path_blocked" and T - t0 < 20,
+        tostring(res.reason) .. " after " .. math.floor(T - t0) .. " s")
+    check("stalled walk: the reason is move's", res.data and res.data.move == "target_above_jump_height", res.data and res.data.move)
 end
 
 -- ================================================================ 12b. the first-axe bootstrap: ash logs from fallen branches

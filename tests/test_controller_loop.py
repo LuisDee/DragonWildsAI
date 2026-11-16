@@ -406,6 +406,29 @@ def test_current_observation_reaches_provider_after_failed_action(rig):
     assert reads  # the normal state read supplied the observation
 
 
+def test_station_rows_say_fuel_and_what_someone_else_left():
+    """Quest chain 094732 (Ratcatcher): the rows gave name, id and distance only, so he named a campfire that held
+    another player's water (station_busy) and then one with no fuel (missing_materials)."""
+    from brain import situation as sit
+    from brain.controller import current_observation
+    state = {"position": [0, 0, 0], "stations_nearby": [
+        {"name": "Campfire", "id": "c1", "distance": 15, "station": "Campfire", "running": False, "fuel": False,
+         "contents": ["Dirty Water x1"], "others_left": "1 Dirty Water"},
+        {"name": "Campfire", "id": "c2", "distance": 36, "station": "Campfire", "running": False, "fuel": True,
+         "contents": ["Ash Logs x2 (fuel)"]},
+        {"name": "Crafting Table", "id": "t1", "distance": 37, "station": "Bench"}]}
+    lines = sit.stations(state)
+    assert "no fuel" in lines[0] and "someone else" in lines[0]
+    assert "no fuel" not in lines[1] and "someone else" not in lines[1]
+    assert "fuel" not in lines[2]
+    rows = current_observation(state)["stations"]["rows"]
+    assert "no fuel" in rows[0]["state"] and "someone else" in rows[0]["state"]
+    assert "Ash Logs x2 (fuel)" in rows[1]["state"]
+    assert rows[2]["state"] is None
+    long = dict(state, stations_nearby=[{"name": "Campfire", "id": "c1", "distance": 1, "contents": ["x" * 500] * 9}])
+    assert len(current_observation(long)["stations"]["rows"][0]["state"]) <= 200
+
+
 def test_current_observation_unknown_and_bounded():
     from brain.controller import current_observation
     for value in (None, {}, {"unavailable": "offline"}, "bad"):

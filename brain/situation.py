@@ -641,6 +641,21 @@ def house_line(state: dict) -> str | None:
     return ("Your foundations, what is on each edge: " + " | ".join(parts))[:HOUSE_LINE_CHARS]
 
 
+def station_state(st: dict) -> list[str]:
+    """What a player sees at one station (a crafting.lua stations_nearby row): what it is making, what is in it,
+    whether it has fuel, and what in it someone else left (craft will not load a station that holds that)."""
+    bits = []
+    if st.get("running"):
+        bits.append(f"making {st.get('making') or '?'}")
+    if isinstance(st.get("contents"), list) and st["contents"]:
+        bits.append(", ".join(str(c)[:40] for c in st["contents"][:4]))
+    if st.get("fuel") is False:
+        bits.append("no fuel in it")
+    if isinstance(st.get("others_left"), str) and st["others_left"]:
+        bits.append(f"holds {st['others_left'][:60]} that someone else left, so I can't load it")
+    return bits
+
+
 def stations(state: dict) -> list[str]:
     """Crafting/processing stations nearby with what they are doing (crafting.lua stations_nearby)."""
     out = []
@@ -648,10 +663,7 @@ def stations(state: dict) -> list[str]:
         if not isinstance(st, dict):
             continue
         bits = [f"{st['distance']:.0f} m" if isinstance(st.get("distance"), (int, float)) else "", f"id {st.get('id')}"]
-        if st.get("running"):
-            bits.append(f"making {st.get('making') or '?'}")
-        if st.get("contents"):
-            bits.append(", ".join(str(c) for c in st["contents"][:4]))
+        bits += station_state(st)
         out.append(f"{st.get('name') or st.get('station')} ({'; '.join(b for b in bits if b)})")
     return out
 

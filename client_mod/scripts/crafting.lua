@@ -2196,8 +2196,10 @@ end
 
 -- ------------------------------------------------------------------ get_state extras (honest perception)
 -- client_bridge get_state calls this with the state it built (data.interactables = census rows).
--- Adds stations_nearby = [{id, name, station, distance, running?, making?, contents?}] (max 4), the
--- processing state read from the station's own component; cached M.cfg.extras_ttl_s.
+-- Adds stations_nearby = [{id, name, station, distance, running?, making?, contents?, fuel?, others_left?}] (max 4),
+-- the processing state read from the station's own component; cached M.cfg.extras_ttl_s. fuel = true | false on a
+-- station that burns fuel; others_left = the inputs in it that he did not load himself (craft answers station_busy
+-- for a station named by id that holds them): what a player sees at the fire before he chooses it.
 M.cfg.extras_ttl_s = 5
 function M.state_extras(api, data)
     local st = state()
@@ -2220,6 +2222,8 @@ function M.state_extras(api, data)
                     for _, x in ipairs(s.fuel.rows) do c[#c + 1] = tostring(x.name or x.item) .. " x" .. x.count .. " (fuel)" end
                     for _, x in ipairs(s.output.rows) do c[#c + 1] = tostring(x.name or x.item) .. " x" .. x.count .. " (done)" end
                     if #c > 0 then r.contents = c end
+                    if (s.fuel.slots or 0) > 0 then r.fuel = #s.fuel.rows > 0 end
+                    r.others_left = foreign_inputs(api, t.id, s.resources.rows)
                 end
             end
             rows[#rows + 1] = r

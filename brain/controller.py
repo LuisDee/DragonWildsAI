@@ -283,7 +283,8 @@ def current_observation(state: dict | None) -> dict:
             name, ident = row.get("name") or row.get("station"), row.get("id")
             rows.append({"name": name[:80] if isinstance(name, str) else None,
                          "id": ident if isinstance(ident, str) and len(ident) <= 80 else None,
-                         "distance_m": number(row.get("distance"))})
+                         "distance_m": number(row.get("distance")),
+                         "state": "; ".join(sit.station_state(row))[:200] or None})
         stations = {"status": "observed", "rows": rows, "omitted": max(0, len(raw_stations) - len(rows))}
     inventory = sit.carrying(state, sit.item_names(state))
     out = {"status": "observed", "position": pos, "vitals": vitals,

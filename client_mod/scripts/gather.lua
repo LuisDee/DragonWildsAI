@@ -674,14 +674,14 @@ local function tap(J, action, frames)
     return true
 end
 
-local function start_move(J, goal_cm, tol_m, timeout_s, local_plan, nav)
+local function start_move(J, goal_cm, tol_m, timeout_s, local_plan, nav, stall_s)
     J.drove_move = true
     local me = J.me
     local far = me and U.dist2d(me, goal_cm) > 1200
     local r = mcall("move", "go_to", J.log, { goal_cm.X / 100, goal_cm.Y / 100, goal_cm.Z / 100 },
         { tolerance_m = tol_m, timeout_s = timeout_s or M.cfg.approach_timeout_s, sprint = far, owner_token = J.token,
-          local_plan = local_plan, nav = nav })
-    J.move_started, J.move_from, J.move_args = J.t, me and { X = me.X, Y = me.Y, Z = me.Z }, { goal_cm, tol_m, timeout_s, local_plan }
+          local_plan = local_plan, nav = nav, progress = stall_s and { stall_s = stall_s } or nil })
+    J.move_started, J.move_from, J.move_args = J.t, me and { X = me.X, Y = me.Y, Z = me.Z }, { goal_cm, tol_m, timeout_s, local_plan, stall_s }
     J.move_d0 = me and U.dist2d(me, goal_cm) or nil
     J.nav_off = (nav == false) or nil -- a fresh move may wait for a route again
     return r and r.ok ~= false
@@ -696,7 +696,19 @@ local function route_wait_over(J, st)
     if not a then return false end
     say(J.log, string.format("no route after %.0f s standing; walking by sight", J.t - (J.move_started or J.t)))
     mcall("move", "stop", J.log)
-    return start_move(J, a[1], a[2], a[3], a[4], false)
+    return start_move(J, a[1], a[2], a[3], a[4], false, a[5])
+end
+
+-- The walk is not getting closer, by move's shared watchdog (status().progress, no gain for its stall_s): the
+-- approach ends now, with that verdict's reason, and not at approach_timeout_s. Quest chain 094732 (2026-11-16
+-- 09:51Z): 41 s on one branch under a rock, 29 of them after the watchdog said "stalled"; 6 sticks took 84.9 s.
+local function walk_stalled(J, st)
+    local pv = st and type(st.progress) == "table" and st.progress or nil
+    if not (pv and pv.verdict == "stalled") then return false end
+    say(J.log, string.format("approach stalled (%s, %.0f s without getting closer); giving this one up", tostring(pv.why), tonumber(pv.since_s) or 0))
+    mcall("move", "stop", J.log)
+    J.moving = false
+    return true
 end
 
 local function move_state()
@@ -917,6 +929,7 @@ local function step_approach(J, pawn, me)
     end
     local ms, st = move_state()
     if ms == "moving" and route_wait_over(J, st) then return end
+    if ms == "moving" and walk_stalled(J, st) then return approach_failed(J, T, st, {}) end
     if ms == "moving" and J.t - (J.move_started or J.t) <= M.cfg.approach_timeout_s + 5 then return end
     J.moving = false
     local res = st and st.result or {}
@@ -940,6 +953,7 @@ M.cfg.sweep = true
 M.cfg.sweep_press_gap_s = 0.2 -- between two presses (Luis: 0.14-0.6 s apart in a dense patch)
 M.cfg.sweep_repress_s = 1.0   -- the same thing is not pressed again sooner (a just-taken item lingers client-side)
 M.cfg.sweep_hold_s = 2.5      -- a pressed thing is no next target this long (taken: it goes; a miss: it comes back)
+M.cfg.sweep_stall_s = 6       -- a ground item he gets no closer to for this long is given up (move's default is 12 s)
 M.cfg.sweep_arrive_m = 0.5    -- walk at the thing itself; reaching it this close without an offer = stop and face
 M.cfg.sweep_direct_m = 10     -- hops shorter than this walk straight (move's local planner stands ~1 s per plan)
 M.cfg.sweep_count_s = 0.4     -- re-count the inventory this soon after a press
@@ -1079,7 +1093,7 @@ local function step_sweep(J, pawn, me)
         local goal = { X = T.pos.X, Y = T.pos.Y, Z = level and me.Z or (T.pos.Z + 90) }
         local lp -- a short level hop walks straight (nil = move's default planner); never `x and false or nil` (always nil)
         if d <= cfg.sweep_direct_m * 100 and level then lp = false end
-        if not start_move(J, goal, cfg.sweep_arrive_m, nil, lp) then
+        if not start_move(J, goal, cfg.sweep_arrive_m, nil, lp, nil, cfg.sweep_stall_s) then
             mark_bad(J, T, "move refused")
             J.T = nil
             return set_phase(J, "scan", "move refused")
@@ -1089,6 +1103,7 @@ local function step_sweep(J, pawn, me)
     end
     local ms, st = move_state()
     if ms == "moving" and route_wait_over(J, st) then return end
+    if ms == "moving" and walk_stalled(J, st) then return approach_failed(J, T, st, {}) end
     if ms == "moving" and J.t - (J.move_started or J.t) <= cfg.approach_timeout_s + 5 then return end
     J.moving = false
     local res = st and st.result or {}

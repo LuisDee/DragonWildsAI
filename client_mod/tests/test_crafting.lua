@@ -861,6 +861,7 @@ do
     check("craft_plan: invalid args", r.reason == "invalid_args")
 end
 do -- get_state extras: stations nearby with the furnace's state, from the census rows
+    _G.DWCraftLoads = {}
     reset({ stations = { TABLE(), FURNACE({ res = { { slot = 0, item = "ITEM_Resources_IronOre", name = "Iron Ore", count = 3 } } }) } })
     local rows = api.census_things()
     local ex = C.state_extras(api, { interactables = rows })
@@ -869,6 +870,12 @@ do -- get_state extras: stations nearby with the furnace's state, from the censu
     check("extras: two stations", ex.stations_nearby and #ex.stations_nearby == 2)
     check("extras: furnace contents", fu and fu.contents and fu.contents[1] == "Iron Ore x3", fu and fu.contents and fu.contents[1])
     check("extras: cached", C.state_extras(api, { interactables = {} }) == ex)
+    -- what a player sees at the fire before he walks to it: no fuel in it, and things in it that are not his
+    -- (quest chain 094732, Ratcatcher: the row said only name, id and distance; he named a campfire holding another
+    -- player's Dirty Water -> station_busy, then one with no fuel -> missing_materials: two of the run's three misses)
+    check("extras: no fuel is said", fu and fu.fuel == false, fu and tostring(fu.fuel))
+    check("extras: someone else's inputs are said", fu and fu.others_left == "3 Iron Ore", fu and tostring(fu.others_left))
+    check("extras: a bench has no fuel field", (function() for _, s in ipairs(ex.stations_nearby) do if s.station ~= "Furnace" and s.fuel ~= nil then return false end end return true end)())
 end
 for name in pairs(C.HANDLERS) do
     check("manifest entry " .. name, C.MANIFEST[name] and C.MANIFEST[name].description and C.MANIFEST[name].args)
