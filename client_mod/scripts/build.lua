@@ -17,7 +17,7 @@ local function paused() return rawget(_G, "DW_PAUSE") == true end
 local function lower(s) return tostring(s or ""):lower() end
 local function need_str(v) return type(v) == "string" and v ~= "" end
 
-M.cfg = { max = 25, max_cap = 60, describe_max = 8 }
+M.cfg = { max = 25, max_cap = 60, describe_max = 8, hidden_max = 5 }
 
 local function sense_U(api)
     local s = api.module("sense")
@@ -267,7 +267,7 @@ M.HANDLERS.buildables = function(log, args, ctx)
     end
     local can_build, is_owner = priv("build"), priv("owner")
     local about = need_str(args.about) and args.about or nil
-    local rows = {}
+    local rows, hidden = {}, {}
     for _, d in ipairs(list) do
         local ok, p0 = pcall(M.describe, api, d)
         if ok and p0 and p0.id then
@@ -280,7 +280,7 @@ M.HANDLERS.buildables = function(log, args, ctx)
             if #p.missing > 0 and not short then p.storage_may_cover = true end -- the game may build from nearby storage
             if p.host_only and is_owner ~= true then p.blocked_by = "host_only" end
             p._score = score(api, p, about)
-            if args.can_build_now ~= true or p.can_build_now then rows[#rows + 1] = p end
+            if args.can_build_now ~= true or p.can_build_now then rows[#rows + 1] = p else hidden[#hidden + 1] = p end
         end
     end
     table.sort(rows, function(a, b)
@@ -318,6 +318,37 @@ M.HANDLERS.buildables = function(log, args, ctx)
         data.by_word = setmetatable(by_word, { __jsontype = "object" })
     end
     if can_build == false then data.note = "The server hasn't given me building rights here." end
+    -- What the can_build_now filter left out is told, never dropped in silence (live 20261116-204420: he asked
+    -- {about: "campfire", can_build_now: true} with no stone on him, saw "Decorative Fire Rune" alone and said he
+    -- couldn't build a fire): the pieces that answer the ask but can't be built yet, best first, with what each
+    -- still needs. Nothing asked about: how many, no list.
+    if #hidden > 0 then
+        local left = hidden
+        if about then
+            local ranked = M.rank_about(hidden, about)
+            if ranked and #ranked > 0 then left = ranked
+            else
+                left = {}
+                for _, p in ipairs(hidden) do if p._score > 0 then left[#left + 1] = p end end
+                table.sort(left, function(a, b)
+                    if a._score ~= b._score then return a._score > b._score end
+                    return lower(a.name) < lower(b.name)
+                end)
+            end
+        end
+        if #left > 0 then
+            local cb = { matched = #left }
+            if about then
+                cb.pieces = {}
+                for i = 1, math.min(#left, M.cfg.hidden_max) do
+                    local p = left[i]
+                    cb.pieces[i] = { id = p.id, name = p.name, missing = #p.missing > 0 and p.missing or nil,
+                                     blocked_by = p.blocked_by, storage_may_cover = p.storage_may_cover }
+                end
+            end
+            data.cannot_build_now = cb
+        end
+    end
     return { ok = true, data = data }
 end
 

@@ -94,6 +94,26 @@ r = call({ can_build_now = true })
 local ids = {}
 for _, p in ipairs(r.data.pieces) do ids[#ids + 1] = p.id end
 check("can_build_now: campfire and the free chinchompa only", #r.data.pieces == 2, table.concat(ids, ","))
+-- live 20261116-204420 (Ratcatcher): both fires near him were taken; he asked {about: "campfire", can_build_now: true},
+-- had no stone, and got "Decorative Fire Rune" alone: the Campfire piece and what it lacked were nowhere in the reply,
+-- so he said he couldn't build one. What the filter leaves out is told, with what each still needs.
+r = call({ about = "table", can_build_now = true })
+local cb = r.data.cannot_build_now
+check("can_build_now: a matching piece he can't build yet is told, with what it lacks", r.ok and #r.data.pieces == 0
+    and type(cb) == "table" and cb.matched == 1 and cb.pieces[1].id == "BUILDPIECE_CraftingStation_Basic"
+    and cb.pieces[1].name ~= nil and cb.pieces[1].missing[1].name == "Ash Logs" and cb.pieces[1].missing[1].need == 4
+    and cb.pieces[1].missing[1].have == 1, tostring(cb and cb.matched))
+r = call({ about = "totem", can_build_now = true })
+cb = r.data.cannot_build_now
+check("can_build_now: one held back by the host's right says so", type(cb) == "table" and cb.pieces[1].blocked_by == "host_only",
+    tostring(cb and cb.pieces and cb.pieces[1] and cb.pieces[1].blocked_by))
+r = call({ can_build_now = true })
+check("can_build_now, nothing asked about: how many it left out, no list", type(r.data.cannot_build_now) == "table"
+    and r.data.cannot_build_now.matched == 2 and r.data.cannot_build_now.pieces == nil, tostring(r.data.cannot_build_now))
+r = call({ about = "campfire", can_build_now = true })
+check("can_build_now: nothing left out, nothing said", r.data.cannot_build_now == nil and #r.data.pieces >= 1)
+r = call({ about = "table" })
+check("no filter: nothing left out", r.data.cannot_build_now == nil)
 
 -- static data is read once per session (struct arrays cached, review finding 11)
 local n0 = req_reads.n
