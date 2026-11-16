@@ -3388,3 +3388,7 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - Goblin Runts keep up with a sprinting player over 25 m: every flee from them today ended with them in reach.
   - The dev fixture `set_stat` sets endurance (rest); for hydration and sustenance it answered "failed: None".
   - Save file: a character's vitals are at `GameProgress.Character.{Sustenance.SustenanceValue, Hydration.HydrationValue, Endurance.EnduranceValue}` (tools/quest_clone.py sets them on a clone).
+- **Water near the temple, the census cap, hotbar swap (live 2026-11-16, build 26574459).**
+  - `BP_WaterVolume_C` actors near the dev base / Doric's: [46.8, 1791.4, -35.0] (84 m from Doric's bench), [156.6, 1929.0, -35.4] (94 m), and one at [508.8, 1377.9, -15.9].
+  - `sense.census` sorts each category by distance and then keeps `max` rows. Around Doric's there are 72 interactables within 150 m, so any search that reads 40 rows and then filters loses things past 69 m. A search for one kind passes `keep` to `api.census_things` (client_bridge.lua).
+  - A drag onto a TAKEN hotbar slot swaps the two items in one call (`InventoryUIAPI:HandleInternalDragAndDrop(bag slot, bag, hotbar slot, hotbar)`): Clean Water dropped on the Stone Pickaxe's slot, the pickaxe was in the bag by the next read.

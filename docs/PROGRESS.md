@@ -1162,3 +1162,27 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
   4. The learned impact time has a second cluster at 0.40-0.57 s (probably hits from other runts recorded with no attacker), which mistimes parries. Idea: learn only from attributed impacts.
   5. A second or third attacker is not defended while he answers the first ("queued swing").
 - **ClaudeDev after the tests:** graves taken back, Bronze Sword + Bronze Shield in hand, 219.5 weight, health and rest 100. A second sword and shield were granted by fixture during the wave. 67 Ash Logs, 32 Stone, 3 Bronze Swords and 1 Bronze Shield lie on the ground at the dev base sleep spot [101, 1868, -31] (dropped to get under the carry limit).
+
+## 2026-11-16 08:5x-09:5xZ rung 5: first full quest chain; the chains regraded by ALL the goal's bars; four causes fixed
+- **Correction to the entries above:** `tools.quest_run` returned 0 for "quest complete" and the tables called that PASS when the time was inside 1.5x. The goal's bar is also at most 1 miss and no stand over 5 s. Regraded with the graders' miss rule (`tools/standard_score`: a failed world action; not an interruption, not a read-only lookup):
+
+  | chain (UTC) | clone | First Steps | Getting Started | Ratcatcher | Rune Mysteries |
+  |---|---|---|---|---|---|
+  | 072935 | ClaudeQ160729 | pass, 0.56x, 1 miss | FAIL, 0.91x, 4 misses | pass, 1.0x, 1 miss | FAIL, not done (deadline), 10 misses |
+  | 085113 | ClaudeQ160851 | pass, 0.42x, 1 miss | FAIL, 0.83x, 2 misses | FAIL, 1.14x, 3 misses | FAIL, **done in 347.6 s, 0.94x**, 3 misses |
+  | 091005 | ClaudeQ160910 | pass, 0.42x, 1 miss | FAIL, 0.66x, 2 misses | pass, 0.91x, 1 miss | FAIL, not done (stopped quiet at 429 s), 0 misses, stands 6.7 s and 42.2 s |
+
+- **Chain 085113 is the first chain to complete all four quests**, and the first Rune Mysteries completion (22 tool calls, 19 Haiku + 2 Sonnet, $0.090). No stand over 5 s in any of its quests.
+- **The same few misses repeat in every chain.** Each was reproduced, fixed and confirmed live on ClaudeDev (commit 64f2f85):
+
+  | miss | where | cause | fix | live check |
+  |---|---|---|---|---|
+  | `collect_water` nothing_in_range | First Steps, Getting Started, every chain | the search is 150 m but read the 40 nearest interactables; at Doric's the pond (84 m) is the 58th of 72 (`client_mod/commands/water_probe.lua`) | `census_things(radius, max, near, {kinds, keep})`: filter before the cap | from [109, 1848]: 15.4 s, 1 Dirty Water, he walked to the pond himself |
+  | `go_to` verification_failed | Getting Started | the model's own answer to the miss above: a go_to into the pond | none needed once collect_water finds the pond; `go_to` to a spot he can't stand on is still open | - |
+  | `craft` station_busy | Ratcatcher | a station KIND named ("Campfire") took the nearest one, which held an earlier character's Dirty Water; with no station named it already passed over such a station | the kind-named path uses the same rule | next to a campfire with 8 Raw Rat Meat: took the free one, said why, made 2 Clean Water |
+  | `move_item` inventory_full x2, `consume` not_in_inventory | Rune Mysteries | a full hotbar; he moved his axe to the bag to make room and the stay-fed reflex filled the slot first | a move to a full hotbar is ONE drag onto the slot that gives way (the game swaps the two); the result says what went to the bag | move_item and consume both, hotbar of 8 |
+
+- **Rune Mysteries stop in chain 091005 (b21b657):** the run that heard part 1 end was thirsty, fetched, boiled and drank water (3 turns), then "No new request from Tester, so I'll stay quiet" with part 2 open. Replayed on that turn: 8 of 8 stop as logged; 3 of 8 with the player's words only put in front; 0 of 8 with the continuation note naming the request ("Tester asked '...': continue with the next step of that, or stop if it is done."). Negative replay on 4 chat turns that rightly stopped (12 replays): none added a body call.
+- **Harness (64f2f85):** `quest_run.verdict()` = done, at most 1.5x, at most 1 miss, no stand over 5 s; in every record (`verdict`), the fresh summary and `report`. The exit code still means "quest complete" because the chain needs it to go on. Whether his lines were true is not judged in these runs (`truth: not judged`).
+- **Also seen, not fixed:** the Sonnet plan for "bring 50 Ash Logs to Zanik" walked back to where he was asked before going to Zanik 130 m away (about 40 s); boiling 5 Dirty Water made 4; `tests/test_talk_only_followup.py` has one test failing since before b21b657.
+- Spend today about $1.7 of $10.
