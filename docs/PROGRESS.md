@@ -1289,3 +1289,22 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Tested offline:** tests/test_quest_workflow.py (21), with test_quest_run, test_quest_clone and test_bench_devchar 45 passed; a fork of the real ClaudeQ161219 save, made in memory, differs from it only in guid and name.
 - **Not tested live:** `step`, `fork`, `park`, `--save-as`, the warm-up wait and the quest flags. A fork does not restore the world (trees, NPCs, station contents, time of day), and the dev server keeps every forked character.
 - **Next, when Luis lifts the pause:** one `step -k 1` window on a fork of ClaudeQ161219 to see that a fork loads with its quest state; read the Rune Mysteries flags there; keep it as checkpoint `rm_part2`; then K trials on part 2 and on Getting Started alone before any chain.
+
+## 2026-11-16 (resumed about 13:50Z): the new workflow live; Rune Mysteries part 2 worked alone
+Luis lifted the pause ("Then lets proceed", "Resume") and doubled the day's API cap to 20 dollars for 2026-11-16 only (ae86762, `data/spend_cap_days.json`).
+- **The workflow tools ran live for the first time.** `step`, `fork`, `park`, the quest flags, the start place and `--save-as` all work. The RETRO's limit "Nothing here has run live" no longer holds for them. No trial since has had a stand at its start (the warm-up wait).
+- **The first step window found a harness fault** (window 20261116-140106, run 140319, void): a fork comes up at the world spawn, 226 m from Zanik, not where its save was written. Fixed in 523f480: `step` walks each fork to the save's own place before the clock starts.
+- **The "no conversation" failure of chain 122947 was not the quest's state.** Hand probes on forks (ClaudeP161412, 161416, 161420; no model, no spend): the same save talks to Zanik and completes in a new client session, and crafting sets no flag. The client-session cause is not found. cbe7673 makes the failure say what the press saw. Details in DISCOVERIES.
+- **K=3 from `rm_part2` (window 14:23Z): 2 of 3.**
+
+| run | result | time | notes |
+|---|---|---|---|
+| 142631 | pass | 103.8 s, 1.2 times the human 86.5 s | 1 miss: `interact` on the Anima Vent "pressed use; nothing changed" |
+| 143100 | pass | 83.4 s, 0.94 times the human 89.0 s | 1 miss: `go_to` unknown_target |
+| 143506 | fail (deadline) | 332.3 s | stands of 55.2 s, 158.8 s and 62.0 s |
+
+- **The cause of 143506, corrected.** First read: only floating essence was left and no tool knocks it down, so I worked on `shoot` (dc58ace, 93f8715). The shot log then showed six arrows stopping short on rising ground, and a hand probe walked to the "floating" rock and mined it in 12 s. The first thing wrong was gather's own report: it measured height from where he stood. Fixed in 191cda3 (negative test first; 150 Lua tests pass). Live after, by hand from Zanik's spot: 31 m up the rise, 3 rocks, 15 essence in 68 s. Run 053527 gave the same report at 79 s and carries the same tag. Whether its five rocks near the world spawn were also on higher ground was not checked.
+- **`shoot` handles the bow now** (93f8715): 6 presses, 6 arrows, each followed, a readable line per shot. It stays `llm = false`: nothing floating has been shot live, and the quest does not need it at this spot.
+- **Checkpoints kept:** `rm_part2` (beside Zanik, part 2 open), `rm_p2_runes_made`, `gs_start` (start of Getting Started; First Steps passed again on the way, run 152556).
+- **Seen in 143506, not first causes, queued by count:** the request ended on a question to the player with the quest open; nothing woke him after "casting again once it recharges"; the Anima Vent's state is not readable, so a press that changes nothing can't be explained; a gather for 3 left 5 essence on the ground.
+- **Limits.** The two passes each had one miss (the bar allows one) and their reports were not judged for truth. Three trials are not a rate. The world is not restored between trials (rocks grow back in under an hour), so later trials of a window meet a different world from the first. The shoot hours went on a wrong diagnosis; the visibility rule (make the shot readable before a second fix) is what ended it.
