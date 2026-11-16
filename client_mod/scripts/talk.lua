@@ -458,8 +458,11 @@ local function result_of(J, ok, reason, data)
     if #qd > 0 then data.quests_changed = qd end
     -- what changed in his bag during THIS call (quest rewards: QFT_GiveItemToPlayer). Per call, not per
     -- conversation: live 15:26Z another agent's build between two calls of one conversation showed as "lost 4 Ash Logs"
+    -- A talk that set out to open a conversation and opened none was given nothing in one: what changed in his bag
+    -- meanwhile (a fight's loot, food he ate) is not the NPC's (live 20261116-194849: "no conversation opened. Given to
+    -- you in this conversation: 5 Goblin Pack. Gone from your bag during it: 1 Rat Roast.")
     local inv1, names1 = W.carried(J.api)
-    local items = M.inv_diff(J.inv0, inv1)
+    local items = (J.mode ~= "start" or J.opened) and M.inv_diff(J.inv0, inv1) or nil
     if items then data.items = items end
     -- the outcome in plain words after the detail, so a report can't credit the NPC with what he did himself
     -- (live 15:41Z: Haiku said "Doric gave me a stone club" after crafting it; the reward was 1 Vegetable Soup)
@@ -641,6 +644,7 @@ local function frame(J)
             -- the bag baseline from the moment it opened: pickups and kills on the walk over are not "given" (live
             -- 16:27Z: an Animal Hide Scrap picked up on the way read as Vannaka's)
             J.inv0, J.names0 = W.carried(J.api)
+            J.opened = true
             C().conv = { npc = J.target.id, npc_name = J.target.name, pawn_id = W.pawn_id(pawn), base = J.q0, since = J.t, last_call = J.t }
             W.claim()
             return step_read(J)

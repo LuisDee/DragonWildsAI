@@ -722,6 +722,29 @@ test("interact on a station: its screen opening is the change; one press, never 
     assert(F.presses == 1 and F.screen_owner == "bench_1", "one press, the screen left open: " .. tostring(F.presses))
 end)
 
+-- live 20261116-194849 (Rune Mysteries): a goblin fight held a talk to Zanik up for 27 s; the 5 Goblin Pack he looted
+-- read as what the press on her gave (the bag was read when the walk began), so 0.1 s after the press the episode
+-- said "done, an item came" and talk said "no conversation opened".
+test("interact: what reached the bag between the start and the press is not what the press gave", function()
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    F.world.interactables = { { id = "npc_1", class = "BP_NPC_Zanik_C", name = "Zanik", kind = "interactable", prompt = "Talk",
+                                position = { 1, 30, 3 } } }
+    local inv = B.module("inventory")
+    local p0, pressed = inv.press_interact, 0
+    inv.press_interact = function(log, opts)
+        local det = inv.interact_target()
+        if det and det.actor == "npc_1" then pressed = pressed + 1; return { ok = true, action = "IA_Interact" } end
+        return p0(log, opts)
+    end
+    local _, id = rpc("interact", { target = "npc_1" })
+    F.cons[#F.cons + 1] = { name = "Goblin Pack", item = "ITEM_Loot_GoblinPack", count = 5, where = "bag" } -- on the way there
+    local r = run(id, 60)
+    inv.press_interact = p0
+    assert(pressed >= 1, "he pressed: " .. json.encode(r))
+    assert(r and not r.ok and r.reason == "verification_failed" and not (r.data and r.data.item), json.encode(r))
+end)
+
 test("recover_grave / interact: a full bag leaves the rest (said, from the game's free slots); an emptied grave is recovered", function()
     local sk = open_grave(2, { ITEM_Resources_Stone = 10, ITEM_Consumable_GoblinPack = 2 })
     local _, id = rpc("recover_grave")

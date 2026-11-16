@@ -698,6 +698,7 @@ local function episode_poll(api, e, t, owner_token)
     if e.child_lost then return api.fail("interrupted",{detail="interaction movement was replaced"}) end
     local goal = (e.wading and e.wade_goal) or (e.spots and e.spots[e.spot_i]) or th.position
     if e.phase == "approach" then
+        e.based = nil -- walking (again): the next press reads the bag afresh
         local bed = W.resting_in(api)
         if bed and bed ~= th.id then
             return api.fail("resting", { resting_in = bed, detail = "lying in " .. tostring(bed)
@@ -836,6 +837,11 @@ local function episode_poll(api, e, t, owner_token)
             e.took_name = e.took and det.name or nil
             e.sig_before = W.press_signals(api)
             e.prompt_before = det.prompt
+            -- the bag as it is at the press, not as it was when the walk began: what reached it in between is not what
+            -- the press gave (live 20261116-194849: a goblin fight held a talk up for 27 s, its loot of 5 Goblin Pack read
+            -- as the press's gain, and talk said "no conversation opened" 0.1 s after pressing). Kept for a second press
+            -- from the same stand, so a gain that comes late from the first still counts.
+            if not e.based then e.before, e.based = api.counts() or e.before, true end
             if e.water and e.need_gain then
                 local source = det.actor == th.id and th or (det.actor and api.find_thing(det.actor, M.cfg.water_search_m))
                 local output = source and source.id == det.actor and W.water_item(api, source)

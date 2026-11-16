@@ -335,6 +335,22 @@ do
     -- live 2026-11-16 12:37Z: the failure said nothing of what the press saw, so its cause could only be guessed at
     check("no_conversation carries what the press saw", res.data.prompt == "Talk" and res.data.presses == 2 and res.data.pressed == "NPC_X"
         and res.data.detail:find('2 times (the prompt the game showed on them read "Talk") but no conversation opened.', 1, true) ~= nil, res.data.detail)
+    -- live 20261116-194849: a fight held the talk up; its loot and the food he ate were said as that conversation's
+    -- ("no conversation opened. Given to you in this conversation: 5 Goblin Pack. Gone from your bag during it: 1 Rat Roast.")
+    reset({ mute = true })
+    do
+        local carried0, n = W.carried, 0
+        W.carried = function()
+            n = n + 1
+            if n == 1 then return { roast = 1 }, { roast = "Rat Roast" } end
+            return { pack = 5 }, { pack = "Goblin Pack" }
+        end
+        res = talk({ target = "BP_NPC_WiseOldMan_C_1" })
+        W.carried = carried0
+    end
+    check("no conversation opened: what changed in his bag meanwhile is not said to be given in it", res.data.why == "no_conversation"
+        and res.data.items == nil and not tostring(res.data.detail):find("Given to you", 1, true)
+        and not tostring(res.data.detail):find("Gone from your bag", 1, true), res.data.detail)
 
     reset()
     talk({ target = "BP_NPC_WiseOldMan_C_1" })
