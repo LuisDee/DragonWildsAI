@@ -238,6 +238,7 @@ M.cfg.build = {
     -- on the aim point 2 frames later and stands. Read aim_wait_s after the aim (>= 4 frames at 30 fps); a cursor read
     -- at least aim_settle_s after an exact aim counts as settled. false = the old aim from where the camera stands.
     aim_exact = true, aim_wait_s = 0.15, aim_settle_s = 0.12,
+    actor_check_s = 0.1, -- after the press: look for the new piece this soon, and this often
     red_probe_s = 2.0, -- every spot red: press once and wait this long for the game's own reason (0 = off)
     shelter_up_m = 2.0, -- ... and standing more than this above / below its floor is not in it (on the roof)
     shelter_reach_m = 25, -- a shelter-only piece: my own covered floors this close to where it was asked count
@@ -258,7 +259,9 @@ M.cfg.build = {
     settle_m = 0.03, tremble_m = 0.15, cursor_tol_m = 0.2, cursor_tol_z_m = 0.25, cursor_checks = 14, corr_max_m = 2.0, corr_max_z_m = 1.2, edge_in_m = 0.3,
     -- speed (Luis's recording: he placed 11 walls from one spot, 0-0.3 m apart, 1-3 s each; MaxPlacementDistance 7 m):
     -- stay where I am when the aim point is within stay_m, my view of it is clear and I'm not in the piece's way
-    stay_m = 4.5, stay_clear_m = 0.5, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
+    stay_m = 6.0, stay_clear_m = 0.5, stay_off_floor_m = 0.15, stay_ceiling_m = 0.2,
+    -- can't place from here: walk to the nearest spot whose predicted view lands on the aim point (camrig.stands)
+    stand_search = true, stand_radii_m = { 2.5, 4.0, 5.5 }, stand_walk_s = 15, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
     -- the cursor jumped from my aim onto the flush spot = a seen snap. Under edge_in_m: live 2026-11-16 a door frame's
     -- cursor sat 0.01 m from the flush spot, green, and was called off target: its cursor target is edge_in_m from the
     -- flush spot, 0.29999999999999716 in floats, and the rule asked for >= 0.3 (false on 21 % of positions)
@@ -369,6 +372,51 @@ function W.rig(api)
     if not (pc and pawn) then return nil end
     local okr, rig = pcall(function() return camrig().rig(sense_U(api), pc, pawn) end)
     return okr and rig or nil
+end
+-- How far from the aim point my view may land and still count as on it, standing at pos (see W.stay_ok).
+function W.view_tol(on, pos)
+    local cfg = M.cfg.build
+    local a = on.anchor
+    local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
+    local tol = cfg.stay_clear_m + ((on.mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
+    -- a roof off a wall top snaps from the wall face on the roof's side only (live 2026-11-16: a view 0.95 m off
+    -- passed the old loose rule and the preview came no nearer than 1.75 m)
+    if on.mount.ceiling then return cfg.stay_ceiling_m end
+    local on_floor = on.side == "in" or math.abs((pos[3] - 0.88) - top) <= 0.6
+    return on_floor and tol or math.min(tol, cfg.stay_off_floor_m)
+end
+local function trace_m(api)
+    return function(a, b)
+        local hit, o = W.trace(api, { X = a[1] * 100, Y = a[2] * 100, Z = a[3] * 100 }, { X = b[1] * 100, Y = b[2] * 100, Z = b[3] * 100 })
+        local ip = hit and o and o.ImpactPoint
+        if ip and type(ip.X) == "number" then return true, { ip.X / 100, ip.Y / 100, ip.Z / 100 } end
+        return false
+    end
+end
+-- Where to stand to place an attach: the spots round its aim point whose predicted view lands on it and that aren't
+-- where the piece goes, the shortest walk first (camrig.stands). nil when the boom can't be read.
+function W.stands(api, job, here)
+    local cfg = M.cfg.build
+    local on = job.on
+    local rig = cfg.aim_exact and W.rig(api)
+    if not (rig and here and on and on.mount and on.anchor and on.anchor.box) then return nil end
+    local spot, axis = M.flush_spot(on.anchor, on.side, on.box)
+    local aim = M.aim_point(on, spot, axis)
+    if not (spot and aim) then return nil end
+    local okc, list = pcall(function()
+        return camrig().stands(rig, here, aim, trace_m(api), { max = 3, radii = cfg.stand_radii_m,
+            tol_for = function(pos) return W.view_tol(on, pos) end,
+            ok = function(pos) return not M.in_the_way(pos, spot, on.box, on.mount.yaw or 0) end })
+    end)
+    return okc and list or nil
+end
+-- What the screen centre would land on if I aimed at pos from here (camrig.look with the game's line trace); nil
+-- when the boom can't be read.
+function W.look(api, pos, tol_m)
+    local rig = M.cfg.build.aim_exact and W.rig(api)
+    if not (rig and pos) then return nil end
+    local okl, look = pcall(function() return camrig().look(rig, pos, trace_m(api), tol_m) end)
+    return okl and look or nil
 end
 function W.camera(api)
     local U = sense_U(api)
@@ -1007,14 +1055,24 @@ function W.stay_ok(api, job, here)
     if math.sqrt((aim[1] - here[1]) ^ 2 + (aim[2] - here[2]) ^ 2) > cfg.stay_m then return false, "far" end
     local a = on.anchor
     local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
-    if not on.mount.ceiling and on.side ~= "in" and math.abs((here[3] - 0.88) - top) > 0.6 then return false, "not_on_its_floor" end
+    local on_floor = on.mount.ceiling or on.side == "in" or math.abs((here[3] - 0.88) - top) <= 0.6
     if M.in_the_way(here, spot, on.box, on.mount.yaw or 0) then return false, "in_the_way" end
+    local tol = cfg.stay_clear_m + ((on.mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
+    -- from where the camera WILL stand once I aim there (it swings round its pivot, camrig.lua), not where it is now.
+    -- Off the anchor's floor (on the ground beside a foundation) the view must land ON the aim point: just under
+    -- the edge is its side face, and the piece doesn't snap from there
+    local look = W.look(api, aim, W.view_tol(on, here))
+    if look then
+        job.stay_off_m = look.off_m
+        if not look.clear then return false, "view_blocked" end
+        return true
+    end
+    if not on_floor then return false, "not_on_its_floor" end
     local cam = W.camera(api)
     if not cam then return false, "no_camera" end
     local hit, o = W.trace(api, { X = cam[1] * 100, Y = cam[2] * 100, Z = cam[3] * 100 }, { X = aim[1] * 100, Y = aim[2] * 100, Z = aim[3] * 100 })
     local ip = hit and o and o.ImpactPoint
     if ip and type(ip.X) == "number" then
-        local tol = cfg.stay_clear_m + ((on.mount.ceiling and M.thin_axis(a.box)) and a.box.extent[M.thin_axis(a.box)] or 0)
         local d = math.sqrt((ip.X / 100 - aim[1]) ^ 2 + (ip.Y / 100 - aim[2]) ^ 2 + (ip.Z / 100 - aim[3]) ^ 2)
         if d > tol then return false, "view_blocked" end
     end
@@ -1765,7 +1823,8 @@ function M.batch_next(api, job, res)
         end
     until nj.ok ~= false
     -- the same job table goes on: the poll closure, the arbiter token and the open build screen stay with it
-    local keep = { batch = true, token = true, own = true, presses = true, phase_s = true, phase_at = true, last_phase = true }
+    local keep = { batch = true, token = true, own = true, presses = true, phase_s = true, phase_at = true, last_phase = true,
+                   phase_k = true, stay_log = true, vt_log = true }
     for key in pairs(job) do if not keep[key] then job[key] = nil end end
     for key, v in pairs(nj) do if key ~= "presses" then job[key] = v end end
     job.rotation = tonumber(args.rotation) or job.rotation
@@ -1786,6 +1845,9 @@ local function step(api, job, t)
         job.stay_checked = true
         local ok_stay, why = W.stay_ok(api, job, api.my_position())
         job.stay_why = why
+        job.stay_log = job.stay_log or {}
+        job.stay_log[#job.stay_log + 1] = (job.batch and ("#" .. tostring(job.batch.i) .. " ") or "") .. (ok_stay and "stayed" or tostring(why))
+            .. (job.stay_off_m and string.format(" (view %.2f m off)", job.stay_off_m) or "")
         if ok_stay then job.stayed, job.phase = true, "open"; return nil end
     end
     if job.phase == "approach" then
@@ -1793,6 +1855,16 @@ local function step(api, job, t)
         local d = here and math.sqrt((here[1] - job.center[1]) ^ 2 + (here[2] - job.center[2]) ^ 2)
         -- attaching: stand OUTSIDE the flush spot, on the far side from the anchor, so the camera ray to the aim
         -- point never crosses the anchor piece (a side) / beside the anchor (top)
+        if job.on and not job.stand_at and cfg.stand_search and not job.stands_done then
+            job.stands_done = true
+            local list = here and W.stands(api, job, here)
+            if list and #list > 0 then
+                job.stand_list, job.stand_i, job.stand_at = list, 1, list[1].pos
+                job.stay_log = job.stay_log or {}
+                job.stay_log[#job.stay_log + 1] = string.format("  -> %d spots with a clear view, the nearest %.1f m%s", #list, list[1].walk_m,
+                    list[1].direct and "" or " (round something)")
+            end
+        end
         if job.on and not job.stand_at then
             local half = job.footprint / 2
             local _, axis, mount = M.flush_spot(job.on.anchor, job.on.side, job.on.box)
@@ -1852,13 +1924,20 @@ local function step(api, job, t)
         if (job.stand_at and ds and ds <= 1.2 and not (job.shelter and math.abs(here[3] - job.stand_at[3]) > cfg.shelter_up_m)) or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5) then
             to_open(); return nil
         end
+        if not job.moving and job.stand_list and (job.approaches or 0) >= 1 then
+            -- the walk to that spot ended short of it: the next one, then the old rule
+            job.stand_i = job.stand_i + 1
+            local nx = job.stand_list[job.stand_i]
+            job.approaches = 0
+            if nx then job.stand_at = nx.pos else job.stand_list, job.stand_at = nil, nil; return nil end
+        end
         if not job.moving then
             if (job.approaches or 0) >= 2 then
                 if job.stand_at and d and d <= cfg.reach_m - 1.5 and d >= 1.5 then to_open(); return nil end -- close enough to try
                 return api.fail("too_far", { piece = job.piece.id, distance = d, detail = "I can't get to a spot to build the " .. job.piece.name .. " from." })
             end
             local goal = job.stand_at or stand_point(here or job.center, job.center, job.standoff + 0.5)
-            local mr = api.call("move", "go_to", goal, { tolerance_m = 0.8, timeout_s = 60, allow_unstuck = false, owner_token = job.token })
+            local mr = api.call("move", "go_to", goal, { tolerance_m = 0.8, timeout_s = job.stand_list and cfg.stand_walk_s or 60, allow_unstuck = false, owner_token = job.token })
             if not mr.ok then return mr end
             job.moving, job.approaches = true, (job.approaches or 0) + 1
             return nil
@@ -1944,6 +2023,8 @@ local function step(api, job, t)
         end
         job.rot_left = job.rot_left or (job.rotation and math.floor(((job.rotation % 360) / cfg.rotate_step_deg) + 0.5) or 0)
         if job.rot_left > 0 then
+            -- one input = one 15 degree step whatever its axis value (live 2026-11-16: one input of value 6 turned
+            -- the ghost 15, not 90: the wall stood 75 off)
             job.rot_left = job.rot_left - 1
             job.presses[#job.presses + 1] = "rotate"
             W.press(api, W.rotate_action(api))
@@ -2231,7 +2312,8 @@ local function step(api, job, t)
             for _, s in ipairs(W.structures_near(api, job.piece.id, at, cfg.before_m) or {}) do job.before_ids[s.id] = true end
             job.presses[#job.presses + 1] = "place"
             W.press(api, pa)
-            job.phase, job.verify_until, job.next_actor_check = "verify", t + cfg.verify_s, t + 0.5
+            job.phase, job.verify_until, job.next_actor_check = "verify", t + cfg.verify_s, t + cfg.actor_check_s
+            job.press_t, job.vt = t, {}
         end
         return nil
     elseif job.phase == "verify" then
@@ -2269,10 +2351,18 @@ local function step(api, job, t)
         -- the new piece in the world, looked for even when the game already confirmed it (telemetry used to skip
         -- this, so structure was always null); at most every 0.5 s (one find_all each)
         if not job.structure and t >= job.next_actor_check then
-            job.next_actor_check = t + 0.5
+            job.next_actor_check = t + cfg.actor_check_s
             job.structure = W.new_structure(api, job)
         end
         if not evidence and job.structure then evidence = "actor" end
+        -- when each proof arrived after the press (s), for the speed work
+        if job.vt and job.press_t then
+            local function mark(k, on) if on and not job.vt[k] then job.vt[k] = math.floor((t - job.press_t) * 100 + 0.5) / 100 end end
+            mark("spent", all_fell); mark("telemetry", cp and cp.seq > job.complete0); mark("xp", job.xp0 and xp and xp > job.xp0)
+            mark("actor", job.structure ~= nil)
+            job.vt_log = job.vt_log or {}
+            job.vt_log["#" .. tostring(job.batch and job.batch.i or 1)] = job.vt
+        end
         local xp_gain = (job.xp0 and xp) and (xp - job.xp0) or nil
         local function built(spent_all)
             mem().structs_t = nil -- get_state.structures re-reads at once, so the next state shows the new piece
@@ -2401,6 +2491,10 @@ M.HANDLERS.build = function(log, args, ctx)
         job.phase_s = job.phase_s or {}
         if job.phase_at and job.last_phase then
             job.phase_s[job.last_phase] = (job.phase_s[job.last_phase] or 0) + (now - job.phase_at)
+            local pk = "#" .. tostring(job.batch and job.batch.i or 1)
+            job.phase_k = job.phase_k or {}
+            job.phase_k[pk] = job.phase_k[pk] or {}
+            job.phase_k[pk][job.last_phase] = (job.phase_k[pk][job.last_phase] or 0) + (now - job.phase_at)
         end
         job.phase_at, job.last_phase = now, job.phase
         local ph = job.phase
@@ -2425,6 +2519,14 @@ M.HANDLERS.build = function(log, args, ctx)
             local ps = {}
             for k, v in pairs(job.phase_s) do ps[k] = math.floor(v * 10 + 0.5) / 10 end
             res.data.phase_s = api.object and api.object(ps) or ps
+            local pk = {}
+            for k, row in pairs(job.phase_k or {}) do
+                pk[k] = {}
+                for ph, v in pairs(row) do pk[k][ph] = math.floor(v * 10 + 0.5) / 10 end
+            end
+            res.data.phase_by_piece = api.object and api.object(pk) or pk
+            res.data.stay_log = job.stay_log
+            res.data.verify_at_s = job.vt_log and (api.object and api.object(job.vt_log) or job.vt_log) or nil
         end
         return res
     end

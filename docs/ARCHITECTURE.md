@@ -541,6 +541,15 @@ Root cause R2 of the 19:22–19:26 episode was that the brain's tool list was ha
   - `bridge_start.lua` waits for the bridge to be idle, refuses after 5 s with the reason, and hands over the read offsets. `bridge_start_force.lua` is for emergencies only.
 - **How to add a tool now:** a module handler plus its `MANIFEST` entry (plus `NEEDS`). The brain needs no edit unless the result needs a verifier (`executor.VERIFIERS`).
 
+### 8.4c See, then act once: `camrig` (anything he does by pointing the camera)
+Placing, taking down, picking up, interacting, gathering and casting all have the same shape: a point in the world must be under the screen centre, and something may stand between. The feedback loop (turn, read what the game focused, correct, wait) cost 2-8 s a time (issue B16). The pattern every mature bot uses (mineflayer, Baritone, Voyager; docs/research/2026-11-16-placement-idiomatic.md): work the target out as data, act once, verify from state.
+- `camrig.solve(rig, target)` / `camrig.aim(U, pc, pawn, target)`: the control rotation that puts the screen centre on a point, from the boom's pivot. One call, on target 2 frames later.
+- `camrig.look(rig, target, trace, tol_m)`: what the screen centre WOULD land on from a stand, before turning: `{clear, off_m, sees, pitch, yaw, cam, k}`. `trace(a, b) -> hit, point` in metres (build's is the game's line trace).
+- `camrig.stands(rig, feet, target, trace, opts)`: where to stand when the view from here is blocked: candidate spots, kept when `look` is clear from there and `opts.ok(pos)` allows, the shortest walk first.
+- Recipe for a new pointing skill: (1) the target point from data (census, snap geometry); (2) `look` from here: clear -> `aim` once and press; (3) else `stands` -> walk to the first -> `aim` once and press; (4) the proof from game state (bag, telemetry, census), never from the cursor. Tolerances belong to the skill (build: 0.5 m on a floor, 0.15 m off it, 0.2 m for a roof's wall face).
+- Users today: `build.W.aim`, `build.W.look`, `build.W.stands`, `deconstruct.W.aim`. Not yet: `client_bridge aim_at` (pickups, interact), `gather.W.aim_cam`, `spells.W.aim`, `shoot`.
+- Tests: `tests/test_camrig.lua` (the solve, the old aim's miss, look and stands against a toy world).
+
 ### 8.5 Tests
 
 | What | Command |

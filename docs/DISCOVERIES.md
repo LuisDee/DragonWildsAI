@@ -3342,3 +3342,12 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - The grave is not always where he died. A fixture death about 6 s after a teleport (07:47:10Z) put BP_PlayerGravestone_C at (108.4, 1857.2), where he had stood before the teleport (server log `SpawnActor failed to find teleport spot` at that spot; the warning appears on every grave spawn, including ones at the right place). The death spot was 160 m away.
   - The body closed that death as gone. Its 271 items sat in the marker's grave by the crates.
   - So the markers are the truth for where a grave lies (a player reads them on his compass). The body does not use them yet.
+- **Camera boom, cursor and placement timing (live 2026-11-16, build 26574459).** Read with client_mod/commands/camera_rig_probe.lua and aim_trace.lua.
+  - `pawn.CameraBoom` (USpringArmComponent): TargetArmLength 700, TargetOffset (0,0,120) in world space, SocketOffset (0,20,0) in the camera's frame, bUsePawnControlRotation, no rotation lag, camera lag speed 30, collision probe 12 cm. The camera sits at pivot + k * (-L * forward + R * socket), k < 1 when something behind him pushes the arm in. Model against the game: 0.7 mm median error over 871 trace rows.
+  - The build cursor is the camera's centre ray; it answers a new control rotation within 2 frames and is clamped about 7 m from the pawn.
+  - So the control rotation that puts the screen centre on a world point has a closed form from the pivot (camrig.solve). Working it out from where the camera stands is wrong by metres: the camera swings round the pivot as he turns.
+  - The game confirms a placement 0.13-0.16 s after the place press (materials leave the bag, the telemetry hook fires, xp, the new actor is in the census; one case 0.53 s for a door).
+  - Rotate (`IA_Building_RotateZ` via `bm.ModifyRotationAction`): one input = one 15 degree step whatever its axis value (an input of 6 turned the ghost 15, not 90).
+  - A roof off a wall top snaps only when the view lands on the wall face on the roof's side, just under the top. From the other side the preview stays 1.75 m off.
+  - Deconstruct: the piece is gone 0.27-0.34 s after the destroy press. The refund drops on the ground (it is not put in the bag), about 1.1-1.4 s later.
+  - Luis's client places with `BuildModeComponent:Server_SpawnBuilding(index, FTransform, bGhost, {inventory})`: 45 calls in his recording, as little as 0.57 s apart. Nothing reflected computes the preview, the snap or the validity (docs/research/2026-11-16-placement-interfaces.md).

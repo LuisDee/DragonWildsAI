@@ -199,6 +199,8 @@ local function asset(U, o)
 end
 local function text(U, v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
 -- Every loaded piece type: BuildingPieceDataIndex -> {data, id, name} (UBuildingPieceData; 863 live, read once)
+local OBJ = { __jsontype = "object" }
+local function obj(t) return setmetatable(t or {}, OBJ) end
 function W.catalogue(api)
     local m = mem()
     if m.cat and m.cat_n and m.cat_n > 0 then return m.cat end
@@ -513,9 +515,13 @@ end
 -- piece (a torch is 0.2 m wide). The arm's ray passes through the point nearest my head, so aim from there; the
 -- miss check below re-aims until the ray really passes through pos.
 function W.aim(api, pos)
+    local b = B(api)
+    if b and pos then -- exact: solved from the boom's pivot, on the point 2 frames later (issue B16)
+        local oka, dist, exact = pcall(b.W.aim, api, pos)
+        if oka and dist and exact then return dist, true end
+    end
     local okr, o, f = pcall(W.camera_ray, api)
     local me = api.my_position()
-    local b = B(api)
     local pc = b and b.W.pc(api)
     if not (okr and o and me and pc and pos) then return b and b.W.aim(api, pos) end
     local C = { o[1] / 100, o[2] / 100, o[3] / 100 }
@@ -1119,15 +1125,19 @@ local function step(api, job, t)
         P.telemetry = P.telemetry or (hk and hk.seq > (P.seq0 or 0) and hk) or nil
         if gone then
             P.gone_t = P.gone_t or t
-            -- the refund: wait settle_s for it to land (inventory and/or the ground)
-            if t - P.gone_t < cfg.settle_s then return nil end
+            -- the refund: up to settle_s for it to land (inventory and/or the ground); all of its cost in my bag
+            -- already = landed (it was a flat 1.2 s a piece)
             local counts = api.counts() or {}
             local gained = {}
             for k, v in pairs(counts) do local d = v - (P.counts0[k] or 0); if d > 0 then gained[k] = d end end
+            local all_back = P.cost ~= nil and next(P.cost) ~= nil
+            for item, n in pairs(P.cost or {}) do if (gained[item] or 0) < n then all_back = false end end
+            if not all_back and t - P.gone_t < cfg.settle_s then return nil end
             local ground = W.ground(api, P.position, cfg.drop_r_m)
             local dropped = {}
             for id, g in pairs(ground) do if not P.ground0[id] then dropped[#dropped + 1] = g end end
             P.done = true
+            P.vt = { gone_s = r2(P.gone_t - P.press_t), back_s = r2(t - P.gone_t), in_bag = all_back }
             local row = { id = P.id, name = P.name, s = r1(t - P.t0), refund = gained, dropped = (#dropped > 0) and dropped or nil,
                           cost = P.cost, telemetry = P.telemetry and { res = P.telemetry.res, pid = P.telemetry.pid } or nil }
             local hk = mem().hk
@@ -1381,20 +1391,36 @@ M.HANDLERS.deconstruct = function(log, args, ctx)
             if job.reenter and job.cur then job.reenter = nil; job.phase = "approach"; job.cur.moving = false; job.mode_presses = 0 end
         end
         local b = B(api)
-        local ok, res = pcall(step, api, job, (b and b.W.clock(api)) or api.now())
+        local now = (b and b.W.clock(api)) or api.now()
+        job.phase_s = job.phase_s or {}
+        if job.phase_at and job.last_phase then
+            local dt = now - job.phase_at
+            job.phase_s[job.last_phase] = (job.phase_s[job.last_phase] or 0) + dt
+            local row = job.last_cur
+            if row then row.phase_s = row.phase_s or {}; row.phase_s[job.last_phase] = (row.phase_s[job.last_phase] or 0) + dt end
+        end
+        job.phase_at, job.last_phase, job.last_cur = now, job.phase, job.cur
+        local ok, res = pcall(step, api, job, now)
         if not ok then
             job.final, job.phase = api.fail("body_error", { detail = "deconstruct: " .. tostring(res) }), "leave"
             res = nil
         end
-        if res then release(res.ok and "done" or tostring(res.reason)); res.data = res.data or {}; res.data.presses = job.presses end
+        if res then
+            release(res.ok and "done" or tostring(res.reason)); res.data = res.data or {}; res.data.presses = job.presses
+            local function r10(tb) local o = {}; for k, v in pairs(tb or {}) do o[k] = math.floor(v * 10 + 0.5) / 10 end; return obj(o) end
+            res.data.phase_s = r10(job.phase_s)
+            local per = {}
+            for _, P in pairs(job.planned or {}) do
+                if P.phase_s then per[#per + 1] = { id = P.id, name = P.name, stands = P.stand, moves = P.moves, phase_s = r10(P.phase_s), verify = P.vt } end
+            end
+            res.data.phase_by_piece = per
+        end
         return res
     end
     return { pending = a }
 end
 
 -- ------------------------------------------------------------------ manifest
-local OBJ = { __jsontype = "object" }
-local function obj(t) return setmetatable(t or {}, OBJ) end
 M.MANIFEST = {
     deconstruct = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 15, timeout_s = 900,
         detail_is_speech = true,

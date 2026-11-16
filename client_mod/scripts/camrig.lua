@@ -21,6 +21,7 @@ C.cfg = {
     -- the boom's values when it can't be read (m)
     arm_m = 7.0, target_offset = { 0, 0, 1.2 }, socket = { 0, 0.2, 0 },
     pitch_min = -89, pitch_max = 89,
+    probe_m = 0.12, -- the boom's collision probe (ProbeSize 12): the camera stops this far before what is behind me
 }
 
 local function norm(v)
@@ -74,6 +75,78 @@ function C.miss(rig, pitch, yaw, target)
     local d = { target[1] - cam[1], target[2] - cam[2], target[3] - cam[3] }
     local along = d[1] * f[1] + d[2] * f[2] + d[3] * f[3]
     return math.sqrt(math.max(0, d[1] * d[1] + d[2] * d[2] + d[3] * d[3] - along * along)), along
+end
+
+-- What the screen centre would land on if I aimed at target from where I stand, BEFORE turning the camera (the
+-- engine's own trace as the judge, as Baritone checks a rotation before it acts). trace(a_m, b_m) -> hit, point_m.
+-- -> { pitch, yaw, cam (where the camera would stand), k (the arm, pushed in by what is behind me), sees (the first
+--      thing on the centre ray, or the target), off_m (how far that is from the target), clear = off_m <= tol_m }
+function C.look(rig, target, trace, tol_m)
+    local s, L = rig.socket or C.cfg.socket, rig.arm_m or C.cfg.arm_m
+    local r = { pivot = rig.pivot, arm_m = L, socket = s, k = 1 }
+    local pitch, yaw = C.solve(r, target)
+    if not pitch then return nil end
+    local cam = C.camera(r, pitch, yaw)
+    -- the boom: what stands between the pivot and the camera pushes the camera in to just before it
+    local hit, p = trace(r.pivot, cam)
+    if hit and p then
+        local full = math.sqrt((cam[1] - r.pivot[1]) ^ 2 + (cam[2] - r.pivot[2]) ^ 2 + (cam[3] - r.pivot[3]) ^ 2)
+        local d = math.sqrt((p[1] - r.pivot[1]) ^ 2 + (p[2] - r.pivot[2]) ^ 2 + (p[3] - r.pivot[3]) ^ 2)
+        r.k = math.max(0.05, math.min(1, (d - C.cfg.probe_m) / full))
+        pitch, yaw = C.solve(r, target)
+        cam = C.camera(r, pitch, yaw)
+    end
+    local out = { pitch = pitch, yaw = yaw, cam = cam, k = r.k, sees = target, off_m = 0 }
+    local hit2, p2 = trace(cam, target)
+    if hit2 and p2 then
+        out.sees = p2
+        out.off_m = math.sqrt((p2[1] - target[1]) ^ 2 + (p2[2] - target[2]) ^ 2 + (p2[3] - target[3]) ^ 2)
+    end
+    out.clear = out.off_m <= (tol_m or 0.3)
+    return out
+end
+
+-- Where to stand to put the screen centre on target: spots on rings round it, each judged by the predicted view
+-- from there (C.look), the shortest walk first. The pattern: list the candidates, keep the feasible, take the
+-- cheapest, act once. feet = my pawn's location (m). opts = { radii, steps, tol_m | tol_for(pos), up_m (how far
+-- above or below my own level a spot may lie), ok(pos) (e.g. not where the piece goes), max (direct spots wanted) }
+-- -> { { pos (the pawn's location there), walk_m, direct (a clear straight walk from here), look }, ... }
+function C.stands(rig, feet, target, trace, opts)
+    opts = opts or {}
+    local off = { rig.pivot[1] - feet[1], rig.pivot[2] - feet[2], rig.pivot[3] - feet[3] }
+    local half, up = opts.half_m or 0.88, opts.up_m or 1.2
+    local cands = {}
+    for _, r in ipairs(opts.radii or { 2.5, 4.0, 5.5 }) do
+        local n = opts.steps or 12
+        for i = 0, n - 1 do
+            local a = 2 * math.pi * i / n
+            local x, y = target[1] + r * math.cos(a), target[2] + r * math.sin(a)
+            cands[#cands + 1] = { x, y, math.sqrt((x - feet[1]) ^ 2 + (y - feet[2]) ^ 2) }
+        end
+    end
+    table.sort(cands, function(a, b) return a[3] < b[3] end)
+    local out, direct = {}, 0
+    for _, c in ipairs(cands) do
+        -- the ground there, near my own level (a roof or the foot of a bank is no place to stand)
+        local top = { c[1], c[2], feet[3] - half + up }
+        local hit, g = trace(top, { c[1], c[2], feet[3] - half - up })
+        if hit and g and top[3] - g[3] > 0.05 then
+            local pos = { c[1], c[2], g[3] + half }
+            if not opts.ok or opts.ok(pos) then
+                local tol = opts.tol_for and opts.tol_for(pos) or opts.tol_m
+                local look = C.look({ pivot = { pos[1] + off[1], pos[2] + off[2], pos[3] + off[3] }, arm_m = rig.arm_m, socket = rig.socket },
+                    target, trace, tol)
+                if look and look.clear then
+                    local blocked = trace({ feet[1], feet[2], feet[3] }, pos)
+                    out[#out + 1] = { pos = pos, walk_m = c[3] + (blocked and (opts.round_m or 8) or 0), direct = not blocked, look = look }
+                    if not blocked then direct = direct + 1 end
+                    if direct >= (opts.max or 3) then break end
+                end
+            end
+        end
+    end
+    table.sort(out, function(a, b) return a.walk_m < b.walk_m end)
+    return out
 end
 
 -- The live rig: U = sense.U, pc, pawn. Reads only. k: how far the arm is pushed in right now, from where the camera

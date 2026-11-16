@@ -986,3 +986,29 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
   - hand-on after the turn budget carries `done_so_far` (every earlier call of the request with its result), not just the last call. Not triggered in the last run.
   - Planner inputs: `asked` line and `your_bases`, done rows carry the result text (still unused live: Haiku did all three runs itself).
 - Logged as issue B16 (docs/ISSUES-2026-11-01-coplay.md): placement speed and aim servoing. Luis (2026-11-16): research how others solve it, analyse every client/server input, build a reusable "see and interact" path. Two research agents running (web: docs/research/2026-11-16-placement-idiomatic.md; the game's API: docs/research/2026-11-16-placement-interfaces.md).
+
+## 2026-11-16 (later): B16 placement speed: one-step aim, predicted view, stand spots; the batch house 3 in a row inside the bar
+- **Result (dev world, debug client, the same 7-piece house: foundation, 3 walls, door-frame wall, roof on a wall top, door in the frame):**
+
+  | state | 7 pieces | per piece | built |
+  |---|---|---|---|
+  | before (4ed87fe: swing, read the cursor, correct) | 95 s | 13.6 s | 7 of 7 once; door and roof usually failed |
+  | one-step aim from the boom's pivot (9e76b76) | 36.6 s | 5.2 s | 7 of 7 |
+  | + proof of the placement read 0.1 s after the press (was 0.5) | 34.6, 37.3 s | 4.9, 5.3 s | 7 of 7 |
+  | + predicted view and stand spots (this commit) | **30.7, 27.8, 29.9 s** | **4.39, 3.97, 4.27 s** | **7 of 7, 3 in a row** |
+
+  Luis's baseline is 3.81 s per piece; the bar (1.5x) is 5.7 s. Check phase per piece 0.4-0.8 s (was 1.8-7.8 s). Approach 7.7-10.6 s of the ~30 (was 12-15 s). He was exhausted (endurance 0, no sprint) in every run, so the walks are the slow case.
+- **What changed (client_mod/scripts/camrig.lua, build.lua, deconstruct.lua):**
+  - `camrig.look(rig, target, trace)`: what the screen centre would land on if he aimed at a point from a stand, BEFORE turning the camera (the boom's pivot, the arm pushed in by what is behind him, then the game's own line trace from the predicted camera). `build.W.stay_ok` uses it: place from where he stands when the predicted view lands on the aim point.
+  - `camrig.stands(rig, feet, target, trace, opts)`: the candidates-in, feasible-out search. Spots on rings round the target (2.5, 4.0, 5.5 m), the ground traced at each, kept when the predicted view from there is clear and the spot isn't where the piece goes, sorted by the walk. `build` walks to the first (15 s cap, then the next, then the old rule).
+  - Roof off a wall top: the view must land on the wall face on the roof's side within 0.2 m (`stay_ceiling_m`). The old loose rule (0.5 m + the wall's thickness) let a view 0.95 m off through and the preview came no nearer than 1.75 m.
+  - `actor_check_s = 0.1`: the game confirms a placement 0.13-0.16 s after the press (materials spent, telemetry, xp, the new actor in the census: `data.verify_at_s`).
+  - Per-piece timing in every build and deconstruct result (`phase_by_piece`, `stay_log`, `verify_at_s`), so the next slow phase shows without a trace run.
+  - `deconstruct.W.aim` uses the same exact aim: 0.5-0.9 s per piece (one door-frame wall 3.7 s).
+- **Tried and binned:**
+  - Rotating 90 degrees with one input of axis value 6: the game turns 15 degrees per input whatever the value (the wall stood 75 degrees off). Six presses, one per tick, stay (~0.9 s).
+  - `stay_m 6.0` without the stand search: one batch failed at #2 "can't get to a spot" (the site at x=132 was at the water's edge: client.log "entered water ... the goal is in it"), one took 87 s (the old stand rule sent him to a spot he couldn't reach for the roof; 59.9 s, then timeout).
+- **Decision (mine, per "no shortcuts, real player code paths"):** he keeps placing through the player's own input path (build menu, cursor, place press). The MIT mods found by the research (WildPlans, RSDWCustomBuilds) call `BuildModeComponent:Server_SpawnBuilding` directly; that is the path Luis's own client sends (45 calls, as little as 0.57 s apart) and would cut a piece to under a second, but it skips the preview and its validity check, so it is not what a player's hands do. Not taken; noted for Luis as an option only.
+- **Teardown of the same house (not a graded item):** 28.9-43.8 s for 6 pieces. The piece is gone 0.27-0.34 s after the press; then 1.1-1.4 s per piece waiting for the refund (it drops on the ground), and 1-18 s picking the refund up at the end.
+- Tests: test_camrig 21 (7 new: look and stands against a toy world), test_build 153, test_deconstruct 86.
+- Next on B16: the same look/stands service under pickups, gather and spell aim (they still aim from where the camera stands); the checker pressing place on a preview that isn't snapped; a full `tools.build_run --rung2` with the brain.

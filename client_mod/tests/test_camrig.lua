@@ -74,5 +74,43 @@ pc.PlayerCameraManager.GetCameraLocation = function() return { X = 9650, Y = 200
 local _, half = C.aim(U, pc, { CameraBoom = boom }, { 103, 2003, -30.2 })
 check("arm pushed in: k from the camera", math.abs(half.k - 0.5) < 0.01, half.k)
 
+-- 6. look / stands against a toy world: flat ground at z = -31 and a wall (the plane x = 105, 4 m wide, 3 m tall)
+local function world(a, b)
+    local best
+    local function try(tt, p) if tt > 1e-9 and tt < 1 and (not best or tt < best[1]) then best = { tt, p } end end
+    local d = { b[1] - a[1], b[2] - a[2], b[3] - a[3] }
+    if d[3] ~= 0 then
+        local tt = (-31 - a[3]) / d[3]
+        try(tt, { a[1] + d[1] * tt, a[2] + d[2] * tt, -31 })
+    end
+    if d[1] ~= 0 then
+        local tt = (105 - a[1]) / d[1]
+        local p = { 105, a[2] + d[2] * tt, a[3] + d[3] * tt }
+        if math.abs(p[2] - 2000) <= 2 and p[3] >= -31 and p[3] <= -28 then try(tt, p) end
+    end
+    if best then return true, best[2] end
+    return false
+end
+local feet = { 100, 2000, -30.12 }
+local r6 = { pivot = { 100, 2000, -28.92 }, arm_m = 7.0, socket = { 0, 0.2, 0 } }
+local near_face = { 104.99, 2000, -29.5 } -- on my side of the wall
+local far_ground = { 108, 2000, -31 }     -- behind it
+local l1 = C.look(r6, near_face, world)
+check("look: a point on my side of the wall is clear", l1 and l1.clear and l1.off_m < 0.05, l1 and l1.off_m)
+local l2 = C.look(r6, far_ground, world)
+check("look: a point behind the wall is not (the view stops on the wall)", l2 and not l2.clear and math.abs(l2.sees[1] - 105) < 1e-6, l2 and l2.off_m)
+check("look: the camera stays above the ground", l1.cam[3] > -31 and l2.cam[3] > -31, l1.cam[3])
+local spots = C.stands(r6, feet, far_ground, world, { max = 3 })
+check("stands: spots with a clear view of the point behind the wall", #spots >= 1, #spots)
+local all_ok = true
+for i, sp in ipairs(spots) do
+    if not (sp.look.clear and math.abs(sp.pos[3] - (-31 + 0.88)) < 1e-6) then all_ok = false end
+    if i > 1 and spots[i - 1].walk_m > sp.walk_m then all_ok = false end
+end
+check("stands: each on the ground, clear, the shortest walk first", all_ok)
+check("stands: a straight walk through the wall counts as round something", spots[1] and (spots[1].direct or spots[1].walk_m > 8), spots[1] and spots[1].walk_m)
+local none = C.stands(r6, feet, far_ground, world, { ok = function() return false end })
+check("stands: every spot refused -> none", #none == 0)
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)
