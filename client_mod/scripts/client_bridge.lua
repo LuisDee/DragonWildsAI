@@ -978,12 +978,25 @@ end
 
 -- Every thing within radius_m (census, nearest first per category), flattened. near = a player's name: around HIM
 -- (distances from him, from_me and side on each row; he must be in sight).
-local function census_things(radius_m, max_per_cat, near)
-    local r = call("sense", "census", { radius_m = radius_m, max = max_per_cat or 40, near = near })
+-- opts.keep(thing) -> only the things it keeps, chosen BEFORE the per-category cap; opts.kinds = the census
+-- categories they can be in ({ interactables = true }), so the uncapped read describes only those.
+-- A search for ONE kind of thing must pass keep: the cap is the N nearest of everything in the category, so in a
+-- busy place the thing looked for is cut off although it is well inside the radius. Fresh chains 2026-11-16: every
+-- collect_water at Doric's read "no water near me" (150 m search, 40 rows): the pond 84 m off was the 58th of 72
+-- interactables (client_mod/commands/water_probe.lua).
+M.CENSUS_FIND_MAX = 2000
+local function census_things(radius_m, max_per_cat, near, opts)
+    opts = opts or {}
+    local max = max_per_cat or 40
+    local r = call("sense", "census", { radius_m = radius_m, max = opts.keep and M.CENSUS_FIND_MAX or max, near = near, kinds = opts.kinds })
     if not r.ok then return nil, r end
     local out = {}
     for _, cat in ipairs(CATS) do
-        for _, row in ipairs(r.data[cat.key] or {}) do out[#out + 1] = thing_of(cat, row) end
+        local n = 0
+        for _, row in ipairs(r.data[cat.key] or {}) do
+            local t = thing_of(cat, row)
+            if n < max and (not opts.keep or opts.keep(t)) then out[#out + 1] = t; n = n + 1 end
+        end
     end
     return out, r
 end
@@ -1395,7 +1408,7 @@ M.API = {
     now = function() return now_s() end,
     me = function() return me() end,
     my_position = function() return my_position() end,
-    census_things = function(r, m, near) return census_things(r, m, near) end,
+    census_things = function(r, m, near, opts) return census_things(r, m, near, opts) end,
     -- one player name for another: equal ignoring case, or a long name cut short (mapplayers.same_name)
     same_player = function(a, b)
         if a == b then return a ~= nil end

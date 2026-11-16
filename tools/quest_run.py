@@ -298,6 +298,20 @@ def holds(calls: list[dict]) -> list[dict]:
             for c in calls if c.get("reason") == "rooted" or "let go of" in str(c.get("detail") or "")]
 
 
+def verdict(rec: dict) -> dict:
+    """The goal's bars for one quest run (GOAL-2026-11-01: done, <= 1.5x the human bar, <= 1 miss, no stand > 5 s), by
+    the graders' own miss rule (tools/standard_score: a world action that failed; never an interruption or a read-only
+    lookup). `done` alone is not a pass: chain 20261116-085113 finished all four quests with 1, 2, 3 and 3 misses.
+    Whether his lines were true is the judge's (not run here): `truth` says so."""
+    from tools import standard_score as ss
+    misses = [{"t": c.get("t"), "tool": c["tool"], "reason": c.get("reason")} for c in rec.get("tool_calls") or []
+              if c.get("ok") is False and c.get("reason") not in ss.NO_MISS_REASONS and c["tool"] not in ss.READ_ONLY_TOOLS]
+    stands = [i["s"] for i in rec.get("idle_over_5s") or []]
+    bars = {"done": bool(rec.get("done")), "time": rec.get("ratio") is not None and rec["ratio"] <= 1.5,
+            "misses": len(misses) <= 1, "stands": not stands, "counted": not rec.get("not_counted")}
+    return {"pass": all(bars.values()), "bars": bars, "misses": misses, "truth": "not judged"}
+
+
 def cmd_run(a) -> int:
     if not a.confirm:
         print("refusing: a live run moves Claude and sends test chat on the dev server; pass --confirm")
@@ -420,10 +434,14 @@ def cmd_run(a) -> int:
         rec["ratio"] = round(rec["active_s"] / bar["human_s"], 2) if bar["human_s"] else None
     except Exception as exc:  # the bar is a report: a broken baseline file never loses the run's record
         rec["human"], rec["ratio"] = {"error": repr(exc)}, None
+    rec["verdict"] = verdict(rec)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
     print(json.dumps({k: rec[k] for k in ("quest", "ended", "wall_s", "done", "steps", "idle_total_s", "longest_stand_s", "haiku", "sonnet", "usd")}, indent=1))
+    v = rec["verdict"]
+    print(("PASS" if v["pass"] else "FAIL") + " by the goal's bars: " + ", ".join(f"{k} {'ok' if x else 'NO'}" for k, x in v["bars"].items())
+          + f"; {len(v['misses'])} miss(es): " + ", ".join(f"{m['tool']} {m['reason']}" for m in v["misses"]))
     if rec.get("not_counted"):
         print(f"NOT COUNTED: {rec['not_counted']}")
     h = rec.get("human") or {}
@@ -506,7 +524,11 @@ def cmd_fresh(a) -> int:
                                    max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}", wait=0, grant=[], judge=False,
                                    in_lock=True, no_heal=True, character=name)
                 rc = cmd_run(ns)
-                out["runs"].append({"quest": quest, "rc": rc, "at_s": round(time.time() - t0, 1)})
+                last = json.loads(OUT.read_text(encoding="utf-8").splitlines()[-1])  # the record cmd_run just wrote
+                v = last.get("verdict") or {}
+                out["runs"].append({"quest": quest, "rc": rc, "at_s": round(time.time() - t0, 1), "pass": v.get("pass"),
+                                    "ratio": last.get("ratio"), "misses": len(v.get("misses") or []),
+                                    "longest_stand_s": last.get("longest_stand_s")})
                 if rc != 0:
                     break  # the next quest is given by this one
         except Exception as exc:
@@ -543,7 +565,9 @@ def cmd_report(a) -> int:
             except Exception as exc:
                 r["human"] = {"error": repr(exc)}
         h = r.get("human") or {}
+        v = verdict(r)
         print(f"{r['run']} {r['quest']:<18} {r['ended']:<16} {r['wall_s']:>6}s done={r['done']} "
+              f"{'PASS' if v['pass'] else 'FAIL'} misses={len(v['misses'])} "
               f"calls={len(r['tool_calls'])} idle={r['idle_total_s']}s haiku={r['haiku']} sonnet={r['sonnet']} ${r['usd']}"
               + (f" human={h['human_s']}s ratio={r.get('ratio')}x {h.get('parts')}" if h.get("human_s") else "")
               + (f" NOT COUNTED ({r['not_counted']})" if r.get("not_counted") else ""))

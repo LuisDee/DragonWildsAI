@@ -563,6 +563,24 @@ do
     check(#drags == 2 and drags[2][2] == 1 and drags[2][4] == 0, "then the tea dragged into the freed slot")
     R.tick_fn(nil)
     check(S.presses[1] == "Pumpkin Spice Infusion", "then drunk (" .. table.concat(S.presses, ",") .. ")")
+    -- d2. his own move to a full hotbar: ONE drag onto the slot that gives way, the game swaps the two (fresh chain
+    --     20261116-085113: move_item Vegetable Soup -> hotbar read "no free hotbar slot" twice)
+    drags = {}
+    hotbar_items = {}
+    for i = 1, 8 do hotbar_items[i] = item(DATA.pick, 1) end
+    hotbar_items[8] = item(DATA.rock, 3)
+    bag_items = { item(DATA.tea, 13) }; refresh()
+    local mv = I.move(nil, "Pumpkin Spice Infusion", "hotbar")
+    check(mv.ok and #drags == 1 and drags[1][2] == 1 and drags[1][3] == 7 and drags[1][4] == 0,
+          "move to a full hotbar: one drag from the bag onto the last slot (" .. tostring(mv.reason) .. ", drags " .. #drags .. ")")
+    check(mv.swapped_out == "Stone", "move to a full hotbar: says what went to the bag (" .. tostring(mv.swapped_out) .. ")")
+    for k in pairs(_G.DWReflexHold or {}) do _G.DWReflexHold[k] = nil end -- his move holds the reflex off that kind
+    drags = {}
+    for i = 1, 8 do hotbar_items[i] = item(DATA.sand, 1) end
+    refresh()
+    mv = I.move(nil, "Pumpkin Spice Infusion", "hotbar")
+    check(not mv.ok and mv.reason == "inventory_full" and #drags == 0 and tostring(mv.detail):find("food, drink", 1, true) ~= nil,
+          "a hotbar of only food: inventory_full with the reason (" .. tostring(mv.detail) .. ")")
     -- e. the floor is per stat: food under its floor, water at 30 % with only Dirty Water -> not drunk
     drags, S.presses, R.last, R.pending, R.warned = {}, {}, {}, nil, nil
     hotbar_items = { item(DATA.dirty, 4) }; bag_items = {}; refresh()

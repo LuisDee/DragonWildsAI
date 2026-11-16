@@ -529,6 +529,22 @@ do -- a nearer station whose slots hold someone else's things is passed over for
     check("free station: says why", tostring((r.data or {}).why_this_station):find("Coarse Animal Fur", 1, true) ~= nil,
           tostring((r.data or {}).why_this_station))
 end
+do -- ...and the same when he names the KIND of station, not one station (fresh chains 20261116-085113 / 091005:
+   -- craft {station "Campfire"} took the nearest campfire, which held an earlier character's Dirty Water, and
+   -- answered station_busy with a free campfire in range)
+    _G.DWCraftLoads = {}
+    local full = FURNACE()
+    full.res = { { slot = 0, item = "ITEM_Resources_IronOre", name = "Iron Ore", count = 2 } }
+    local far = station("Furnace", "furnace_2", { 20, 3, 0 })
+    reset({ stations = { full, far }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    local r = run({ recipe = "RECIPE_Process_IronBar", station = "Furnace" })
+    check("kind named: ok at the free one", r.ok and r.data.station_id == "furnace_2",
+          tostring(r.reason) .. " " .. tostring((r.data or {}).station_id) .. " " .. tostring((r.data or {}).detail))
+    check("kind named: the other one untouched", #full.res == 1 and full.res[1].count == 2)
+    check("kind named: says why", tostring((r.data or {}).why_this_station):find("Iron Ore", 1, true) ~= nil,
+          tostring((r.data or {}).why_this_station))
+end
 do -- someone else's inputs in the only station: never added to, started or taken (Luis's rule; live 18:22Z the
    -- model aimed a fur craft at Luis's Spinning Wheel holding his 2 fur). His own leftovers (ledger) are fine.
     _G.DWCraftLoads = {}

@@ -232,8 +232,9 @@ M.HANDLERS.teleport = function(log, args, ctx)
     end
     local n, item
     local stone -- the lodestone ACTOR nearest me (to walk to and press use on)
-    for _, t in ipairs(api.census_things(80, 40) or {}) do
-        if t.category == "interactables" and t.kind == "lodestone" and type(t.actions) == "table" then
+    local function is_stone(t) return t.category == "interactables" and t.kind == "lodestone" and type(t.actions) == "table" end
+    for _, t in ipairs(api.census_things(80, 40, nil, { kinds = { interactables = true }, keep = is_stone }) or {}) do
+        if is_stone(t) then
             local actionable = false
             for _, action in ipairs(t.actions) do if action == "interact" then actionable = true; break end end
             if actionable then

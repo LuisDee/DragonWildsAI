@@ -1253,6 +1253,10 @@ local function used_data(api, job, now_v, now_n, rose)
     if job.moved_from_bag then
         d.moved_to_hotbar = true
         d.detail = "Moved the " .. tostring(job.row.name) .. " from my bag to my hotbar and " .. (job.row.consumable == "drink" and "drank" or "ate") .. " it."
+        if job.swapped_out then -- a full hotbar: what gave way (inventory.move)
+            d.to_bag = job.swapped_out
+            d.detail = d.detail .. " My hotbar was full, so the " .. tostring(job.swapped_out) .. " went to my bag in its place."
+        end
     end
     if type(job.before) == "number" and type(job.max) == "number" and job.before >= job.max - 1 then
         d.wasted = true
@@ -1301,6 +1305,7 @@ local function start_consume(api, args, ctx)
                         .. tostring((mr.data or {}).detail or mr.reason) .. ")." })
             end
             job.moved_from_bag, job.phase, job.move_until = r, "to_hotbar", api.now() + 3
+            job.swapped_out = (mr.data or {}).swapped_out
             return nil
         end
         job.stat = STAT_OF[r.consumable]
@@ -1433,8 +1438,9 @@ end
 local function npc_named(api, name)
     if player_row(api, name) or not api.resolve_name then return nil end
     local talkers = {}
-    for _, t in ipairs(api.census_things(120) or {}) do
-        if t.prompt == "Talk" and t.position then talkers[#talkers + 1] = t end
+    local function talker(t) return t.prompt == "Talk" and t.position ~= nil end
+    for _, t in ipairs(api.census_things(120, 40, nil, { keep = talker }) or {}) do
+        if talker(t) then talkers[#talkers + 1] = t end
     end
     return (api.resolve_name(talkers, name))
 end
@@ -3111,7 +3117,7 @@ local function start_collect_water(api, args, ctx)
         if not src then asked_for = args.target end
     end
     if not src then
-        for _, t in ipairs(api.census_things(M.cfg.water_search_m, 40) or {}) do
+        for _, t in ipairs(api.census_things(M.cfg.water_search_m, 40, nil, { kinds = { interactables = true }, keep = W.is_water }) or {}) do
             if W.is_water(t) and (not src or (t.distance or 1e9) < (src.distance or 1e9)) then src = t end
         end
         if not src then return api.fail(asked_for and "unknown_target" or "nothing_in_range", { target = asked_for, radius_m = M.cfg.water_search_m,
@@ -3217,9 +3223,13 @@ M.HANDLERS.move_item = function(log, args, ctx)
         return api.fail(r.reason, d)
     end
     local w = { kind = "move_item" }
+    local out = (r.data or {}).swapped_out -- a full hotbar: what gave way (inventory.move)
     w.poll = function()
         local now = where_is(api, row.item)
-        if now and now.where == page then return { ok = true, data = { item = row.item, name = row.name, to = page } } end
+        if now and now.where == page then
+            return { ok = true, data = { item = row.item, name = row.name, to = page, to_bag = out,
+                detail = out and ("My hotbar was full, so the " .. tostring(out) .. " went to my bag in its place.") or nil } }
+        end
         return nil
     end
     w.expire = function()

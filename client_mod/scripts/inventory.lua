@@ -644,6 +644,15 @@ end
 -- inventory UI (InventoryUIAPI:HandleInternalDragAndDrop, the same call unequip uses). to_slot nil = the
 -- first free slot of that page. Returns at once; the caller verifies with M.list.
 M.MOVE_PAGES = { hotbar = "QuickAction", bag = "InventoryItems" }
+-- A full hotbar: the row that gives way to a new item. The last slot that holds no food or drink and is not in his
+-- hands; nil when every slot is one of those.
+function M.swap_out_row(l)
+    local held = type(l.held) == "table" and l.held or {}
+    for i = #(l.hotbar or {}), 1, -1 do
+        local h = l.hotbar[i]
+        if not h.consumable and h.item ~= held.right_item and h.item ~= held.left_item then return h end
+    end
+end
 function M.move(log, what, to, to_slot)
     local page = M.MOVE_PAGES[tostring(to or ""):lower()]
     if not page then return { ok = false, reason = "invalid_args", detail = "to must be hotbar or bag" } end
@@ -654,15 +663,32 @@ function M.move(log, what, to, to_slot)
     if where == "loadout" then return { ok = false, reason = "invalid_args", detail = "it is equipped: unequip it first" } end
     if d.slot_type == page then return { ok = true, already = true, item = d } end
     local slot = tonumber(to_slot) or M.free_slot(page)
+    local out
+    if page == M.MOVE_PAGES.hotbar then
+        -- A drag ONTO a taken slot swaps the two (the game's own drop; live 2026-11-16: Clean Water dragged onto the
+        -- Stone Pickaxe's slot, the pickaxe was in the bag by the next read). So a full hotbar takes one drag, and
+        -- no slot is ever empty for the stay-fed reflex to fill first (fresh chain 20261116-085113: he moved his axe
+        -- to the bag to make room, the reflex put a Clean Water there, and the soup's move read "no free slot" again).
+        if not slot then
+            out = M.swap_out_row(l)
+            slot = out and out.slot
+            if not slot then return { ok = false, reason = "inventory_full",
+                detail = "my hotbar is full and every slot holds food, drink or what I'm holding" } end
+        else
+            for _, h in ipairs(l.hotbar or {}) do if h.slot == slot then out = h end end
+        end
+    end
     if not slot then return { ok = false, reason = "inventory_full", detail = "no free " .. tostring(to) .. " slot" } end
     local api = M.ui_api()
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
-    say(log, string.format("HandleInternalDragAndDrop(%d, %s, %d, %s) %s", d.slot, tostring(d.slot_type), slot, page, tostring(d.item)))
+    say(log, string.format("HandleInternalDragAndDrop(%d, %s, %d, %s) %s%s", d.slot, tostring(d.slot_type), slot, page, tostring(d.item),
+        out and (" (swaps with " .. tostring(out.item) .. ")") or ""))
     local ok, err = pcall(function() api:HandleInternalDragAndDrop(d.slot, SLOT_TYPE[d.slot_type], slot, SLOT_TYPE[page]) end)
     if ok and page == M.MOVE_PAGES.hotbar and (d.consumable == "food" or d.consumable == "drink") then
         M.hold_reflex(d.consumable, M.REFLEX_HOLD_S.move, "he moved " .. tostring(d.name or d.item) .. " to the hotbar")
     end
-    return { ok = ok, reason = (not ok) and tostring(err) or nil, item = d, to = page, to_slot = slot }
+    return { ok = ok, reason = (not ok) and tostring(err) or nil, item = d, to = page, to_slot = slot,
+             swapped_out = out and (out.name or out.item) or nil }
 end
 
 -- ------------------------------------------------------------------ containers (chests, storage): the container screen

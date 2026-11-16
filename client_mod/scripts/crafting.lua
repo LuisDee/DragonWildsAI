@@ -1114,10 +1114,11 @@ end
 
 -- Stations near him: census interactables of the station kinds whose class word the catalog knows.
 function M.stations(api, radius_m)
-    local things = api.census_things(radius_m or M.cfg.station_radius_m, 40)
+    local function is_station(t) return t.category == "interactables" and (t.kind == "crafting_station" or t.kind == "processing_station") end
+    local things = api.census_things(radius_m or M.cfg.station_radius_m, 40, nil, { kinds = { interactables = true }, keep = is_station })
     local out = {}
     for _, t in ipairs(things or {}) do
-        if t.category == "interactables" and (t.kind == "crafting_station" or t.kind == "processing_station") then
+        if is_station(t) then
             local sid = M.station_type(t.class)
             if sid then
                 local st = station_info(sid) or {}
@@ -1541,12 +1542,14 @@ local function start_craft(api, args, ctx0)
     local row, perr = pick_station(api, a, args, ctx)
     if not row then return perr end
     local passed = {}
-    if not need_str(args.station) and a.kind == "processing" then
+    -- he named this very station (its id): that one. A kind named ("Campfire") or none: the nearest that can take it
+    local kind_named = need_str(args.station) and row.id ~= args.station
+    if (kind_named or not need_str(args.station)) and a.kind == "processing" then
         local ok_type = {}
         for _, sid in ipairs(recipe_of(a.recipe).stations or {}) do ok_type[sid] = true end
         local free
         for _, s in ipairs(ctx.stations) do -- nearest first
-            if ok_type[s.station] then
+            if ok_type[s.station] and (not kind_named or s.station == row.station) then
                 local ok, why = station_takes(api, s, a)
                 if ok then free = s; break end
                 passed[#passed + 1] = { id = s.id, name = s.name, why = why }
