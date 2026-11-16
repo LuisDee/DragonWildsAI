@@ -353,6 +353,22 @@ def test_tags_count_by_cause_and_a_void_run_is_named_for_the_rates(tmp_path):
     assert fl.rows(p)[0]["class"] == "game" and fl.rows(p)[0]["fix"] == "def5678"
 
 
+def test_a_passed_run_touched_by_a_harness_fault_can_be_voided(tmp_path):
+    # 20261116-215441: an uncommitted combat.lua was hot-loaded into the client for 19 s of a trial that passed
+    p = tmp_path / "ledger.jsonl"
+    recs = [rec("1", "Ratcatcher"), rec("2", "Ratcatcher", ok=False)]
+    fl.scan(recs, q.verdict, q.not_counted, path=p)
+    assert fl.tag(["1"], "harness", "a module was swapped mid-trial", False, None, path=p, recs=recs) == 0  # not void: no row
+    assert fl.tag(["1", "7"], "harness", "a module was swapped mid-trial", True, None, path=p, recs=recs) == 1  # 7 is no run
+    row = fl.rows(p)[-1]
+    assert (row["run"], row["item"], row["passed"], row["void"], row["first_wrong"]) == (
+        "1", "quest: Ratcatcher", True, True, "passed, not counted")
+    assert fl.voided(p) == {"1"}
+    assert fl.tag(["1"], "harness", "a module was swapped mid-trial", True, None, path=p, recs=recs) == 1  # no second row
+    assert len(fl.rows(p)) == 2
+    assert fl.scan(recs, q.verdict, q.not_counted, path=p) == []
+
+
 # --- the day's spend cap ---------------------------------------------------------------------------------------------
 
 def test_a_cap_set_for_one_day_holds_for_that_day_only_and_a_runs_allowance_still_wins(tmp_path, monkeypatch):

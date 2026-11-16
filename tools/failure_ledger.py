@@ -80,8 +80,17 @@ def scan(recs: list[dict], verdict, not_counted, since: str = "", path: Path | N
     return new
 
 
-def tag(runs: list[str], cls: str | None, cause: str | None, void: bool, fix: str | None, path: Path | None = None) -> int:
+def tag(runs: list[str], cls: str | None, cause: str | None, void: bool, fix: str | None, path: Path | None = None,
+        recs: list[dict] | None = None) -> int:
+    """Tag the rows of these runs. A run with no row (it passed) gets one only to be voided: a fault of the harness
+    touched it, so it is left out of the rates like a failed void run (`recs`: the quest runs, to know it is one)."""
     rs = rows(path)
+    have = {r["run"] for r in rs}
+    for rec in recs or []:
+        if void and rec["run"] in runs and rec["run"] not in have:
+            rs.append({"run": rec["run"], "item": f"quest: {rec.get('quest')}", "character": rec.get("character"),
+                       "checkpoint": rec.get("checkpoint"), "bars": [], "at_s": None, "first_wrong": "passed, not counted",
+                       "passed": True, "class": None, "cause": None, "void": False, "fix": None})
     hit = [r for r in rs if r["run"] in runs]
     for r in hit:
         r.update({k: x for k, x in (("class", cls), ("cause", cause), ("fix", fix)) if x})
@@ -126,11 +135,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{r['run']} {r['item']:<24} {r['at_s']:>6}s {r['first_wrong']}")
         print(f"{len(new)} new row(s); {len(rows())} in the ledger")
     elif a.cmd == "tag":
-        print(f"tagged {tag(a.runs, a.cls, a.cause, a.void, a.fix)} row(s)")
+        from tools import quest_run as q
+        recs = [json.loads(line) for line in q.OUT.read_text(encoding="utf-8").splitlines() if line.strip()]
+        print(f"tagged {tag(a.runs, a.cls, a.cause, a.void, a.fix, recs=recs)} row(s)")
     else:
         rs = rows()
-        print(f"{len(rs)} failed runs in the ledger, {sum(1 for r in rs if not r.get('class'))} untagged, "
-              f"{sum(1 for r in rs if r.get('void'))} void")
+        print(f"{sum(1 for r in rs if not r.get('passed'))} failed runs in the ledger, "
+              f"{sum(1 for r in rs if not r.get('class'))} untagged, {sum(1 for r in rs if r.get('void'))} void"
+              f" ({sum(1 for r in rs if r.get('passed'))} of them a passed run not counted)")
         print(f"{'n':>3} {'open':>4}  {'class':<9} cause (items)")
         for g in counts(rs):
             items = ", ".join(f"{k} x{n}" for k, n in g["items"].most_common())
