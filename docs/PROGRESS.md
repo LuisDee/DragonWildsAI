@@ -1186,3 +1186,22 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Harness (64f2f85):** `quest_run.verdict()` = done, at most 1.5x, at most 1 miss, no stand over 5 s; in every record (`verdict`), the fresh summary and `report`. The exit code still means "quest complete" because the chain needs it to go on. Whether his lines were true is not judged in these runs (`truth: not judged`).
 - **Also seen, not fixed:** the Sonnet plan for "bring 50 Ash Logs to Zanik" walked back to where he was asked before going to Zanik 130 m away (about 40 s); boiling 5 Dirty Water made 4; `tests/test_talk_only_followup.py` has one test failing since before b21b657.
 - Spend today about $1.7 of $10.
+
+## 2026-11-16 09:47-10:15Z rung 5: chain 094732 (Rune Mysteries passes every bar for the first time), two causes fixed (fe0fda1)
+- **Chain 094732 (clone ClaudeQ160947), graded by all four bars:**
+
+  | quest | time | ratio (bar 1.5x) | misses (bar 1) | stands over 5 s | verdict |
+  |---|---|---|---|---|---|
+  | First Steps | 30.7 s | 0.38x | 0 | 0 | PASS |
+  | Getting Started | 119.2 s (human 57.0 s) | 2.09x | 1 | 0 | FAIL |
+  | Ratcatcher | 250.9 s | 1.25x | 3 | 0 | FAIL |
+  | Rune Mysteries | 411.7 s (human 337.1 s) | 1.22x | 0 | 0 | PASS |
+
+  Rune Mysteries: first pass of every bar. The part 1 -> part 2 continuation of b21b657 held live (7 Haiku + 1 Sonnet, $0.055). Not 3 in a row for anything but First Steps.
+- **Getting Started, 2.09x:** 84.9 s went on 6 sticks: 12 s until move said no_route to one branch, then 41 s walking at a second branch behind an obstacle until the 45 s approach cap. Its miss: `craft` Stone Club with 0 Ash Logs carried, before gathering.
+- **Ratcatcher, 3 misses:** (1) `attack` ended path_blocked after 23.9 s, 9.5 m from the rat; (2) and (3) `craft` at a campfire and a furnace that had no fuel or held someone else's Dirty Water, which the station rows did not say.
+- **Fix 1 (fe0fda1), perception:** a station row now says `fuel: false` and `others_left: "1 Dirty Water"` (body: `crafting.state_extras`; brain: `situation.station_state`, also in the controller's observation). Negative test first (test_crafting, test_controller_loop). Live on ClaudeDev: campfire rows show `fuel: false` and `others_left: "8 Raw Rat Meat"`.
+- **Fix 2 (fe0fda1), gather:** both approach waits end on move's own stalled verdict (`status().progress.verdict == "stalled"`), with `sweep_stall_s = 6` for the sweep. Negative test first: the fake ledge walk took 135 s before, under 20 s after (test_gather 144). Live at the same spot: 8 sticks in 30.3 s, the two bad branches cost 18 s (was 53 s). They ended by other paths this time ("detector never targeted it" 8 s, move's no_route 10 s), so the stalled branch itself has only the unit test as evidence.
+- **Cause of the path_blocked attack (read from client.log 09:53:36-09:53:59Z, not yet fixed):** the rat stood 22 m up the slope. He climbed 65 m in 23 s; the local plan had a jump onto a 3 m ledge. Two jumps fell short, the third put him on the ledge at (155.54, 1743.48), 72 cm from the planned landing cell (155, 1743) and at its height. The landing test wants 45 cm (`lp_radius_cm`), so it counted as a third missed landing, and a follow's third missed landing is no_route at once (move.lua `traversal_failure`), with no log line. He was 7.3 m from the rat with a straight walk; the reflex then walked it in 6 s. Next: reproduce live from Vannaka's spot, log the landing offset on a miss, count a landing on the endpoint's level as landed.
+- **Also seen, not fixed:** `gather {ash, 1}` 50.4 s (41 s at a tree 7.6 m lower until the timeout; the stalled rule should cut this, unverified live); boiling 5 Dirty Water made 4 and left 1 in the campfire for later clones.
+- Next chain launched 10:13Z (pid 1196) with ClaudeDev back at his spot and vitals full. Spend today about $1.9 of $10.
