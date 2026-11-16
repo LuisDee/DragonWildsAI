@@ -144,6 +144,11 @@ class _Clock:
         self.t, self.calls, self.fail_at = 1333 * 24 + hour, 0, fail_at
 
     def setup(self, verb, purpose="", **a):
+        if verb == "set_stat":
+            self.stats = {**getattr(self, "stats", {}), a["stat"]: a["value"]}
+            if a["stat"] == "endurance" and self.fail_at == "endurance":
+                raise RuntimeError("fixture set_stat failed: no_EnduranceComponent")
+            return {"ok": True, "stat": a["stat"], "after": a["value"] + 0.0000004}
         assert verb == "set_time"
         if a.get("read"):
             return {"ok": True, "hour": self.t % 24, "day": int(self.t // 24)}
@@ -167,3 +172,28 @@ def test_the_step_clock_goes_on_whole_days_and_keeps_the_time_of_day():
 def test_a_clock_that_did_not_move_is_said_and_does_not_raise():
     r = q.clock_on(_Clock(20.0, fail_at=2), 3, "test")
     assert r["ok"] is False and r["days"] == 1 and "time_unreadable" in r["error"], r
+
+
+def test_the_clock_puts_the_forks_food_water_and_rest_back():
+    """The server ages the player on it through the skipped days (food and water to 0): what was read before goes back."""
+    c = _Clock(5.14)
+    r = q.clock_on(c, 3, "test", vitals={"sustenance": 41.2, "hydration": 47.1, "endurance": 89.4})
+    assert r["ok"] and r["vitals_back"] == {"sustenance": 41.2, "hydration": 47.1, "endurance": 89.4}, r
+    assert c.stats == {"sustenance": 41.2, "hydration": 47.1, "endurance": 89.4}
+    c = _Clock(5.14, fail_at="endurance")  # one stat that will not set is said, the others still go back
+    r = q.clock_on(c, 3, "test", vitals={"endurance": 89.4, "hydration": 47.1})
+    assert r["vitals_back"] == {"hydration": 47.1} and "no_EnduranceComponent" in r["vitals_error"]["endurance"], r
+    assert "vitals_back" not in q.clock_on(_Clock(5.14), 1, "test")  # nothing read, nothing set
+
+
+def test_vitals_of_reads_the_three_bars_and_nothing_else():
+    class Cli:
+        def request(self, tool, args, timeout=0):
+            return {"ok": True, "data": {"survival": {"hydration": [47.1, 100.0], "sustenance": [41.2, 100.0],
+                                                      "endurance": [89.4, 100.0], "odd": None}, "health": 100.0}}
+    assert q.vitals_of(Cli()) == {"hydration": 47.1, "sustenance": 41.2, "endurance": 89.4}
+
+    class Dead:
+        def request(self, tool, args, timeout=0):
+            return None
+    assert q.vitals_of(Dead()) == {}

@@ -705,7 +705,7 @@ def to_start(cli, place: list[float] | None, tries: int = 4, timeout: float = 20
             "why": None if near else str((r or {}).get("data") if isinstance(r, dict) else r)[:300]}
 
 
-def clock_on(dev, days: int, purpose: str) -> dict:
+def clock_on(dev, days: int, purpose: str, vitals: dict | None = None) -> dict:
     """A dev fixture (dev server only): move the game clock on by `days` days, less a few minutes, so that what
     earlier trials mined or picked has grown back when this one starts. Why: a mined node grows back after its
     RespawnDuration of GAME time (essence rocks: 2 days = 48 real minutes) and only while no player is within its
@@ -713,7 +713,14 @@ def clock_on(dev, days: int, purpose: str) -> dict:
     20261116-173343: PASS, PASS, then three trials at 8 used-up rocks). Seen live 18:04Z: rocks spent at 17:50Z were
     whole again 3 minutes after the clock went on 3 days with him 215 m away. It uses the bench fixture set_time, one
     call per day (each sets the hour to just before the current one, so the time of day stays what it was).
-    Limit: a node within 100 m of where the fork stands when this runs does not grow back."""
+    The server ages the one player on it through the skipped days: food and water to 0 and rest to 35 % within a
+    second, and his reflex then eats and drinks from the bag (probe ClaudeP161838; window 20261116-181015 began three
+    trials thirsty at 21 % with the water gone). So it runs on a fork that has played and is thrown away, never on the
+    one about to play, and `vitals` (what get_state read just before) is put back with the fixture set_stat so the
+    fork does not starve while it is still on the server.
+    Limit: that fork stands within 100 m of what it mined, and a node grows back only with no player that near. It is
+    taken that the node catches up once he has left (seen 17:07Z: a rock long overdue was whole ten minutes after he
+    left); a window whose later trials find used-up rocks says this is wrong."""
     out: dict = {"days": 0, "advanced_h": 0.0}
     try:
         now = dev.setup("set_time", purpose=purpose, read=True)
@@ -727,7 +734,20 @@ def clock_on(dev, days: int, purpose: str) -> dict:
         out["ok"] = out["advanced_h"] >= 23.0 * days
     except Exception as exc:  # the trial still runs; its row says the clock did not move
         out["ok"], out["error"] = False, repr(exc)[:200]
+    for stat, value in (vitals or {}).items():
+        try:
+            r = dev.setup("set_stat", purpose=purpose, stat=stat, value=value)
+            out.setdefault("vitals_back", {})[stat] = round(float(r.get("after")), 1)
+        except Exception as exc:
+            out.setdefault("vitals_error", {})[stat] = repr(exc)[:120]
     return out
+
+
+def vitals_of(cli) -> dict:
+    """His food, water and rest as get_state reads them now ({stat: value}); {} when unreadable."""
+    st = cli.request("get_state", {}, timeout=20)
+    sv = ((st.get("data") if isinstance(st, dict) else None) or {}).get("survival") or {}
+    return {k: v[0] for k, v in sv.items() if isinstance(v, list) and v and isinstance(v[0], (int, float))}
 
 
 def cmd_step(a) -> int:
@@ -768,22 +788,12 @@ def cmd_step(a) -> int:
             used.append(name)
             made = sw.ensure(name, create=False, wait_s=150)
             print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
-            grown = None
-            if a.regrow_days > 0:  # here, where the fork came in: before the walk takes him near what was used
-                from evals.bench.devrun import default_dev
-                dev = default_dev()
-                dev.brain_running = lambda: False
-                # the fixture's guard wants the guid of the one player on the server: the fork, not ClaudeDev (the
-                # first window with this refused all five: "other_players_connected")
-                dev.character_guid, dev.character_name = made["guid"], name
-                grown = clock_on(dev, a.regrow_days, f"quest_run step {a.checkpoint}: what earlier trials used grows back")
-                print(f"[{time.time() - t0:6.1f}s] game clock moved on: {grown}")
             start = to_start(cli, place)
             if start is not None:
                 print(f"[{time.time() - t0:6.1f}s] to the checkpoint's place: {start}")
                 left = a.window_s - a.reserve_s - (time.time() - t0)
                 if not start["ok"] or left < 90:
-                    out["trials"].append({"character": name, "start": start, "clock": grown, "skipped": "not at the checkpoint's place"
+                    out["trials"].append({"character": name, "start": start, "skipped": "not at the checkpoint's place"
                                           if not start["ok"] else f"window: {left:.0f} s left after the walk"})
                     continue
             ns = ap_.Namespace(confirm=True, quest=a.quest, line=list(line), until="complete", until_step=a.until_step,
@@ -793,11 +803,21 @@ def cmd_step(a) -> int:
             rc = cmd_run(ns)
             t_end = time.time()
             last = _last_run()
-            out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), "start": start, "clock": grown,
-                                  **_summary(last)})
+            out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), "start": start, **_summary(last)})
             if a.save_as and last.get("done") and "saved_as" not in out:
                 kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=AUTOSAVE_S)
                 out["saved_as"] = str(kept) if kept else f"no save of {name} within {AUTOSAVE_S:.0f} s"
+            if a.regrow_days > 0:  # now, on the fork that has played (after any --save-as): never on one about to play
+                from evals.bench.devrun import default_dev
+                dev = default_dev()
+                dev.brain_running = lambda: False
+                # the fixture's guard wants the guid of the one player on the server: the fork, not ClaudeDev (the
+                # first window with this refused all five: "other_players_connected")
+                dev.character_guid, dev.character_name = made["guid"], name
+                grown = clock_on(dev, a.regrow_days, f"quest_run step {a.checkpoint}: what this trial used grows back",
+                                 vitals=vitals_of(cli))
+                out["trials"][-1]["clock_after"] = grown
+                print(f"[{time.time() - t0:6.1f}s] game clock moved on: {grown}")
     if out.get("back") and not a.keep_forks:  # back on ClaudeDev: the forks' saves leave the character list
         print("parked:", quest_clone.park(used))
     done = [t for t in out["trials"] if "pass" in t]
@@ -879,8 +899,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--deadline", type=float, default=600.0, help="per trial")
     st.add_argument("--save-as", metavar="LABEL", help="keep the first done trial's next save as this checkpoint")
     st.add_argument("--keep-forks", action="store_true", help="leave the forks in the character list")
-    st.add_argument("--regrow-days", type=int, default=3, help="game days the dev clock is moved on before each trial, so "
-                    "what earlier trials mined has grown back (0: leave the clock alone)")
+    st.add_argument("--regrow-days", type=int, default=3, help="game days the dev clock is moved on after each trial, so "
+                    "what it mined has grown back for the next (0: leave the clock alone)")
     st.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
     st.add_argument("--window-s", type=float, default=3600.0, help="the whole window, switch back included")
     st.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")
