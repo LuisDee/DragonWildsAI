@@ -752,6 +752,10 @@ def cmd_run(a) -> int:
            "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name}
+    # a stand after his last line is the run's own wait for quiet, not his: the idle that counts ends there
+    done_t = max((y["t"] for y in tl["says"]), default=None)
+    rec["idle_before_done"] = [i for i in ({"from": i["from"], "s": round(min(i["from"] + i["s"], done_t) - i["from"], 1)}
+                                           for i in tl["idle"] if done_t is not None and i["from"] < done_t) if i["s"] > 5.0]
     rec["buckets"] = buckets(tl["calls"], ended - t0, t0, ended)
     rec["build_pace"] = build_pace(tl["calls"], rec["score"], t0, len(new))
     if before and not after:
@@ -827,7 +831,8 @@ def cmd_report(a) -> int:
         it = r.get("items") or {}
         print(f"{r['run']} {r['ended']:<9} {r['wall_s']:>6}s new={len(r.get('pieces_new') or [])} spawns={s.get('build_spawns')} "
               f"build tool {bp.get('tool_s_per_piece')} s/pc (bar {bp.get('tool_bar')}) wall {bp.get('wall_s_per_piece')} s/pc (bar {bp.get('wall_bar')}) "
-              f"items_all={it.get('all')} untrue={bad} haiku={r['haiku']} sonnet={r['sonnet']} ${r['usd']}")
+              f"items_all={it.get('all')} untrue={bad} idle>5s={len(r['idle_before_done']) if 'idle_before_done' in r else '?'} "
+              f"first_act={min((c['t'] for c in r.get('tool_calls') or []), default=None)}s haiku={r['haiku']} sonnet={r['sonnet']} ${r['usd']}")
     return 0
 
 

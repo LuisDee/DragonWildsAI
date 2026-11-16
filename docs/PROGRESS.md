@@ -1051,3 +1051,26 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Harness fixes (17af638, tools/build_run.py):** the recorder is re-armed before the line; `stored` accepts the crate by id or name; `build_pace` in every record and in `report` (tool and wall seconds per piece against Luis's 3.81 and 6.08), with the census's new pieces as the count when the recorder saw no spawn.
 - Tests: test_build 161, test_camrig 21, test_deconstruct 86.
 - Open: the clean-up after 013753 refused ("hostiles within 45 m (Giant Rat)") and left the house standing; cleared by hand. The Crafting Table gave nothing back on teardown (cost 4 Ash Logs); not looked into.
+
+## 2026-11-16 01:5x-03:0xZ rung 2: the roof on a closed room root-caused (the cursor's ray does not start at the camera), build pace inside Luis's own
+- **Run 20261116-025003 (no run):** no site. 39 candidate spots read not flat, the flat ones had Giant Rats near. Fix: `tools/build_run.py proven_spots()` tries the spots where a whole stand-in house went up before, latest first, ahead of the search.
+- **Run 20261116-020523 (items all true, truthful, 5 Haiku + 2 Sonnet, $0.076; outside the pace bars):** build tool 12.81 s per piece (bar 5.71), wall 15.65 (bar 9.12). The 7-piece batch took 80.3 s: the roof came last, onto a closed room, spent 63.5 s in approach and failed; four more roof calls followed. Teardown of the stand-in 42.9 s (was 62.7).
+- **Cause chain, each made observable first, then fixed (commit 343e9a8):**
+  1. The stand search returned nothing and said nothing. Now `camrig.stands` returns stats and the stay log says "no spot with a clear view (36 tried: 0 no ground, 0 in its way, 36 view lands elsewhere, nearest 0.33 m off)".
+  2. The roof's aim point lay inside the wall (0.1 m from its middle; the census box is 1 m thick, the wall 0.4 m). Now the aim is on the wall's real face, found once by the game's own trace (`build.W.aim_point`).
+  3. The predicted view said "0.00 m off" and the preview still sat 0.96 m off. Per-frame tracer (`aim_trace.lua`) and `cursor_start_probe.lua`: **the game's build cursor ray starts at the point of the camera's centre ray nearest the pawn, not at the camera** (see DISCOVERIES). Inside a closed 3 m room looking up that point is behind the camera, here inside the open door leaf. `camrig.look` now starts its trace there (`rig.pawn`).
+  4. From outside the room the roof could not go on at all: only the wall's room face was tried. A roof snaps from either face; `W.stands` and `W.stay_ok` now take whichever face the view reaches.
+  5. A walk to a stand spot was ended on a clear view at a position his pawn then left again (25 cm back, a correction); he placed from the spot the check had just refused. Now the spot counts once he has come to rest there (two reads 0.2 s apart within 3 cm).
+- **Negative test, then the fix, live through the debug client (roof onto the closed 7-piece house):** before: 63 s and failed (brain run), 6.5 s and failed (repro). After, from four standing spots: outside N 3.5 s, beside the open door 3.8 s, the room's middle 5.4 s, by the W wall 4.8 s; all four on, "view 0.00 m off".
+- **Rung 2 brain runs after the fix (all inside the bars):**
+
+  | run | pieces | build tool s/piece (bar 5.71, Luis 3.81) | wall s/piece (bar 9.12, Luis 6.08) | items | judge | model calls |
+  |---|---|---|---|---|---|---|
+  | 20261116-023653 | 10 | 3.55 | 3.71 | all 9 true | every line true | 3 Haiku, $0.003 |
+  | 20261116-024821 | 10 | 3.84 | 4.01 | all 9 true | every line true | 2 Haiku, $0.002 |
+  | 20261116-025615 | 10 | 4.10 | 4.26 | all 9 true | every line true | 2 Haiku, $0.002 |
+
+  **Three in a row inside every bar.** No stand over 5 s before his last line in any of them (a model call in flight counts as work in the timeline). The 7-piece house batch took 21.6, 24 and 27 s (was 80.3 s); teardown of the 11-piece stand-in 44.3, 32 and 34 s. All three runs replayed the skill the brain saved itself after run 020523 (`rebuild_house_with_stations_and_store`, brain/skill_library.py): one Haiku call picks it and fills its parameters, the Planner is not called.
+- **Not inside a bar yet:** his first act comes 7.9-9.7 s after the line is sent (2.7 s chat delivery, 0.8 + 0.2 s state reads, 4.6 s Haiku, 0.5 s state read). The harness now records `idle_before_done` (the stand after his last line is the run's own wait for quiet) and `first_act` in `report`.
+- Seen, not fixed: a door taken down from outside took 18.7 s (approach 10.1, aim 7.0); 4 Ash Logs left on the ground after one cleanup (pickup failed).
+- Tests: test_build 161, test_camrig 25, test_deconstruct 86, test_placement 18.
