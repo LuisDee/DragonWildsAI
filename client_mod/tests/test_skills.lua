@@ -1823,6 +1823,21 @@ test("explore leaves out legs over a void (a cliff, the world's edge: live 05:44
     assert(n.data.detail:find("world's edge", 1, true), n.data.detail)
 end)
 
+test("explore: a thing that only shares a word with the ask is not a find, and is named when nothing is found", function()
+    -- Rune Mysteries chain 20261116-065203: about "Air Altar or Rune Altar" ended at once on Rune Essence
+    reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.resources = {}
+    F.world.interactables = { { id = "ess_1", class = "BP_RuneEssence_Node_C", name = "Rune Essence", kind = "interactable",
+                                prompt = "Mine", position = { 6, 0, 3 } } }
+    rpc("get_state")
+    local r0, id = rpc("explore", { about = "Air Altar or Rune Altar", max_legs = 1, leg_m = 10 })
+    assert(r0 == nil, "async, not already_in_sight: " .. json.encode(r0))
+    local n = run(id, 40)
+    assert(n and n.reason == "nothing_in_range", json.encode(n))
+    assert(n.data.detail:find("here I see Rune Essence (shares a word with it, not the same thing)", 1, true), n.data.detail)
+    local a = rpc("explore", { about = "rune essence or an altar" })
+    assert(a.reason == "already_in_sight" and a.data.found.id == "ess_1", json.encode(a))
+end)
+
 test("explore that finds nothing says how far he looked and where he has gathered it before (farm chain run 9)", function()
     reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.interactables = {}; F.world.resources = {}
     rpc("get_state")
@@ -1878,7 +1893,7 @@ test("explore ignores function-word substrings", function()
     end
     reset(); F.me_pos=nil; F.move.position={0,0,3}; F.world.resources={}; F.world.interactables={}
     table.insert(F.world.interactables,{id="ash_1",class="BP_Spawner_AshBranch_01_C",name="Ash Logs",kind="foliage",verb="gather",position={5,0,3}})
-    local hit=rpc("explore",{about="ash missing"})
+    local hit=rpc("explore",{about="ash logs or something missing"})
     assert(hit.reason=="already_in_sight" and hit.data.found.id=="ash_1",json.encode(hit))
 end)
 

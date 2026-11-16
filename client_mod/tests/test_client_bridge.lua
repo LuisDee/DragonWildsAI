@@ -421,6 +421,25 @@ test("look: every census category as things, ranked by match, matched flag, radi
     assert(B.match_score({ name = "Ash Branches" }, "branch") == 1 and B.match_score({ name = "Oak" }, "an oak tree") == 0.5)
 end)
 
+test("match_one: a thing is what the words ask for only when it answers one of the things they name", function()
+    local ess = { name = "Rune Essence", class = "BP_RuneEssence_Node_C", kind = "resource", verb = "mine", drops = "Rune Essence" }
+    -- Rune Mysteries chain 20261116-065203: explore ended on Rune Essence for "Air Altar or Rune Altar"
+    local yes, share = B.match_one(ess, "Air Altar or Rune Altar")
+    assert(yes == false and share == 0.5, tostring(yes) .. " " .. tostring(share))
+    assert(B.match_one({ name = "Rune Altar", class = "BP_RuneAltar_C" }, "Air Altar or Rune Altar") == true)
+    assert(B.match_one(ess, "rune essence") == true and B.match_one(ess, "essence") == true)
+    assert(B.match_one({ name = "Kebbit" }, "kebbit or goblin or rat") == true)
+    assert(B.match_one({ name = "Crate" }, "kebbit or goblin or rat") == false, "rat is not the end of crate's word: 3 letters")
+    assert(B.match_one({ name = "Stone Stairs" }, "stairs, ramp or path down") == true)
+    assert(B.match_one({ name = "Oak" }, "an oak tree") == true, "the thing's whole name is in the ask")
+    assert(B.match_one({ name = "Oak Tree" }, "ash tree") == false)
+    assert(B.match_one({ name = "Redberry Bush" }, "berry bush") == true, "berry ends Redberry")
+    assert(B.match_one({ class = "BP_RedBerry_Bush_C" }, "berry bush") == true)
+    assert(B.match_one({ name = "Water Volume", prompt = "Collect Water" }, "water") == true)
+    assert(B.match_one({ name = "Ash Logs" }, "a door, gate, stairs or opening leading out of the temple") == false)
+    assert(B.match_one({ name = "Ash Logs" }, "") == false and B.match_one({ name = "The" }, "the or and") == false)
+end)
+
 test("lexical search uses whole meaningful identifier tokens", function()
     local ash={name="Ash Logs",class="BP_Spawner_AshBranch_01_C",item="ITEM_Resources_Wood_Ash",kind="foliage",verb="gather"}
     assert(B.match_score(ash,"a door, gate, stairs or opening leading out of the temple")==0)

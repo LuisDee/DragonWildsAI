@@ -897,6 +897,56 @@ function M.match_score(t, about)
     return score/#q
 end
 
+-- Is this thing what the words ask for? (match_score says how related; this says yes or no.) The words may name
+-- several things ("Air Altar or Rune Altar", "stairs, ramp or path down"): split at commas and "or". The thing
+-- answers one of them when every word of that one is in the thing, or every word of the thing's NAME is in that one
+-- ("an oak tree" -> Oak). A word of 4+ letters also answers a token that ends with it ("berry" -> Redberry).
+-- Rune Mysteries chain 20261116-065203: explore about "Air Altar or Rune Altar" ended at once with "Rune Essence is
+-- already in sight" (one word of four shared). -> true | false, share (the best share of one alternative's words)
+function M.match_one(t, about)
+    local hay=table.concat({t.name or '',t.class or '',t.prompt or '',t.drops or '',t.drop_item or '',
+                            t.item or '',t.kind or '',t.verb or ''},' ')
+    local tokens,list={},{}
+    for _,w in ipairs(words(hay)) do
+        if not tokens[w] then list[#list+1]=w end
+        for f in pairs(forms(w)) do tokens[f]=true end
+    end
+    local function has(w)
+        for f in pairs(forms(w)) do
+            if tokens[f] then return true end
+            if #f>=4 then
+                for _,tk in ipairs(list) do if #tk>#f and tk:sub(-#f)==f then return true end end
+            end
+        end
+        return false
+    end
+    local nameq={}
+    for _,w in ipairs(words(t.name or '')) do if #w>2 and not stop[w] then nameq[#nameq+1]=w end end
+    local best=0
+    local alts=tostring(about or ''):gsub('(%l)(%u)', '%1 %2'):lower():gsub('%f[%a]or%f[%A]', ',')
+    for alt in (alts..','):gmatch('([^,]*),') do
+        local q,seen,n={},{},0
+        for _,w in ipairs(words(alt)) do
+            if #w>2 and not stop[w] and not seen[w] then q[#q+1]=w; seen[w]=true; for f in pairs(forms(w)) do seen[f]=true end end
+        end
+        if #q>0 then
+            for _,w in ipairs(q) do if has(w) then n=n+1 end end
+            if n==#q then return true,1 end
+            if #nameq>0 then
+                local all=true
+                for _,w in ipairs(nameq) do
+                    local ok=false
+                    for f in pairs(forms(w)) do if seen[f] then ok=true; break end end
+                    if not ok then all=false; break end
+                end
+                if all then return true,1 end
+            end
+            best=math.max(best,n/#q)
+        end
+    end
+    return false,best
+end
+
 -- The shared item-name resolver for rows the player's words must pick ONE item from (his inventory, a
 -- chest): rows {name, item, ...}. Tiers: 3 exact id or name (case-insensitive); 2 the whole words are
 -- in the name or id ("sandwich" -> "Forager's Sandwich"); 1 every word matches (match_score 1, plurals).
@@ -1355,6 +1405,7 @@ M.API = {
     end,
     find_thing = function(id, r) return find_thing(id, r) end,
     match_score = function(t, about) return M.match_score(t, about) end,
+    match_one = function(t, about) return M.match_one(t, about) end,
     resolve_name = function(rows, what, opts) return M.resolve_name(rows, what, opts) end,
     actor_of = function(t) return actor_of(t) end,
     contents_of = function(t) local a, U = actor_of(t); if a and U then return contents_of(a, U) end end,

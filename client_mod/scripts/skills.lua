@@ -2437,15 +2437,21 @@ local function visits_near(mem, p)
 end
 M._visits_near = visits_near
 
+-- -> the nearest thing that IS what `about` asks for (api.match_one: every word of one of the things it names), and
+-- the names of up to 3 things that only share a word with it (said when the search finds nothing, never a find)
 local function matching(api, about, radius)
-    local best, bs
+    local best, part, seen = nil, {}, {}
     for _, t in ipairs(api.census_things(radius, 40) or {}) do
         if t.category ~= "players" then
-            local sc = api.match_score(t, about)
-            if sc > 0 and (not best or sc > bs or (sc == bs and (t.distance or 1e9) < (best.distance or 1e9))) then best, bs = t, sc end
+            local yes, share = api.match_one(t, about)
+            if yes and (not best or (t.distance or 1e9) < (best.distance or 1e9)) then best = t end
+            if not yes and (share or 0) > 0 and t.name and not seen[t.name] and #part < 3 then
+                seen[t.name] = true
+                part[#part + 1] = tostring(t.name)
+            end
         end
     end
-    return best
+    return best, part
 end
 
 -- What he remembers GATHERING that matches `about` (navmem's gather spots, written by gather.lua), as one sentence, or
@@ -2540,7 +2546,8 @@ local function start_explore(api, args, ctx)
             return nil
         end
         local st = api.move_status()
-        local h = matching(api, args.about, radius)
+        local h, part = matching(api, args.about, radius)
+        job.part = part
         if st.mode == "go_to" and not h then return nil end
         if h and st.mode == "go_to" then
             api.call("move", "stop")
@@ -2576,6 +2583,7 @@ local function start_explore(api, args, ctx)
                     .. " m walked, at most " .. math.floor(far + 0.5) .. " m from where I began, seeing about " .. math.floor(radius)
                     .. " m around) and saw nothing matching '" .. args.about .. "'" .. legs_said()
                     .. ((job.voids or 0) > 0 and "; ways over a cliff or the world's edge left out" or "")
+                    .. (#(job.part or {}) > 0 and ("; here I see " .. table.concat(job.part, ", ") .. " (shares a word with it, not the same thing)") or "")
                     .. (known and (". " .. known) or "") })
         end
         return nil
