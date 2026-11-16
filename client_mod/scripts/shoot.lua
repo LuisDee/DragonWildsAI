@@ -67,7 +67,8 @@ function W.weapon(pawn)
     local inv = mod("inventory")
     local h = inv and inv.held and U.try(inv.held, pawn) or {}
     local items = (mcall("combat", "weapons") or {}).items or {}
-    for _, it in ipairs({ h.right_item, h.left_item }) do
+    for _, hand in ipairs({ "right_item", "left_item" }) do -- by key: an empty right hand must not end the loop
+        local it = h[hand]
         local p = it and items[it]
         if p and (p.kind == "ranged" or p.kind == "magic") then return { kind = p.kind, item = it, name = p.name or it } end
     end

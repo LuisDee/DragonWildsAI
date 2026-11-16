@@ -51,6 +51,7 @@ W.pawn = function() return Wd.pawn end
 W.loc = function(p) return { X = p.X, Y = p.Y, Z = p.Z } end
 W.dead = function() return false end
 W.actions = function() return ACT end
+local real_weapon = W.weapon
 W.weapon = function() if Wd.held then return Wd.held end return nil, "Bronze Sword" end
 W.params = function() return { has_ammo = Wd.ammo, speed = 4000, gz = -980, full_accuracy_s = 0.5 } end
 W.muzzle = function() return { X = Wd.pawn.X, Y = Wd.pawn.Y, Z = Wd.pawn.Z + 150 } end
@@ -165,6 +166,28 @@ do
     Wd.modal = { kind = "build" }
     local res = run({ target = "rock_1" })
     check("a build screen open: never fires", res.reason == "interrupted" and res.data.why == "screen_open" and (Wd.shots_fired or 0) == 0, tostring(res.reason))
+end
+do
+    -- the real W.weapon: a bow in the left hand alone (live 2026-11-16: equip put the Ash Shortbow in HeldLeft, the
+    -- right hand read empty, and shoot answered "I need a bow ... (I'm holding Ash Shortbow)")
+    local hands
+    S.set_modules({ move = fake_move, arbiter = A, ranged = Rg, skills = SKm,
+        inventory = { held = function() return hands end },
+        combat = { weapons = function() return { items = { BOW = { kind = "ranged", name = "Ash Shortbow" }, AXE = { kind = "melee", name = "Stone Axe" },
+                                                            STAFF = { kind = "magic", name = "Ash Battlestaff" } } } end } })
+    hands = { left = "Ash Shortbow", left_item = "BOW" }
+    local w = real_weapon({})
+    check("a bow in the left hand alone is a ranged weapon", w and w.kind == "ranged" and w.item == "BOW", w and w.kind)
+    hands = { right = "Ash Battlestaff", right_item = "STAFF" }
+    w = real_weapon({})
+    check("a staff in the right hand", w and w.kind == "magic")
+    hands = { right = "Stone Axe", right_item = "AXE", left = "Ash Shortbow", left_item = "BOW" }
+    w = real_weapon({})
+    check("melee right, bow left: the bow", w and w.item == "BOW")
+    hands = { left = "Stone Axe", left_item = "AXE" }
+    local none, holding = real_weapon({})
+    check("an axe alone: none, and it names the axe", none == nil and holding == "Stone Axe", tostring(holding))
+    S.set_modules({ move = fake_move, arbiter = A, ranged = Rg, skills = SKm })
 end
 do
     -- llm = false until live-verified (main, 2026-10-26); the bridge still treats it as an action tool
