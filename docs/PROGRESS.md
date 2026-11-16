@@ -1076,3 +1076,24 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - Tests: test_build 161, test_camrig 25, test_deconstruct 86, test_placement 18.
 - **Run 20261116-030516, composed afresh (the saved skill set aside for this one run, put back after):** 2 Haiku + 4 Sonnet, $0.131. The model's own list: 8 pieces, a door-frame wall on the S side, two roofs. 7 of 8 in 28.9 s; the 8th (a second roof on a one-cell house) was refused with the true reason. Build tool 4.31 s per piece, wall 5.49, all 9 items true, every line true, no stand over 5 s. His first tool call came 20.7 s after the ask (Sonnet planning). Rotate presses were 7.3 s of the 28.9 s (1.0 s per wall).
 - Issue B17 logged: that run's saved skill left the house out (failed steps are dropped when a skill is learned); the file is retired.
+
+## 2026-11-16 03:1x-04:4xZ rung 3: mine at standard, 3 in a row (21.9 / 20.3 / 22.0 s against Luis's 15 s, bar 22.5)
+- **Start:** gate run r1-20261116T031418Z: cook and boil PASS (5 in a row each), mine 26.1 s and chop 90.0 s, both failing on time only.
+- **Where the 26.1 s went, and what each cut was worth (every one measured on the gate):**
+
+  | cause | fix | saved |
+  |---|---|---|
+  | the harness read his bag every 2 s plus its own loop time: stones in the bag at 22.8 s, seen at 26.1 s | bag read every 0.5 s (`INV_EVERY_S`) | ~2.5 s of measurement lag |
+  | the clock started when the harness began sending the line; the send is a Python process plus the server bridge | the clock starts when the line is in the game's chat (his client's chat row); `sent_lag_s` in the record (1.25-2.57 s) | ~1.4 s of measurement lag |
+  | he stood 1.2 s by a broken rock before taking the drops | drops of what just broke are taken as soon as one lies there | ~1.2 s |
+  | "on it" was said before the gather and blocked it | a gather's line is held and said once the job is under way (`ANNOUNCE_FIRST` minus gather) | 0.57 s |
+  | the executor read the state again before the action | the read the model decided on is the baseline (`STATE_REUSE_S` 1.0 -> 4.0) | 0.52 s |
+  | swings pressed on a 0.1 s decision tick, the bag counted at most once a second after a pick-up press | the press goes out on the frame it falls due; the bag is counted every tick after a press | ~0.5 s |
+  | presses 1.54 s apart were lost (3 of the 5 seen), each costing a whole swing | press floor 1.56 s (`press_jitter_ms` 35-70 over the pickaxe's 1527 ms) | 1.5 s on the runs that lost one |
+- **Fixture faults found on the way (the gate's, not his):** mined boulders stay broken between runs, so the start drifted from 16 m to 67 m from a whole one (`near_rock` now starts him 15 m from one, as Luis's run did); back-to-back runs filled his bag to 401/400 and one run began with him dropping 101 Stone (`lighten` stores his Stone and Ash Logs above 60 % of his limit); `rung4_gate.store_his` asked the second crate for the full count after the first took part.
+- **Truth:** one run judged false ("got the 10 stone, a bit more too" on exactly 10) and one sloppy ("way more than 10, 162 stone now"): the result had a bare `total` beside "Got 13". The detail now reads "Got 13 stone_boulder (10 asked for; 162 in my bag now, counting what I had)". The next three runs were all judged true.
+- **Tried and binned:** a sprint band of his own for the run-up (sprint above 6 m, until 3 m). Three live approaches at 4.0 / 4.65 / 2.7 m/s against 5.0 / 5.0 / 4.4 before; the ground there has hops and the number did not move.
+- **Result (runs r1-20261116T04xx, 3 in a row):** 21.9 / 20.3 / 22.0 s, 0 misses, no stand, every line true, 1-4 Haiku calls per run ($0.0008-0.0032). The margin under the bar is 0.5 s on the slowest, so this is at standard but not comfortably.
+- **What is left between him and Luis's 15 s:** first press at 6.4-7.1 s against Luis's 2.9 s (state reads 0.85 s, Haiku 1.0-2.3 s, walk and aim 3.7 s against 2.1 s), then about the same swing time.
+- Tests: test_gather 142, test_move ALL OK, pytest controller_loop/executor/agent/rung1/rung3/quest_run 52.
+- Open: chop (90 s against a 70.5 s bar: 23 logs taken when 13 were asked, 12 swings on a split log that takes no damage).

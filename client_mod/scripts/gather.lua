@@ -47,7 +47,11 @@ M.cfg = {
     near_radius_m = 15, near_max_radius_m = 30, -- args.near = a player: search around HIM (retro 2026-11-01 cause 4)
     decide_s = 0.1,
     tap_frames = 3,
-    press_jitter_ms = { 60, 220 },
+    -- a press before the swing's own next-attack time is dropped, not kept (live 2026-11-16: 200 ms early lost 2 of 10
+    -- swings), and one on time is never lost, so the spread only costs time: 60-220 ms made a 1.53 s swing 1.76 s.
+    -- The stone pickaxe's 1527 ms is a little short of what the server takes: presses 1.54 s apart were lost (3 of the
+    -- 5 seen, each a whole swing, 1.5 s), none at 1.56 s or more
+    press_jitter_ms = { 35, 70 },
     settle_s = 0.35,            -- stand still this long before a swing (swings while moving point along the path)
     still_cm_per_s = 40,        -- moving faster than this in the aim phase = still sliding: the settle waits
     face_err_deg = 15, face_max_s = 1.2, nudge_scale = 0.25,
@@ -825,12 +829,19 @@ local function step_equip(J, pawn)
 end
 
 local function step_scan(J, me)
-    if J.t < (J.wait_until or 0) then return end
+    -- the drops of what just broke are taken as soon as one lies there (a player doesn't stand and wait them out:
+    -- rung 3 mine 2026-11-16, 1.3 s from "broken" to the pick-up every time); anything else waits for the rest to land
+    local early = J.t < (J.wait_until or 0)
+    if early then
+        local s = J.item and J.sites[#J.sites]
+        if not (s and drops_near(J, s, J.profile.collect_radius_cm or 1200, me)[1]) then return end
+    end
     refresh_count(J)
     if J.done then return end
     if J.item and (J.gained or 0) >= J.want then return end -- the frame ends it
     if J.profile.mode == "pickup" and sweep_owed(J) then return await_owed(J) end
     local T, why, hard = choose(J, me)
+    if early and not (T and T.kind == "drop") then return end
     if T then
         J.T = T
         T.side, T.aim_i, T.noeff, T.presses, T.g0 = 0, 1, 0, 0, J.gained or 0
@@ -839,6 +850,10 @@ local function step_scan(J, me)
         if T.kind == "drop" then return set_phase(J, "collect", T.key) end
         return set_phase(J, "approach", string.format("%s %s %.1f m", T.stage, tostring(T.name), (T.d or 0) / 100))
     end
+    -- nothing left to do: the bag is counted now, not up to count_every_s ago (the magnet may just have brought the
+    -- last drop in; the frame ends the job when the count is there)
+    refresh_count(J, true)
+    if J.done or (J.item and (J.gained or 0) >= J.want) then return end
     if why == "named_done" then
         return finish(J, result_of(J, true, nil, { why = "target_done", detail = string.format(
             "The %s is chopped up and I picked up the pieces: %d %s.", J.named, J.gained or 0, tostring(J.key)) }))
@@ -1237,7 +1252,10 @@ local function step_swing(J, pawn, me, acts)
     -- verify the previous press: stamina spent (the swing ran) and damage on the target
     local pp = J.pending
     if pp and not pp.st_after and J.t >= pp.t + 0.35 then pp.st_after = W.stamina(pawn) or -1 end -- before it regenerates
-    if pp and J.t >= pp.verify_at then
+    -- the node's HP can reach this client later than the swing's damage frame (rung 3 mine 2026-11-16: three real hits
+    -- in a row read "no effect" 1.33 s after the press and cost a re-aim; each showed by the next press), so a swing is
+    -- judged when the next press is due, in the same step as that press
+    if pp and J.t >= math.max(pp.verify_at, J.next_press or 0) then
         J.pending = nil
         local st = pp.st_after ~= -1 and pp.st_after or nil
         local spent = pp.stamina and st and st < pp.stamina - 0.5
@@ -1264,8 +1282,8 @@ local function step_swing(J, pawn, me, acts)
                 return fail(J, "body_error", "inputs_not_reaching_game", "My swings aren't doing anything at all; something is wrong with my controls.")
             end
         end
-        say(J.log, string.format("swing %d on %s: hp %s->%s stamina %s->%s %s", J.swings, tostring(T.key), tostring(pp.hp), tostring(hp),
-            tostring(pp.stamina), tostring(st), hit and "HIT" or (spent and "no effect" or "unverified")))
+        say(J.log, string.format("swing %d on %s: hp %s->%s stamina %s->%s %s (pressed at %.2f s)", J.swings, tostring(T.key), tostring(pp.hp), tostring(hp),
+            tostring(pp.stamina), tostring(st), hit and "HIT" or (spent and "no effect" or "unverified"), pp.t - (J.t0 or 0)))
         if T.stage ~= "root" and T.kind == "actor" then -- a log piece: the unhittable-piece snapshots (diag_piece)
             -- (a new piece's first read is the previous thing's HP, e.g. the felled tree's 85 on an 80 hp log: not a hit)
             if hit and not T.diag_hit and pp.hp <= (T.max_hp or pp.hp) then T.diag_hit = true; pcall(diag_piece, J, T, pawn, me, pp, "hit")
@@ -1381,7 +1399,7 @@ local function step_collect(J, pawn, me)
     -- (live 21:05:02Z: the stone counted at the press, its actor went at :07, 5 s stood waiting); the key stays
     -- skipped for collected_ttl_s so the next scan does not walk back to the lingering copy
     if (T.presses or 0) > 0 then
-        refresh_count(J)
+        refresh_count(J, true) -- counted every tick after a press (count_every_s kept him standing up to 1 s by a taken pile)
         if (J.gained or 0) > (T.g0 or 0) then
             C().bad[T.key] = J.t + cfg.collected_ttl_s
             return on_done(J, T, "collected")
@@ -1461,7 +1479,7 @@ local function step_pick(J, pawn, me)
     local done, how = target_done(J, T)
     if done then return on_done(J, T, how) end
     if (T.presses or 0) > 0 then
-        refresh_count(J)
+        refresh_count(J, true)
         if (J.gained or 0) > (T.g0 or 0) then return on_done(J, T, "picked") end
     end
     if J.t - J.phase_t > M.cfg.pick_budget_s then
@@ -1572,7 +1590,10 @@ local function frame(J)
     end
     J.inputs = keep
     if J.nudge and J.t < (J.nudge_until or 0) then W.nudge(pawn, J.nudge, J.nudge_scale or M.cfg.nudge_scale) end
-    if J.t - (J.dec_t or -1) < M.cfg.decide_s then return end
+    -- a swing is pressed on the frame it falls due, not on the next decision tick (up to decide_s late on every swing)
+    local due = J.phase == "swing" and J.next_press and J.t >= J.next_press and J.due_for ~= J.next_press
+    if not due and J.t - (J.dec_t or -1) < M.cfg.decide_s then return end
+    if due then J.due_for = J.next_press end
     J.dec_t = J.t
     local arb = mod("arbiter")
     if arb and J.token then
@@ -1594,6 +1615,11 @@ local function frame(J)
         local v = J.via
         local detail = v and string.format("Got %d %s from %s (no usable %s for %s).", J.gained, v.asked, J.key, v.tool_word, v.asked)
             or string.format("Got %d %s.", J.gained, J.key)
+        -- the count asked for and the bag's total, by name: with a bare "total" beside "Got 13" he said "got way more
+        -- than 10, 162 stone now" and, on exactly 10, "a bit more too" (rung 3 mine 2026-11-16, the second judged false)
+        if J.have then
+            detail = detail:gsub("%.$", "") .. string.format(" (%d asked for; %d in my bag now, counting what I had).", J.want, J.have)
+        end
         return finish(J, result_of(J, true, nil, { detail = detail, source = J.key, asked = v and v.asked or nil,
             trains = trains == false and "none" or trains })) -- the skill this gives XP (profile data; "none" = verified none)
     end

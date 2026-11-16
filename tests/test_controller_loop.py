@@ -368,7 +368,8 @@ def test_direct_gather_failure_still_reports_why(rig):
     rig.game.player_say("mine some gold")
     rig.controller_llm.push(FakeLLM.say("Mining gold.", FakeLLM.call("gather", resource="gold", count=5)))
     rig.agent.step()
-    assert rig.companion_said() == ["Mining gold.", "There's no gold anywhere near me."]
+    # the line is held until the job is under way: a gather refused at once says its reason, not "Mining gold." first
+    assert rig.companion_said() == ["There's no gold anywhere near me."]
 
 
 def test_current_observation_reaches_provider_after_failed_action(rig):

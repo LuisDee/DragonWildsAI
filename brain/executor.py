@@ -249,7 +249,9 @@ VERIFIERS: dict[str, Callable] = {
 }
 
 
-STATE_REUSE_S = 1.0  # a get_state this recent is reused before an action (L6)
+# a get_state this recent is reused before an action (L6): the read the model decided on (one Controller call old,
+# ~2-3 s) is the action's baseline; reading again cost 0.5 s before every first action (rung 3 mine 2026-11-16)
+STATE_REUSE_S = 4.0
 
 
 def _place_basis(best: dict) -> str:

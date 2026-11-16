@@ -3365,3 +3365,9 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - The boom component's location equals the pawn's location; arm 700.
   - Used by `camrig.look` (`rig.pawn`): the predicted view is traced from S. Applies to anything the game picks by that ray (build, take down).
 - **Roofs (live 2026-11-16).** A roof off a wall's top snaps with the cursor on either face of the wall, just below its top (from inside the room or from outside it). The census box of a wall is 1 m thick, the wall itself 0.4 m: a point on the box's face hangs in the air. Three pieces share the name "45° Roof": DA_T1_Roof_Large_Diagonal, DA_T2_Roof_Large_Diagonal, DA_T1_Roof_Thatch_Large_Diagonal.
+- **Mining cadence and what the client sees (live 2026-11-16, build 26574459, stone pickaxe on a Stone Boulder).**
+  - A Stone Boulder (BP_OreNode_Stone_C) has 75 hp and takes 10 per hit: 8 hits. Its hp reaches the client about 1.5 s after the press, so two hits can show in one window (20) and the next window shows none; neither is a miss.
+  - A press before the swing's next-attack time is dropped, not buffered. The profile's 1527 ms is slightly short: presses 1.54 s apart were lost (3 of 5 seen), none at 1.56 s or more.
+  - Mined boulders stay broken across back-to-back runs (no respawn within ~1 h of play).
+  - The drops of a broken boulder go into the bag by a collect press about 1 s after the break is seen; one pile can hold more than was asked (10 asked, 10-17 taken).
+  - The harness's own chat send (`m1_session.send_speech_direct`: a Python process plus the server bridge) takes 1.3-2.6 s before the line exists in the game.

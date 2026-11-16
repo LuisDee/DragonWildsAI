@@ -369,10 +369,17 @@ def store_his(ctx, name: str, n: int, stores: list[tuple[str, list]]) -> tuple[b
     """n of `name` into the first of his storages that takes them (store walks there itself); a pre-empted store is
     tried again (the brain is live: its start-up review took the body mid-store at 07:33:40Z, "cancelled")."""
     why = "none of his storage found by the base"
+
+    def carried() -> int:
+        return sum(int(r.get("count") or 1) for r in ctx.stacks() if r.get("name") == name)
+
+    keep = max(0, carried() - n)  # a crate that fills part-way takes some: the next is asked for what is left
     for cid, at in stores:
-        res = {}
+        res, left = {}, carried() - keep
+        if left <= 0:
+            return True, f"stored {n} {name} in his storage"
         for _ in range(4):
-            res = ctx.cli.request("store", {"item": name, "container": cid, "count": n}, timeout=120) or {}
+            res = ctx.cli.request("store", {"item": name, "container": cid, "count": left}, timeout=120) or {}
             if res.get("ok") or res.get("reason") not in RETRY:
                 break
             time.sleep(4.0)

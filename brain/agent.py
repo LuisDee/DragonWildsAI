@@ -53,7 +53,10 @@ REQUEST_SECONDS = 600.0
 LAST_TURN_NOTE = ("Time is up for this request (results above). If the player hasn't heard how it went, tell him in "
                   "one short plain line; this request ends after this reply.")
 # Tools that take a while: the turn's line is said as they start, so it is true when said.
-ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS}
+# gather is not here: its line is held and said once the body has the job under way (bridge_client ACCEPTED_AFTER_S),
+# as a player talks while he walks to the rock. Said first, the chat box cost 0.57 s of standing before every gather
+# (rung 3 mine 2026-11-16), and a gather refused at once had "on it" in chat before its reason
+ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS} - {"gather"}
 # A turn of only these is a standing behaviour, not a step of a plan: no continuation turn.
 STANDING = {"follow", "stop"}
 # Voice eval v2 (2026-10-26): the old note offered only "call it" or "say nothing", so a line the model

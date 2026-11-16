@@ -257,10 +257,62 @@ def shed(ctx, item: str) -> list[str]:
     return out
 
 
+# what the gather items bring, by weight: back-to-back runs fill his bag (2026-11-16: 394/400 at the start of a mine
+# run, overloaded by its end, and the next run began with him dropping 101 Stone), so above LIGHT_AT of his limit the
+# lot goes into his own storage first
+BULK = {"mine": ["ITEM_Resources_Stone", "ITEM_Resources_Wood_Ash"], "chop": ["ITEM_Resources_Wood_Ash", "ITEM_Resources_Stone"]}
+LIGHT_AT = 0.6
+
+
+def lighten(ctx, item: str) -> list[str]:
+    if item not in BULK:
+        return []
+    b = ((ctx.cli.request("get_state", {}, timeout=15) or {}).get("data") or {}).get("bag") or {}
+    if not b.get("max_weight") or (b.get("weight") or 0) <= LIGHT_AT * b["max_weight"]:
+        return []
+    bag = _bag(ctx)
+    return stash(ctx, {it: bag[it] for it in BULK[item] if bag.get(it, 0) > 0}, item)
+
+
+MINE_START_M = 15.0  # Luis's baseline run began 15 m from his boulder
+
+
+def near_rock(ctx) -> list[str]:
+    """The mine item starts MINE_START_M from a whole Stone Boulder, as Luis's run did. Mined boulders stay broken
+    between runs (2026-11-16: the nearest whole one went 16 -> 23 -> 39 -> 59 m from the start spot over four runs, and
+    the walk alone then cost the bar), so when none is that near he is walked up to the nearest whole one."""
+    import math
+    rows = g.cp.census(ctx.cli, radius_m=90, max=500, kinds={"resources": True}, foliage=False).get("resources") or []
+    here = (ctx.me() or {}).get("position") or SPOT["mine"]
+    whole = sorted((math.dist(r["position"][:2], here[:2]), r) for r in rows
+                   if r.get("name") == "Stone Boulder" and (r.get("health") or 0) >= 75 and r.get("position"))
+    if not whole:
+        return ["no whole Stone Boulder within 90 m of the start"]
+    d, rock = whole[0]
+    if MINE_START_M - 3 <= d <= MINE_START_M + 3:
+        return []
+    p, d1 = here, d
+    if d > MINE_START_M:
+        ctx.cli.request("go_to", {"target": rock["position"], "tolerance": MINE_START_M}, timeout=90)
+        time.sleep(1.5)
+        p = (ctx.me() or {}).get("position") or here
+        d1 = math.dist(rock["position"][:2], p[:2])
+    if d1 < MINE_START_M - 3:  # the walk ended nearer than Luis started (4.8 m once): back out along the way he came
+        k = MINE_START_M / max(d1, 0.5)
+        out = [rock["position"][0] + (p[0] - rock["position"][0]) * k, rock["position"][1] + (p[1] - rock["position"][1]) * k, p[2]]
+        ctx.cli.request("go_to", {"target": out, "tolerance": 1.5}, timeout=40)
+        time.sleep(1.5)
+        p = (ctx.me() or {}).get("position") or p
+        d1 = math.dist(rock["position"][:2], p[:2])
+    return [f"walked up to {d1:.1f} m from the nearest whole Stone Boulder (it was {d:.1f} m off)"]
+
+
 def run3(ctx, item: str) -> dict:
     line, name, rx, n, task, want, tools_, deadline = ITEMS3[item]
-    shed_note = shed(ctx, item)
+    shed_note = shed(ctx, item) + lighten(ctx, item)
     place(ctx, SPOT[item])
+    if item == "mine":
+        shed_note += near_rock(ctx)
     probe(ctx, item)
     fixtures = shed_note + stock(ctx, item, {**want, **tools_})
     time.sleep(2.0)

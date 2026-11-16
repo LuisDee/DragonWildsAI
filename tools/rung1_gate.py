@@ -301,18 +301,37 @@ def slim(rows: list[dict]) -> list[dict]:
     return [{k: r.get(k) for k in ("name", "item", "count", "slot")} for r in rows]
 
 
+# the bag is read this often: the moment a gain is first seen is the item's time, so a slow read is charged to him
+# (rung 3 mine 2026-11-16: stones in the bag at 22.8 s, seen at 26.1 s with a read every 2 s plus the loop's own time)
+INV_EVERY_S = 0.5
+
+
 def run_leg(ctx: Ctx, req: dict, line: str | None, target: dict, deadline_s: float, t0: float | None = None,
             sample=("me",), creature: str | None = None, settled=None) -> dict:
     """Send `line` (None: the fixture already made the need), sample until done and quiet / the deadline, score with
     coplay_ladder.score (truth judge, calls, deaths)."""
     from tools import m1_session
     cli, a = ctx.cli, ctx.a
+    given, sent_lag = t0 is not None, None
     t0 = t0 or time.time()
     if line:
         ok, detail = m1_session.send_speech_direct(line)
         if not ok:
             return {"request": req["id"], "kind": req["kind"], "skipped": True, "why": f"line not sent: {detail[-160:]}"}
+        # the item's clock starts when the line is in the game's chat (the moment his client shows it), not when this
+        # harness began sending it: the send is a Python process plus the server bridge, 1.3-1.6 s before the line
+        # exists (measured 2026-11-16: send took 1.82 / 1.44 s, the line in chat at 1.56 / 1.32 s)
+        if not given:
+            until = time.time() + 2.0
+            while time.time() < until:
+                at = [r["ts"] for r in m1_session._chat_rows_since(t0)
+                      if r["ts"] >= t0 and not r.get("self") and obs._norm(r.get("text")) == obs._norm(line)]
+                if at:
+                    sent_lag, t0 = round(at[-1] - t0, 2), at[-1]
+                    break
+                time.sleep(0.1)
     rec = {"request": req["id"], "kind": req["kind"], "line": line, "lead": None, "target": target, "t0": t0,
+           "sent_lag_s": sent_lag,
            "check_text": req.get("check_text"), "me": [], "other": [], "seen": [], "inv": [], "stats": [], "stacks": []}
     last_census = last_inv = 0.0
     last_pos, last_move, why = None, t0, None
@@ -324,7 +343,7 @@ def run_leg(ctx: Ctx, req: dict, line: str | None, target: dict, deadline_s: flo
             rec["stats"].append([round(now, 2), _pct(m)])
             if last_pos is None or obs.hdist(p, last_pos) > 0.5:
                 last_move, last_pos = now, p
-        if "inv" in sample and now - last_inv >= 2.0:
+        if "inv" in sample and now - last_inv >= INV_EVERY_S:
             last_inv = now
             rows = ctx.stacks()
             if rows:
@@ -364,7 +383,7 @@ def run_leg(ctx: Ctx, req: dict, line: str | None, target: dict, deadline_s: flo
             why = "deadline"
         if why:
             break
-        time.sleep(POLL_S)
+        time.sleep(INV_EVERY_S if "inv" in sample else POLL_S)
     if "inv" in sample and (rows_ := ctx.stacks()):
         rec["inv"].append([round(time.time(), 2), cp.counts({"bag": rows_})])
         if req["kind"] in ("r1_split", "r1_drop"):
