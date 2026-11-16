@@ -3508,3 +3508,32 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 ## `buildables {can_build_now: true}` said nothing about what it left out (2026-11-16 20:50Z; chain 20261116-204431)
 - With no stone on him, `{about: "campfire", can_build_now: true}` answered "Decorative Fire Rune" alone. The Campfire piece (unlocked, lacking stone) was in no part of the reply, and he concluded he could not build one.
 - Since 07f1cb3 the reply carries `cannot_build_now`: the count of matching pieces the filter dropped and, when `about` is given, the best five with what each lacks or what blocks it.
+
+## A block turns the body to the camera's yaw (2026-11-16 23:05Z, build 26574459, dev client, ClaudeDev, bare hands; scratch probe `block_face_probe.lua`)
+- Supersedes the reading at "Rotation" above (`bUseControllerRotationYaw` false, body turns only toward movement) for the time a block is held.
+- Probe: control rotation set 120 degrees off the body, then the block key (`IA_SecondaryAction`) injected for 40 frames at 30 fps, no movement input. Actor yaw by frame: -44.25 (1), -25.99 (4), 47.50 (8), 75.75 (12), then held at 75.75, which was the control yaw. So nothing moves for about 3 frames (0.1 s), then the body turns at about 540 degrees a second until it faces where the camera looks.
+- While blocking `pawn.PlayerBlockingComponent.CachedActionInstance.Data` is the block action (`Default__PA_Block_Unarmed_C` with bare hands) from frame 4. No montage plays. The component has no readable "is blocking" flag; `FPlayerBlockingNetworkData` has one bool, `bShouldAimInCameraDirection`.
+- `BlockingAngle` is 120, so a hit from more than 60 degrees off his facing is not blocked.
+- In fights the camera was set only by move's steering, the dodge, eating while disengaged and ranged aim. A block or parry set no camera. So with an attacker that was not where he last walked or rolled (outnumbered, circling, after a retarget) the block faced the wrong way.
+- The numbers that sent me to look, all defences in `logs/client/ue4ss-2026111[56]T*.log` (145): block then blocked 3, block then hit 4 (one hit landed 0.8 s into the block, 15 damage through a Bronze Shield of block 39); parry then parried 23, blocked 18, hit 12; dodge then avoided 51, hit 5; retreat then avoided 3, hit 6; no answer then hit 12 (9 of them Giant Rat `ATK_GiantRat_Attack_01`), whiff 8. The time between the parry press and the impact did not separate a parry that held (0.06 to 0.30 s) from one that was hit (0.10 to 0.34 s).
+- Since 46c0ca9 the camera is on the attacker from the telegraph to the hit while a block or parry is the answer, the plan counts the turn (`facing_away`), and the defence line says how far he was turned from the attacker at the key and at the hit.
+- Not verified: the turn with a shield or a weapon in hand (the probe was bare-handed), and whether the server uses his facing or the camera's direction for the 120 degrees.
+
+## The server's verdict on a block rides on the point-damage event (2026-11-16, build 26574459; read from `dumps/26574459/CXXHeaderDump/Dominion.hpp`, not yet read live)
+- `FDominionPointDamageEvent : FDominionDamageEvent` adds `HitLocation`, `HitDirection`, `FBlockOutcome BlockOutcome`, `DamageShape`, `float DamageBlocked`. The plain `FDominionDamageEvent` has neither.
+- `FBlockOutcome { Equipment, EquipmentDataNetId, EBlockResult Result, DamageMitigationPercentage, StaminaCost, ParryRefund, bParried, bSpecialParry, bPassiveBlock, bEquipmentShouldLoseDurability, bWasBlockableAttack }`. `EBlockResult`: NotBlocking 0, BlockFailed 1, BlockSuccessful 2, Staggered 3. `EBlockingState`: None, RequestingStart, Blocking, RequestingStop.
+- `DamageComponent:Multicast_ApplyPointDamageFromGameplayEffect` carries the point event, `Multicast_ApplyDamageFromGameplayEffect` the plain one. Both were hooked with one handler. Since 46c0ca9 the point hook has its own handler, which reads `BlockOutcome.Result`, `bWasBlockableAttack` and `DamageBlocked` (property reads only) and puts them in the defence line as "the server: not blocking | block failed | block successful | staggered".
+- `UPlayerBlockingComponent` also has `ParryWindowLength`, `ParryDamageMitigationPercentage`, `BareHandsBlockingDamageNegation`, `MinimumBlockDuration`, `bShouldRequireRepressAfterBlockCancelled`. `UPlayerBlockAction` has `BlockStaminaCost`, `ParryStaminaCost`, `bCanParry`, `SkillPerkRequiredToParry`.
+
+## The evade with no movement input (2026-11-16 22:55Z, build 26574459, dev client, ClaudeDev; scratch probe `evade_dir_probe.lua`)
+- One press of the evade key with no movement input played `AM_PlayerM_Dodge_Hop_Bck` and carried him 2.15 m straight back along his facing. That montage is not one of the six in `EvadeComponent.DefaultAnimationSet`.
+- A directional roll carries him about 4.85 m (earlier entry). So the neutral evade does not keep him in sword reach of what he fights either: the swings logged in window s8 connected from 1.2 to 2.1 m.
+- This weakens rule 2 of `docs/research/2026-11-16-outnumbered-fights.md` (use the neutral evade in a group). It was not built.
+
+## Two fight facts from Ratcatcher 20261116-212108 and -214249 (build 26574459, dev world)
+- **How he dies outnumbered.** Two or three creatures telegraph in turn. Each telegraph was answered with a directional roll that carried him 2 to 4 m out of reach, and the walk back was cut by the next telegraph. 212108: 120 s, 21 dodges, 6 swings, none landed, 114 damage taken. 214249: 22 s of melee, 2 swings, 78 damage, dead at 64 health.
+- **A census row can outlive its creature.** The census cache gave a creature that this fight had already seen dead as the next target, and one kill was counted twice. Since 5d07a74 a creature the fight has seen dead is never its next target.
+
+## Skill modules hot-load into the running client within seconds of a file write (2026-11-16 21:53Z)
+- A patch written to `client_mod/scripts/combat.lua` in the repo while a step window ran was loaded by the live client (loads 2 and 3 in `logs/client/mod_20261116T215321Z.jsonl`) and stayed for 19 s of trial 20261116-215441, until the file was put back. The trial passed and is void in the ledger.
+- So: no repo Lua edits while a window runs (CLAUDE.md section 2, rule 7). Test files, docs and scratch scripts are not loaded by the client.

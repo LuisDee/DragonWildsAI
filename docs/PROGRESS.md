@@ -1445,3 +1445,45 @@ Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the 
 - **Ledger:** 39 failed runs, none untagged, 9 void.
 - **Rates:** First Steps 10 of 10; Getting Started 6 of 10 chained, 4 of 5 from `gs_start`; Ratcatcher 7 of 10; Rune Mysteries 3 of 10 chained, 10 of 10 from `rm_part2`. The chain guard reads "ready".
 - **Limits.** No chain has yet passed all four quests in one sitting. None of the seven fixes had been seen working live when this was written; the travel hook has never fired live. The hand entry for the two fires rests on brain logs of the loads, not on a read of the fires' owner (the game keeps none). Reports were not judged for truth.
+
+## 2026-11-16 21:15Z-23:25Z: Ratcatcher worked alone from `rc_start` (5 of 7); how he dies outnumbered; a block faces where the camera looks (46c0ca9, tests only)
+
+**Chain 20261116-211520** (the guard read "ready"; Controller Haiku 5.5, Planner Sonnet 5.5):
+
+| quest | result | time, ratio to Luis | misses | note |
+|---|---|---|---|---|
+| First Steps | pass (211724) | 35.4 s, 0.45 | | |
+| Getting Started | pass (211833) | 123.4 s, 0.78 | 1 | |
+| Ratcatcher | fail (212108) | deadline, 3.92 | 4 | stood 139.1 s; the rat he was sent for was up a ledge while two others bit him: 120 s, 21 dodges, 6 swings, none landed, 114 damage; he died in the next fight |
+| Rune Mysteries | not run | | | |
+
+- The travel hook (61c6870) was seen registered and the loops unpaused after a normal load (UE4SS.log 22:15:45 and 22:16:20 local). It has still not fired on a travel the game started itself.
+- 72ea523: `give` says it is for players only; `buildables` names `cannot_build_now`.
+
+**After this chain the work went back to one quest alone** (section 2, rule 1). New checkpoint `rc_start`: a fork saved at the start of Ratcatcher.
+
+| window | trial | result | wall time, ratio | misses | note |
+|---|---|---|---|---|---|
+| s6, Getting Started from `gs_start` | 213639 | fail | | | craft before the materials, then a `give` to an NPC. Tagged model. |
+| s7, Ratcatcher from `rc_start` | 214249 | fail | 601.2 s, 1.99 | 7 | died at 64 health with a Giant Rat and a Goblin Runt on him |
+| s7 | 215441 | pass, void | | | my slip: I patched the repo's combat.lua while the window ran and the client loaded it for 19 s |
+| s7 | 215927 | pass | 130.6 s, 0.78 | | |
+| s8, Ratcatcher from `rc_start` | 221803 | pass | 161.0 s, 0.76 | 0 | |
+| s8 | 222242 | fail (misses only) | 583.5 s, 1.43 | 4 | explored for "windmill" while standing in the step's own map marker |
+| s8 | 223427 | pass | 598.4 s, 0.93 | 1 | |
+| s8 | 224622 | pass | 174.8 s, 0.70 | 0 | |
+| s8 | 225115 | pass | 232.6 s, 0.85 | 1 | |
+
+**Fixes, each with a negative test that failed first. None tells him how to do a quest.**
+- 5d07a74 (combat): a fight whose target has been out of reach for 2.5 s, or has taken 3 swings in a row without a hit, takes the nearest creature that attacked him, and goes back to the first when that one is dead (at most 8 swaps). The result names what else he fought. A creature seen dead is never the next target. Each swing is logged with distance, height and facing. Seen live in s8: the per-swing lines. Not seen live: a swap.
+- f7aa614 (ledger): a passed run that a harness fault touched can be voided. Used for 215441.
+- 1007076 (planner): the Planner's state carries the quest log with its map markers. From 222242, where the marker reached only the Controller. Tests only.
+- 62d7fc7 (move): being in the water over a spot on a pond's bed is a verified arrival, and a failed arrival says how far short and which way. From 222242's fourth miss (2.4 m short over the pond). Tests only.
+- 46c0ca9 (combat, defence): a block faces where the camera looks, so the camera goes on the one that swings; the plan counts the turn; the defence line carries his facing and the server's verdict on the block. 533 combat checks, 45 Lua suite tests. Tests only.
+
+**Why 46c0ca9 and not the rule I had planned.** The research (`docs/research/2026-11-16-outnumbered-fights.md`) gave three rule changes: block instead of roll when the shield absorbs the whole hit, the neutral evade in a group, thin the group. Before building the first I counted what his blocks had done: block then hit 4 of 7, parry then hit 12 of 53, with timing that did not separate the hits from the saves. A live probe then showed the mechanism: the block key turns his body to the camera, and the fight code never pointed the camera at the attacker for a block (DISCOVERIES). A second probe showed the neutral evade carries him 2.15 m back, out of reach, so rule 2 was dropped. Rule 1 waits for the live numbers after this fix: the server's verdict now in the log line says whether a block that faced the attacker takes the hit whole.
+
+- **Ledger:** 43 failed runs, none untagged, 10 void (one of them the passed run 215441).
+- **Rates:** First Steps 10 of 10; Getting Started 7 of 10 chained, 4 of 6 from `gs_start`; Ratcatcher 7 of 10 chained, 5 of 7 from `rc_start` (3 in a row); Rune Mysteries 3 of 10 chained, 10 of 10 from `rm_part2`. The guard reads "chain: ready". By rule 6 no gate is tried until Ratcatcher alone is at about 9 of 10.
+- **Spend** on 2026-11-16 UTC at 23:25Z: $3.58 of the day's $20 (1,378 calls: Haiku 1,307, Sonnet 71).
+- **Limits.** No chain has passed all four quests in one sitting. 1007076, 62d7fc7 and 46c0ca9 have passed tests only. The block probe was bare-handed; the turn with a shield raised is assumed to be the same. The server's block verdict has been read from the header dump, not from a live hit. Still unseen live from earlier: the craft menu reopen (235f401), `cannot_build_now` (07f1cb3), the back-in-world review (c9fb8ff), d6f9e8a, 93ec959, the kept station loads (4df3901). Reports were not judged for truth.
