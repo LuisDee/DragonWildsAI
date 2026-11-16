@@ -573,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
     fr.add_argument("--from", dest="start", default=None, help="start the chain at this quest (a clone that already did the ones before)")
     fr.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")
     fr.add_argument("--max-haiku", type=int, default=60)
-    fr.add_argument("--usd", type=float, default=0.1, help="each run's spend cap on top of today's spend")
+    fr.add_argument("--usd", type=float, default=0.4, help="each run's spend cap on top of today's spend (Rune Mysteries 20261116-074002 ran out of 0.1 at its second part)")
     rp = sub.add_parser("report")
     rp.add_argument("-n", type=int, default=10)
     a = ap.parse_args(argv)

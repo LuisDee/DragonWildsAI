@@ -96,3 +96,24 @@ def test_clear_leaves_nothing_dangling_on_the_shape_of_claudedevs_save():
                                       "8": {"PlayerInventoryItemIndex": 4}, "MaxSlotIndex": 8}
     out = qc.clear(src, IDS, set(), set(), "ClaudeQ7", {roast: "ITEM_Consumable_Meat_Rat_Roast"})
     assert qc.dangling(src, out) == [] and list(out["GameProgress"]["Loadout"]) == ["7", "8", "MaxSlotIndex"]
+
+
+def test_a_clone_starts_fed_watered_and_rested_and_only_those_three_numbers_change():
+    s = save()
+    s["GameProgress"]["Character"] = {"Health": {"CurrentValue": 100},
+                                      "Sustenance": {"SustenanceValue": 31.5, "SustenanceDecayBuffer": 0},
+                                      "Hydration": {"HydrationValue": 6.25, "HydrationDecayBuffer": 0},
+                                      "Endurance": {"EnduranceValue": 4.75, "EnduranceDecayBuffer": 0}}
+    raw = "{\r\n" + qc.ue_json(s, 0)[3:]
+    raw = raw.replace("31.5", "31.94447135925293").replace("4.75", "4.9977545738220215")  # floats as the game prints them
+    src = json.loads(raw)
+    out = qc.clear(src, IDS, set(), set(), "ClaudeQ1")
+    ch = out["GameProgress"]["Character"]
+    assert [ch[b][k] for b, k in qc.VITALS] == [qc.VITALS_START] * 3
+    assert src["GameProgress"]["Character"]["Endurance"]["EnduranceValue"] == 4.9977545738220215  # the source is untouched
+    text = qc.render(raw, out)
+    assert json.loads(text) == out
+    a, b = raw.index('"Sustenance"'), raw.index('"Backup"')
+    assert 0 < a < b
+    want = raw[a:b].replace("31.94447135925293", "100").replace("6.25", "100").replace("4.9977545738220215", "100")
+    assert text[text.index('"Sustenance"'):text.index('"Backup"')] == want

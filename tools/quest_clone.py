@@ -19,6 +19,9 @@ the game gives that quest from the temple's entry volume, which a clone (spawned
 The cleared quests' deliverables leave his bag (data/quest_deliverables.json: Stone Club, Rat Roast and its raw meat,
 Ash Logs, Rune Essence, Air and Astral Runes): a player meeting those quests holds none of them (live ClaudeQ2-Q5: an
 inherited Stone Club made Getting Started one talk, and four Rat Roasts made Ratcatcher one).
+He starts fed, watered and rested (VITALS at VITALS_START), as a player who meets these quests is: the clones took
+ClaudeDev's bars as they stood (2026-11-16: rest 5, water 6), and Rune Mysteries run 20261116-074002 spent 5 of its 15
+minutes on a bedroll and water before the quest's second part.
 Everything else (level, skills, gear, tools, spells, recipes, position) is kept byte for byte, so a run measures the
 quests, not a level-1 start. ClaudeDev.json and its .backup are only read; each clone's pristine copy is kept in
 logs/quests/clones/ before its first load.
@@ -28,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -48,6 +52,9 @@ FIRST_RESET = {"QuestState": 1, "QuestObjective": "Objective2", "QuestInts": [],
     {"QuestVariableName": "HasTriggeredExitVolume", "QuestVariableValue": True}]}
 FIRST_LOCATIONS = [{"QuestLocationId": "WOM_Objective_FTUE_GS", "QuestLocationsState": True},
                    {"QuestLocationId": "Doric_Objective_FTUE_GS", "QuestLocationsState": False}]
+# the survival bars a clone starts with: (block, value key) in GameProgress.Character
+VITALS = (("Sustenance", "SustenanceValue"), ("Hydration", "HydrationValue"), ("Endurance", "EnduranceValue"))
+VITALS_START = 100
 
 
 def _copy(v):
@@ -100,6 +107,10 @@ def clear(save: dict, ids: dict[str, str], names: set[str], suffixes: set[str], 
         del lo[slot]
     out["meta_data"]["char_guid"] = uuid.uuid4().hex.upper()
     out["meta_data"]["char_name"] = name
+    ch = out["GameProgress"].get("Character") or {}
+    for blk, key in VITALS:
+        if isinstance(ch.get(blk), dict) and key in ch[blk]:
+            ch[blk][key] = VITALS_START
     qp = out["GameProgress"]["QuestProgress"]
     first = next((i for i, a in ids.items() if a == FIRST), None)
     quests = []
@@ -224,6 +235,14 @@ def render(text: str, out: dict) -> str:
         gone = [k for k in src["GameProgress"].get(key) or {} if k not in out["GameProgress"].get(key) or {}]
         if gone:
             body = _drop(body, key, gone)
+    ch0, ch1 = src["GameProgress"].get("Character") or {}, out["GameProgress"].get("Character") or {}
+    for blk, key in VITALS:  # only the number after the one `"<key>":`
+        if (ch0.get(blk) or {}).get(key) == (ch1.get(blk) or {}).get(key):
+            continue
+        pat = re.compile(r'("%s":\s*)-?[0-9][0-9.eE+-]*' % key)
+        if len(pat.findall(body)) != 1:
+            raise SystemExit(f"{key} is not in the file exactly once")
+        body = pat.sub(lambda m: m.group(1) + json.dumps(ch1[blk][key]), body)
     for k in ("char_guid", "char_name"):
         old = f'"{k}": {json.dumps(src["meta_data"][k])}'
         if body.count(old) != 1:
