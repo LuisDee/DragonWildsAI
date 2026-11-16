@@ -30,7 +30,12 @@ D.cfg = {
     jitter_s = 0.025,       -- timing error of a human press
     block_tail_s = 0.40,    -- keep a block up this long past the expected impact
     min_block_s = 0.75,     -- PlayerBlockingComponent.MinimumBlockDuration
-    evade_lead_s = 0.20,    -- start the dodge this long before the impact (i-frames cover it)
+    evade_lead_s = 0.20,    -- an ability's follow-up evade: this long before the impact
+    -- a plain dodge: the roll is invulnerable 0.15-0.75 s after it starts (AnimNotifyState_Invulnerability_C on
+    -- AM_PlayerM_Dodge_Roll_*, read live 2026-11-16), and one attack's impact varies +-0.2 s around what its data or
+    -- the last ones say, so the key goes where the expected impact is the MIDDLE of that window. ctx.evade_lead_s
+    -- (combat reads it from the montage he has) goes before this.
+    dodge_lead_s = 0.45,
     jump_lead_s = 0.25,
     prior_impact_s = 0.60,  -- when neither the attack data nor observations say
     ema = 0.35,
@@ -263,8 +268,9 @@ function D.plan(info, ctx, orders, rng)
     local st = ctx.stamina or 0
     local blockable = not info.unblockable
     local parryable = blockable and not info.unparryable
-    local can_jump = orders.allow_jump ~= false and (th.low or th.aoe) and not info.no_jump -- (a breath cone is not jumped)
-    local can_dodge = st >= (ctx.evade_cost or 15)
+    -- ctx.heavy: over his carry weight the game gives him no roll and no jump (combat.too_heavy)
+    local can_jump = orders.allow_jump ~= false and (th.low or th.aoe) and not info.no_jump and not ctx.heavy -- (a breath cone is not jumped)
+    local can_dodge = not ctx.heavy and st >= (ctx.evade_cost or 15)
     local can_parry = ctx.can_parry and parryable and st >= (ctx.parry_cost or 10)
     local can_block = ctx.can_block and blockable and st >= (ctx.block_cost or 10)
     local low_hp = ctx.hp_frac and ctx.heal_hp and ctx.hp_frac < ctx.heal_hp
@@ -357,7 +363,7 @@ function D.plan(info, ctx, orders, rng)
         p.at_s = react
         p.hold_s = math.max(cfg.min_block_s, T - react + cfg.block_tail_s)
     elseif pick == "dodge" then
-        p.at_s = math.max(react, T - L - cfg.evade_lead_s + err)
+        p.at_s = math.max(react, T - L - (ctx.evade_lead_s or cfg.dodge_lead_s) + err)
         p.hold_s = 0.35
         p.dir = (rng() < 0.5) and "left" or "right"
     elseif pick == "jump" then

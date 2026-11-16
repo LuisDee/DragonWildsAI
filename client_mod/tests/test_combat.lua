@@ -93,7 +93,10 @@ function eis:InjectInputVectorForAction(action, v)
     world.last_vec[name] = { X = v.X, Y = v.Y }
     local rising = last_inject[name] ~= frame_n - 1
     last_inject[name] = frame_n
-    if rising and name == "IA_Player_Evade" then world.evading_until = T + 0.5; world.evade_start = T end
+    if rising and name == "IA_Player_Evade" then
+        if (world.evade_drop or 0) > 0 then world.evade_drop = world.evade_drop - 1 -- (opt-in: the game ate this key press)
+        else world.evading_until = T + 0.5; world.evade_start = T end
+    end
     if rising and name == "IA_SecondaryAction" then world.block_start = T end
     if name == "IA_SecondaryAction" then world.block_last = T end
     if rising and (name == "IA_PrimaryAction" or name == "IA_SpecialAction") and not world.inputs_dead and not world.ranged then
@@ -1018,7 +1021,7 @@ local function goblin_attack(goblin, dmg_time, opts)
     local hook = hooks["/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies"]
     hook({ get = function() return comp end }, { get = function() return 7 end })
     world.block_start = nil
-    local impact = T + dmg_time
+    local impact = T + dmg_time + (opts.late_s or 0) -- (late_s: it lands this much later (or, negative, sooner) than its data says)
     world.on_step = function()
         if T >= impact and not world.resolved then
             world.resolved = true
@@ -1032,7 +1035,9 @@ local function goblin_attack(goblin, dmg_time, opts)
             elseif blocking then
                 hooks["/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingBlockedAttack"]({ get = function() return own end })
                 world.result = "blocked"
-            elseif world.evading_until and world.evading_until > T then
+            -- the roll can't be hit 0.15-0.75 s after it starts (its montage's Invulnerability notify, live
+            -- 2026-11-16); the server sees the key 2 x one-way latency later
+            elseif world.evade_start and T >= world.evade_start + 0.06 + 0.15 - 1e-6 and T <= world.evade_start + 0.06 + 0.75 then
                 world.result = "dodged"
             else
                 pawn.hp = pawn.hp - 15
@@ -2679,6 +2684,7 @@ do
     check("leash: no farther than the leash (25 m)", fled_m <= Cm.cfg.flee_leash_m + 3, fled_m)
     step(200)
     check("leash: no second run while cornered", F.phase ~= "flee" and Cm._state().fight == F, F.phase)
+    check("leash: one that kept up the whole leash is remembered", (Cm._state().caught_by or {})["Troll"] == true)
     local ev
     for _, l in ipairs(read_activity()) do if l:find('"kind":"flee_failed"', 1, true) then ev = l end end
     check("flee_failed event: why and what next", ev and ev:find("kept up with me", 1, true) and ev:find('"next":"fighting back"', 1, true), ev)
@@ -2768,6 +2774,146 @@ do
     Cm.stop(nil, "test"); A.reset(nil)
 end
 
+-- (g2) the creature itself backs off while he steps in (a Goblin Runt's DodgeBack): nothing is between them, so the
+-- step-in goes on. Rune Mysteries 20261116-074002: "step-in made no ground ... the follow goes round" twice against
+-- three runts, the follow crept at 0.5 m/s, 12.2 s of 45 out of reach, 10 swings, dead
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    world.walk_input = true
+    local follow0, follows = fake_move.follow, 0
+    fake_move.follow = function() follows = follows + 1; return { ok = true, mode = "follow", target_visible = true } end
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_back", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "attack", force = true })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    local t_back = T + 1.6
+    world.on_step = function() if T < t_back then g.loc.X, g.loc.Y = pawn.loc.X + 350, pawn.loc.Y end end -- as fast as he steps
+    local f0, p0 = follows, world.injected.IA_PrimaryAction or 0
+    step(160)
+    local F = Cm._state().fight
+    check("step in: a creature that backs off is no stall (no follow)", follows == f0 and (F.n_step_stalls or 0) == 0,
+        tostring(follows - f0) .. " follows, " .. tostring(F.n_step_stalls) .. " stalls")
+    local back = run_until(function() return (world.injected.IA_PrimaryAction or 0) > p0 end, 2)
+    check("step in: swinging again once it stops backing off", back and follows == f0, follows - f0)
+    fake_move.follow, world.walk_input, world.on_step = follow0, nil, nil
+    Cm.stop(nil, "test"); A.reset(nil)
+end
+
+-- (g4) still in his dodge (the body takes no walking input): that second is no stall
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    local follow0, follows = fake_move.follow, 0
+    fake_move.follow = function() follows = follows + 1; return { ok = true, mode = "follow", target_visible = true } end
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_busy", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "attack", force = true })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    pawn.loc = { X = -200, Y = 0, Z = 0 } -- 3.5 m off, and (no walk_input) his steps gain nothing
+    world.evading_until = T + 1.5
+    local f0 = follows
+    step(140)
+    check("step in: no stall counted while he is still in his dodge", follows == f0 and (Cm._state().fight.n_step_stalls or 0) == 0, follows - f0)
+    run_until(function() return follows > f0 end, 2)
+    check("step in: once the dodge is over, 1 s without ground is a stall", follows > f0 and Cm._state().fight.n_step_stalls == 1, follows - f0)
+    fake_move.follow, world.evading_until = follow0, nil
+    Cm.stop(nil, "test"); A.reset(nil)
+end
+
+-- (g3) no shield, so every swing at him is answered with a dodge: the wind-up before the dodge is time for a swing
+-- of his own (the dodge cuts a swing short whenever it comes: live probe attack_evade_probe 2026-11-16). Rune
+-- Mysteries 20261116-074002: 14.6 s of 45 standing between the telegraph and the dodge
+for _, on in ipairs({ true, false }) do
+    reset_world()
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    Cm.cfg.windup_swing = on
+    Cm.orders.defense = "dodge" -- (the rig's dagger can block; live a Stone Dagger with no shield could only dodge)
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_wind" .. tostring(on), "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "attack", force = true })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" and f.presses > 0 end, 3)
+    local F = Cm._state().fight
+    run_until(function() return T >= (F.next_press or 0) - 0.05 end, 2) -- his next swing is about due
+    world.resolved, world.result = nil, nil
+    goblin_attack(g, 1.4)
+    run_until(function() return F.phase == "defend" end, 1)
+    local p0, plan = F.presses, F.def and F.def.plan
+    run_until(function() return not F.def or F.def.started end, 2)
+    local in_windup = F.presses - p0
+    run_until(function() return F.phase ~= "defend" end, 4)
+    if on then
+        check("wind-up: a dodge plan with room for a swing gets one", plan and plan.action == "dodge" and in_windup == 1 and F.n_windup == 1,
+            tostring(plan and plan.action) .. " at " .. tostring(plan and plan.at_s) .. " presses " .. tostring(in_windup))
+        check("wind-up: the dodge still comes and the swing is avoided", (F.n_dodges or 0) == 1 and world.result == "dodged", world.result)
+    else
+        check("wind-up (off): no swing between the telegraph and the dodge", in_windup == 0, in_windup)
+    end
+    world.on_step = nil
+    Cm.stop(nil, "test"); A.reset(nil)
+end
+Cm.cfg.windup_swing = true
+reset_world()
+do -- no room: the dodge is due before his hit would land -> no swing
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    Cm.orders.defense = "dodge"
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_wind3", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "attack", force = true })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" and f.presses > 0 end, 3)
+    local F = Cm._state().fight
+    run_until(function() return T >= (F.next_press or 0) - 0.05 end, 2)
+    world.resolved, world.result = nil, nil
+    goblin_attack(g, 0.55)
+    run_until(function() return F.phase == "defend" end, 1)
+    local p0 = F.presses
+    run_until(function() return F.phase ~= "defend" end, 4)
+    check("wind-up: a quick swing at him leaves no room, no swing of his", F.presses == p0 and (F.n_windup or 0) == 0, F.presses - p0)
+    world.on_step, Cm.orders.defense = nil, nil
+    Cm.stop(nil, "test"); A.reset(nil)
+end
+reset_world()
+do -- an attack lands up to 0.2 s sooner or later than its data says (live 2026-11-16: Goblin Runt Attack2 0.90-1.17 s)
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    Cm.orders.defense = "dodge"
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_early", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "attack", force = true })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" and f.presses > 0 end, 3)
+    local F = Cm._state().fight
+    local got = {}
+    for _, late in ipairs({ -0.2, -0.1, 0, 0.1, 0.2 }) do
+        world.resolved, world.result, world.evade_start = nil, nil, nil
+        goblin_attack(g, 1.2, { late_s = late })
+        run_until(function() return F.phase == "defend" end, 1)
+        run_until(function() return F.phase ~= "defend" end, 4)
+        got[#got + 1] = string.format("%+.1f %s", late, tostring(world.result))
+        step(40)
+    end
+    local all = true
+    for _, s in ipairs(got) do if not s:find("dodged") then all = false end end
+    check("dodge: an impact 0.2 s sooner or later than its data is still inside the roll's invulnerable window", all, table.concat(got, ", "))
+    world.on_step, Cm.orders.defense = nil, nil
+    Cm.stop(nil, "test"); A.reset(nil)
+end
+reset_world()
+do -- the dodge key that the game ate: pressed once more, the swing is still avoided
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    Cm.orders.defense = "dodge"
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_retap", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "attack", force = true })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" and f.presses > 0 end, 3)
+    local F = Cm._state().fight
+    world.resolved, world.result, world.evade_drop, world.evading_until = nil, nil, 1, nil
+    goblin_attack(g, 1.4)
+    run_until(function() return F.phase == "defend" end, 1)
+    run_until(function() return F.phase ~= "defend" end, 4)
+    check("dodge: a key press that did nothing is pressed again and the swing avoided", F.n_retaps == 1 and world.result == "dodged",
+        tostring(F.n_retaps) .. " " .. tostring(world.result))
+    world.resolved, world.result = nil, nil
+    goblin_attack(g, 1.4)
+    run_until(function() return F.phase == "defend" end, 1)
+    run_until(function() return F.phase ~= "defend" end, 4)
+    check("dodge: one that came out is not pressed twice", F.n_retaps == 1 and world.result == "dodged", tostring(F.n_retaps) .. " " .. tostring(world.result))
+    world.on_step, Cm.orders.defense, world.evade_drop = nil, nil, nil
+    Cm.stop(nil, "test"); A.reset(nil)
+end
+
 -- ================================================================ live 2026-11-01 22:05-22:08 (Luis's session)
 reset_world()
 do -- an attacker already on him and at least as fast: no flee, he fights (a cow hit him 36 in the flee's first 0.4 s)
@@ -2791,6 +2937,43 @@ do -- the same threat farther than its reach: the flee still happens
     local f = Cm._state().fight
     check("flee: fast threat 9 m away -> still flees", f and f.phase == "flee", f and f.phase)
     Cm.guard_stop(nil); A.reset(nil)
+end
+reset_world()
+do -- one that ran him down before, 9 m off: no flee (2026-11-16: every death began with a flee the runts kept up with)
+    Cm._state().caught_by = { Cow3 = true }
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestCow_C_23", "Cow3", { X = 900, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.decision ~= nil end, 4)
+    local f = Cm._state().fight
+    check("no flee: it caught me running before, 9 m off -> fights, says why", f and f.phase ~= "flee" and f.decision == "fight"
+        and tostring(f.cornered):find("caught me running before", 1, true) ~= nil, f and (tostring(f.phase) .. " " .. tostring(f.cornered)))
+    Cm._state().caught_by = {}
+    Cm.guard_stop(nil); A.reset(nil)
+end
+reset_world()
+do -- over his carry weight: no flee (he only walks) and the reason is said
+    fake_move.encumbrance = function() return { on = true, cur = 352, max = 300 } end
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestCow_C_24", "Cow4", { X = 900, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.decision ~= nil end, 4)
+    local f = Cm._state().fight
+    check("no flee: carrying too much -> fights, says why", f and f.phase ~= "flee" and f.decision == "fight"
+        and tostring(f.cornered):find("352 of 300", 1, true) ~= nil, f and (tostring(f.phase) .. " " .. tostring(f.cornered)))
+    fake_move.encumbrance = nil
+    Cm.guard_stop(nil); A.reset(nil)
+end
+do -- over his carry weight the game gives no roll and no jump: the plan is what he can still do
+    local info = { key = "CowT:Bite", dmg_time = 0.8 }
+    local ctx = { dist_cm = 150, stamina = 100, can_parry = false, can_block = true, evade_cost = 15, hp_frac = 1, max_hp = 100, heavy = true }
+    local fixed = function() return 0.5 end
+    check("plan: heavy, orders dodge, a shield -> block", Dm.plan(info, ctx, { defense = "dodge" }, fixed).action == "block")
+    ctx.can_block = false
+    local p = Dm.plan(info, ctx, { defense = "dodge" }, fixed)
+    check("plan: heavy, no shield -> no dodge", p.action ~= "dodge" and p.action ~= "jump", tostring(p.action))
+    ctx.heavy = nil
+    check("plan: the same, not heavy -> dodge", Dm.plan(info, ctx, { defense = "dodge" }, fixed).action == "dodge")
 end
 do -- the out-of-reach check counts the ground a closing attacker covers before its impact
     local info = { key = "CowT:Charge", dmg_time = 0.8 }

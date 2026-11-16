@@ -90,6 +90,8 @@ M.cfg = {
     -- a rat 3 m off on a 1.5 m ledge, the step-in stopped the follow and pushed at the ledge for 63 s (and 24.5 s in
     -- the next fight), the fight ended "timeout" with nothing said
     step_in_stall_s = 1.0, step_in_gain_m = 0.3, step_in_off_s = 5, engage_far_s = 4,
+    windup_swing = true, windup_margin_s = 0.15, -- a swing of his own in the wind-up of one he will dodge (M.windup_swing)
+    evade_retap_s = 0.17,    -- no evading read this long after the dodge key (5 frames at 30 fps) -> the key once more
     step_in_m = 5, step_in_dz_cm = 150, -- a gap this short on his level (after a dodge) is closed with the movement
     -- input, as a player holds forward; move.follow's stuck/local planner stood ~2 s per gap (live 12:53, a runt:
     -- 36.7 s out of reach, 7 swings in a minute, died)
@@ -1650,6 +1652,7 @@ function M.emit_combat_end(F, res)
         damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)),
         hp_end = F.hp_now, loot = loot, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
         dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
+        windup_swings = F.n_windup, step_stalls = F.n_step_stalls, dodge_retaps = F.n_retaps,
         pack = (F.max_pack or 0) > 1 and F.max_pack or nil, kills = F.kills, multi_swings = F.n_multi, hazards = F.n_hazards,
         fled_why = d.why, detail = d.detail, still_chased = d.still_chased, held_back_s = d.held_back_s, cornered = d.cornered,
         fled_m = F.fled_m and math.floor(F.fled_m) or nil })
@@ -1690,8 +1693,8 @@ local function finish(F, res)
     local arb = mod("arbiter")
     if arb and F.token then pcall(arb.release, F.log, F.token, res.ok and "done" or res.reason) end
     local _, held_txt = held_summary(F)
-    say(F.log, string.format("fight end ok=%s reason=%s presses=%d hits=%d dmg_taken=%.0f held back: %s", tostring(res.ok), tostring(res.reason),
-        F.presses, F.hits, F.dmg_taken or 0, held_txt ~= "" and held_txt or "-"))
+    say(F.log, string.format("fight end ok=%s reason=%s presses=%d (%d in a wind-up) hits=%d dmg_taken=%.0f held back: %s", tostring(res.ok), tostring(res.reason),
+        F.presses, F.n_windup or 0, F.hits, F.dmg_taken or 0, held_txt ~= "" and held_txt or "-"))
 end
 M._finish = finish
 
@@ -2234,6 +2237,11 @@ local function step_flee(F, pawn, me)
         -- legs back with it still chasing only lets it bite him on the way (21:50:51Z: "unsafe", the go_to resumed,
         -- the rat followed and caught him 8 s later)
         if (leashed or F.t - F.phase_t > M.cfg.flee_timeout_s) and near_cm then
+            if leashed then -- he ran the whole leash and it is still on him: remembered (this session), no second run from one
+                local cb = C().caught_by or {}
+                C().caught_by = cb
+                cb[F.target_name or "?"] = true
+            end
             return turn_to_fight(F, me, string.format("it kept up with me for %d m", math.floor(F.fled_m or 0)))
         end
         if not leashed and F.t - (F.flee_retry_t or -9) >= 1 then
@@ -2441,7 +2449,9 @@ local function start_defend(F, me, attacker_id, tt, info)
                   stamina = me.stamina, can_parry = cap.can_parry, can_block = cap.can_block,
                   parry_cost = cap.parry_cost, block_cost = cap.block_cost, evade_cost = c.evade_cost or 15,
                   hp_frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1, heal_hp = M.orders.heal_hp,
-                  max_hp = me.max_hp, abilities = M.fight_abilities(F), active = active_effects(F) }
+                  max_hp = me.max_hp, abilities = M.fight_abilities(F), active = active_effects(F),
+                  evade_lead_s = M.evade_lead(F.pc and U.try(function() return F.pc.Pawn end)),
+                  heavy = M.too_heavy() and true or nil }
     -- how fast it is closing on him (its velocity toward him), for the reach check
     local aa = attacker_id == F.target_id and F.target or find_creature(attacker_id)
     local v = U.alive(aa) and U.try(function() return aa:GetVelocity() end)
@@ -2497,8 +2507,9 @@ local function finish_defend(F)
     elseif outcome == "avoided" then F.n_avoided = (F.n_avoided or 0) + 1 end
     local c = C()
     c.counts[outcome] = (c.counts[outcome] or 0) + 1
-    say(F.log, string.format("defence %s -> %s (key %s, impact %s, dmg %s, evaded %s, montage %s)", act, outcome, tostring(d.key),
-        d.impact_t and string.format("%.2fs", d.impact_t - d.tel_t) or "-", tostring(d.hit_amt or 0), tostring(d.evaded), tostring(d.montage)))
+    say(F.log, string.format("defence %s -> %s (key %s, impact %s, dmg %s, evaded %s, montage %s, acted at %s%s)", act, outcome, tostring(d.key),
+        d.impact_t and string.format("%.2fs", d.impact_t - d.tel_t) or "-", tostring(d.hit_amt or 0), tostring(d.evaded), tostring(d.montage),
+        d.started_rel and string.format("%.2fs", d.started_rel) or "-", d.retap and ", key twice" or ""))
     F.last_defence = { action = act, outcome = outcome, key = d.key, impact_s = d.impact_t and (d.impact_t - d.tel_t) or nil,
                        plan_at = d.plan.at_s, why = d.plan.why, moved = d.moved }
     if d.moved then say(F.log, string.format("dodge %s moved toward %+dcm right %+dcm", tostring(d.moved.dir), d.moved.toward_cm, d.moved.right_cm)) end
@@ -2521,6 +2532,42 @@ local function finish_defend(F)
     set_phase(F, F.dis and "disengage" or "engage", "defended " .. outcome)
 end
 
+-- When his roll can't be hit, from the roll's own montage: {from_s, to_s} after it starts (the first
+-- AnimNotifyState_Invulnerability_C of the Left / Right / Backward / Forward dodge montages; the latest start and the
+-- earliest end among them). nil when it can't be read. Read once per client session.
+function M.evade_window(pawn)
+    local c = C()
+    if c.evade_win ~= nil then return c.evade_win or nil end
+    local comp = U.try(function() return pawn.EvadeComponent end)
+    local set = U.valid(comp) and U.try(function() return comp.DefaultAnimationSet end)
+    local from, to
+    for _, k in ipairs({ "LeftMontage", "RightMontage", "BackwardMontage", "ForwardMontage" }) do
+        local m = set and U.try(function() return set[k] end)
+        if U.valid(m) then
+            local a, b
+            pcall(function()
+                m.Notifies:ForEach(function(_, e)
+                    local n = e:get()
+                    local cls = n.NotifyStateClass
+                    if U.valid(cls) and U.short(cls):find("Invulnerab") and (not a or n.LinkValue < a) then a, b = n.LinkValue, n.LinkValue + n.Duration end
+                end)
+            end)
+            if a then from, to = math.max(from or a, a), math.min(to or b, b) end
+        end
+    end
+    c.evade_win = (from and to and to > from) and { from_s = from, to_s = to } or false
+    if c.evade_win then
+        say(nil, string.format("dodge: the roll can't be hit %.2f-%.2f s after it starts (its montage): the key goes %.2f s before an impact",
+            from, to, (from + to) / 2))
+    end
+    return c.evade_win or nil
+end
+-- How long before an impact his dodge key goes: the middle of the roll's invulnerable window (nil: the default).
+function M.evade_lead(pawn)
+    local w = U.valid(pawn) and M.evade_window(pawn)
+    return w and (w.from_s + w.to_s) / 2 or nil
+end
+
 local function my_evading(pawn)
     local c = C()
     local comp = U.try(function() return pawn.EvadeComponent end)
@@ -2537,8 +2584,27 @@ end
 -- 100 ms decision tick would be too coarse) and from step_defend. Uses the last decision's reads.
 local function defend_act(F, pawn, acts)
     local d = F.def
-    if not d or d.started then return end
+    if not d then return end
     local plan = d.plan
+    if d.started then
+        -- the dodge that didn't come out: the key once more, as a player does. Live 2026-11-16 07:50:52Z and 08:13:06Z
+        -- (Goblin Runt Attack1): "evaded false", no sideways move, hit for 15 at 1.23 / 1.37 s, 0.5 s after the one
+        -- tap (a dodge reads as evading within 1-4 frames of its input: attack_evade_probe). Per frame: the hit is
+        -- 0.2-0.3 s after the key
+        if not d.cast and (plan.input or plan.action) == "dodge" and not d.evaded and not d.retap and not d.impact_t
+            and acts.evade and F.t - d.started >= M.cfg.evade_retap_s then
+            d.evaded = my_evading(pawn)
+            if not d.evaded and ((F.me_last or {}).stamina or 0) >= (C().evade_cost or 15) then
+                d.retap = true
+                if F.move_inject then F.move_until = F.t + (plan.hold_s or 0.35) end
+                if F.evade_dir then F.evade_until = F.t + (plan.hold_s or 0.35) end
+                tap(F, acts.evade, 4, "evade_again")
+                F.n_retaps = (F.n_retaps or 0) + 1
+                say(F.log, string.format("the dodge didn't come out %.2f s after the key: the key again", F.t - d.started))
+            end
+        end
+        return
+    end
     if F.t - d.tel_t < (plan.cast_at_s or plan.at_s or 0) then return end
     local me = F.me_last or {}
     d.started = F.t
@@ -2622,6 +2688,22 @@ local function defend_followup(F, pawn, acts)
 end
 M._defend_followup = defend_followup
 
+-- The wind-up of a swing he will dodge is time for a swing of his own: the dodge cuts his swing short whenever it
+-- comes (live probe attack_evade_probe 2026-11-16, Bronze Sword: evading 1-4 frames after the evade input at 0.1,
+-- 0.3, 0.5 and 0.7 s into a swing, 1 frame with no swing). So: his target in reach, the press due, stamina for the
+-- swing AND the dodge, and his hit lands (dmg_ms) before the dodge is due. Rune Mysteries 20261116-074002, three
+-- Goblin Runts, no shield: 11 dodges, 14.6 s of 45 standing from the telegraph to the dodge, 10 swings, dead.
+-- Only for the plain dodge: a block, a parry and a cast were not probed.
+function M.windup_swing(F, me, plan, rel)
+    local cfg = M.cfg
+    if cfg.windup_swing == false or plan.action ~= "dodge" or plan.input or plan.spell_asset or plan.cast_at_s then return false end
+    if F.casting or F.dis or not (F.dist_m and F.reach and F.dist_m <= F.reach) then return false end
+    if F.t < (F.next_press or 0) then return false end
+    local prim = (F.profile or {}).prim or {}
+    if (plan.at_s or 0) - rel < (prim.dmg_ms or 400) / 1000 + cfg.windup_margin_s then return false end
+    return (me.stamina or 0) >= M.swing_need(F, prim)
+end
+
 local function step_defend(F, pawn, me, acts)
     local d = F.def
     if not d then return set_phase(F, "engage", "no plan") end
@@ -2629,6 +2711,14 @@ local function step_defend(F, pawn, me, acts)
     local plan = d.plan
     local rel = F.t - d.tel_t
     defend_act(F, pawn, acts)
+    if not d.started and acts.primary and M.windup_swing(F, me, plan, rel) then
+        local prim = (F.profile or {}).prim or {}
+        tap(F, acts.primary, M.cfg.tap_frames, "primary_windup")
+        F.next_press = F.t + (prim.next_ms or 900) / 1000 + jitter(M.cfg.press_jitter_ms)
+        F.last_press_t, F.presses, F.n_windup = F.t, F.presses + 1, (F.n_windup or 0) + 1
+        c.counts.presses = c.counts.presses + 1
+        F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits }
+    end
     if F.evade_until and F.t >= F.evade_until then F.evade_dir, F.evade_until = nil, nil end
     if d.jump_release and F.t >= d.jump_release then pcall(function() pawn:StopJumping() end); d.jump_release = nil end
     if d.started and (plan.input or plan.action) == "dodge" and not d.evaded and F.t - d.started < 0.6 then d.evaded = my_evading(pawn) end
@@ -2787,15 +2877,33 @@ local function ranged_setup(F, pawn, pc)
 end
 M._ranged_setup = ranged_setup
 
--- Can he get away from his target? Not when it is already in reach (its learned reach, else flee_in_reach_m) and
+-- Over his carry weight he only walks: no sprint, no jump and no dodge roll (live 2026-11-16 08:4xZ at 352 of 300:
+-- the evade key gave no roll on four defences and on a bare probe, 0 m moved, IsEvading never true; two flees made
+-- 3 and 0 m in 5 s and cost 30 and 36 HP). {on, cur, max} when he is, else nil.
+function M.too_heavy()
+    local e = mcall("move", "encumbrance")
+    return type(e) == "table" and e.on == true and e or nil
+end
+
+-- Can he get away from his target? Not when he is over his carry weight, not when it is already in reach (its learned reach, else flee_in_reach_m) and
 -- at least as fast as his sprint (its max walk speed or its speed now, whichever is more), or when it has caught
 -- a flee of his before (c.caught_by, this session). -> stuck(bool), why(text)
 function M.cant_escape(F, pawn, me)
     local a = F.target
     if not (U.alive(a) and me.pos) then return false end
+    local heavy = M.too_heavy()
+    if heavy then
+        return true, string.format("I'm carrying too much to run or roll (%.0f of %.0f weight): I can only walk", heavy.cur or 0, heavy.max or 0)
+    end
     local p = U.loc(a)
     local d_m = p and U.dist2d(p, me.pos) / 100
     if not d_m then return false end
+    local caught = (C().caught_by or {})[F.target_name or "?"]
+    -- one that ran him down before will again from a few metres off (every death of 2026-11-16 began with a flee
+    -- from Goblin Runts 5 m away that "kept up with me for 25 m" or "kept hitting me while I ran": 25-36 HP gone)
+    if caught and d_m <= (M.cfg.caught_near_m or 12) then
+        return true, string.format("it is %.0f m off and I can't outrun it (it caught me running before)", d_m)
+    end
     local reach_m = M.cfg.flee_in_reach_m or 4
     local D = mod("defense")
     if D and D.max_reach_cm then reach_m = math.max(reach_m, (D.max_reach_cm(F.target_name) or 0) / 100) end
@@ -2804,7 +2912,6 @@ function M.cant_escape(F, pawn, me)
     local its = num(U.try(function() return a.CharacterMovement.MaxWalkSpeed end)) or 0
     local v = U.try(function() return a:GetVelocity() end)
     if v then its = math.max(its, math.sqrt((v.X or 0) ^ 2 + (v.Y or 0) ^ 2)) end
-    local caught = (C().caught_by or {})[F.target_name or "?"]
     if its >= mine * (M.cfg.outrun_frac or 0.95) or caught then
         return true, string.format("it is on me (%.0f m) and I can't outrun it (%s)", d_m,
             caught and "it caught me running before" or string.format("%.1f vs my %.1f m/s", its / 100, mine / 100))
@@ -3142,6 +3249,14 @@ function M.swing_need(F, prim)
     return M.defence_reserve(F) + cost
 end
 
+-- The dodge or montage his body is in (it takes no walking input until it ends), or nil.
+function M.busy_montage(pawn)
+    if my_evading(pawn) then return "evading" end
+    local ai = U.try(function() return pawn.Mesh:GetAnimInstance() end)
+    local m = U.valid(ai) and U.try(function() return ai:GetCurrentActiveMontage() end)
+    return U.valid(m) and U.short(m) or nil
+end
+
 local function step_engage(F, pawn, me, acts, tgt)
     local cfg = M.cfg
     local d_m = F.dist_m
@@ -3152,12 +3267,24 @@ local function step_engage(F, pawn, me, acts, tgt)
     local can_step = d_m > F.reach and d_m <= cfg.step_in_m and tp and me.pos and math.abs(tp.Z - me.pos.Z) <= cfg.step_in_dz_cm
         and F.t >= (F.step_in_off_until or 0)
     if can_step then -- (decision ticks of stepping in, not seconds: a defence in between is not a stall)
-        if not F.si_d0 or d_m <= F.si_d0 - cfg.step_in_gain_m then F.si_d0, F.si_n = d_m, 0 end
-        F.si_n = F.si_n + 1
+        -- the gap is measured afresh when it closed, when the creature itself moved (it backed off: nothing is between
+        -- us) and after a defence (his dodge opened it). Rune Mysteries 20261116-074002, three Goblin Runts: each
+        -- DodgeBack and each dodge of his own counted as "made no ground", the slow follow took over twice for 5 s
+        -- (0.5 m/s), 12.2 s of 45 out of reach, 10 swings, dead
+        local moved = F.si_tp0 and U.dist2d(tp, F.si_tp0) >= cfg.step_in_gain_m * 100
+        if not F.si_d0 or d_m <= F.si_d0 - cfg.step_in_gain_m or moved or F.si_tele ~= F.last_tele then
+            F.si_d0, F.si_n, F.si_tp0, F.si_tele = d_m, 0, { X = tp.X, Y = tp.Y, Z = tp.Z }, F.last_tele
+        end
+        -- a body still in its dodge or another montage (a hit's stagger) takes no walking input: that is no stall.
+        -- Live 2026-11-16 08:16:22Z: hit while dodging, 1 s of step-in with no ground, the follow then walked at once
+        local mont = M.busy_montage(pawn)
+        if not mont then F.si_n = F.si_n + 1 end
         if F.si_n * M.DECIDE_S >= cfg.step_in_stall_s then
             can_step, F.si_d0, F.step_in_off_until = false, nil, F.t + cfg.step_in_off_s
             F.n_step_stalls = (F.n_step_stalls or 0) + 1
-            say(F.log, string.format("step-in made no ground (%.1f m off, something between us): the follow goes round", d_m))
+            local v = U.try(function() return pawn:GetVelocity() end)
+            say(F.log, string.format("step-in made no ground (%.1f m off, something between us; speed %.0f cm/s): the follow goes round", d_m,
+                v and math.sqrt((v.X or 0) ^ 2 + (v.Y or 0) ^ 2) or -1))
         end
     else F.si_d0 = nil end
     if can_step then
@@ -3434,7 +3561,7 @@ local function frame(F)
     local pawn = pc and U.valid(pc) and U.try(function() return pc.Pawn end)
     if not U.valid(pawn) then return finish(F, result_of(F, false, "companion_down")) end
     F.t = now(pawn)
-    if F.def and not F.def.started then defend_act(F, pawn, actions(pawn)) end
+    if F.def then defend_act(F, pawn, actions(pawn)) end -- (its moment; then a dodge key that did nothing, again)
     if F.casts then casts_frame(F) end
     if F.def and F.def.cast then defend_followup(F, pawn, actions(pawn)) end
     F.frame_n = (F.frame_n or 0) + 1
@@ -3698,7 +3825,13 @@ local function frame(F)
                     end
                     F.no_food = true
                 end
-                if F.mode == "reflex" and not F.dis then return begin_flee(F, why) end
+                if F.mode == "reflex" and not F.dis then
+                    -- (the same question as any flee: can he get away at all?)
+                    local stuck, cw = M.cant_escape(F, pawn, me)
+                    if not stuck then return begin_flee(F, why) end
+                    F.cornered = cw
+                    say(F.log, "no flee (" .. why .. "): " .. cw)
+                end
             end
         end
         -- low HP but winnable: back off and eat first (the model's policy: orders.disengage / heal_hp)
