@@ -42,6 +42,9 @@ local function d3(a, b) return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2 +
 
 M.cfg = {
     standoff_m = 3.5, high_standoff_m = 5.0, high_m = 2.5, reach_m = 7.5, min_m = 1.5, stands = 3,
+    -- the predicted view (camrig): it lands on the piece when within view_on_m of its box; else the spots with a
+    -- clear view on these rings, a walk to one given up after stand_walk_s
+    view_on_m = 0.15, stand_radii_m = { 3.5, 5.0, 2.5 }, stand_walk_s = 8, view_every_s = 0.2,
     open_wait_s = 1.2, mode_presses = 5, aim_wait_s = 0.35, aim_rereads = 2,
     aim_tol_m = 0.06, aim_fixes = 5, aim_fix_wait_s = 0.2,
     verify_s = 4.0, settle_s = 1.2, drop_r_m = 5.0, leave_presses = 3, leave_wait_s = 0.5,
@@ -497,6 +500,43 @@ function M.clear_stand(rows, P, c, here, want, tried)
     end
     return best
 end
+-- Which aim point my view would land on this piece at, were I to aim there from where I stand. The camera hangs 7 m
+-- behind me on its boom, so what stands between IT and the piece decides, not what stands between my eye and the
+-- piece (camrig.look: the predicted camera and the game's own trace; issue B16). Rung 2 run 20261116-013753: the
+-- eye test sent him round the house for two pieces he could have taken from where he stood, and both walks got
+-- stuck on its walls (13.7 and 13.2 s of a 62 s teardown).
+-- -> index into pts | nil (none lands on it) | false (the boom or the piece's box can't be read: the old rule)
+function W.view_on(api, P, pts, box)
+    local b = B(api)
+    if not (b and type(b.W.look) == "function" and box and P.position) then return false end
+    for k, pt in ipairs(pts) do
+        local ok, look = pcall(b.W.look, api, pt, 0.3)
+        if not (ok and type(look) == "table" and look.sees) then return false end
+        if M.box_dist(P, box, look.sees) <= M.cfg.view_on_m then return k end
+    end
+    return nil
+end
+-- Where to stand for it: the spots round it whose predicted view lands on it, within reach and in no other piece,
+-- the shortest (straight) walk first (camrig.stands). -> { { pos, walk_m, direct }, ... } | nil
+function W.view_stands(api, P, pts, box, here, rows)
+    local b = B(api)
+    if not (b and type(b.W.rig) == "function" and type(b.W.camrig) == "function" and type(b.W.trace_m) == "function" and box) then return nil end
+    local cfg = M.cfg
+    local ok, list = pcall(function()
+        local rig = b.W.rig(api)
+        if not rig then return nil end
+        return b.W.camrig().stands(rig, here, pts[1], b.W.trace_m(api), { max = 3, radii = cfg.stand_radii_m,
+            clear = function(look) return look.sees and M.box_dist(P, box, look.sees) <= cfg.view_on_m end,
+            ok = function(pos)
+                if d3(pos, pts[1]) > cfg.reach_m then return false end
+                for _, r in ipairs(rows or {}) do
+                    if r.box and r.position and not r.done and M.box_dist(r, r.box, pos) < 0.35 then return false end
+                end
+                return true
+            end })
+    end)
+    return ok and list or nil
+end
 -- The camera's view ray: origin (cm) and unit direction.
 function W.camera_ray(api)
     local U = sense_U(api)
@@ -944,7 +984,38 @@ local function step(api, job, t)
         local up = c[3] - (here[3] - 0.88)
         local want = up > cfg.high_m and cfg.high_standoff_m or cfg.standoff_m
         local dh = hd(here, c)
+        -- the predicted view first: take it from where I stand when my view would land on it (also checked on the
+        -- way to a spot: the walk ends as soon as it does)
+        local function view_ok()
+            local von = W.view_on(api, P, pts, box)
+            if von and d3(here, c) <= cfg.reach_m and not (P.view_from and hd(here, P.view_from) < 0.5) then
+                if von > 1 then table.insert(pts, 1, table.remove(pts, von)) end
+                P.view_from = here
+                return true, von
+            end
+            return false, von
+        end
+        if P.moving and P.view_walk and (not P.view_t or t >= P.view_t) then
+            P.view_t = t + cfg.view_every_s
+            if view_ok() then
+                api.call("move", "stop")
+                P.moving, P.view_walk, job.phase = false, nil, "mode"
+                return nil
+            end
+        end
         if not P.moving then
+            local okv, von = view_ok()
+            if okv then job.phase = "mode"; return nil end
+            if von ~= false then
+                if not P.view_list then P.view_list, P.view_i = W.view_stands(api, P, pts, box, here, job.rows) or {}, 0 end
+                P.view_i = P.view_i + 1
+                local s = P.view_list[P.view_i]
+                if s then
+                    local mr = api.call("move", "go_to", s.pos, { tolerance_m = 0.4, timeout_s = cfg.stand_walk_s, allow_unstuck = false, owner_token = job.token })
+                    if mr.ok then P.moving, P.moves, P.view_walk, P.view_t = true, P.moves + 1, true, nil end
+                    return nil -- (a walk that wouldn't start: the next spot on the next tick)
+                end
+            end
             local in_range = dh >= cfg.min_m and dh <= want + 1.0 and d3(here, c) <= cfg.reach_m
             local blk = M.blocker(job.rows, P, { here[1], here[2], here[3] + 0.7 }, c)
             P.blk = blk and blk.id or nil
@@ -970,6 +1041,7 @@ local function step(api, job, t)
         local st = api.move_status()
         if st.mode == "go_to" then return nil end
         P.moving = false
+        if P.view_walk then P.view_walk = nil; return nil end -- the view from where that walk ended, else the next spot
         local res = type(st.result) == "table" and st.result or {}
         if res.status ~= "arrived" and res.status ~= "stopped" then P.stand = (P.stand or 0) + 1 end
         return nil

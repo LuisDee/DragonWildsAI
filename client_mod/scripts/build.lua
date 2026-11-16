@@ -478,6 +478,7 @@ local function camrig()
     CR = CR or assert(loadfile((debug.getinfo(1, "S").source:match("^@(.*)[/\\]") or (ROOT .. "/client_mod/scripts")) .. "/camrig.lua"))()
     return CR
 end
+W.camrig = camrig
 function W.rig(api)
     local sm = api.module("sense")
     local pc, pawn = W.pc(api), sm and sm.local_pawn and sm.local_pawn()
@@ -508,6 +509,7 @@ local function trace_m(api)
 end
 -- Where to stand to place an attach: the spots round its aim point whose predicted view lands on it and that aren't
 -- where the piece goes, the shortest walk first (camrig.stands). nil when the boom can't be read.
+W.trace_m = trace_m
 function W.stands(api, job, here)
     local cfg = M.cfg.build
     local on = job.on

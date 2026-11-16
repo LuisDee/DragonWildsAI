@@ -351,9 +351,12 @@ def items(new: list[dict], tl: dict, fx_state: list[dict] | None) -> dict:
 
     def has(*w):
         return any(any(x.lower() in nm.lower() for x in w) for nm in names)
-    crates = {n["id"] for n in new if "Crate" in str(n.get("name") or "")}
+    # (the container as he named it: the new crate's id, or its name. Run 20261116-013753: "container": "Crate" put
+    # 87 Ash Logs in the new crate and read as not stored)
+    crates = {str(n["id"]).lower() for n in new if "Crate" in str(n.get("name") or "")}
+    crates |= {str(n.get("name")).lower() for n in new if "Crate" in str(n.get("name") or "")}
     stored = [c for c in tl.get("calls") or [] if c.get("tool") == "store" and c.get("ok")
-              and (not crates or str((c.get("args") or {}).get("container") or "") in crates)]
+              and (not crates or str((c.get("args") or {}).get("container") or "").lower() in crates)]
     out = {"house_foundation": has("Foundation"), "house_walls": has("Wall"), "house_roof": has("Roof"),
            "house_door": any(nm == "Door" for nm in names) and has("Door Frame"), "crafting_table": has("Crafting Table"),
            "firepit": has("Campfire", "Fire Pit", "Firepit"), "crate": has("Crate"), "stored": bool(stored)}
@@ -502,6 +505,27 @@ def score(t0: float, t1: float, who: str = "ClaudeDev") -> dict:
             "wall_s_per_piece": round((t1 - t0) / n, 1) if n else None}
 
 
+def build_pace(calls: list[dict], sc: dict, t0: float, n_new: int = 0) -> dict:
+    """The building alone, against Luis: the whole window's unit_s also counts the teardown, the storing and the
+    model's turns, which Luis's 3.81 s per piece does not.
+      tool_s_per_piece  the build calls' own seconds per piece that went up (the body's pace; bar 1.5 x 3.81 = 5.7)
+      wall_s_per_piece  first build call to the last piece up, the model's turns between included, per piece
+                        (bar 1.5 x Luis's base, 24 pieces in 146 s = 9.1)"""
+    b = [c for c in calls if c.get("tool") == "build" and isinstance(c.get("t"), (int, float))]
+    n = sc.get("build_spawns") or n_new  # (the census's new pieces when the recorder saw no spawn)
+    if not (b and n):
+        return {"pieces": n}
+    tool_s = sum(float(c.get("dur_s") or 0) for c in b)
+    start = min(c["t"] for c in b)
+    end = max(c["t"] + float(c.get("dur_s") or 0) for c in b)
+    out = {"pieces": n, "build_calls": len(b), "failed_calls": sum(1 for c in b if c.get("ok") is False),
+           "tool_s": round(tool_s, 1), "tool_s_per_piece": round(tool_s / n, 2), "tool_bar": round(1.5 * 3.81, 2),
+           "wall_s": round(end - start, 1), "wall_s_per_piece": round((end - start) / n, 2),
+           "wall_bar": round(1.5 * LUIS_BASE["wall_s"] / LUIS_BASE["pieces"], 2)}
+    out["inside"] = out["tool_s_per_piece"] <= out["tool_bar"] and out["wall_s_per_piece"] <= out["wall_bar"]
+    return out
+
+
 def cmd_run(a) -> int:
     if not a.confirm:
         print("refusing: a live run starts a brain, moves Claude and spends materials on the dev server; pass --confirm")
@@ -524,6 +548,13 @@ def cmd_run(a) -> int:
             print("sender:", how)
             return 4
         cli = cl._debug_client()
+        # the server recorder's arm lasts 4 h and then stops by itself (run 20261116-013753: expired 31 min before,
+        # score.who null, 0 spawns): re-armed before the line
+        try:
+            from tools import rung1_gate
+            print("recorder:", rung1_gate.ensure_recorder(), flush=True)
+        except Exception as e:  # noqa: BLE001 (the run still stands on the census and the tool calls)
+            print("recorder: not checked:", e, flush=True)
         # he sets off watered, fed and rested, as each chat ladder leg does (cl.top_vitals): run 20261116-003814 began
         # at rest 0 (max stamina 40, no sprint) and he broke off the house to summon a shelter and nap. Rest is the
         # rung 1 gate's own item; Luis's build baseline was played rested.
@@ -692,6 +723,7 @@ def cmd_run(a) -> int:
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name}
     rec["buckets"] = buckets(tl["calls"], ended - t0, t0, ended)
+    rec["build_pace"] = build_pace(tl["calls"], rec["score"], t0, len(new))
     if before and not after:
         rec["unmeasured"] = "get_state read no structures after the run (4 tries)"
     if fx is not None and fx.get("pieces") and not census_after:
@@ -761,8 +793,11 @@ def cmd_report(a) -> int:
         r = json.loads(line)
         s = r.get("score") or {}
         bad = sum(1 for v in r.get("truth") or [] if v.get("verdict") != "true")
+        bp = (r.get("build_pace") or {}).get("tool_s_per_piece") and r["build_pace"] or build_pace(r.get("tool_calls") or [], s, r.get("t0") or 0, len(r.get("pieces_new") or []))
+        it = r.get("items") or {}
         print(f"{r['run']} {r['ended']:<9} {r['wall_s']:>6}s new={len(r.get('pieces_new') or [])} spawns={s.get('build_spawns')} "
-              f"unit_s={s.get('unit_s')} (Luis {s.get('luis_unit_s')}) untrue={bad} haiku={r['haiku']} sonnet={r['sonnet']} ${r['usd']}")
+              f"build tool {bp.get('tool_s_per_piece')} s/pc (bar {bp.get('tool_bar')}) wall {bp.get('wall_s_per_piece')} s/pc (bar {bp.get('wall_bar')}) "
+              f"items_all={it.get('all')} untrue={bad} haiku={r['haiku']} sonnet={r['sonnet']} ${r['usd']}")
     return 0
 
 

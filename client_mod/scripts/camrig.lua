@@ -109,7 +109,8 @@ end
 -- Where to stand to put the screen centre on target: spots on rings round it, each judged by the predicted view
 -- from there (C.look), the shortest walk first. The pattern: list the candidates, keep the feasible, take the
 -- cheapest, act once. feet = my pawn's location (m). opts = { radii, steps, tol_m | tol_for(pos), up_m (how far
--- above or below my own level a spot may lie), ok(pos) (e.g. not where the piece goes), max (direct spots wanted) }
+-- above or below my own level a spot may lie), ok(pos) (e.g. not where the piece goes), max (direct spots wanted),
+-- clear(look, pos) (my own test of the predicted view, e.g. "it lands on this piece's box", in place of look.clear) }
 -- -> { { pos (the pawn's location there), walk_m, direct (a clear straight walk from here), look }, ... }
 function C.stands(rig, feet, target, trace, opts)
     opts = opts or {}
@@ -136,7 +137,7 @@ function C.stands(rig, feet, target, trace, opts)
                 local tol = opts.tol_for and opts.tol_for(pos) or opts.tol_m
                 local look = C.look({ pivot = { pos[1] + off[1], pos[2] + off[2], pos[3] + off[3] }, arm_m = rig.arm_m, socket = rig.socket },
                     target, trace, tol)
-                if look and look.clear then
+                if look and ((opts.clear and opts.clear(look, pos)) or (not opts.clear and look.clear)) then
                     local blocked = trace({ feet[1], feet[2], feet[3] }, pos)
                     out[#out + 1] = { pos = pos, walk_m = c[3] + (blocked and (opts.round_m or 8) or 0), direct = not blocked, look = look }
                     if not blocked then direct = direct + 1 end
