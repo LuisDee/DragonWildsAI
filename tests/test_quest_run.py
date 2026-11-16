@@ -136,3 +136,34 @@ def test_what_he_got_earlier_in_the_same_chain_is_not_a_head_start():
            "carried_at_start": held, "not_counted": "deliverable carried: ITEM_Resources_Wood_Ash x8"}
     assert q.verdict(rec)["bars"]["counted"] is False
     assert q.verdict({**rec, "held_at_chain_start": {}})["bars"]["counted"] is True
+
+
+class _Clock:
+    """The bench fixture set_time as mod/bench/fixtures.lua answers it: `hours` is the next time that hour comes."""
+    def __init__(self, hour, fail_at=None):
+        self.t, self.calls, self.fail_at = 1333 * 24 + hour, 0, fail_at
+
+    def setup(self, verb, purpose="", **a):
+        assert verb == "set_time"
+        if a.get("read"):
+            return {"ok": True, "hour": self.t % 24, "day": int(self.t // 24)}
+        self.calls += 1
+        if self.calls == self.fail_at:
+            raise RuntimeError("fixture set_time failed: time_unreadable")
+        target = self.t - self.t % 24 + a["hours"]
+        target += 24 if target <= self.t else 0
+        before, self.t = self.t, target
+        return {"ok": True, "before_h": before % 24, "after_h": target % 24, "advanced_h": target - before}
+
+
+def test_the_step_clock_goes_on_whole_days_and_keeps_the_time_of_day():
+    for hour in (20.29, 0.02, 23.99):  # also across midnight: the hour asked for wraps
+        c = _Clock(hour)
+        r = q.clock_on(c, 3, "test")
+        assert r["ok"] and r["days"] == 3 and 71.5 < r["advanced_h"] < 72, r
+        assert abs(((c.t % 24) - hour + 12) % 24 - 12) < 0.2, (hour, c.t % 24)
+
+
+def test_a_clock_that_did_not_move_is_said_and_does_not_raise():
+    r = q.clock_on(_Clock(20.0, fail_at=2), 3, "test")
+    assert r["ok"] is False and r["days"] == 1 and "time_unreadable" in r["error"], r

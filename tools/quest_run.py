@@ -705,6 +705,31 @@ def to_start(cli, place: list[float] | None, tries: int = 4, timeout: float = 20
             "why": None if near else str((r or {}).get("data") if isinstance(r, dict) else r)[:300]}
 
 
+def clock_on(dev, days: int, purpose: str) -> dict:
+    """A dev fixture (dev server only): move the game clock on by `days` days, less a few minutes, so that what
+    earlier trials mined or picked has grown back when this one starts. Why: a mined node grows back after its
+    RespawnDuration of GAME time (essence rocks: 2 days = 48 real minutes) and only while no player is within its
+    MinimumDistanceToPlayers (100 m), so inside one window the third trial found the rocks spent (window
+    20261116-173343: PASS, PASS, then three trials at 8 used-up rocks). Seen live 18:04Z: rocks spent at 17:50Z were
+    whole again 3 minutes after the clock went on 3 days with him 215 m away. It uses the bench fixture set_time, one
+    call per day (each sets the hour to just before the current one, so the time of day stays what it was).
+    Limit: a node within 100 m of where the fork stands when this runs does not grow back."""
+    out: dict = {"days": 0, "advanced_h": 0.0}
+    try:
+        now = dev.setup("set_time", purpose=purpose, read=True)
+        out["before"] = {"day": now.get("day"), "hour": round(float(now.get("hour") or 0), 2)}
+        hour = float(now["hour"])
+        for _ in range(days):
+            r = dev.setup("set_time", purpose=purpose, hours=round((hour - 0.05) % 24, 3))
+            out["days"] += 1
+            out["advanced_h"] = round(out["advanced_h"] + float(r.get("advanced_h") or 0), 2)
+            hour = float(r.get("after_h") if r.get("after_h") is not None else hour)
+        out["ok"] = out["advanced_h"] >= 23.0 * days
+    except Exception as exc:  # the trial still runs; its row says the clock did not move
+        out["ok"], out["error"] = False, repr(exc)[:200]
+    return out
+
+
 def cmd_step(a) -> int:
     """ONE lock window, K trials of one quest (or of it up to --until-step) from a checkpoint: each trial is a new
     fork of the checkpoint's save (tools/quest_clone.py fork), walked to where that save was written (to_start), so
@@ -743,12 +768,19 @@ def cmd_step(a) -> int:
             used.append(name)
             made = sw.ensure(name, create=False, wait_s=150)
             print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
+            grown = None
+            if a.regrow_days > 0:  # here, where the fork came in: before the walk takes him near what was used
+                from evals.bench.devrun import default_dev
+                dev = default_dev()
+                dev.brain_running = lambda: False
+                grown = clock_on(dev, a.regrow_days, f"quest_run step {a.checkpoint}: what earlier trials used grows back")
+                print(f"[{time.time() - t0:6.1f}s] game clock moved on: {grown}")
             start = to_start(cli, place)
             if start is not None:
                 print(f"[{time.time() - t0:6.1f}s] to the checkpoint's place: {start}")
                 left = a.window_s - a.reserve_s - (time.time() - t0)
                 if not start["ok"] or left < 90:
-                    out["trials"].append({"character": name, "start": start, "skipped": "not at the checkpoint's place"
+                    out["trials"].append({"character": name, "start": start, "clock": grown, "skipped": "not at the checkpoint's place"
                                           if not start["ok"] else f"window: {left:.0f} s left after the walk"})
                     continue
             ns = ap_.Namespace(confirm=True, quest=a.quest, line=list(line), until="complete", until_step=a.until_step,
@@ -758,7 +790,8 @@ def cmd_step(a) -> int:
             rc = cmd_run(ns)
             t_end = time.time()
             last = _last_run()
-            out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), "start": start, **_summary(last)})
+            out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), "start": start, "clock": grown,
+                                  **_summary(last)})
             if a.save_as and last.get("done") and "saved_as" not in out:
                 kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=AUTOSAVE_S)
                 out["saved_as"] = str(kept) if kept else f"no save of {name} within {AUTOSAVE_S:.0f} s"
@@ -843,6 +876,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--deadline", type=float, default=600.0, help="per trial")
     st.add_argument("--save-as", metavar="LABEL", help="keep the first done trial's next save as this checkpoint")
     st.add_argument("--keep-forks", action="store_true", help="leave the forks in the character list")
+    st.add_argument("--regrow-days", type=int, default=3, help="game days the dev clock is moved on before each trial, so "
+                    "what earlier trials mined has grown back (0: leave the clock alone)")
     st.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
     st.add_argument("--window-s", type=float, default=3600.0, help="the whole window, switch back included")
     st.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")
