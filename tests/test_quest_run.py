@@ -120,3 +120,19 @@ def test_a_leftover_under_a_tenth_of_what_the_quest_asks_is_not_a_head_start():
     rec["carried_at_start"] = {"ITEM_Resources_Wood_Ash": 50}
     assert q.verdict(rec)["bars"]["counted"] is False
     assert q.verdict({**rec, "carried_at_start": None})["bars"]["counted"] is False  # an old record: as it was written
+
+
+def test_what_he_got_earlier_in_the_same_chain_is_not_a_head_start():
+    # chain 112351: 7 Ash Logs chopped in Getting Started (0 at the chain's start), 8 at the start of Rune Mysteries,
+    # 42 chopped in the run for a bar that counts 42: "not counted", although every log was his own work on the clock
+    held = {"ITEM_Resources_Wood_Ash": 8}
+    assert q.head_start(held, "Rune Mysteries", chain={}) == {}
+    assert q.head_start(held, "Rune Mysteries", chain={"ITEM_Resources_Wood_Ash": 3}) == {}  # 3 of 50: a leftover
+    assert q.head_start(held, "Rune Mysteries", chain={"ITEM_Resources_Wood_Ash": 30}) == {"ITEM_Resources_Wood_Ash": 8}
+    assert q.head_start({"ITEM_Club_Stone": 1}, "Getting Started", chain={"ITEM_Club_Stone": 1}) == {"ITEM_Club_Stone": 1}
+    assert q.head_start(held, "Rune Mysteries", chain={"error": "boom"}) == held  # the chain's start unread: as alone
+    assert q.head_start(held, "Rune Mysteries") == held  # a run on its own: what he holds is a head start
+    rec = {"quest": "Rune Mysteries", "done": True, "ratio": 0.84, "tool_calls": [], "idle_over_5s": [],
+           "carried_at_start": held, "not_counted": "deliverable carried: ITEM_Resources_Wood_Ash x8"}
+    assert q.verdict(rec)["bars"]["counted"] is False
+    assert q.verdict({**rec, "held_at_chain_start": {}})["bars"]["counted"] is True

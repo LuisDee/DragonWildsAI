@@ -172,11 +172,13 @@ def human_bar(rows: list[dict], lines_sent: int, b: dict | None = None) -> dict:
 DELIVERABLES = ROOT / "data" / "quest_deliverables.json"
 
 
-def carried(cli, quest: str) -> dict[str, int]:
+def carried(cli, quest: str | None) -> dict[str, int]:
     """The quest's deliverables he already holds at its start ({item: count}; data/quest_deliverables.json). A run
     that starts holding any did not do the quest's work (live ClaudeQ2-Q5: an inherited Stone Club made Getting
-    Started one talk, four Rat Roasts made Ratcatcher one), so it is recorded as not counted."""
-    items = (json.loads(DELIVERABLES.read_text(encoding="utf-8")).get("quests") or {}).get(quest) or []
+    Started one talk, four Rat Roasts made Ratcatcher one), so it is recorded as not counted. quest None: every
+    quest's deliverables (the read at a chain's start)."""
+    by_quest = json.loads(DELIVERABLES.read_text(encoding="utf-8")).get("quests") or {}
+    items = by_quest.get(quest) or [] if quest else sorted({i for l in by_quest.values() for i in l})
     if not items:
         return {}
     st = cli.request("get_state", {}, timeout=15)
@@ -187,12 +189,18 @@ def carried(cli, quest: str) -> dict[str, int]:
 HEAD_START_SHARE = 0.1
 
 
-def head_start(held: dict, quest: str) -> dict:
+def head_start(held: dict, quest: str, chain: dict | None = None) -> dict:
     """The deliverables held at the start that did part of the quest's work: every one, except a leftover under a
     tenth of an amount the quest asks for (data/quest_deliverables.json "amounts"; none given = 1, so any counts).
     Chain 101313: one Ash Log left from the fire of the quest before, 49 of Zanik's 50 chopped in the run. The human
-    bar is computed from what he gathered in the run, so a leftover does not make the bar easier."""
+    bar is computed from what he gathered in the run, so a leftover does not make the bar easier.
+    chain: what he held of them when the chain of quests began (cmd_fresh reads it). Only that much can be a head
+    start: the rest he got earlier in the same chain, on the clock of the quest before and against its bar (chain
+    112351: 7 Ash Logs chopped in Getting Started, 8 held at Rune Mysteries, 42 chopped for a bar of 42)."""
     amounts = (json.loads(DELIVERABLES.read_text(encoding="utf-8")).get("amounts") or {}).get(quest) or {}
+    if isinstance(chain, dict) and "error" not in chain and "error" not in (held or {}):
+        held = {k: min(v, chain.get(k, 0)) for k, v in (held or {}).items() if isinstance(v, (int, float))}
+        held = {k: v for k, v in held.items() if v > 0}
     return {k: v for k, v in (held or {}).items()
             if not isinstance(v, (int, float)) or v >= max(1, HEAD_START_SHARE * amounts.get(k, 1))}
 
@@ -203,7 +211,7 @@ def not_counted(rec: dict) -> str | None:
     held = rec.get("carried_at_start")
     if not isinstance(held, dict):
         return rec.get("not_counted")
-    hs = head_start(held, rec.get("quest") or "")
+    hs = head_start(held, rec.get("quest") or "", rec.get("held_at_chain_start"))
     return ("deliverable carried: " + ", ".join(f"{k} x{v}" for k, v in hs.items())) if hs else None
 
 
@@ -447,6 +455,8 @@ def cmd_run(a) -> int:
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name,
            "holds": holds(tl["calls"]), "dialogue_left": {"before": left_before, "after": left_after},
            "carried_at_start": held_at_start}
+    if getattr(a, "chain_held", None) is not None:
+        rec["held_at_chain_start"] = a.chain_held
     if not_counted(rec):
         rec["not_counted"] = not_counted(rec)
     elif held_at_start:
@@ -538,6 +548,11 @@ def cmd_fresh(a) -> int:
             made = sw.ensure(name, create=False, wait_s=150)
             out["made"] = {**made, "s": round(time.time() - t0, 1)}
             print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
+            try:  # what he holds of any quest's deliverables now: only that can be a head start later (head_start)
+                chain_held = carried(cli, None)
+            except Exception as exc:
+                chain_held = {"error": repr(exc)[:120]}
+            out["held_at_chain_start"] = chain_held
             names = [q for q, _, _ in FRESH_PLAN]
             plan = FRESH_PLAN[names.index(a.start):] if a.start in names else FRESH_PLAN
             for quest, line, deadline in plan:
@@ -547,7 +562,7 @@ def cmd_fresh(a) -> int:
                     break
                 ns = ap_.Namespace(confirm=True, quest=quest, line=[line], until="complete", deadline=min(deadline, left),
                                    max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}", wait=0, grant=[], judge=False,
-                                   in_lock=True, no_heal=True, character=name)
+                                   in_lock=True, no_heal=True, character=name, chain_held=chain_held)
                 rc = cmd_run(ns)
                 last = json.loads(OUT.read_text(encoding="utf-8").splitlines()[-1])  # the record cmd_run just wrote
                 v = last.get("verdict") or {}
