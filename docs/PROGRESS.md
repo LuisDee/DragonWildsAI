@@ -1327,3 +1327,25 @@ Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the 
 - **Hand probe ClaudeP161621 (no model):** sent to the rock that took no damage; it was spent (Rocksplosion broke it in run 155233), so the case did not reproduce. What the trial logs show of where he stood is in DISCOVERIES.
 - **Limits.** One pass in five. The fixes in c28130d have not been seen live. Why the rock took no damage is not known; standing on top of it is the leading reading and is unproven. Reports were not judged for truth. A window of back-to-back trials from `rm_part2` uses up the rocks the quest needs, so later trials are harder than the first; the step runner has no check for that yet.
 - **Queued, by count of runs:** 27 swings at a rock never hit is far beyond what a player does; gather's 90 m radius floor; a request that ends on a question with the quest open (143506, 155833); nothing wakes him after "casting again once it recharges"; cooking at startup colliding with the first request.
+
+## 2026-11-16 16:29Z-17:35Z: Getting Started alone 4 of 5; the rock no swing hurt is found and fixed (d064ed8)
+**Getting Started, K=5 from `gs_start`** (16:29Z-16:51Z; Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend about $2.47 of the $20 cap):
+
+| run | result | time | misses | first thing that went wrong (ledger) |
+|---|---|---|---|---|
+| 163129 | pass | 75.8 s, 0.63 times the human time | 0 | |
+| 163509 | pass | 133.1 s, 0.91 times | 0 | |
+| 164016 | pass | 103.4 s, 0.81 times | 1 | |
+| 164410 | pass | 111.8 s, 0.80 times | 1 | |
+| 164817 | fail | 96.4 s, 0.69 times | 2 | model: `craft` before the materials were there (`missing_materials`), then `give {player: Doric}` (`unknown_target`) |
+
+- **Rates after it:** Getting Started from `gs_start` 4 of 5; Getting Started 3 of 10 over all; Rune Mysteries 3 of 10; Rune Mysteries from `rm_part2` 3 of 8; Ratcatcher 7 of 10; First Steps 10 of 10. The chain guard is held only by Rune Mysteries (1 of its last 5).
+- **Ledger:** 30 failed runs, none untagged, 2 void. The cause with the most open runs was the essence rock that took no damage (154701, 155233).
+- **The mechanism (hand probes ClaudeP161652 and ClaudeP161704, no model; DISCOVERIES "The swing has a height"):** the pickaxe's damage shape is a level box 100 cm tall about his middle. The rock sits in a rise; from where gather stood (his own side, the high side) the box passed 35 to 107 cm over its top. Looking down does not tilt it (27 swings at -71 degrees, nothing): that idea is binned.
+- **Changed (d064ed8, negative tests first: 8 new checks failed on the old code; test_gather 168, test_client_bridge 56, test_skills 102):**
+  - gather reads the tool's swing height from the game's own damage shape (the shared reach service, `mod/body/reach.lua`, now also gives the shape's height band) and the rock's bounds, and stands at the nearest place round the rock whose floor puts the rock inside the swing. His own side is still first, so on level ground nothing changes.
+  - A rock out of the swing from every side takes no swing, and the result says "N sits too low (or too high) for my <tool> to hit from anywhere I can stand beside it".
+  - Found on the way: the walk "to the other side" was stopped on its first tick, so both rounds of aims came from one spot, and its flag made the next target "unreachable: stuck". A press he had to wait for stamina to make now counts as a swing that ran (two real rounds at three trees ran his stamina out in the test world and the old rule called the controls broken).
+- **Live (probe ClaudeP161729, 17:31Z):** the same rock, hp 60, from the same start: "standing 135 deg round it: only 7 cm of it is inside my swing there, the most from any side", then five hits in five swings and the rock broke; 14.6 s, 5 essence. Before: 27 swings and 53 s for nothing, four times over. Runs 154701 and 155233 are tagged fixed.
+- **Limits.** One live trial at one rock. The second part of the probe (a geyser-J rock approached from its high side) did not run: that rock was not in look's capped list. The "too low" and "too high" wording has not been seen live. If the walk's 35 cm arrival tolerance ends on the high side of a sharp step he swings from there first and goes round only after a round of aims. The height check is for rocks and trees, not yet for log pieces. Reports were not judged for truth.
+- **Open, each with one run:** `craft` before the materials and a give to an NPC (Getting Started, 3 runs, 1 open); talk that opened no conversation (cause not found); gather's "used up" wording (c28130d, not yet seen live); cooking at startup across the first request.
