@@ -17,9 +17,12 @@ local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
 local M = { U = U }
 
 M.cfg = {
-    max_m = 30, keep_m = 14, min_m = 3,  -- shoot from up to max_m; walk to about keep_m when farther
+    max_m = 25, keep_m = 12, min_m = 3,  -- shoot from up to max_m; walk to about keep_m when farther (combat.lua's ranged_max_m / ranged_keep_m)
     aim_s = 1.0,                          -- aim hold when the game's full-accuracy time can't be read
-    fire_frames = 2, shots = 6,           -- presses per shot; shots per call
+    fire_frames = 3, shots = 6,           -- frames of the release tap (combat.lua's tap_frames); shots per call
+    nock_s = 1.25,                        -- a bow nocks the next arrow this long after a release when the nock can't be read
+    repress_s = 0.8,                      -- aim held this long without aim mode: let go and press it again
+    left_cm = 150,                        -- an arrow this far from the muzzle has left the bow
     proj_search_frames = 30,              -- look for the new projectile only this many frames after a shot
     verify_s = 2.5,                       -- after a shot: wait this long for the target to react
     fell_cm = 80,                         -- the target dropped at least this much = knocked down
@@ -78,6 +81,25 @@ function W.params(pawn) local Rg = mod("ranged"); return Rg and Rg.read_weapon_p
 function W.muzzle(pawn) local Rg = mod("ranged"); return Rg and Rg.muzzle(pawn, Rg.ranged_component(pawn)) end
 function W.camera(pc) local Rg = mod("ranged"); return Rg and Rg.camera_location(pc) end
 function W.projectiles() local Rg = mod("ranged"); return Rg and Rg.projectile_ids() or {} end
+-- The bow's own state, as combat.lua reads it every frame: aim mode on, an arrow nocked, that arrow's actor.
+-- nil when what he holds has no ranged component (a staff) or it can't be read.
+function W.bow(pawn)
+    local Rg = mod("ranged")
+    local comp = Rg and Rg.ranged_component and U.try(Rg.ranged_component, pawn)
+    if not U.valid(comp) then return nil end
+    local wa = U.try(function() return comp.RangedWeaponActor end)
+    local lp = U.valid(wa) and U.try(function() return wa.LoadedProjectile end) or nil
+    local loaded = nil
+    if U.valid(wa) then loaded = U.valid(lp) and true or false end
+    return { aim = U.try(function() return comp:IsAimModeActive() end), loaded = loaded, arrow = loaded and lp or nil, arrow_id = loaded and U.short(lp) or nil }
+end
+-- Is this projectile his own (not another player's bolt)? combat.lua's reader; unreadable: assume it is.
+function W.mine(a, pawn, pc)
+    local cb = mod("combat")
+    if cb and cb.own_projectile then return U.try(cb.own_projectile, a, pawn, pc) ~= false end
+    return true
+end
+function W.short(a) return U.short(a) end
 function W.face(pc, rot) pcall(function() pc:SetControlRotation(rot) end) end
 function W.gate()
     local inp = mod("input")
@@ -96,6 +118,13 @@ end
 function W.target_state(actor)
     if not U.alive(actor) then return { alive = false } end
     return { alive = true, pos = U.loc(actor), hp = num(U.health(actor)) }
+end
+-- The middle and half-size of the thing's bounds (colliding parts only), cm: an actor's origin can sit at its foot
+-- or off to one side of what an arrow has to hit (move.lua reads a door the same way).
+function W.bounds(actor)
+    local ok, o, e = pcall(function() local o2, e2 = {}, {}; actor:GetActorBounds(true, o2, e2, false); return o2, e2 end)
+    if not (ok and type(o) == "table" and tonumber(o.X) and tonumber(o.Y) and tonumber(o.Z)) then return nil end
+    return { mid = { X = o.X, Y = o.Y, Z = o.Z }, ext = type(e) == "table" and tonumber(e.X) and { X = e.X, Y = e.Y, Z = e.Z } or nil }
 end
 -- go_to with move's shared approach-progress tracker (measured to the TARGET; stalled = no 0.5 m gain for stall_s,
 -- too_long past budget_s) instead of a flat timer (simplify review 2026-10-26)
@@ -153,6 +182,16 @@ local function frame(J)
     J.t = W.now(pawn) or J.t
     if J.own == "suspended" or J.own == "waiting" then return end
     local ts = W.target_state(J.actor)
+    if J.weapon.kind == "ranged" then -- the bow's own state, every frame (logged on change)
+        local b, was = W.bow(pawn), J.bow
+        if b then
+            if b.loaded == true and (b.arrow_id ~= (was and was.arrow_id) or (was and was.loaded) ~= true) then J.loaded_t = J.t end
+            if b.aim == true and (was and was.aim) ~= true then J.aim_on_t = J.t end
+            local st = string.format("aim=%s loaded=%s", tostring(b.aim), tostring(b.loaded))
+            if st ~= J.bow_st then J.bow_st = st; say(J.log, string.format("bow %s (%.2f s since the release)", st, J.t - (J.last_press_t or J.t))) end
+        end
+        J.bow = b
+    end
     -- per frame: aim at the target while aiming; hold / fire inputs (own input modes allowed: the bow's aim mode)
     local me = W.loc(pawn)
     if J.aiming and ts.alive and ts.pos then
@@ -171,7 +210,21 @@ local function frame(J)
     if J.shot then -- sample the projectile for learning
         J.shot.frames = (J.shot.frames or 0) + 1
         if not J.shot.proj and J.shot.frames <= M.cfg.proj_search_frames then
-            for id, a in pairs(W.projectiles()) do if not J.shot.ids_before[id] then J.shot.proj = a; break end end
+            -- the arrow that flies is the one that was nocked at the release; the next one the bow nocks is a new
+            -- projectile actor too, but it sits on the bow (combat.lua, live 2026-11-02; here live 2026-11-16: following
+            -- it scored every shot "27.6 m off", his own range). So: never the arrow on the bow now, and for a bow only
+            -- one that has left the muzzle.
+            local cands = {}
+            if J.shot.arrow and U.alive(J.shot.arrow) then cands[#cands + 1] = J.shot.arrow end
+            for id, a in pairs(W.projectiles()) do
+                if not J.shot.ids_before[id] and W.mine(a, pawn, J.pc) then cands[#cands + 1] = a end
+            end
+            local on_bow = J.bow and J.bow.arrow_id
+            for _, a in ipairs(cands) do
+                local p = U.loc(a)
+                local left = J.weapon.kind ~= "ranged" or not J.shot.muzzle or (p and U.dist(p, J.shot.muzzle) > M.cfg.left_cm)
+                if left and (not on_bow or W.short(a) ~= on_bow) then J.shot.proj = a; break end
+            end
         end
         local pp = J.shot.proj and U.alive(J.shot.proj) and U.loc(J.shot.proj) or nil
         J.aimer:sample(J.t, pp, ts.pos)
@@ -219,13 +272,47 @@ local function frame(J)
     if J.phase == "aim" then
         if not J.aiming then
             J.aiming, J.aim_t0 = true, J.t
+            if not J.bounds_said and ts.pos then
+                J.bounds_said = true
+                local b, mz = W.bounds(J.actor), W.muzzle(pawn)
+                say(J.log, string.format("target origin (%.0f,%.0f,%.0f)%s; muzzle %s", ts.pos.X, ts.pos.Y, ts.pos.Z,
+                    b and string.format("; bounds middle %+.0f,%+.0f,%+.0f cm from it, half-size %s", b.mid.X - ts.pos.X, b.mid.Y - ts.pos.Y, b.mid.Z - ts.pos.Z,
+                        b.ext and string.format("%.0f,%.0f,%.0f", b.ext.X, b.ext.Y, b.ext.Z) or "?") or "; bounds unread",
+                    mz and string.format("(%.0f,%.0f,%.0f)", mz.X, mz.Y, mz.Z) or "unread"))
+            end
             if J.weapon.kind == "ranged" and J.acts.secondary then J.hold = J.acts.secondary end
         end
         if J.sol_why == "out_of_range" then J.aiming, J.hold = false, nil; return set_phase(J, "approach", "out of the projectile's range") end
-        local need = J.weapon.kind == "ranged" and (J.prm.full_accuracy_s or M.cfg.aim_s) or 0.3
-        if J.t - J.aim_t0 >= need and J.sol then
+        local bow = J.weapon.kind == "ranged"
+        local b = bow and J.bow or nil
+        -- aim held but the bow is not in aim mode: let go of it and press it again, as a player does (combat.lua,
+        -- live 2026-11-02 05:07: the held key did not bring aim mode back and he stood 77 s)
+        if b and b.aim == false and J.hold and J.t - J.aim_t0 > M.cfg.repress_s and J.t - (J.repress_t or -9) > 1.5 then
+            J.repress_t, J.hold = J.t, nil
+            J.represses = (J.represses or 0) + 1
+            say(J.log, string.format("aim held %.1f s but the bow is not drawing; pressing aim again", J.t - J.aim_t0))
+            return
+        end
+        if bow and J.acts.secondary and not J.hold and J.t - (J.repress_t or -9) > 0.15 then J.hold = J.acts.secondary end
+        local need = bow and (J.prm.full_accuracy_s or M.cfg.aim_s) or 0.3
+        -- the draw runs from the latest of: aim started, aim mode came on, this arrow was nocked (when the nock
+        -- can't be read: the usual nock time after the last release). Releasing before the nock looses nothing
+        -- (live 2026-11-16: 6 presses 2.5 s apart with the aim key let go after each spent 1 arrow of 20).
+        local from = J.aim_t0
+        if bow then
+            if b and b.aim == true and J.aim_on_t then from = math.max(from, J.aim_on_t) end
+            if J.last_press_t then
+                if (J.loaded_t or -1) > J.last_press_t then from = math.max(from, J.loaded_t)
+                else from = math.max(from, J.last_press_t + M.cfg.nock_s) end
+            end
+        end
+        local ready = not (b and (b.loaded == false or b.aim == false))
+        if ready and J.t - from >= need and J.sol then
             J.s0 = ts
             J.shot = J.aimer:fired(J.t, J.sol, W.projectiles(), W.muzzle(pawn))
+            J.shot.arrow = b and b.arrow or nil
+            J.last_press_t = J.t
+            say(J.log, string.format("release at %.2f s aimed, %.2f s drawn; %s", J.t - J.aim_t0, J.t - from, J.bow_st or "bow state unread"))
             J.fire = { act = J.acts.primary, frames = M.cfg.fire_frames }
             J.shots = (J.shots or 0) + 1
             C().counts.shots = C().counts.shots + 1
@@ -235,11 +322,20 @@ local function frame(J)
     end
     if J.phase == "verify" then
         if J.fire then return end
-        J.hold = nil
+        -- the aim key stays held through the release and on to the next shot: letting go 0.15-0.2 s after the tap
+        -- lost the arrow (combat.lua, live 2026-11-02 05:19 "no projectile")
         local out = M.outcome(J.s0, ts, M.cfg.fell_cm)
         if out or J.t - J.phase_t >= M.cfg.verify_s then
             local res = J.aimer:finish(out ~= nil)
             J.shot = nil
+            do -- what the shot did, readable: where the projectile passed relative to the target
+                local m, f = res and res.miss, res and res.fit
+                say(J.log, string.format("shot %d %s: %s; %d samples%s; target hp %s -> %s", J.shots, out or "no effect",
+                    m and string.format("passed %.1f m from its origin (%+.1f m up, %+.1f m right, %+.1f m along) %.2f s after the release",
+                        m.dist_cm / 100, (m.vertical_cm or 0) / 100, (m.lateral_cm or 0) / 100, (m.along_cm or 0) / 100, m.t or 0) or "no projectile followed",
+                    res and res.samples or 0, f and f.speed and string.format(", flew %.0f cm/s gz %.0f", f.speed, f.gz or 0) or "",
+                    tostring(J.s0 and J.s0.hp), tostring(ts.hp)))
+            end
             if res and res.miss and res.miss.dist_cm then J.last_miss_cm = math.floor(res.miss.dist_cm) end
             if out then
                 J.hits = (J.hits or 0) + 1

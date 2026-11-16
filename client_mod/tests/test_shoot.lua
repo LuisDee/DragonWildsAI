@@ -57,6 +57,10 @@ W.params = function() return { has_ammo = Wd.ammo, speed = 4000, gz = -980, full
 W.muzzle = function() return { X = Wd.pawn.X, Y = Wd.pawn.Y, Z = Wd.pawn.Z + 150 } end
 W.camera = function() return { X = Wd.pawn.X, Y = Wd.pawn.Y, Z = Wd.pawn.Z + 150 } end
 W.projectiles = function() return {} end
+W.bow = function()
+    if not Wd.bow_on or Wd.bow_unread then return nil end
+    return { aim = Wd.aim_on == true, loaded = Wd.loaded == true, arrow = Wd.loaded and {} or nil, arrow_id = Wd.loaded and ("arrow@" .. tostring(Wd.nock_until or 0)) or nil }
+end
 W.face = function(_, rot) Wd.rot = rot end
 W.gate = function() return Wd.modal end
 W.inject = function(a) Wd.held_now = Wd.held_now or {}; Wd.held_now[a.n] = true; return true end
@@ -77,6 +81,16 @@ local function step(dt)
     end
     local h = Wd.held_now or {}
     Wd.held_now = {}
+    if Wd.bow_on then -- a bow as the game runs it (live 2026-11-02 and 2026-11-16)
+        if Wd.aim_stuck then -- the held aim key did not bring aim mode on: only letting go and pressing again does
+            if not h.secondary then Wd.aim_stuck = false end
+            Wd.aim_on = false
+        else Wd.aim_on = h.secondary == true end
+        Wd.loaded = T >= (Wd.nock_until or 0) -- the next arrow is on the string 1.25 s after a release
+        if not Wd.aim_on and Wd.release_t and T - Wd.release_t < 0.2 and Wd.pending then -- aim let go right after the tap: the arrow is lost
+            Wd.pending = nil; Wd.lost = (Wd.lost or 0) + 1
+        end
+    end
     if h.primary and not Wd.prev_primary and Wd.rot then
         -- the shot: right if the camera's yaw points at the rock and its pitch is at/above the straight line
         local m = { X = Wd.pawn.X, Y = Wd.pawn.Y, Z = Wd.pawn.Z + 150 }
@@ -84,8 +98,10 @@ local function step(dt)
         local yaw = math.deg(math.atan(r.Y - m.Y, r.X - m.X)) + Wd.aim_err
         local los = math.deg(math.atan(r.Z - m.Z, math.sqrt((r.X - m.X) ^ 2 + (r.Y - m.Y) ^ 2)))
         local good = math.abs((Wd.rot.Yaw - yaw + 540) % 360 - 180) < 2 and Wd.rot.Pitch >= los - 0.5 and Wd.rot.Pitch <= los + 15
-        Wd.shots_fired = (Wd.shots_fired or 0) + 1
-        if good then
+        local loosed = not Wd.bow_on or (Wd.loaded and Wd.aim_on)
+        if loosed then Wd.shots_fired = (Wd.shots_fired or 0) + 1 else Wd.dry = (Wd.dry or 0) + 1 end -- a press with no arrow drawn looses nothing
+        if Wd.bow_on and loosed then Wd.nock_until, Wd.release_t = T + 1.25, T end
+        if good and loosed then
             Wd.pending = { t = T + 0.4, fn = function()
                 r.hp = r.hp - 10
                 if not Wd.tough then r.Z = 0 end -- knocked out of the sky
@@ -145,6 +161,19 @@ do
     reset({ tough = true })
     local res = run({ target = "rock_1", shots = 2 })
     check("hit but still up", res.reason == "verification_failed" and res.data.why == "not_down_yet" and res.data.hits == 2, tostring(res.data and res.data.why))
+end
+do -- a real bow: every press looses an arrow (live 2026-11-16: 6 presses spent 1 arrow of 20, none hit)
+    reset({ tough = true }); Wd.bow_on = true
+    local res = run({ target = "rock_1", shots = 3 })
+    check("bow: 3 shots are 3 arrows, none dry, none lost", Wd.shots_fired == 3 and (Wd.dry or 0) == 0 and (Wd.lost or 0) == 0 and res.data.hits == 3,
+        string.format("fired %s dry %s lost %s hits %s", tostring(Wd.shots_fired), tostring(Wd.dry), tostring(Wd.lost), tostring(res.data and res.data.hits)))
+    reset({ tough = true }); Wd.bow_on, Wd.bow_unread = true, true
+    res = run({ target = "rock_1", shots = 3 })
+    check("bow whose state can't be read: still 3 arrows by the nock time", Wd.shots_fired == 3 and (Wd.dry or 0) == 0 and (Wd.lost or 0) == 0,
+        string.format("fired %s dry %s lost %s", tostring(Wd.shots_fired), tostring(Wd.dry), tostring(Wd.lost)))
+    reset(); Wd.bow_on, Wd.aim_stuck = true, true
+    res = run({ target = "rock_1", shots = 2 })
+    check("aim held but no aim mode: pressed again, then the shot", res.ok == true and (Wd.dry or 0) == 0, tostring(res.reason) .. " dry " .. tostring(Wd.dry))
 end
 do
     reset({ held = false })
