@@ -3458,7 +3458,7 @@ M.MANIFEST = {
         detail_is_speech = SPEAKS,
         description = "Hand carried items to a player the way players do (the game has no trade): walk to him (any "
             .. "distance), step in front of him, face him, drop the count at his feet and check it lies there. He "
-            .. "picks it up himself.",
+            .. "picks it up himself. Players only: an NPC takes what a quest asks for in the talk with them (talk).",
         args = { type = "object", required = { "player", "item", "count" }, properties = obj({
             player = str("The player's exact name."), item = str("A carried item's name or id."),
             count = { type = "integer", minimum = 1, description = "How many." } }) },
