@@ -1865,6 +1865,81 @@ check("progress: fleeing target -> cant_catch", p38 and p38.verdict == "stalled"
     p38 and (p38.verdict .. " " .. tostring(p38.why)) or "never")
 MZ.stop(log); frame_hook = nil
 
+do -- 38b-38d in a block (the main chunk is at Lua's 200-locals limit)
+zreset()
+-- 38b. a setback is no stall while he is closing in again (live 20261116-184943, Ratcatcher: 8.8 m from a rat up a
+--      hill he fell 5.8 m, climbed again, and 12 s after his best distance the chase ended "the Giant Rat keeps moving
+--      away faster than I can catch up" while he was running at it 12.7 m off; the next attack reached it in 7 s)
+luis.loc = { X = 4000, Y = 0, Z = 0 }
+local fell38
+frame_hook = function()
+    luis.loc.Y = luis.loc.Y + 60 * DT -- it wanders, 0.6 m/s
+    if not fell38 and pawn.loc.X > 3000 then fell38 = T; pawn.loc.X = pawn.loc.X - 2800 end
+end
+MZ = dofile(MOVE)
+MZ.follow(log, { actor = luis }, 2, { nav=false, progress = { stall_s = 3 } })
+local p38b, t38b = nil, T
+while T - t38b < 14 do
+    run(1)
+    local p = MZ.status().progress
+    if p.verdict ~= "ok" then p38b = p; break end
+end
+local d38b = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^ 2)
+check("progress: thrown back 28 m, he closes in again and is not called stalled", fell38 ~= nil and p38b == nil and d38b < 400,
+    (p38b and (p38b.verdict .. " " .. tostring(p38b.why) .. " at " .. tostring(p38b.dist_m) .. " m, best " .. tostring(p38b.best_dist_m)) or "ok")
+    .. " d=" .. math.floor(d38b) .. " fell=" .. tostring(fell38))
+MZ.stop(log); frame_hook = nil
+
+zreset()
+-- 38c. the budget grows with the way there (budget_per_m): 40 m to a thing that stands still is a walk, not a chase
+luis.loc = { X = 4000, Y = 0, Z = 0 }
+MZ = dofile(MOVE)
+MZ.follow(log, { actor = luis }, 2, { nav=false, progress = { stall_s = 3, budget_s = 2, budget_per_m = 0.5 } })
+local p38c, t38c = nil, T
+while T - t38c < 12 do
+    run(1)
+    local p = MZ.status().progress
+    if p.verdict ~= "ok" then p38c = p; break end
+end
+check("progress: a budget with budget_per_m is not over on the walk there (2 s + 0.5 s a metre of 40 m)",
+    p38c == nil and MZ.status().progress.budget_s and math.abs(MZ.status().progress.budget_s - 22) < 1.5,
+    (p38c and (p38c.verdict .. " " .. tostring(p38c.why) .. " after " .. tostring(p38c.elapsed_s) .. " s") or "ok") .. " budget=" .. tostring(MZ.status().progress.budget_s))
+MZ.stop(log)
+
+zreset()
+-- 38d. over the budget while he IS closing in again on a thing that moves: "too_long", never "it keeps moving away
+--      faster than I can catch up" (the thing moved since his best distance, but he is the one who fell back)
+luis.loc = { X = 6000, Y = 0, Z = 0 }
+local fell38d
+frame_hook = function()
+    luis.loc.X = luis.loc.X + 150 * DT -- 1.5 m/s away, far slower than he runs
+    if not fell38d and pawn.loc.X > 3000 then fell38d = T; pawn.loc.X = pawn.loc.X - 3000 end
+end
+MZ = dofile(MOVE)
+MZ.follow(log, { actor = luis }, 2, { nav=false, progress = { stall_s = 6, budget_s = 8, moving_m = 2 } })
+local p38d
+for _ = 1, 150 do run(1); local p = MZ.status().progress; if p.verdict ~= "ok" then p38d = p; break end end
+check("progress: over the budget while closing in -> too_long, not cant_catch", fell38d ~= nil and p38d and p38d.verdict == "stalled" and p38d.why == "too_long",
+    (p38d and (p38d.verdict .. " " .. tostring(p38d.why) .. " moved=" .. tostring(p38d.target_moved_m) .. " at " .. tostring(p38d.dist_m)
+        .. " best " .. tostring(p38d.best_dist_m) .. " after " .. tostring(p38d.elapsed_s)) or "never") .. " fell=" .. tostring(fell38d))
+-- 38e. a thing that wanders while he stands at a wall is no ground made good: still stalled
+zreset()
+luis.loc = { X = 3000, Y = 0, Z = 0 }
+walls = { { 900, 1100, -9000, 9000, true } }
+local t38e = T
+frame_hook = function() -- from 2 s on it goes 5 m further off and comes back, again and again; he is behind a wall he cannot pass
+    luis.loc.X = 3000 + 500 * math.abs(math.sin(math.max(0, T - t38e - 2) * 0.8))
+end
+MZ = dofile(MOVE)
+MZ.follow(log, { actor = luis }, 2, { nav=false, local_plan = false, progress = { stall_s = 5 } })
+local p38e
+while T - t38e < 20 do run(1); local p = MZ.status().progress; if p.verdict ~= "ok" then p38e = p; break end end
+check("progress: the thing coming back nearer while he stands at a wall is not progress", p38e ~= nil and T - t38e < 9,
+    (p38e and (p38e.verdict .. " " .. tostring(p38e.why)) or "never") .. " after " .. tostring(T - t38e) .. " s, pawn x=" .. math.floor(pawn.loc.X))
+walls = {}
+MZ.stop(log); frame_hook = nil
+end
+
 zreset()
 -- 39. follow that arrives and idles: stays "ok" however long he waits near the leader
 luis.loc = { X = 1000, Y = 0, Z = 0 }

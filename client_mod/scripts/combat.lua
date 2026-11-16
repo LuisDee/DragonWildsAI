@@ -72,6 +72,7 @@ M.cfg = {
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
     chase_max_s = 30, -- approaching (all episodes) this long without landing a hit: too_far, cant_catch
+    chase_per_m_s = 0.5, -- and this much longer for each metre he starts away: the walk to a rat 58 m off up a hill is no chase
     approach_stall_s = 12, approach_gain_m = 0.5, -- approach: no 0.5 m gain for 12 s = blocked (path_blocked)
     impact_attrib_s = 0.8, max_retargets = 4, -- an HP drop this soon after a creature's impact event is its hit
     conversation_retry_s = 2.0, conversation_leave_s = 5.0, -- leaving an NPC dialogue for a fight (talk finding 8)
@@ -1703,7 +1704,8 @@ local function follow_target(F, dist_m, sprint)
     F.follow_t = F.t
     local cfg = M.cfg
     local r = mcall("move", "follow", F.log, F.target_id, dist_m, { sprint = sprint, face_when_near = true, nav = false, owner_token = F.token,
-        progress = { stall_s = cfg.approach_stall_s, gain_m = cfg.approach_gain_m, budget_s = cfg.chase_max_s, moving_m = cfg.chase_moved_m } })
+        progress = { stall_s = cfg.approach_stall_s, gain_m = cfg.approach_gain_m, budget_s = cfg.chase_max_s, budget_per_m = cfg.chase_per_m_s,
+                     moving_m = cfg.chase_moved_m } })
     F.drove_move = true
     F.following = r and r.ok ~= false
     return F.following

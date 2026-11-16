@@ -69,7 +69,8 @@
 -- APPROACH PROGRESS (one "can't get closer" watchdog for combat/skills/shoot): every go_to/follow fills
 --   M.status().progress = {verdict = "ok"|"stalled"|"unreachable", why, dist_m, best_dist_m, since_s (since
 --   the last gain), elapsed_s (approach time, idle-near excluded), target_moved_m}; opts.progress =
---   {stall_s=12, gain_m=0.5, budget_s, moving_m=3, to={x,y,z}}. whys: move's reasons (no_route, ...,
+--   {stall_s=12, gain_m=0.5, budget_s, budget_per_m (more budget for each metre he starts away), moving_m=3,
+--   setback_m=3, to={x,y,z}}. Thrown back (a fall), the ground he makes good again is progress. whys: move's reasons (no_route, ...,
 --   needs:X) | cant_catch | too_long | blocked | no_progress | target_not_visible. M.progress_reset(log[, opts]).
 --   M.why_words(why, thing) -> the clause for "I can't get to <thing>: <clause>." (one table for everyone).
 -- Units: metres on the API (wire units), centimetres inside.
@@ -196,7 +197,8 @@ M.cfg = {
     -- approach progress tracker (status().progress), defaults for opts.progress
     progress_stall_s = 12,     -- no gain of progress_gain_m for this long = stalled
     progress_gain_m = 0.5,
-    progress_moving_m = 3,     -- target moved this far since the best distance = it is running away (cant_catch)
+    progress_moving_m = 3,     -- target moved this far since his last progress = it is running away (cant_catch)
+    progress_setback_m = 3,    -- this much further off than he had been (a fall, a knock-back, it ran): ground he makes good from there is progress
     deadline_cap_s = 285,      -- go_to deadline ceiling (client_bridge GOTO_TIMEOUT_S = 290)
     trip_progress_s = 20,      -- a go_to longer than trip_progress_min_cm writes a progress line this often (ISSUES C2:
     trip_progress_min_cm = 4000, -- 147 s silent on a 274 m walk): client_io/events/move.jsonl {"type":"trip_progress"}
@@ -1999,6 +2001,7 @@ local function progress_new(o)
     local to = type(o.to) == "table" and tonumber(o.to[1]) and { X = o.to[1] * 100, Y = o.to[2] * 100, Z = (o.to[3] or 0) * 100 } or nil
     return { stall_s = tonumber(o.stall_s) or M.cfg.progress_stall_s, gain = (tonumber(o.gain_m) or M.cfg.progress_gain_m) * 100,
              budget_s = tonumber(o.budget_s), moving_cm = (tonumber(o.moving_m) or M.cfg.progress_moving_m) * 100,
+             per_m = tonumber(o.budget_per_m), setback = (tonumber(o.setback_m) or M.cfg.progress_setback_m) * 100,
              to = to, elapsed = 0 }
 end
 
@@ -2007,14 +2010,23 @@ local function progress_tick(st, t, me, goal, dist, near)
     if not P then return end
     local d = P.to and d2(me, P.to) or dist
     P.dist, P.tpos = d, v(goal)
+    -- the budget is for a chase, not for the way there: it grows with the distance he starts at
+    if P.per_m and not P.d0 then P.d0 = d; P.budget_s = (P.budget_s or 0) + P.per_m * d / 100 end
     -- a gap between frames (paused by the world-teardown guard, or the loop was starved) restarts the window
     local gap = P.last_t and (t - P.last_t) or nil
     if not gap or gap > 2 then P.best_t = t; P.best_tpos = v(goal) end
     if near then
-        P.best, P.best_t, P.best_tpos = d, t, v(goal)
+        P.best, P.best_t, P.best_tpos, P.back, P.back_me = d, t, v(goal), nil, nil
     else
         P.elapsed = P.elapsed + ((gap and gap >= 0 and gap <= 2) and gap or 0)
-        if not P.best or d < P.best - P.gain then P.best, P.best_t, P.best_tpos = d, t, v(goal) end
+        if not P.best or d < P.best - P.gain then P.best, P.best_t, P.best_tpos, P.back, P.back_me = d, t, v(goal), nil, nil
+        -- Thrown back (a fall, a knock-back, the thing ran off), the ground he makes good again is progress too: best_t is
+        -- the time of his last progress, best stays the nearest he has been. Only ground HE covers counts (a thing that
+        -- wanders nearer while he stands at a wall is none), and being thrown back restarts no clock. Live
+        -- 20261116-184943: 8.8 m from a rat up a hill he fell 5.8 m; 12 s after that best, running at it 12.7 m off, the
+        -- chase was called stalled and "the Giant Rat keeps moving away faster than I can catch up".
+        elseif P.back and d < P.back - P.gain and d2(me, P.back_me) >= P.gain then P.back, P.back_me, P.best_t, P.best_tpos = d, v(me), t, v(goal)
+        elseif d > (P.back or P.best) + P.setback then P.back, P.back_me = d, v(me) end
     end
     P.last_t = t
 end
@@ -5249,7 +5261,7 @@ function M.progress_reset(log, opts)
     if st.mode == "idle" then return { ok = false, error = "no move running" } end
     local P = st.prog_tr
     if opts ~= nil or not P then st.prog_tr = progress_new(opts or (st.args and st.args.opts and st.args.opts.progress)); P = st.prog_tr
-    else P.best, P.best_t, P.best_tpos, P.elapsed = nil, nil, nil, 0 end
+    else P.best, P.best_t, P.best_tpos, P.back, P.back_me, P.elapsed = nil, nil, nil, nil, nil, 0 end
     P.last_t = nil -- the next frame starts a fresh window
     return { ok = true }
 end

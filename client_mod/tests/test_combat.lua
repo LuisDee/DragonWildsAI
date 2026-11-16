@@ -1164,6 +1164,9 @@ do
     check("chase: too_far / cant_catch, never a bare timeout", r4 and r4.reason == "too_far" and r4.data.why == "cant_catch", r4 and r4.reason)
     check("chase: ends on the chase budget (~30 s)", T - t0 < 40, T - t0)
     check("chase: says what happened", r4 and r4.data.detail:find("the Kebbit keeps moving away", 1, true) ~= nil, r4 and r4.data and r4.data.detail)
+    -- the budget is for a chase, not for the walk to a thing far off (live 20261116-184943: a rat 57.8 m away up a hill)
+    check("chase: move is told to give the budget more for each metre he starts away", MV.opts and type(MV.opts.progress) == "table"
+        and MV.opts.progress.budget_s == 30 and (tonumber(MV.opts.progress.budget_per_m) or 0) > 0, MV.opts and MV.opts.progress and MV.opts.progress.budget_per_m)
     world.on_step = nil
     A.reset(nil)
 end
