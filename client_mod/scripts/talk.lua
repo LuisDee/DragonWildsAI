@@ -296,7 +296,7 @@ function W.scalars(pc)
     -- game's own "a conversation is up" switch (input.lua's modal kind uses it too): either signal counts.
     local by_mode = type(mode) == "string" and mode:find("Conversation", 1, true) ~= nil
     return { active = n > 0 or by_mode, by_mode = by_mode and n == 0 or nil, npc = U.short(U.try(function() return comp.CurrentNPC end)),
-             mode = mode, count = HK().count }
+             mode = mode, n = n, count = HK().count }
 end
 -- The dialogue panel of THIS player (finding 15): find_all + skip_defaults + valid + the participant matches;
 -- cached, re-validated per call.
@@ -502,6 +502,21 @@ local function fail(J, reason, why, detail, extra)
     d.why, d.detail = why, detail
     return finish(J, result_of(J, false, reason, d))
 end
+-- A press that opened nothing says what the press itself saw (live 2026-11-16 12:37Z: two talks on Zanik pressed
+-- twice each, opened nothing, and the result carried none of it): the prompt the game showed on them, the presses,
+-- what the press changed instead, and the game's own conversation read at that moment.
+local function no_conversation(J, sc, ed)
+    ed = type(ed) == "table" and ed or {}
+    local n = tonumber(ed.presses)
+    local prompt = type(ed.prompt) == "string" and ed.prompt or nil
+    local changed = type(ed.changed) == "string" and ed.changed or nil
+    return fail(J, "verification_failed", "no_conversation",
+        string.format("I pressed talk on %s%s%s but no conversation opened%s.", tostring(J.target.name or "them"),
+            n and n > 1 and string.format(" %d times", n) or "",
+            prompt and string.format(' (the prompt the game showed on them read "%s")', prompt) or "",
+            changed and (" (the press changed something else: " .. changed .. ")") or ""),
+        { prompt = prompt, presses = n, pressed = ed.target, changed = changed, input_mode = sc and sc.mode, conversations_active = sc and sc.n })
+end
 local function set_phase(J, ph, note) J.phase, J.phase_t = ph, J.t; say(J.log, "phase " .. ph .. (note and (" " .. note) or "")) end
 
 local function press(J, act, what)
@@ -641,13 +656,9 @@ local function frame(J)
             return
         end
         if res.ok and res.data and res.data.changed == "conversation" then return end -- the next tick reads it
-        if res.ok then
-            return fail(J, "verification_failed", "no_conversation", string.format("I pressed talk on %s but no conversation opened.", tostring(J.target.name or "them")))
-        end
+        if res.ok then return no_conversation(J, sc, res.data) end
         local d = res.data or {}
-        if res.reason == "verification_failed" then
-            return fail(J, "verification_failed", "no_conversation", string.format("I pressed talk on %s but no conversation opened.", tostring(J.target.name or "them")))
-        end
+        if res.reason == "verification_failed" then return no_conversation(J, sc, d) end
         return finish(J, { ok = false, reason = res.reason, data = { why = d.why or res.reason, detail = d.detail, target = J.target.id } })
     end
     if ph == "wait_update" then

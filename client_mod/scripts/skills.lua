@@ -985,7 +985,7 @@ local function episode_poll(api, e, t, owner_token)
         if t >= e.verify_until then
             -- never a second press while a conversation is up: E would advance or close the dialogue
             if e.presses < M.cfg.presses and not W.conversation_npc(api) then e.phase, e.face_until = "face", t + face_s(e); return nil end
-            return api.fail("verification_failed", { target = source.id, prompt = e.detector and e.detector.prompt,
+            return api.fail("verification_failed", { target = source.id, prompt = e.detector and e.detector.prompt, presses = e.presses,
                 detail = (e.water and e.need_gain) and "I pressed Collect Water but couldn't verify a gain of its expected item"
                     or ("pressed use on the " .. e.label .. "; nothing changed (inventory, the thing, sleep state, its prompt)") })
         end

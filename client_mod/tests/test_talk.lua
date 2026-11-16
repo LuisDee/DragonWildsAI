@@ -98,7 +98,7 @@ function SK._new_episode(api, thing) return { thing = thing, phase = "approach",
 function SK._episode_poll(api, e, t)
     e.t0 = e.t0 or t
     if e.phase == "approach" then if t - e.t0 > 1 then e.phase = "verify"; Wd.epresses = Wd.epresses + 1; if not Wd.mute then go("hello") end; e.vt = t end; return nil end
-    if t - e.vt > 3 then return { ok = false, reason = "verification_failed", data = { detail = "nothing changed" } } end
+    if t - e.vt > 3 then return { ok = false, reason = "verification_failed", data = { detail = "nothing changed", target = "NPC_X", prompt = "Talk", presses = 2 } } end
     return nil
 end
 local K = assert(loadfile(root .. "/client_mod/scripts/talk.lua"))()
@@ -332,6 +332,9 @@ do
     reset({ mute = true })
     res = talk({ target = "BP_NPC_WiseOldMan_C_1" })
     check("press with no dialogue: no_conversation", res.reason == "verification_failed" and res.data.why == "no_conversation", tostring(res.reason))
+    -- live 2026-11-16 12:37Z: the failure said nothing of what the press saw, so its cause could only be guessed at
+    check("no_conversation carries what the press saw", res.data.prompt == "Talk" and res.data.presses == 2 and res.data.pressed == "NPC_X"
+        and res.data.detail:find('2 times (the prompt the game showed on them read "Talk") but no conversation opened.', 1, true) ~= nil, res.data.detail)
 
     reset()
     talk({ target = "BP_NPC_WiseOldMan_C_1" })
