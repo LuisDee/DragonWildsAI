@@ -3371,3 +3371,10 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - Mined boulders stay broken across back-to-back runs (no respawn within ~1 h of play).
   - The drops of a broken boulder go into the bag by a collect press about 1 s after the break is seen; one pile can hold more than was asked (10 asked, 10-17 taken).
   - The harness's own chat send (`m1_session.send_speech_direct`: a Python process plus the server bridge) takes 1.3-2.6 s before the line exists in the game.
+- **Quests, stations and the client loader (live 2026-11-16, build 26574459).**
+  - Two quests share the name "Rune Mysteries": the quest list shows part 1 as complete while part 2 is open under the same name.
+  - Rune Altar is a build piece (12 Stone + 4 Rune Essence), not a world station to find. Rune Essence comes from floating essence geysers.
+  - A rat on a ledge returns to its spawn point when it can't be reached; pressing forward into the ledge gains nothing.
+  - A Campfire has one input slot and keeps a loaded input when it was never started. `HandleExternalQuickTransfer(slot)` with the resource inventory as source takes it back into the bag.
+  - Client Lua: skill modules (skills.lua, crafting.lua, ...) hot-load on file change; client_bridge.lua loads only at bridge start or client relaunch. An edit that adds an `api.*` function and uses it in a skill breaks the running client until the bridge is reloaded.
+  - Steam ignores an applaunch issued right after the client was killed. `tools/client_boot.ps1` exits 2 when another boot holds the lock.
