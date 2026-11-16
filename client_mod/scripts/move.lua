@@ -120,6 +120,7 @@ M.cfg = {
     lp_grid_up_m = 13,         -- ... when the goal is near but well above him (a stair or ramp up to it may turn back
                                -- past him: the Bramblemead Wise Old Man's switchback reaches 12 m out, 18:31Z)
     leap_land_cm = 130,
+    jump_land_cm = 130,        -- a jump onto another level has landed within this of its point, at the point's height
     below_max_cm = 500,        -- a go_to spot hanging over his floor up to this above his feet: arrived right under it        -- a leap's landing counts within this of the planned cell (he leaves the edge at speed)
     cam_taken_deg = 1.0,       -- the control rotation moved this far from move's own last write: another skill aims
     cam_yield_s = 0.6,         -- ... and move leaves the camera alone this long (renewed while it keeps aiming)
@@ -3288,6 +3289,8 @@ local function steer_typed_jump(f, p)
             if log then log("move: " .. detail .. "; re-planning from here") end
             return true
         end
+        note(st, detail)
+        if log then log("move: unreachable: no_route (the third failed jump of this approach: " .. tostring(detail) .. ")") end
         st.local_observe_done, st.nav_required, st.nav_fail = true, true, detail
         st.unreach = { reason = "no_route", since = t, check_t = t, leader_pos = v(goal) }
         st.status = "unreachable"
@@ -3321,7 +3324,17 @@ local function steer_typed_jump(f, p)
     if grounded == false then j.saw_air = true end
     if j.saw_air and grounded == true then
         local dz = math.abs((me.Z - st.half_h) - p.Z)
-        if d2(me, p) < (p.leap and M.cfg.leap_land_cm or M.cfg.lp_radius_cm) and dz < step_tol(st) then
+        -- a jump onto another level (a ledge) has landed when he stands on that level near its point; a jump across
+        -- a gap on one level only at the point (live 2026-11-16 09:53:58Z: on a 3 m ledge 72 cm from the cell centre
+        -- counted as the approach's third missed landing, and the attack ended path_blocked 7.3 m from the rat)
+        local off = d2(me, p)
+        local level = prev and math.abs(p.Z - prev.Z) > step_tol(st)
+        local within = p.leap and M.cfg.leap_land_cm or (level and M.cfg.jump_land_cm) or M.cfg.lp_radius_cm
+        if off >= within or dz >= step_tol(st) then
+            if log then log(string.format("move: landed %.0f cm from the jump's point (allowed %d) and %.0f cm off its height (allowed %.0f)",
+                off, within, dz, step_tol(st))) end
+        end
+        if off < within and dz < step_tol(st) then
             pcall(emit_self_edge, st, prev, p, p.act)
             if not owned(bind) then return true end
             if st.local_authority and st.lwp == #st.lpath then p.act = "walk" end

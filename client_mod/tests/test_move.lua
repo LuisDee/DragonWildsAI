@@ -3212,6 +3212,39 @@ do
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
+-- A jump onto a ledge has landed when he stands on the ledge: at the endpoint's height and within jump_land_cm of
+-- it, not only within a walk point's 45 cm (live 2026-11-16 09:53:58Z, chain 094732 Ratcatcher: the third jump of an
+-- approach put him on a 3 m ledge 72 cm from the planned cell, counted as the third miss, and the attack ended
+-- path_blocked 7.3 m from a rat he then walked straight to). A jump across a gap on one level keeps the 45 cm.
+do
+    local function land(rise, dx, dy)
+        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(5)
+        local mv = _G.DW_MOVE
+        local here = pawn.loc
+        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X + 100, Y = here.Y, Z = FLOOR + rise, act = "jump" },
+                     { X = here.X + 200, Y = here.Y, Z = FLOOR + rise, act = "walk" } }
+        mv.lwp = 2
+        mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
+                            started = T, saw_air = true }
+        mv.trav_fails, mv.lp_fail = nil, nil
+        pawn.loc = { X = here.X + 100 + dx, Y = here.Y + dy, Z = here.Z + rise }
+        air = 0
+        step(1)
+        return mv
+    end
+    local mv = land(300, 54, 48)
+    check("ledge jump: on the ledge 72 cm from the cell is landed", (mv.trav_fails or 0) == 0 and mv.lp_fail ~= "jump landing missed" and mv.unreach == nil,
+        "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(mv.lp_fail))
+    mv = land(300, 200, 0)
+    check("ledge jump: 2 m past the cell is still a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
+    mv = land(0, 54, 48)
+    check("gap jump on one level: 72 cm from the cell stays a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
+    M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
 -- ARRIVAL UNDER CONTROL (live 20:33:51Z, rung 3 mine: "arrived" at 6.8 m/s after a hop 1.6 m from the goal, then a 5 m
 -- slide out of reach of the rock): "arrived" waits until he has stopped in the circle; a rock AT the goal is not hopped
 do
