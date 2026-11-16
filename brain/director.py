@@ -533,8 +533,10 @@ PROXY_TOOL_DOCS = {
     "recipes": _fn("recipes", "Recipes: for an item (every recipe and its status) or a station type.",
                    {"item": {"type": "string"}, "station": {"type": "string"}}),
     "stations": _fn("stations", "Crafting and processing stations near him and their state.", {}),
-    "buildables": _fn("buildables", "Pieces he can build now (unlocked): name, material cost, what he still lacks. A "
-                      "station he needs and doesn't have is often a piece to build.",
+    "buildables": _fn("buildables", "Pieces he has unlocked: name, material cost, what he still lacks. A station he "
+                      "needs and doesn't have is often a piece to build. can_build_now keeps only those he has the "
+                      "materials for on him; the reply's cannot_build_now tells which matching pieces that left out "
+                      "and what each lacks.",
                       {"about": {"type": "string"}, "can_build_now": {"type": "boolean"}}),
 }
 

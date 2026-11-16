@@ -322,7 +322,8 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
     "gather": (GatherArgs, "Harvest a resource nearby until count is reached or it fails."),
     "craft": (CraftArgs, "Craft an item from carried materials."),
     "place": (PlaceArgs, "Build a saved blueprint at a location (later phase)."),
-    "give": (GiveArgs, "Hand carried items to a player (walks to them, drops at their feet)."),
+    "give": (GiveArgs, "Hand carried items to a player (walks to them, drops at their feet). Players only: the game "
+                       "has no give to an NPC, an NPC takes what it wants in its conversation (talk)."),
     "pickup": (PickupArgs, "Pick up an item lying on the ground into the companion's inventory."),
     "drop": (DropArgs, "Drop carried items on the ground (at the companion's or Luis's feet)."),
     "say": (SayArgs, "Chat output. Only the Controller speaks."),
