@@ -17,7 +17,7 @@ local function paused() return rawget(_G, "DW_PAUSE") == true end
 local function lower(s) return tostring(s or ""):lower() end
 local function need_str(v) return type(v) == "string" and v ~= "" end
 
-M.cfg = { max = 25, max_cap = 60 }
+M.cfg = { max = 25, max_cap = 60, describe_max = 8 }
 
 local function sense_U(api)
     local s = api.module("sense")
@@ -151,6 +151,99 @@ local function score(api, p, about)
     if lower(p.name) == lower(about) or lower(p.id) == lower(about) then return 2 end
     return api.match_score({ name = p.name, class = p.id, prompt = p.category, drops = p.description }, about)
 end
+-- The words of a name or an ask, with their singulars ("walls" -> walls, wall).
+local STOP = { a = true, an = true, the = true, ["and"] = true, ["or"] = true, of = true, ["in"] = true, on = true, to = true,
+               ["for"] = true, with = true, my = true, me = true, some = true, plus = true }
+local function toks(s)
+    local out, set = {}, {}
+    for w in lower(s):gmatch("[%a%d]+") do
+        if not set[w] then out[#out + 1] = w; set[w] = true end
+        if #w > 3 and w:sub(-1) == "s" then set[w:sub(1, -2)] = true end
+    end
+    return out, set
+end
+M._toks = toks
+-- Ranks pieces for an ask of several things ("foundation wall roof door crafting table firepit crate"): every word
+-- gets its own best pieces in turn, so one word's many matches can't push another's off the list. Rung 2 run
+-- 20261116-010103: the best 30 by total score were roof-support walls, the model never saw "Square Foundation",
+-- "WALL WITH DOOR FRAME" or "Campfire", and three build calls failed on names.
+-- A piece answers a word: 3 a word of its name, 2 its name shares 4+ letters with it ("firepit" / "Campfire"),
+-- 1 a word of its id, category or description. rows: {name, id, category, description, can_build_now}.
+-- -> the rows that answer any word, ranked; by_word = { word = { names, best first, at most 5 } }
+function M.rank_about(rows, about)
+    local qs = {}
+    for _, w in ipairs((toks(about))) do if #w > 2 and not STOP[w] then qs[#qs + 1] = w end end
+    if #qs == 0 then return nil end
+    local lists = {}
+    local _, qset = toks(about)
+    for _, r in ipairs(rows) do
+        local nl, ns = toks(r.name)
+        local _, rest = toks(table.concat({ r.id or "", r.category or "", r.description or "" }, " "))
+        r._hits, r._tier = 0, {}
+        -- how much of its name the ask says: "Wall" for "walls" is all of it, "Roof Support Wall" a third (its
+        -- numbers aside: "30 Roof" is a roof)
+        local said, n = 0, 0
+        for _, w in ipairs(nl) do
+            if not STOP[w] and not w:match("^%d+$") then
+                n = n + 1
+                if qset[w] or (#w > 3 and w:sub(-1) == "s" and qset[w:sub(1, -2)]) then said = said + 1 end
+            end
+        end
+        r._cov, r._len = n > 0 and said / n or 0, n
+        for _, w in ipairs(qs) do
+            local sing = (#w > 3 and w:sub(-1) == "s") and w:sub(1, -2) or w
+            local t = (ns[w] or ns[sing]) and 3 or M.share_run(r.name, w) and 2 or (rest[w] or rest[sing]) and 1 or 0
+            r._tier[w] = t
+            if t >= 3 then r._hits = r._hits + 1 end
+        end
+    end
+    for _, w in ipairs(qs) do
+        local l = {}
+        for _, r in ipairs(rows) do if r._tier[w] > 0 then l[#l + 1] = r end end
+        table.sort(l, function(a, b)
+            if a._tier[w] ~= b._tier[w] then return a._tier[w] > b._tier[w] end
+            if a._cov ~= b._cov then return a._cov > b._cov end
+            if a._len ~= b._len then return a._len < b._len end -- the plain piece before its variants
+            if (a.can_build_now or false) ~= (b.can_build_now or false) then return a.can_build_now or false end
+            if lower(a.name) ~= lower(b.name) then return lower(a.name) < lower(b.name) end
+            return tostring(a.id) < tostring(b.id)
+        end)
+        lists[w] = l
+    end
+    local out, taken, by_word, whole = {}, {}, {}, lower(about)
+    for _, r in ipairs(rows) do -- the ask is one piece's whole name: that piece first
+        if lower(r.name) == whole or lower(r.id or "") == whole then out[#out + 1] = r; taken[r] = true end
+    end
+    -- then the pieces whose whole name the ask says in several words ("door frame wall" -> WALL WITH DOOR FRAME)
+    local phrase = {}
+    for _, r in ipairs(rows) do if not taken[r] and r._cov >= 1 and r._hits >= 2 then phrase[#phrase + 1] = r end end
+    table.sort(phrase, function(a, b)
+        if a._hits ~= b._hits then return a._hits > b._hits end
+        if (a.can_build_now or false) ~= (b.can_build_now or false) then return a.can_build_now or false end
+        if lower(a.name) ~= lower(b.name) then return lower(a.name) < lower(b.name) end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    for _, r in ipairs(phrase) do out[#out + 1] = r; taken[r] = true end
+    local named = {}
+    local depth, more = 0, true
+    while more do
+        depth, more = depth + 1, false
+        for _, w in ipairs(qs) do
+            local r = lists[w][depth]
+            if r then
+                more = true
+                if not taken[r] then out[#out + 1] = r; taken[r] = true end
+                by_word[w], named[w] = by_word[w] or {}, named[w] or {}
+                if #by_word[w] < 5 and not named[w][r.name] and (r._tier[w] >= 2 or #by_word[w] == 0) then
+                    by_word[w][#by_word[w] + 1], named[w][r.name] = r.name, true
+                end
+            end
+        end
+    end
+    for _, w in ipairs(qs) do by_word[w] = by_word[w] or {} end
+    for _, r in ipairs(rows) do r._hits, r._tier, r._len, r._cov = nil, nil, nil, nil end
+    return out, by_word
+end
 
 M.HANDLERS = {}
 M.NEEDS = { buildables = { { "sense", "local_pc" }, { "inventory", "list" } } }
@@ -187,7 +280,7 @@ M.HANDLERS.buildables = function(log, args, ctx)
             if #p.missing > 0 and not short then p.storage_may_cover = true end -- the game may build from nearby storage
             if p.host_only and is_owner ~= true then p.blocked_by = "host_only" end
             p._score = score(api, p, about)
-            if (not about or p._score > 0) and (args.can_build_now ~= true or p.can_build_now) then rows[#rows + 1] = p end
+            if args.can_build_now ~= true or p.can_build_now then rows[#rows + 1] = p end
         end
     end
     table.sort(rows, function(a, b)
@@ -195,16 +288,35 @@ M.HANDLERS.buildables = function(log, args, ctx)
         if a.can_build_now ~= b.can_build_now then return a.can_build_now end
         return lower(a.name) < lower(b.name)
     end)
+    local by_word
+    if about then
+        local ranked, bw = M.rank_about(rows, about)
+        if ranked and #ranked > 0 then rows, by_word = ranked, bw
+        else
+            local keep = {}
+            for _, p in ipairs(rows) do if p._score > 0 then keep[#keep + 1] = p end end
+            rows = keep
+        end
+    end
     local max = math.max(1, math.min(tonumber(args.max) or M.cfg.max, M.cfg.max_cap))
     local out = {}
-    for i = 1, math.min(#rows, max) do
+    local shown = math.min(#rows, max)
+    for i = 1, shown do
         local p = rows[i]
         p._score = nil
         if #p.missing == 0 then p.missing = nil end
+        -- a long list is for choosing by name and cost: the tooltip text only when a few are shown
+        if shown > M.cfg.describe_max then p.description = nil end
+        p.index = nil
         out[#out + 1] = p
     end
     local data = { unlocked = #list, matched = #rows, shown = #out, pieces = out, about = about or api.null,
                    truncated = #rows > #out, may_build = can_build == nil and api.null or can_build }
+    if by_word and next(by_word) then
+        -- each word of the ask and the pieces that answer it, best first (none = no piece by that word)
+        for _, l in pairs(by_word) do if #l == 0 then setmetatable(l, { __jsontype = "array" }) end end
+        data.by_word = setmetatable(by_word, { __jsontype = "object" })
+    end
     if can_build == false then data.note = "The server hasn't given me building rights here." end
     return { ok = true, data = data }
 end
@@ -1201,7 +1313,8 @@ end
 function M.resolve(api, list, q, have)
     local raw = q
     q = lower(q)
-    local exact, typo, close = {}, {}, {}
+    local exact, typo, close, within = {}, {}, {}, {}
+    local qw = toks(q)
     for _, d in ipairs(list) do
         local p = M.describe(api, d)
         local n, id = lower(p.name), lower(p.id)
@@ -1210,6 +1323,13 @@ function M.resolve(api, list, q, have)
             local dist = math.min(lev(n, q), lev(id, q))
             if dist <= math.max(1, math.floor(#q / 6)) then typo[#typo + 1] = { d = d, p = p } end
             if n:find(q, 1, true) or q:find(n, 1, true) or M.share_run(n, q) then close[#close + 1] = p.name end
+            -- every word of the ask is a word of its name ("Door Frame Wall" -> WALL WITH DOOR FRAME)
+            local _, ns = toks(n)
+            local all = #qw > 0
+            for _, w in ipairs(qw) do
+                if not (ns[w] or (#w > 3 and w:sub(-1) == "s" and ns[w:sub(1, -2)])) then all = false; break end
+            end
+            if all then within[#within + 1] = { d = d, p = p } end
         end
     end
     for _, narrow in ipairs({ function(x) return x.p.name == raw or x.p.id == raw end, have and function(x) return have(x.p) end or false }) do
@@ -1223,6 +1343,15 @@ function M.resolve(api, list, q, have)
     if #exact > 1 then return nil, nil, "ambiguous_target", exact end
     if #typo == 1 then return typo[1].d, typo[1].p end
     if #typo > 1 then return nil, nil, "ambiguous_target", typo end
+    -- the ask's words inside one name: that piece when it is the only one (or the only one I can pay for), else the
+    -- question which (rung 2 run 20261116-010103: "Foundation" and "Door Frame Wall" read as unknown)
+    if #within > 1 and have then
+        local keep = {}
+        for _, x in ipairs(within) do if have(x.p) then keep[#keep + 1] = x end end
+        if #keep == 1 then within = keep end
+    end
+    if #within == 1 then return within[1].d, within[1].p end
+    if #within > 1 and #within <= 8 then return nil, nil, "ambiguous_target", within end
     return nil, nil, "unknown_target", close
 end
 
@@ -2850,7 +2979,7 @@ M.MANIFEST = {
     buildables = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 15,
         description = "Pieces you can build (unlocked): name, category, material cost and what you're still missing. Read-only.",
         args = { type = "object", properties = obj({
-            about = { type = "string", description = "Words for what to build (e.g. chest, workbench, wall); ranks matches first." },
+            about = { type = "string", description = "Words for what to build; several things in one ask work (e.g. foundation wall roof door chest workbench). Each word gets its best pieces in the list, and by_word names them per word (a word with none has no piece)." },
             can_build_now = { type = "boolean", default = false, description = "Only pieces you have the materials for." },
             max = { type = "integer", minimum = 1, maximum = 60, default = 25, description = "At most this many pieces." } }) },
         reasons = { "state_unavailable" } },
@@ -2864,14 +2993,14 @@ M.MANIFEST = {
             .. "snaps onto that piece and says whether it sits flush (gap, level, facing). Not ok: detail says why, and no "
             .. "new piece was found standing there. Trains Construction.",
         args = { type = "object", properties = obj({
-            piece = { type = "string", description = "The piece's name or id from buildables." },
+            piece = { type = "string", description = "The piece's name or id from buildables (words of its name are enough when only one piece has them all)." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
             near = { type = "string", description = "Somewhere next to this id: 'me' is beside you wherever this step finds you (a gather or walk before it may have taken you away from your house); a built piece's id (your house's foundation) puts it by that piece." },
             on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W', ':top' or ':in' (no side: the free side nearest you). What holds what: a wall or door-frame wall stands on a foundation's edge (':N' = its north edge); ':in' puts a door into a door-frame wall; a ceiling tile or roof snaps onto a wall's top, and on '<wall id>:<side>' it reaches out over that side (the side the room is on); ':top' sets it on the piece's top face." },
             rotation = { type = "number", minimum = 0, maximum = 360, description = "Turn it this many degrees (15 degree steps)." },
             pieces = { type = "array", maxItems = 12, items = { type = "object" }, description = "Several in one go, the build "
                 .. "screen kept open: a list of {piece, on, rotation}. on may name an earlier item as '#k' ('#1:N' = the N edge "
-                .. "of what item 1 built). I go in the order that keeps walking short and stop at the first that fails." } }) },
+                .. "of what item 1 built). I go in the order that keeps walking short; a piece that fails is reported and the rest still go up (only what stands on it is left untried)." } }) },
         reasons = { "no_permission", "host_only", "unknown_target", "ambiguous_target", "missing_materials", "blocked", "invalid_args",
                     "limit_reached", "too_far", "path_blocked", "interrupted", "verification_failed", "timeout" } },
 }

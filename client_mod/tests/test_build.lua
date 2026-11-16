@@ -289,6 +289,41 @@ do
     local d, p, code, more = Bd.resolve(api, { campfire, twin }, "campfire")
     check("ambiguous piece name: ambiguous_target with both candidates", d == nil and code == "ambiguous_target" and #more == 2)
 end
+-- the words of the ask inside one name (rung 2 run 20261116-010103: "Door Frame Wall", "Foundation" read unknown)
+do
+    local frame = piece("BUILDPIECE_T1_WallDoor", "WALL WITH DOOR FRAME", { { STONE, 1 } })
+    local wall = piece("BUILDPIECE_T1_Wall", "Wall", { { STONE, 1 } })
+    local sq = piece("BUILDPIECE_T1_Found", "Square Foundation", { { STONE, 1 } })
+    local tri = piece("BUILDPIECE_T1_FoundTri", "Triangle Foundation", { { STONE, 1 } })
+    local all = { campfire, frame, wall, sq, tri }
+    local d, p, code, more = Bd.resolve(api, all, "Door Frame Wall")
+    check("resolve: the ask's words all in one name -> that piece", d == frame and p and p.name == "WALL WITH DOOR FRAME", tostring(code))
+    d, p, code, more = Bd.resolve(api, all, "Foundation")
+    check("resolve: a word two names carry -> ambiguous_target with both, never a guess",
+        d == nil and code == "ambiguous_target" and #more == 2, tostring(code) .. " " .. tostring(more and #more))
+    d, p, code, more = Bd.resolve(api, all, "Foundation", function(x) return x.name == "Square Foundation" end)
+    check("resolve: ... the only one I can pay for is the one meant", d == sq)
+    d, p, code, more = Bd.resolve(api, all, "Firepit")
+    check("resolve: a name no piece carries stays unknown, the near one named", d == nil and code == "unknown_target" and more[1] == "Campfire",
+        tostring(code) .. " " .. tostring(more and more[1]))
+    -- buildables ranking for an ask of several things: every word gets its best pieces
+    local rows = {}
+    for i = 1, 12 do rows[#rows + 1] = { name = "Roof Support Wall " .. i, id = "RSW" .. i, category = "Roof" } end
+    for _, n in ipairs({ "Square Foundation", "Wall", "WALL WITH DOOR FRAME", "Campfire", "Door", "Crate", "30° Roof" }) do
+        rows[#rows + 1] = { name = n, id = "ID_" .. n:gsub(" ", ""), category = "Base" }
+    end
+    local out, bw = Bd.rank_about(rows, "foundation walls roof door firepit crate")
+    local first = {}
+    for i = 1, 12 do first[out[i].name] = true end
+    check("rank_about: each word's best pieces in the first 12 rows (not 12 roof-support walls)",
+        first["Square Foundation"] and first["Wall"] and first["Door"] and first["Campfire"] and first["Crate"] and first["30° Roof"],
+        (function() local s = {}; for i = 1, 12 do s[#s + 1] = out[i].name end; return table.concat(s, ", ") end)())
+    check("rank_about: by_word names what answers each word (firepit -> Campfire; walls -> Wall first)",
+        bw.firepit[1] == "Campfire" and bw.walls[1] == "Wall" and bw.door[1] == "Door" and bw.foundation[1] == "Square Foundation",
+        tostring(bw.firepit[1]) .. " " .. tostring(bw.walls[1]) .. " " .. tostring(bw.door[1]))
+    local _, bw2 = Bd.rank_about(rows, "anvil")
+    check("rank_about: a word no piece answers has an empty list", bw2 and #bw2.anvil == 0)
+end
 -- materials in a linked chest: the spend is verified across own inventory + storage
 reset_game()
 CARRIED.ITEM_Resources_Stone = 0
