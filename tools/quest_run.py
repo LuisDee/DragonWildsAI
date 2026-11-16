@@ -10,10 +10,18 @@ each --line in turn (the next one once the brain has gone quiet), and ends when 
 or a change of step), at --deadline, at the Haiku cap, or when everything is quiet. The record (logs/evals/
 quest_runs.jsonl) holds the quest steps with their times, every tool call with its duration and result, what Claude
 said, idle stretches over 5 s (no tool running, no model call), and the model calls and $.
+
+Working one quest (or one step of it) alone, before any chain (docs/GOAL-2026-11-01.md "How the work is run"):
+    ... -m tools.quest_run step --confirm --from rm_part2 --quest "Rune Mysteries" -k 5    # 5 trials from a checkpoint
+    ... -m tools.quest_run rates                                  # pass rate and streak per item, void runs left out
+`step` forks a checkpoint (tools/quest_clone.py) into K new characters in ONE lock window, runs the quest on each and
+prints passes of K. `fresh` (the whole chain: the 3-in-a-row gate) refuses to start while a quest in it has not passed
+4 of its last 5 counted trials.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -26,6 +34,7 @@ from tools import chat_ladder as cl
 ROOT = paths.REPO_ROOT
 OUT = ROOT / "logs" / "evals" / "quest_runs.jsonl"
 FRESH_OUT = ROOT / "logs" / "evals" / "quest_fresh.jsonl"
+STEP_OUT = ROOT / "logs" / "evals" / "quest_steps.jsonl"
 POLL_S = 3.0
 QUIET_S = 40.0
 IDLE_S = 5.0
@@ -208,6 +217,8 @@ def head_start(held: dict, quest: str, chain: dict | None = None) -> dict:
 def not_counted(rec: dict) -> str | None:
     """Why a run does not count, or None. From what he held at its start; a record without that read keeps what was
     written in it."""
+    if rec.get("checkpoint"):  # a trial from a checkpoint starts mid-quest by design: its own item (item_key)
+        return None
     held = rec.get("carried_at_start")
     if not isinstance(held, dict):
         return rec.get("not_counted")
@@ -394,6 +405,7 @@ def cmd_run(a) -> int:
         lines = list(a.line)
         sent = []
         why, ended = None, None
+        until_step = (getattr(a, "until_step", None) or "").lower()  # end when the quest's step reads like this
         next_line_at = t0
         try:
             while True:
@@ -417,6 +429,8 @@ def cmd_run(a) -> int:
                 quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
                 if a.until == "complete" and row.get("state") == "complete":
                     why = "quest complete"
+                elif until_step and len(steps) > 1 and until_step in str(row.get("step") or "").lower():
+                    why = "quest step reached"
                 elif a.until == "change" and len(steps) > 1:
                     why = "quest step changed"
                 elif calls["haiku"] > a.max_haiku:
@@ -448,7 +462,8 @@ def cmd_run(a) -> int:
     rec = {"run": time.strftime("%Y%m%d-%H%M%S", time.gmtime(t0)), "quest": a.quest, "until": a.until,
            "character": getattr(a, "character", None) or "ClaudeDev",
            "lines": sent, "fixtures": fixtures, "ended": why, "wall_s": round(ended - t0, 1), "steps": steps,
-           "done": steps[-1].get("state") == "complete" if a.until == "complete" else len(steps) > 1,
+           "done": (steps[-1].get("state") == "complete" or why == "quest step reached") if a.until == "complete"
+           else len(steps) > 1,
            "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
@@ -457,6 +472,8 @@ def cmd_run(a) -> int:
            "carried_at_start": held_at_start}
     if getattr(a, "chain_held", None) is not None:
         rec["held_at_chain_start"] = a.chain_held
+    if getattr(a, "checkpoint", None):
+        rec["checkpoint"], rec["until_step"] = a.checkpoint, getattr(a, "until_step", None)
     if not_counted(rec):
         rec["not_counted"] = not_counted(rec)
     elif held_at_start:
@@ -516,77 +533,220 @@ def _on_main(sw, cli, tries: int = 3) -> dict | None:
     return None
 
 
-def cmd_fresh(a) -> int:
-    """ONE lock window for a quest-cleared clone of ClaudeDev (main + Luis, 2026-11-01: tools/quest_clone.py, made
-    here if its save does not exist yet; same level and gear, the FTUE chain cleared): switch to it (evals/bench/
-    devchar.py, Claude's own account, dev world), run FRESH_PLAN in one go with no fixture top-ups, switch back to
-    ClaudeDev and see his pawn before the lock goes. The lock is never released while the client is on another
-    character."""
-    if not a.confirm:
-        print("refusing: this relaunches the client on a new character; pass --confirm")
-        return 2
-    import argparse as ap_
-    from evals.bench.devchar import NAME_RE, default_switch
+@contextlib.contextmanager
+def clone_window(wait_s: float, out: dict, out_file: Path):
+    """ONE lock window on other characters of Claude's own account (evals/bench/devchar.py, dev world): yields
+    (switch, client, t0); whatever the body of the window does or raises, it ends back on ClaudeDev with his pawn seen
+    and `out` appended to out_file. The lock is never released while the client is on another character."""
+    from evals.bench.devchar import default_switch
     from evals.bench.devrun import default_dev
     from tools.live_lock import held
-    name = a.name or f"ClaudeQ{time.strftime('%d%H%M', time.gmtime())}"
-    if not NAME_RE.match(name):
-        print(f"invalid character name {name!r}")
-        return 2
-    out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "character": name, "runs": []}
-    with held("quests", a.wait):
+    with held("quests", wait_s):
         t0 = time.time()
         dev = default_dev()
         dev.brain_running = lambda: False
         sw = default_switch(dev)
         cli = cl._debug_client()
         try:
-            if not sw.exists(name):
-                from tools import quest_clone
-                if quest_clone.main(["make", "--name", name]) != 0:
-                    raise RuntimeError(f"quest_clone could not make {name}")
-            made = sw.ensure(name, create=False, wait_s=150)
-            out["made"] = {**made, "s": round(time.time() - t0, 1)}
-            print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
-            try:  # what he holds of any quest's deliverables now: only that can be a head start later (head_start)
-                chain_held = carried(cli, None)
-            except Exception as exc:
-                chain_held = {"error": repr(exc)[:120]}
-            out["held_at_chain_start"] = chain_held
-            names = [q for q, _, _ in FRESH_PLAN]
-            plan = FRESH_PLAN[names.index(a.start):] if a.start in names else FRESH_PLAN
-            for quest, line, deadline in plan:
-                left = a.window_s - a.reserve_s - (time.time() - t0)
-                if left < 90:
-                    out["runs"].append({"quest": quest, "skipped": f"window: {left:.0f} s left"})
-                    break
-                ns = ap_.Namespace(confirm=True, quest=quest, line=[line], until="complete", deadline=min(deadline, left),
-                                   max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}", wait=0, grant=[], judge=False,
-                                   in_lock=True, no_heal=True, character=name, chain_held=chain_held)
-                rc = cmd_run(ns)
-                last = json.loads(OUT.read_text(encoding="utf-8").splitlines()[-1])  # the record cmd_run just wrote
-                v = last.get("verdict") or {}
-                out["runs"].append({"quest": quest, "rc": rc, "at_s": round(time.time() - t0, 1), "pass": v.get("pass"),
-                                    "ratio": last.get("ratio"), "misses": len(v.get("misses") or []),
-                                    "longest_stand_s": last.get("longest_stand_s")})
-                if rc != 0:
-                    break  # the next quest is given by this one
+            yield sw, cli, t0
         except Exception as exc:
             out["error"] = repr(exc)[:400]
-            print("fresh window error:", out["error"])
+            print("window error:", out["error"])
         finally:
             back = _on_main(sw, cli)
             out["back"] = back
             out["window_s"] = round(time.time() - t0, 1)
-            FRESH_OUT.parent.mkdir(parents=True, exist_ok=True)
-            with FRESH_OUT.open("a", encoding="utf-8") as f:
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            with out_file.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(out) + "\n")
             print(json.dumps(out, indent=1)[:3000])
             while back is None:  # never release the lock while the client is on another character (main's rule)
                 print("STUCK: the client is not back on ClaudeDev; keeping the lock and retrying every 2 min")
                 time.sleep(120)
                 back = _on_main(sw, cli, tries=1)
+
+
+def _last_run() -> dict:
+    return json.loads(OUT.read_text(encoding="utf-8").splitlines()[-1])  # the record cmd_run just wrote
+
+
+def _summary(last: dict) -> dict:
+    v = last.get("verdict") or {}
+    return {"run": last.get("run"), "pass": v.get("pass"), "ratio": last.get("ratio"), "ended": last.get("ended"),
+            "misses": len(v.get("misses") or []), "longest_stand_s": last.get("longest_stand_s")}
+
+
+def all_runs() -> list[dict]:
+    if not OUT.exists():
+        return []
+    return [json.loads(line) for line in OUT.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def item_key(rec: dict) -> str:
+    """What a run is a trial of: the quest from its start, or the quest from a checkpoint (to a step, when given)."""
+    if not rec.get("checkpoint"):
+        return rec.get("quest") or "?"
+    return f"{rec.get('quest')} @ {rec['checkpoint']}" + (f" -> {rec['until_step']}" if rec.get("until_step") else "")
+
+
+def trials(recs: list[dict], void: set[str]) -> list[tuple[dict, bool]]:
+    """(run, passed) of the runs that say something about him, oldest first: to completion (not a probe to the first
+    change of step), counted (no head start), and not void (the ledger's word that the harness was at fault)."""
+    return [(r, verdict(r)["pass"]) for r in recs
+            if r.get("until") == "complete" and r["run"] not in void and not not_counted(r)]
+
+
+def rates(recs: list[dict], void: set[str], n: int = 10) -> dict[str, dict]:
+    """Per item: passes of its newest n trials, and the streak of passes up to the newest (the goal's gate is a
+    streak of 3 on the quest from its start; a checkpoint item only says whether the gate is worth trying)."""
+    by: dict[str, list[bool]] = {}
+    for r, ok in trials(recs, void):
+        by.setdefault(item_key(r), []).append(ok)
+    out = {}
+    for k, oks in by.items():
+        last = oks[-n:]
+        streak = next((i for i, ok in enumerate(reversed(oks)) if not ok), len(oks))
+        out[k] = {"passes": sum(last), "of": len(last), "streak": streak}
+    return out
+
+
+GUARD_OF, GUARD_NEED = 5, 4
+
+
+def chain_guard(recs: list[dict], void: set[str], quest_names: list[str]) -> list[str]:
+    """Why the whole chain should not run yet: a quest in it that has not passed GUARD_NEED of its newest GUARD_OF
+    trials (from its start or from a checkpoint). A chain costs 15 to 26 minutes of the one body and resets every
+    streak on one failure, so it is the last step, not the way to find out (17 h run of 2026-11-15/16: 13 chains,
+    Rune Mysteries 2 of 14)."""
+    why = []
+    for q in quest_names:
+        last = [ok for r, ok in trials(recs, void) if r.get("quest") == q][-GUARD_OF:]
+        if sum(last) < GUARD_NEED:
+            why.append(f"{q}: {sum(last)} of its last {len(last)} trial(s) passed (need {GUARD_NEED} of {GUARD_OF})")
+    return why
+
+
+def cmd_fresh(a) -> int:
+    """ONE lock window for a quest-cleared clone of ClaudeDev (main + Luis, 2026-11-01: tools/quest_clone.py, made
+    here if its save does not exist yet; same level and gear, the FTUE chain cleared): switch to it, run FRESH_PLAN
+    in one go with no fixture top-ups, and switch back (clone_window)."""
+    if not a.confirm:
+        print("refusing: this relaunches the client on a new character; pass --confirm")
+        return 2
+    import argparse as ap_
+    from evals.bench.devchar import NAME_RE
+    from tools import failure_ledger
+    name = a.name or f"ClaudeQ{time.strftime('%d%H%M', time.gmtime())}"
+    if not NAME_RE.match(name):
+        print(f"invalid character name {name!r}")
+        return 2
+    names = [q for q, _, _ in FRESH_PLAN]
+    plan = FRESH_PLAN[names.index(a.start):] if a.start in names else FRESH_PLAN
+    blocked = chain_guard(all_runs(), failure_ledger.voided(), [q for q, _, _ in plan])
+    if blocked and not a.chain_anyway:
+        print("not running the chain:\n  " + "\n  ".join(blocked) + "\nwork each alone first (quest_run step), "
+              "or pass --chain-anyway REASON")
+        return 6
+    out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "character": name, "runs": []}
+    if blocked:
+        out["chain_anyway"] = {"reason": a.chain_anyway, "guard": blocked}
+    with clone_window(a.wait, out, FRESH_OUT) as (sw, cli, t0):
+        if not sw.exists(name):
+            from tools import quest_clone
+            if quest_clone.main(["make", "--name", name]) != 0:
+                raise RuntimeError(f"quest_clone could not make {name}")
+        made = sw.ensure(name, create=False, wait_s=150)
+        out["made"] = {**made, "s": round(time.time() - t0, 1)}
+        print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
+        try:  # what he holds of any quest's deliverables now: only that can be a head start later (head_start)
+            chain_held = carried(cli, None)
+        except Exception as exc:
+            chain_held = {"error": repr(exc)[:120]}
+        out["held_at_chain_start"] = chain_held
+        for quest, line, deadline in plan:
+            left = a.window_s - a.reserve_s - (time.time() - t0)
+            if left < 90:
+                out["runs"].append({"quest": quest, "skipped": f"window: {left:.0f} s left"})
+                break
+            ns = ap_.Namespace(confirm=True, quest=quest, line=[line], until="complete", deadline=min(deadline, left),
+                               max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}", wait=0, grant=[], judge=False,
+                               in_lock=True, no_heal=True, character=name, chain_held=chain_held)
+            rc = cmd_run(ns)
+            out["runs"].append({"quest": quest, "rc": rc, "at_s": round(time.time() - t0, 1), **_summary(_last_run())})
+            if rc != 0:
+                break  # the next quest is given by this one
     return 0 if all(r.get("rc") == 0 for r in out["runs"]) and out["runs"] and out["runs"][-1].get("quest") == FRESH_PLAN[-1][0] else 1
+
+
+SWITCH_S = 70.0  # a switch of character, measured (quest_fresh.jsonl "made.s": 57 to 67 s)
+AUTOSAVE_S = 330.0  # the client writes a character's save every 5 minutes
+
+
+def cmd_step(a) -> int:
+    """ONE lock window, K trials of one quest (or of it up to --until-step) from a checkpoint: each trial is a new
+    fork of the checkpoint's save (tools/quest_clone.py fork), so every trial starts from the same quest state, bag
+    and place, and a fix is judged by passes of K instead of by one run. --save-as: when the first trial is done,
+    wait for the game's next save of that fork and keep it as a new checkpoint (the next step's start)."""
+    if not a.confirm:
+        print("refusing: this relaunches the client on forked characters; pass --confirm")
+        return 2
+    import argparse as ap_
+    from tools import quest_clone
+    line = a.line or [l for q, l, _ in FRESH_PLAN if q == a.quest]
+    if not line:
+        print(f"no --line given and {a.quest!r} is not in FRESH_PLAN")
+        return 2
+    src = quest_clone.source_of(a.checkpoint)  # before the lock: a wrong label never costs a window
+    if a.save_as and (quest_clone.CHECKPOINT_DIR / f"{a.save_as}.json").exists():
+        print(f"checkpoint {a.save_as!r} exists already: pick a new --save-as label")
+        return 2
+    stamp = time.strftime("%d%H%M", time.gmtime())
+    forks = [f"ClaudeS{stamp}{chr(97 + i)}" for i in range(min(a.k, 26))]
+    out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "checkpoint": a.checkpoint, "source": str(src),
+           "quest": a.quest, "until_step": a.until_step, "k": a.k, "trials": []}
+    used = []
+    with clone_window(a.wait, out, STEP_OUT) as (sw, cli, t0):
+        for name in forks:
+            left = a.window_s - a.reserve_s - (time.time() - t0) - SWITCH_S
+            if left < 90:
+                out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left"})
+                break
+            try:
+                quest_clone.fork(a.checkpoint, name)
+            except SystemExit as exc:  # a refusal (the name is taken): the window's error, and the forks before it still get parked
+                raise RuntimeError(f"fork: {exc}") from None
+            used.append(name)
+            made = sw.ensure(name, create=False, wait_s=150)
+            print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
+            ns = ap_.Namespace(confirm=True, quest=a.quest, line=list(line), until="complete", until_step=a.until_step,
+                               deadline=min(a.deadline, left), max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}",
+                               wait=0, grant=[], judge=False, in_lock=True, no_heal=True, character=name,
+                               checkpoint=a.checkpoint)
+            rc = cmd_run(ns)
+            t_end = time.time()
+            last = _last_run()
+            out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), **_summary(last)})
+            if a.save_as and last.get("done") and "saved_as" not in out:
+                kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=AUTOSAVE_S)
+                out["saved_as"] = str(kept) if kept else f"no save of {name} within {AUTOSAVE_S:.0f} s"
+    if out.get("back") and not a.keep_forks:  # back on ClaudeDev: the forks' saves leave the character list
+        print("parked:", quest_clone.park(used))
+    done = [t for t in out["trials"] if "pass" in t]
+    print(f"== {a.quest} from {a.checkpoint}: {sum(1 for t in done if t['pass'])} of {len(done)} passed "
+          f"({', '.join('PASS' if t['pass'] else 'FAIL ' + str(t['ended']) for t in done)})")
+    return 0 if done and all(t["pass"] for t in done) else 1
+
+
+def cmd_rates(a) -> int:
+    from tools import failure_ledger
+    void = failure_ledger.voided()
+    recs = [r for r in all_runs() if r["run"] >= a.since]
+    print(f"{'item':<44} last {a.n:<3} streak   (void runs left out: {sum(1 for r in recs if r['run'] in void)})")
+    for k, r in sorted(rates(recs, void, a.n).items()):
+        print(f"{k:<44} {r['passes']:>2} of {r['of']:<2} {r['streak']:>4}" + ("   3 in a row" if r["streak"] >= 3 else ""))
+    blocked = chain_guard(recs, void, [q for q, _, _ in FRESH_PLAN])
+    print("chain: " + ("ready" if not blocked else "not yet\n  " + "\n  ".join(blocked)))
+    return 0
 
 
 def cmd_report(a) -> int:
@@ -639,10 +799,29 @@ def main(argv: list[str] | None = None) -> int:
     fr.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")
     fr.add_argument("--max-haiku", type=int, default=60)
     fr.add_argument("--usd", type=float, default=0.4, help="each run's spend cap on top of today's spend (Rune Mysteries 20261116-074002 ran out of 0.1 at its second part)")
+    fr.add_argument("--chain-anyway", metavar="REASON", help="run the chain although a quest in it is under 4 of its last 5 (the reason is recorded)")
+    st = sub.add_parser("step", help="one lock window: K trials of one quest from a checkpoint, each on a new fork of it")
+    st.add_argument("--confirm", action="store_true")
+    st.add_argument("--from", dest="checkpoint", required=True, help="a checkpoint label or a clone's name (tools/quest_clone.py keep)")
+    st.add_argument("--quest", required=True)
+    st.add_argument("--line", action="append", help="the chat line (default: the quest's line in FRESH_PLAN)")
+    st.add_argument("--until-step", help="end a trial, done, when the quest's step contains this text (default: quest complete)")
+    st.add_argument("-k", type=int, default=5, help="trials")
+    st.add_argument("--deadline", type=float, default=600.0, help="per trial")
+    st.add_argument("--save-as", metavar="LABEL", help="keep the first done trial's next save as this checkpoint")
+    st.add_argument("--keep-forks", action="store_true", help="leave the forks in the character list")
+    st.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
+    st.add_argument("--window-s", type=float, default=3600.0, help="the whole window, switch back included")
+    st.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")
+    st.add_argument("--max-haiku", type=int, default=60)
+    st.add_argument("--usd", type=float, default=0.4, help="each trial's spend cap on top of today's spend")
+    rt = sub.add_parser("rates", help="pass rate and streak per item, void runs left out; and whether the chain may run")
+    rt.add_argument("-n", type=int, default=10)
+    rt.add_argument("--since", default="20261116", help="only runs from this run id on")
     rp = sub.add_parser("report")
     rp.add_argument("-n", type=int, default=10)
     a = ap.parse_args(argv)
-    return {"run": cmd_run, "fresh": cmd_fresh, "report": cmd_report}[a.cmd](a)
+    return {"run": cmd_run, "fresh": cmd_fresh, "step": cmd_step, "rates": cmd_rates, "report": cmd_report}[a.cmd](a)
 
 
 if __name__ == "__main__":

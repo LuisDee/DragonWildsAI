@@ -7,7 +7,9 @@ description: >-
   decision with sources. Use this whenever you are about to implement something new, pick a library,
   hit a crash, hang or engine limitation, see unfamiliar UE5/UE4SS/Windows behaviour, write a helper
   that feels generic, or brief a subagent to build something — even if the task seems small or you
-  think you already know the answer. Skip it only for trivial edits to code that already exists.
+  think you already know the answer. Use it also when you are STUCK: at the first live failure of a
+  new kind, after two fixes that did not move the number, and for any question about the game's own
+  rules (a quest step, a recipe, a station). Skip it only for trivial edits to code that already exists.
 ---
 
 # Search before building
@@ -15,7 +17,7 @@ description: >-
 Luis's standing rule for this project: *don't hand-roll what already exists; somebody has very likely
 hit the same or a similar problem, or the answer is documented.* Searching first is cheap. Building
 the wrong thing, or a worse copy of an existing tool, costs hours and leaves maintenance behind.
-CLAUDE.md section 0 ("Building principles") makes this binding.
+CLAUDE.md section 3 ("Search before building") makes this binding, and section 2 rule 5 sets the stuck triggers.
 
 ## When it applies
 
@@ -25,6 +27,19 @@ Run it before you:
 - work around a crash, hang, freeze or "it silently does nothing" behaviour;
 - reverse-engineer an engine mechanic (replication, AI, UI, inventory, damage, chat);
 - write a subagent brief that asks it to build something.
+
+## When you are stuck (CLAUDE.md section 2, rule 5)
+
+Ten minutes of search, before the next fix, at each of these:
+- **The first live failure of a new kind** (a class the failure ledger has not seen). Ask how others
+  measure and debug this class of problem, not only how to patch this instance.
+- **Two fixes that did not move the number.** The diagnosis is probably wrong. Search the method
+  (how do people isolate this?) and check that the game's own state for the item is readable.
+- **A question about the game's rules** (what ends a quest step, what a recipe needs, where an NPC
+  stands): the Dragonwilds wiki (runescape.wiki, Dragonwilds namespace) and the dump first, then a live probe.
+
+On 2026-11-16 eight hours of quest chains ran with no search; the search afterwards found pass rates over
+short trials, failure counting and checkpoint forks in under an hour (docs/RETRO-2026-11-16-workflow.md).
 
 Skip it for trivial edits inside existing code, or when the answer is already recorded in
 `docs/DISCOVERIES.md` or `docs/research/` (check there first: it's the cheapest search of all).
@@ -48,7 +63,7 @@ search the web. Run several queries at once, varying the phrasing, and prefer pr
 | UE4SS / Lua modding | `"<thing>" UE4SS`, UE4SS docs (docs.ue4ss.com), UE4SS GitHub source, issues and discussions, Nexus mods for UE5 games with server-side Lua (Palworld, Motor Town, Abiotic Factor) |
 | Unreal Engine behaviour | `"<symptom>" Unreal Engine 5`, `site:forums.unrealengine.com`, `site:issues.unrealengine.com`, Epic docs, Lyra/ShooterGame patterns |
 | Dragonwilds specifics | Nexus Dragonwilds mods, GitHub (e.g. RSE-Server), runescape.wiki (Dragonwilds), hosting-provider knowledge bases, the dump in `dumps/<build>/` |
-| Game AI / companion design | `behavior tree utility AI <topic>`, mineflayer and Mindcraft plugins, LLM game-agent papers (arXiv), the PUBG Ally / PIANO / GITM prior art in CLAUDE.md section 10 |
+| Game AI / companion design | `behavior tree utility AI <topic>`, mineflayer and Mindcraft plugins, LLM game-agent papers (arXiv), the PUBG Ally / PIANO / GITM prior art in docs/BRIEF-ORIGINAL.md section 10 |
 | Windows ops | `"<task>" Windows Server`, built-ins first (Task Scheduler, logman, services), then standard tools (NSSM, WinSW, Sysinternals) |
 | Python / Lua libraries | PyPI or LuaRocks plus GitHub activity and licence; prefer maintained, permissive and small |
 
@@ -60,7 +75,7 @@ or source file. A web search that returns "nothing relevant" is still a finding:
 - **Reuse / adopt** an existing tool or library when it fits; vendor it with its licence when needed (see `mod/body/vendor/`).
 - **Adapt** a known pattern or snippet, citing where it came from.
 - **Build** only when nothing fits. When you do, design it as a shared service or data profile so
-  the next capability is cheaper (CLAUDE.md section 0, principle 2).
+  the next capability is cheaper (CLAUDE.md section 3).
 
 ## Record the decision
 

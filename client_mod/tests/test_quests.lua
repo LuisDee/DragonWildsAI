@@ -45,7 +45,8 @@ local Qm = assert(loadfile(root .. "/client_mod/scripts/quests.lua"))()
 Qm.W.pc = function() return PC end
 
 QUESTS = {
-    { Data = Q1, State = 1, CurrentObjective = "Objective2", QuestInts = arr({ { Name = "AshLogs", Value = 12 } }), QuestBools = arr({}) },
+    { Data = Q1, State = 1, CurrentObjective = "Objective2", QuestInts = arr({ { QuestIntName = "AshLogs", QuestIntValue = 12 } }),
+      QuestBools = arr({ { QuestBoolName = "HasSpokeToZanik", bQuestBoolValue = true } }) },
     { Data = Q2, State = 0, CurrentObjective = "None", QuestInts = arr({}), QuestBools = arr({}) },
     { Data = Q3, State = 2, CurrentObjective = "Done", QuestInts = arr({}), QuestBools = arr({}) },
 }

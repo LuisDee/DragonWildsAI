@@ -1271,3 +1271,21 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - Open from 114101: the boil at a freshly built campfire that failed verification, and whether his line after it ("got clean water boiled and drunk") was true. Not looked into yet.
 - Replay spend: about 190 Haiku calls, roughly $0.5.
 - Chain launched 12:19Z (pid 13004) on 946bee9.
+
+## 2026-11-16 12:19-13:10Z rung 5: chain 121958 (First Steps lost to a harness race, Rune Mysteries part 2 did not move on); Luis paused the goal
+- **Chain 121935 (ClaudeQ161219, on 946bee9):** First Steps 34.3 s, 0.45x, FAIL on a 5.0 s stand at 0.0 s; Getting Started 149.3 s, 0.96x, FAIL on 4 misses (two `collect_water too_far` at the shore); Ratcatcher pass; Rune Mysteries FAIL at the 900 s deadline.
+- **The First Steps stand was the harness's.** `chat_ladder.start_brain` returned at `session_start`, before the brain's `llm_warmup` row, so the line was sent into the warm-up and waited 5.0 s. Fix (this commit): `start_brain` waits up to 25 s for the warm-up row. Not yet run live. The run is void in the ledger.
+- **Two body fixes made from this chain before the pause:** 0b37277 (what the stay-fed reflex drank out of the bag counts as made, and the craft result says so) and ce35cb1 (a walk that ends wading over the shore stand counts as there). Neither has been seen in a chain since.
+- **Rune Mysteries part 2, cause unknown.** He crafted 10 Air and 5 Astral Runes, the step text stayed "Mine Rune Essence, craft some Air and Astral Runes", and `talk Zanik` answered "no conversation opened" twice; he then stood 399 s. The save shows the quest at Objective2 with only `HasSpokeToZanik` and `HasApproachGeyser` set. The body did not export quest flags, so nothing more could be read. Fix (this commit, offline only): `client_mod/scripts/quests.lua` exports each quest's bools and ints (`QuestBoolName`/`bQuestBoolValue`, `QuestIntName`/`QuestIntValue`); test_quests 24 passed.
+- **Luis stopped the goal at about 13:10Z** and asked for a retrospective and a change of workflow. Nothing live has run since.
+
+## 2026-11-16 (after the pause): the workflow change, offline only (docs/RETRO-2026-11-16-workflow.md)
+- **Why:** rung 5 took about eight hours for one quest of four at its gate. 15 chain windows took 4.88 h of the body for 12 Rune Mysteries samples (24 minutes each); every failure was in part 2, which itself takes 79 to 209 s. Rates on the day: First Steps 12 of 12, Getting Started 5 of 13, Ratcatcher 9 of 13, Rune Mysteries 3 of 13. At 3 of 13 a streak of three takes about 104 trials.
+- **Built:**
+  - `tools/failure_ledger.py` (scan / tag / report) and `docs/failure_ledger.jsonl`: one row per failed run for the first thing that went wrong; seeded with the day's 23 failed runs, all tagged. Largest cause: six Rune Mysteries runs stopped with the next part open, fixed five separate times.
+  - `tools/quest_clone.py keep / fork` and `park`: a checkpoint is a kept save; a fork is that save under a new name and guid; used forks are moved out of the character list after the window.
+  - `tools/quest_run.py step` (K trials from a checkpoint in one lock window, `--until-step`, `--save-as`), `rates` (pass rate and streak per item, void runs left out), and a guard on `fresh` (the chain is refused until every quest passed 4 of its last 5; `--chain-anyway REASON` is recorded).
+  - `CLAUDE.md` cut from 380 lines to 58 (original: `docs/BRIEF-ORIGINAL.md`); "How the work is run" in the goal doc; stuck triggers in the `search-before-building` skill.
+- **Tested offline:** tests/test_quest_workflow.py (21), with test_quest_run, test_quest_clone and test_bench_devchar 45 passed; a fork of the real ClaudeQ161219 save, made in memory, differs from it only in guid and name.
+- **Not tested live:** `step`, `fork`, `park`, `--save-as`, the warm-up wait and the quest flags. A fork does not restore the world (trees, NPCs, station contents, time of day), and the dev server keeps every forked character.
+- **Next, when Luis lifts the pause:** one `step -k 1` window on a fork of ClaudeQ161219 to see that a fork loads with its quest state; read the Rune Mysteries flags there; keep it as checkpoint `rm_part2`; then K trials on part 2 and on Getting Started alone before any chain.

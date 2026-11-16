@@ -5,6 +5,13 @@ reset him; a clone with a NEW char_guid is a character the server has never seen
 
     .venv\\Scripts\\python.exe -m tools.quest_clone make --name ClaudeQ1     # writes SaveCharacters\\ClaudeQ1.json
     .venv\\Scripts\\python.exe -m tools.quest_clone show --name ClaudeQ1     # its quest log, as the file holds it
+    .venv\\Scripts\\python.exe -m tools.quest_clone keep --from ClaudeQ161219 --label rm_part2   # a checkpoint
+    .venv\\Scripts\\python.exe -m tools.quest_clone fork --from rm_part2 --name ClaudeS1          # a new character from it
+
+A checkpoint (logs/quests/checkpoints/<label>.json) is a copy of a clone's save as the game last wrote it: his quest
+state, bag and position at that moment. A fork is that file under a new char_guid and name, so the server loads it
+from the file, and a failing step can be run again without the quests before it (tools/quest_run.py step). What a
+checkpoint does not hold is the world: trees, creatures, stations and the time of day are the server's.
 
 What is cleared: the quests whose QuestData asset is in --quests (default: the FTUE chain First Steps, Getting
 Started, Ratcatcher, Rune Mysteries 1 + 2, and the second First Steps, which Rune Mysteries 2 gives), found by their
@@ -40,6 +47,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SAVE_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "SaveCharacters"
 SOURCE = "ClaudeDev"
 KEEP_DIR = ROOT / "logs" / "quests" / "clones"
+CHECKPOINT_DIR = ROOT / "logs" / "quests" / "checkpoints"
+PARK_DIR = ROOT / "logs" / "quests" / "forks"
 IDS_PROBE = ROOT / "client_io" / "out" / "quest_ids_probe.json"
 LOC_PROBE = ROOT / "client_io" / "out" / "quest_locations_probe.json"
 DELIVERABLES = ROOT / "data" / "quest_deliverables.json"
@@ -291,6 +300,97 @@ def cmd_make(a) -> int:
     return 0
 
 
+def source_of(ref: str) -> Path:
+    """The save a fork or checkpoint is taken from: a checkpoint label, else a character's save by name, else a path."""
+    for p in (CHECKPOINT_DIR / f"{ref}.json", SAVE_DIR / f"{ref}.json", Path(ref)):
+        if p.is_file():
+            return p
+    raise SystemExit(f"no checkpoint, character save or file {ref!r}")
+
+
+def refork(text: str, name: str) -> str:
+    """A save's text with only its char_guid and char_name replaced (each in the file exactly once): a character the
+    server has never seen, so it loads from this file and not from the server's cached copy."""
+    meta = json.loads(text)["meta_data"]
+    for k, new in (("char_guid", uuid.uuid4().hex.upper()), ("char_name", name)):
+        old = f'"{k}": {json.dumps(meta[k])}'
+        if text.count(old) != 1:
+            raise SystemExit(f"{k} is not in the file exactly once")
+        text = text.replace(old, f'"{k}": {json.dumps(new)}')
+    return text
+
+
+def fork(ref: str, name: str) -> Path:
+    """Write SaveCharacters/<name>.json as a fork of a checkpoint or save; never over an existing character."""
+    from evals.bench.devchar import MAIN_CHARACTER, NAME_RE
+    target = SAVE_DIR / f"{name}.json"
+    if name in (SOURCE, MAIN_CHARACTER) or not NAME_RE.match(name) or target.exists():
+        raise SystemExit(f"refusing to fork onto {name!r}: a fork needs a new, valid character name")
+    text = refork(source_of(ref).read_bytes().decode("utf-8-sig"), name).encode("utf-8")
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_bytes(text)
+    os.replace(tmp, target)
+    return target
+
+
+def keep(ref: str, label: str, newer_than: float = 0.0, wait_s: float = 0.0, sleep=None) -> Path | None:
+    """Copy a save to checkpoints/<label>.json. newer_than: only a save the game wrote after that moment (the client
+    saves a character every 5 minutes and not when it leaves, saves folder 2026-11-16: the file of a run that ended
+    12:44:51Z was last written 12:40:00Z), waiting up to wait_s for one; None when none came. A label that exists
+    is never overwritten: a checkpoint is the fixed start of every trial made from it."""
+    import time
+    out = CHECKPOINT_DIR / f"{label}.json"
+    if out.exists() or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", label):
+        raise ValueError(f"checkpoint label {label!r} is taken or not a plain name")
+    src, end = source_of(ref), time.time() + wait_s
+    while src.stat().st_mtime <= newer_than:
+        if time.time() >= end:
+            return None
+        (sleep or time.sleep)(5.0)
+    for _ in range(5):  # the game may be mid-write: only a save that reads whole is kept
+        raw = src.read_bytes()
+        try:
+            json.loads(raw.decode("utf-8-sig"))
+            break
+        except ValueError:
+            (sleep or time.sleep)(1.0)
+    else:
+        return None
+    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(raw)
+    return out
+
+
+def park(names: list[str]) -> list[str]:
+    """Move forks' saves (and the game's .backup of each) out of SaveCharacters into logs/quests/forks, so the
+    character list does not grow by one per trial; the files stay as the record of where each trial ended."""
+    from evals.bench.devchar import MAIN_CHARACTER
+    PARK_DIR.mkdir(parents=True, exist_ok=True)
+    moved = []
+    for n in names:
+        if n in (SOURCE, MAIN_CHARACTER):
+            continue
+        for f in (SAVE_DIR / f"{n}.json", SAVE_DIR / f"{n}.json.backup"):
+            if f.is_file():
+                os.replace(f, PARK_DIR / f.name)
+                moved.append(f.name)
+    return moved
+
+
+def cmd_fork(a) -> int:
+    print(f"fork: {fork(a.source, a.name)} from {source_of(a.source)}")
+    return 0
+
+
+def cmd_keep(a) -> int:
+    try:
+        print(f"checkpoint: {keep(a.source, a.label)} from {source_of(a.source)}")
+    except ValueError as exc:
+        print(exc)
+        return 2
+    return 0
+
+
 def cmd_show(a) -> int:
     d = json.loads((SAVE_DIR / f"{a.name}.json").read_text(encoding="utf-8-sig"))
     qp = d["GameProgress"]["QuestProgress"]
@@ -311,8 +411,14 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--force", action="store_true")
     s = sub.add_parser("show")
     s.add_argument("--name", required=True)
+    f = sub.add_parser("fork", help="a new character from a checkpoint or a clone's save, as it stands")
+    f.add_argument("--from", dest="source", required=True, help="a checkpoint label, a character name or a file")
+    f.add_argument("--name", required=True)
+    k = sub.add_parser("keep", help="copy a clone's save, as the game last wrote it, to a named checkpoint")
+    k.add_argument("--from", dest="source", required=True)
+    k.add_argument("--label", required=True)
     a = ap.parse_args(argv)
-    return {"make": cmd_make, "show": cmd_show}[a.cmd](a)
+    return {"make": cmd_make, "show": cmd_show, "fork": cmd_fork, "keep": cmd_keep}[a.cmd](a)
 
 
 if __name__ == "__main__":

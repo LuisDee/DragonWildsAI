@@ -574,7 +574,13 @@ def start_brain(a, spent: float | None) -> tuple[subprocess.Popen, Path | None]:
         for f in paths.log_dir().glob("brain-live-*.jsonl"):
             if f.stat().st_mtime >= t0 - 1 and any(r.get("kind") == "session_start" and (obs.parse_ts(r.get("ts")) or 0) >= t0 - 1
                                                    for r in obs.jsonl(f)):
-                time.sleep(3.0)
+                # ready = its model warm-up is logged (5 to 8 s after session_start): a line sent before that waits
+                # for it. Quest chain 20261116-122227: sent 2.1 s before the warm-up ended, heard 2.5 s late, and
+                # First Steps failed "no stand over 5 s" at 5.0 s on that alone (six runs before: heard in 0.4-1.2 s)
+                ready = time.time() + 25
+                while time.time() < ready and not any(r.get("kind") == "llm_warmup" for r in obs.jsonl(f)):
+                    time.sleep(0.5)
+                time.sleep(0.5)
                 return p, f
         if p.poll() is not None:
             break

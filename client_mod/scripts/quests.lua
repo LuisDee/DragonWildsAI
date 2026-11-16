@@ -61,10 +61,12 @@ function W.rows(pc, opts)
                 end, M.cfg.field_cap)
             end
             U.each(U.try(function() return q.QuestInts end), function(x)
-                local k = text(U.try(function() return x.Name end)); if k then r.ints[k] = num(U.try(function() return x.Value end)) end
+                -- FQuestInt {QuestIntName, QuestIntValue}, FQuestBool {QuestBoolName, bQuestBoolValue} (Dominion.hpp:6399,
+                -- 6418). Read as Name / Value until 2026-11-16 they were never there, so no counter or flag ever showed
+                local k = text(U.try(function() return x.QuestIntName end)); if k then r.ints[k] = num(U.try(function() return x.QuestIntValue end)) end
             end, M.cfg.field_cap)
             U.each(U.try(function() return q.QuestBools end), function(x)
-                local k = text(U.try(function() return x.Name end)); if k then r.bools[k] = U.try(function() return x.Value end) == true end
+                local k = text(U.try(function() return x.QuestBoolName end)); if k then r.bools[k] = U.try(function() return x.bQuestBoolValue end) == true end
             end, M.cfg.field_cap)
         end
         out[#out + 1] = r
