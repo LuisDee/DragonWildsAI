@@ -26,6 +26,9 @@ local D = {}
 D.cfg = {
     parry_window_s = 0.10,  -- PlayerBlockingComponent.ParryWindowLength (100, ms) on Claude's client
     block_delay_s = 0.11,   -- server "AuthorityApplyBlocking: BlockDelay [0.117]" for a remote player (dev log)
+    -- a block covers BlockingAngle (120) in front of him, and the block key turns his body to the camera: nothing
+    -- for ~3 frames, then CharacterMovement.RotationRate.Yaw (540 deg/s) (live probe block_face_probe 2026-11-17)
+    block_angle_deg = 120, turn_delay_s = 0.10, turn_rate_dps = 540, turn_margin_deg = 15,
     react_s = { 0.15, 0.30 }, -- human reaction delay to the telegraph
     jitter_s = 0.025,       -- timing error of a human press
     block_tail_s = 0.40,    -- keep a block up this long past the expected impact
@@ -239,7 +242,7 @@ D.beta_sample = beta_sample
 -- Plan the answer to one telegraph.
 --   info = {key, dmg_time, unblockable, unparryable, shape = shape_info, ...}
 --   ctx  = {dist_cm, latency_s (one way), stamina, can_parry, can_block, parry_cost, block_cost, evade_cost,
---           hp_frac, max_hp, heal_hp,
+--           hp_frac, max_hp, heal_hp, face_deg (how far his body is turned from the attacker), block_angle,
 --           abilities = {phase_dash = {available, latency_s, why}, windstep = {...}, tempest_shield = {...}}}
 --   orders = {defense = auto|parry|block|dodge|none, allow_jump, abilities = {name = false to forbid}}
 -- -> {action = parry|block|dodge|jump|phase_dash|windstep|tempest_shield|retreat|none, at_s, hold_s,
@@ -274,6 +277,15 @@ function D.plan(info, ctx, orders, rng)
     local can_parry = ctx.can_parry and parryable and st >= (ctx.parry_cost or 10)
     local can_block = ctx.can_block and blockable and st >= (ctx.block_cost or 10)
     local low_hp = ctx.hp_frac and ctx.heal_hp and ctx.hp_frac < ctx.heal_hp
+    -- the block has to face it by the impact: the key turns him to the camera (which is put on the attacker), and
+    -- the turn takes time. A press at `at` is in time when the turn is over, as the server sees it, before the hit
+    local turn_s = 0
+    if ctx.face_deg then
+        local over = ctx.face_deg - ((ctx.block_angle or cfg.block_angle_deg) / 2 - cfg.turn_margin_deg)
+        if over > 0 then turn_s = cfg.turn_delay_s + over / cfg.turn_rate_dps end
+    end
+    p.face_deg, p.turn_s = ctx.face_deg, turn_s > 0 and turn_s or nil
+    local function faces(at) return turn_s <= 0 or at + turn_s + L <= T end
     -- 1. the rule choice (also the prior)
     local pick
     if style == "parry" then pick = can_parry and "parry" or can_block and "block" or can_dodge and "dodge"
@@ -296,12 +308,18 @@ function D.plan(info, ctx, orders, rng)
     if pick == "parry" and parry_at < react then
         pick, p.why = can_block and "block" or (can_dodge and "dodge" or "retreat"), "too_fast_to_parry"
     end
+    -- turned away from it: the parry's short lead leaves no time to turn, the shield raised at once may; when even
+    -- that cannot face it in time, the roll (which needs no facing)
+    local away
+    if pick == "parry" and not faces(parry_at) then pick, away = can_block and "block" or (can_dodge and "dodge" or "retreat"), true end
+    if pick == "block" and not faces(react) and can_dodge then pick, away = "dodge", true end
+    if away then p.why = "facing_away" end
     -- 2. candidates: the plain answers that are possible now, plus abilities that are available and fit
     --    in the time the telegraph leaves (style "auto" only: an explicit style is the model's order)
     local cands = { [pick] = cfg.prior_rule }
     if style == "auto" then
-        if can_parry and parry_at >= react then cands.parry = cands.parry or cfg.prior_alt end
-        if can_block then cands.block = cands.block or cfg.prior_alt end
+        if can_parry and parry_at >= react and faces(parry_at) then cands.parry = cands.parry or cfg.prior_alt end
+        if can_block and (faces(react) or not can_dodge) then cands.block = cands.block or cfg.prior_alt end
         if can_dodge then cands.dodge = cands.dodge or cfg.prior_alt end
         if can_jump then cands.jump = cands.jump or cfg.prior_alt end
         local AB = D.abilities()

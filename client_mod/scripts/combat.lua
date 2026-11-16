@@ -658,7 +658,7 @@ M._inject = inject
 -- Registered once (state in _G.DWCombat.hooks); each dispatches to the newest handler (hot reload).
 M.HOOKS = {
     { path = "/Script/Dominion.DamageComponent:Multicast_ApplyDamageFromGameplayEffect", handler = "on_damage" },
-    { path = "/Script/Dominion.DamageComponent:Multicast_ApplyPointDamageFromGameplayEffect", handler = "on_damage" },
+    { path = "/Script/Dominion.DamageComponent:Multicast_ApplyPointDamageFromGameplayEffect", handler = "on_point_damage" },
     { path = "/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies", handler = "on_ai_attack" },
     { path = "/Script/Dominion.AiRangedAttackComponent:Multicast_PerformAttackOnSimulatedProxies", handler = "on_ai_attack" },
     -- the server's verdict on Claude's block (PlayerBlockingComponent, NetMulticast; params not read)
@@ -677,7 +677,7 @@ local function trim_map(m, t, keep_s)
 end
 
 -- Damage multicast: who hit whom. Read-only param reads (same reads as sense.lua's vitals watcher).
-function M.on_damage(ctx, ev)
+function M.on_damage(ctx, ev, point)
     if _G.DW_PAUSE then return end
     local c = C()
     local comp = ctx:get()
@@ -705,7 +705,17 @@ function M.on_damage(ctx, ev)
         -- every damage event on Claude (defence outcomes, damage_taken)
         c.me_seq = (c.me_seq or 0) + 1
         c.me_dmg = c.me_dmg or {}
-        c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = t, amount = amount, inst = iid,
+        -- a point hit carries the server's verdict on his block (FDominionPointDamageEvent.BlockOutcome: EBlockResult,
+        -- and DamageBlocked); the plain event has neither
+        local blk
+        if point then
+            local bo = U.try(function() return e.BlockOutcome end)
+            if bo then
+                blk = { result = num(U.try(function() return bo.Result end)), blocked = num(U.try(function() return e.DamageBlocked end)),
+                        blockable = U.try(function() return bo.bWasBlockableAttack end) }
+            end
+        end
+        c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = t, amount = amount, inst = iid, block = blk,
                                     absorbed = num(U.try(function() return e.AmountAbsorbedByShield end)) }
         if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
         if f then f.dmg_taken = (f.dmg_taken or 0) + amount; M.note_damage(f, amount) end
@@ -1104,6 +1114,8 @@ function M.on_ai_impact(ctx)
     if #c.impacts > 20 then table.remove(c.impacts, 1) end
 end
 function M.on_blocked(ctx) on_block_event(ctx, "blocked") end
+function M.on_point_damage(ctx, ev) return M.on_damage(ctx, ev, true) end
+M.BLOCK_RESULT = { [0] = "not blocking", [1] = "block failed", [2] = "block successful", [3] = "staggered" } -- EBlockResult
 
 function M.hooks_start(log)
     local c = C()
@@ -1111,7 +1123,7 @@ function M.hooks_start(log)
     if p then c.me_id = U.short(p) end
     local pc0 = local_pc()
     if pc0 then c.pc_id = U.short(pc0) end
-    c.handlers = { on_damage = M.on_damage, on_ai_attack = M.on_ai_attack, on_parried = M.on_parried, on_blocked = M.on_blocked,
+    c.handlers = { on_damage = M.on_damage, on_point_damage = M.on_point_damage, on_ai_attack = M.on_ai_attack, on_parried = M.on_parried, on_blocked = M.on_blocked,
                    on_ai_impact = M.on_ai_impact, on_ai_action = M.on_ai_action, on_ai_action_stop = M.on_ai_action_stop }
     local res = {}
     for _, h in ipairs(M.HOOKS) do
@@ -1517,6 +1529,7 @@ function M.capabilities(pc, right, left)
         return ok and v == true
     end
     local cap = { can_block = false, can_parry = false }
+    cap.block_angle = num(U.try(function() return pc.Pawn.PlayerBlockingComponent.BlockingAngle end)) -- (degrees in front of him)
     local blocker = (left and items[left] and items[left].can_block and items[left]) or (right and items[right] and items[right].can_block and items[right])
     if blocker then
         cap.can_block = true
@@ -2469,6 +2482,9 @@ local function start_defend(F, me, attacker_id, tt, info)
         ctx.closing_cms = ((v.X or 0) * dx + (v.Y or 0) * dy) / l
     end
     info = info or { key = "?:unknown" }
+    local pawn = U.try(function() return F.pc.Pawn end)
+    if pawn and apos and me.pos then ctx.face_deg = (face_err(pawn, me.pos, apos)) end
+    ctx.block_angle = cap.block_angle
     local plan = D and D.plan(info, ctx, M.orders)
         or { action = "block", at_s = M.react_delay(), hold_s = 0.9, impact_s = 0.6, why = "no defense module" }
     F.def = { plan = plan, tel_t = tt, key = info.key, attacker = attacker_id, apos = apos, hp0 = me.hp, st0 = me.stamina,
@@ -2517,9 +2533,14 @@ local function finish_defend(F)
     c.counts[outcome] = (c.counts[outcome] or 0) + 1
     say(F.log, string.format("defence %s -> %s (key %s, impact %s, dmg %s, evaded %s, montage %s, acted at %s%s)", act, outcome, tostring(d.key),
         d.impact_t and string.format("%.2fs", d.impact_t - d.tel_t) or "-", tostring(d.hit_amt or 0), tostring(d.evaded), tostring(d.montage),
-        d.started_rel and string.format("%.2fs", d.started_rel) or "-", d.retap and ", key twice" or ""))
+        d.started_rel and string.format("%.2fs", d.started_rel) or "-", (d.retap and ", key twice" or "")
+        .. (d.face_key and string.format(", turned %.0f deg from it at the key", d.face_key) or "")
+        .. (d.face_hit and string.format(", %.0f deg at the hit", d.face_hit) or "")
+        .. (d.verdict and string.format(", the server: %s%s", tostring(M.BLOCK_RESULT[d.verdict.result] or d.verdict.result),
+            d.verdict.blocked and string.format(", %.0f blocked", d.verdict.blocked) or "") or "")))
     F.last_defence = { action = act, outcome = outcome, key = d.key, impact_s = d.impact_t and (d.impact_t - d.tel_t) or nil,
-                       plan_at = d.plan.at_s, why = d.plan.why, moved = d.moved }
+                       plan_at = d.plan.at_s, why = d.plan.why, moved = d.moved, face_key = d.face_key, face_hit = d.face_hit,
+                       verdict = d.verdict and M.BLOCK_RESULT[d.verdict.result] or nil }
     if d.moved then say(F.log, string.format("dodge %s moved toward %+dcm right %+dcm", tostring(d.moved.dir), d.moved.toward_cm, d.moved.right_cm)) end
     F.def, F.hold, F.evade_dir, F.evade_until, F.move_inject = nil, nil, nil, nil, nil
     local q = F.queued_tele
@@ -2594,6 +2615,15 @@ local function defend_act(F, pawn, acts)
     local d = F.def
     if not d then return end
     local plan = d.plan
+    -- a block faces where the camera looks: the block key turns his body to the camera's yaw (live probe
+    -- block_face_probe 2026-11-17: 120 deg in 12 frames). So from the telegraph to the hit the camera is on the one
+    -- that swings, as a player's is. (Before: it pointed where he last walked or dodged; block -> hit 4 of 7.)
+    local blk = plan.action == "parry" or plan.action == "block" or plan.action == "tempest_shield" or plan.input == "block"
+    local tp = d.apos_now or d.apos
+    local mp = (F.me_last or {}).pos
+    if blk and tp and mp and not d.impact_t then
+        pcall(function() F.pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(tp.Y - mp.Y, tp.X - mp.X)), Roll = 0 }) end)
+    end
     if d.started then
         -- the dodge that didn't come out: the key once more, as a player does. Live 2026-11-16 07:50:52Z and 08:13:06Z
         -- (Goblin Runt Attack1): "evaded false", no sideways move, hit for 15 at 1.23 / 1.37 s, 0.5 s after the one
@@ -2617,6 +2647,7 @@ local function defend_act(F, pawn, acts)
     local me = F.me_last or {}
     d.started = F.t
     d.started_rel = F.t - d.tel_t
+    if blk and tp and mp then d.face_key = (face_err(pawn, mp, tp)) end
     local a = plan.action
     if plan.spell_asset then
         -- a defensive ability: cast it now (the spells module drives the real spell inputs)
@@ -2750,6 +2781,7 @@ local function step_defend(F, pawn, me, acts)
                 d.hit_amt = (d.hit_amt or 0) + (e.amount or 0)
                 d.impact_t = d.impact_t or e.t
                 if (e.absorbed or 0) > 0 then d.blocked = true end
+                d.verdict = e.block or d.verdict
             end
         end
     end
@@ -2761,11 +2793,20 @@ local function step_defend(F, pawn, me, acts)
     for _, e in ipairs(c.impacts or {}) do
         if e.seq > (d.imp_seq0 or 0) and e.id == d.attacker then d.imp_seq0 = e.seq; d.impact_t = d.impact_t or e.t; d.impact_seen = true end
     end
-    -- the attacker's position when the hit resolves (lunge learning)
+    -- where the attacker is now (the camera follows it while a block is the answer): the census's row, no search
+    do
+        local a = d.attacker == F.target_id and F.target or ((c.census or {}).by_id or {})[d.attacker]
+        local p = a and U.valid(a) and U.loc(a)
+        if p then d.apos_now = { X = p.X, Y = p.Y, Z = p.Z } end
+    end
+    -- the attacker's position when the hit resolves (lunge learning), and how far he was turned from it then
     if d.impact_t and not d.apos_end then
         local a = d.attacker == F.target_id and F.target or find_creature(d.attacker)
         local p = a and U.loc(a)
-        if p then d.apos_end = { X = p.X, Y = p.Y, Z = p.Z } end
+        if p then
+            d.apos_end = { X = p.X, Y = p.Y, Z = p.Z }
+            if d.face_key and me.pos then d.face_hit = (face_err(pawn, me.pos, p)) end
+        end
     end
     -- a new telegraph (a combo's next swing) closes this one
     for id, tt in pairs(c.telegraphs) do

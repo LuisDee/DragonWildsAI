@@ -355,6 +355,7 @@ local function reset_world()
     INV.equips, INV.uses, INV.interacts = {}, {}, 0
     held.right, held.left = nil, "ITEM_Logging_Axe_Mithril"
     pawn.loc, pawn.hp, stamina, special = { X = 0, Y = 0, Z = 0 }, 100, 80, 100
+    pawn.yaw = 0 -- (facing +X, where the tests put what he fights)
     _G.DWCombat, _G.DWArbiter, _G.DWDefense = nil, nil, nil
     Cm.orders.stance, Cm.orders.force, Cm.orders.avoid = "defensive", false, {}
 end
@@ -3165,6 +3166,97 @@ do
     local g3 = { comp = {}, seed = { full_accuracy_s = 1.25 }, aim_t0 = 0, flags = { loaded = true, aim = true }, aim_on_t = 0 }
     check("bow_ready: a kebbit 3 m off -> 0.5 s of draw is enough", Cm.bow_ready({ t = 0.5, dist_m = 3 }, g3))
     check("bow_ready: 14 m off -> 0.5 s is not", not Cm.bow_ready({ t = 0.5, dist_m = 14 }, g3))
+end
+
+-- ================================================================ a block faces where the camera looks
+-- Live probe block_face_probe 2026-11-17 (ClaudeDev): with the camera 120 deg off his body, the block key turned his
+-- body to the camera's yaw within 12 frames (nothing for ~3 frames, then 540 deg/s). In fights the camera pointed where
+-- he last walked or dodged: over 2026-11-15/16 block -> hit 4 of 7 (once 0.8 s into the block), parry -> hit 12 of 53.
+do -- the plan: he has to face it by the impact. The turn fits in a parry's lead only from a small angle
+    _G.DWDefense = nil
+    local fixed = function() return 0.5 end
+    local function ctxf(face, over)
+        local c = { dist_cm = 150, latency_s = 0.03, stamina = 60, can_parry = true, can_block = true, parry_cost = 10, block_cost = 10,
+                    evade_cost = 15, hp_frac = 1, heal_hp = 0.5, face_deg = face }
+        for k, v in pairs(over or {}) do c[k] = v end
+        return c
+    end
+    local info = { key = "GoblinF:ATK_Slash", dmg_time = 0.8 }
+    check("face: facing it -> parry", Dm.plan(info, ctxf(10), {}, fixed).action == "parry")
+    check("face: 70 deg off -> the turn fits in the parry's lead", Dm.plan(info, ctxf(70), {}, fixed).action == "parry")
+    check("face: facing unread -> the rule as it was", Dm.plan(info, ctxf(nil), {}, fixed).action == "parry")
+    local p = Dm.plan(info, ctxf(150), {}, fixed)
+    check("face: 150 deg off -> a block pressed at once, and it says why", p.action == "block" and p.why == "facing_away" and p.at_s < 0.3
+        and math.abs((p.turn_s or 0) - (0.1 + 105 / 540)) < 1e-6, tostring(p.action) .. " " .. tostring(p.why) .. " " .. tostring(p.turn_s))
+    local q = Dm.plan({ key = "RatF:Bite", dmg_time = 0.45 }, ctxf(180), {}, fixed)
+    check("face: behind him and 0.45 s to the bite -> no block can face it in time: a dodge", q.action == "dodge" and q.why == "facing_away",
+        tostring(q.action) .. " " .. tostring(q.why))
+    local n = Dm.plan({ key = "RatF:Bite", dmg_time = 0.45 }, ctxf(180, { stamina = 12 }), {}, fixed)
+    check("face: the same with no stamina for a dodge -> the block all the same", n.action == "block", n.action)
+    check("face: a wider block angle on his own component is used", Dm.plan(info, ctxf(150, { block_angle = 300 }), {}, fixed).action == "parry")
+end
+reset_world()
+do -- the fight: the one behind him swings; the camera goes on it, the block turns him, the hit is blocked
+    PERKS.unlocked = { PerkV2_Attack_Parry = true }
+    Cm.set_orders({ defense = "auto" })
+    pc.SetControlRotation = function(_, r) world.ctrl_rot = { Pitch = r.Pitch, Yaw = r.Yaw } end
+    for _, case in ipairs({ { name = "turns", turn = true, want = "blocked" }, { name = "the turn fails", turn = false, want = "hit" } }) do
+        held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+        pawn.yaw = 0
+        local gob = new_creature("BP_AI_RuntGoblin_Character_C_front" .. (case.turn and "1" or "2"), "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+        local rat = new_creature("BP_AI_GiantRat_C_behind" .. (case.turn and "1" or "2"), "Giant Rat", { X = -150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+        check("face fight (" .. case.name .. "): starts", Cm._start_fight(nil, gob, { mode = "attack", force = true }).ok)
+        run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+        pawn.yaw, world.ctrl_rot = 0, nil
+        world.resolved, world.result = nil, nil
+        goblin_attack(rat, 0.8)
+        local resolve = world.on_step
+        local PLAIN, POINT = "/Script/Dominion.DamageComponent:Multicast_ApplyDamageFromGameplayEffect",
+            "/Script/Dominion.DamageComponent:Multicast_ApplyPointDamageFromGameplayEffect"
+        world.on_step = function()
+            local blocking = world.block_last and T - world.block_last < 0.05
+            -- the game's own rule: a held block turns the body to the camera; a hit from outside the block's angle is not blocked
+            if blocking and world.ctrl_rot and case.turn then pawn.yaw = world.ctrl_rot.Yaw end
+            local want = math.deg(math.atan(rat.loc.Y - pawn.loc.Y, rat.loc.X - pawn.loc.X))
+            local off = math.abs((want - pawn.yaw + 540) % 360 - 180)
+            if off > 60 and not world.resolved then
+                -- the hit comes as a point hit with the server's verdict on the block in it
+                local keep, plain = world.block_last, hooks[PLAIN]
+                world.block_last = nil
+                hooks[PLAIN] = function(c, ev)
+                    local e = ev:get()
+                    e.BlockOutcome, e.DamageBlocked = { Result = 0, bWasBlockableAttack = true }, 0
+                    hooks[POINT](c, { get = function() return e end })
+                end
+                resolve()
+                hooks[PLAIN] = plain
+                world.block_last = keep
+                return
+            end
+            resolve()
+        end
+        run_until(function() local f = Cm._state().fight; return world.resolved and f and f.phase ~= "defend" end, 3)
+        local f = Cm._state().fight
+        local ld = f and f.last_defence or {}
+        local lines = table.concat(Cm._state().log_lines, " | ")
+        check("face fight (" .. case.name .. "): the camera went on the one that swung, behind him", world.ctrl_rot and math.abs(math.abs(world.ctrl_rot.Yaw) - 180) < 1,
+            world.ctrl_rot and world.ctrl_rot.Yaw)
+        check("face fight (" .. case.name .. "): a block, not a parry, with the reason", ld.action == "block" and ld.why == "facing_away", tostring(ld.action) .. " " .. tostring(ld.why))
+        check("face fight (" .. case.name .. "): " .. case.want, world.result == case.want and ld.outcome == case.want, tostring(world.result) .. " " .. tostring(ld.outcome))
+        check("face fight (" .. case.name .. "): the line says how far he was turned from it at the key",
+            lines:find("turned 180 deg from it at the key", 1, true) ~= nil, lines:sub(-400))
+        if case.want == "hit" then
+            check("face fight: a hit through a block says where he faced and the server's verdict",
+                lines:find("180 deg at the hit", 1, true) ~= nil and lines:find("the server: not blocking", 1, true) ~= nil, lines:sub(-400))
+        else
+            check("face fight: no damage taken", pawn.hp == 100, pawn.hp)
+        end
+        Cm.stop(nil, "test")
+        A.reset(nil)
+        reset_world()
+    end
+    pc.SetControlRotation = nil
+    PERKS.unlocked = {}
 end
 
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
