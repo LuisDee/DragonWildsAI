@@ -50,6 +50,7 @@ M.cfg = {
     face_s = 3.0,
     open_wait_s = 3.0,      -- after the press: wait this long for the game to open the station's menu
     presses = 2,
+    reopens = 3,            -- a menu that something else closed mid-craft is opened again this many times
     result_wait_s = 6.0,    -- after SendCraftRequest: wait for the server's verdict + the inventory
     move_wait_s = 3.0,      -- after each drag into the station: wait for its inventory to show it
     start_wait_s = 4.0,     -- after the start button: wait for bStationRunning
@@ -2062,11 +2063,16 @@ local function proc_step(api, job, t)
     end
 end
 
+-- The steps that press the station's own menu (its slots, its start button, its craft button).
+local MENU_PHASES = { load = true, start = true, send = true }
+
 local function craft_step(api, job, t)
     if job.phase == "open" then
         local r = open_poll(api, job, t)
         if r == true then
-            if job.plan.kind == "processing" then
+            if job.reopen then
+                job.phase, job.reopen = job.reopen, nil -- on with the step the closed menu held up
+            elseif job.plan.kind == "processing" then
                 local bad = proc_setup(api, job)
                 if bad then return bad end
                 job.phase = "load"
@@ -2076,6 +2082,34 @@ local function craft_step(api, job, t)
             return nil
         end
         return r
+    end
+    -- The menu he opened is read before one of its buttons is pressed. Something else may have closed it meanwhile
+    -- (Ratcatcher 20261116-184351 and -201124: a rat came at him as the meat and the wood went in, the fight reflex
+    -- pressed back four times to reach gameplay, and the resumed craft pressed ToggleProcessingStationStarted on a
+    -- menu that was gone: "I loaded the Campfire but it won't start"). He opens it again, as a player would. Two
+    -- reads in a row, so one frame without the UI object is not taken for a closed menu.
+    if MENU_PHASES[job.phase] and job.ui_open then
+        if W.open_station(api, job.station.kind) == job.station.id then
+            job.closed_reads = nil
+        else
+            job.closed_reads = (job.closed_reads or 0) + 1
+            if job.closed_reads < 2 then return nil end
+            job.closed_reads = nil
+            job.reopened = (job.reopened or 0) + 1
+            if job.reopened > M.cfg.reopens then
+                local d = base_data(job)
+                d.station_before, d.loaded, d.menu_reopened = job.station_before, job.loaded, M.cfg.reopens
+                d.detail = "The " .. tostring(job.station.name) .. "'s menu keeps closing on me (I opened it again "
+                    .. M.cfg.reopens .. " times) before I can finish at it."
+                return api.fail("verification_failed", d)
+            end
+            api.log("crafting: the " .. tostring(job.station.name) .. "'s menu is no longer open (at " .. tostring(job.phase)
+                .. "): opening it again (" .. job.reopened .. ")")
+            job.ui_open = false
+            job.reopen, job.phase = job.phase, "open"
+            job.open = { phase = "approach", moving = false, approaches = 0, presses = 0 }
+            return nil
+        end
     end
     if job.plan.kind == "processing" then return proc_step(api, job, t) end
     return bench_step(api, job, t)

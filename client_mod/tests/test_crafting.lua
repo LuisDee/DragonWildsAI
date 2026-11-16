@@ -619,6 +619,36 @@ do -- less of the input in his bag at the load than when the craft began (Ratcat
     check("short load: says what was short", r.ok and r.data.partial == true and r.data.short and r.data.short[1].loaded == 1
           and tostring(r.data.detail):find("Only 1 .- went in", 1) ~= nil, tostring((r.data or {}).detail))
 end
+do -- the station's menu closed by something else between the load and the start (Ratcatcher runs 20261116-184351 and
+   -- 20261116-201124: a rat came at him as the meat and the wood went in, the fight reflex pressed back four times to
+   -- reach gameplay, and the resumed craft pressed the start button of a menu that was no longer there: "I loaded the
+   -- Campfire but it won't start"): he opens it again and starts it
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) },
+            unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    local r = run({ input = "raw farm meat", count = 1 })
+    local plain = F.presses -- the presses of a cook nothing cuts across
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) },
+            unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    local move, reopens, shut = C.W.move_into, C.cfg.reopens, false
+    C.W.move_into = function(...) local ok = move(...); if not shut then shut = true; F.ui = nil end; return ok end
+    r = run({ input = "raw farm meat", count = 1 }); C.W.move_into = move
+    check("menu closed before the start: opened again (one more press) and started", r.ok
+          and (inv_counts().ITEM_Consumable_Farm_Steak or 0) == 1 and F.presses == plain + 1 and F.toggles == 1,
+          tostring(r.reason) .. " presses=" .. tostring(F.presses) .. " of " .. tostring(plain) .. " " .. tostring((r.data or {}).detail))
+    -- ...and one that keeps closing is said as that, not as a fire that won't start
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) },
+            unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    C.W.move_into = function(...) local ok = move(...); F.ui = nil; return ok end
+    C.cfg.reopens = 1
+    r = run({ input = "raw farm meat", count = 1 }); C.W.move_into = move
+    check("menu keeps closing: said so, the count told", not r.ok and r.reason == "verification_failed"
+          and tostring((r.data or {}).detail):find("menu keeps closing", 1, true) ~= nil and r.data.menu_reopened == 1,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    C.cfg.reopens = reopens
+end
 do -- his own leftovers that this recipe doesn't use come out of an idle station first (same run: the rat after the
    -- boil had "no free slot ... it already holds 1 Dirty Water", and he walked 130 m to another fire)
     local fire = station("Campfire", "fire_1", { 8, 3, 0 })
