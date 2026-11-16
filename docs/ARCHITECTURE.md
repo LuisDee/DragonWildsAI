@@ -547,7 +547,7 @@ Placing, taking down, picking up, interacting, gathering and casting all have th
 - `camrig.look(rig, target, trace, tol_m)`: what the screen centre WOULD land on from a stand, before turning: `{clear, off_m, sees, pitch, yaw, cam, k}`. `trace(a, b) -> hit, point` in metres (build's is the game's line trace).
 - `camrig.stands(rig, feet, target, trace, opts)`: where to stand when the view from here is blocked: candidate spots, kept when `look` is clear from there and `opts.ok(pos)` allows, the shortest walk first.
 - Recipe for a new pointing skill: (1) the target point from data (census, snap geometry); (2) `look` from here: clear -> `aim` once and press; (3) else `stands` -> walk towards the first, and stop as soon as `look` from where he stands is clear (arrival is the view, never a distance to the spot: at 1.2 m short the view was still blocked, run 20261116-003814) -> `aim` once and press; (4) the proof from game state (bag, telemetry, census), never from the cursor. Tolerances belong to the skill (build: 0.5 m on a floor, 0.15 m off it, 0.2 m for a roof's wall face).
-- Users today: `build.W.aim`, `build.W.look`, `build.W.stands`, `deconstruct.W.aim`. Not yet: `client_bridge aim_at` (pickups, interact), `gather.W.aim_cam`, `spells.W.aim`, `shoot`.
+- Users today: `build.W.aim`, `build.W.look`, `build.W.stands`, `deconstruct.W.aim`, `deconstruct.W.view_on`, `deconstruct.W.view_stands` (its own test of the view via `opts.clear`: it lands on the piece's box). Not yet: `client_bridge aim_at` (pickups, interact), `gather.W.aim_cam`, `spells.W.aim`, `shoot`.
 - Tests: `tests/test_camrig.lua` (the solve, the old aim's miss, look and stands against a toy world).
 
 ### 8.5 Tests

@@ -1025,3 +1025,29 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Run 20261116-015416 died before the line:** started from PowerShell, where `sh` is not on the PATH (`all_pieces` shells out to tools/client_cmd.sh). Fixed: sh by its full path. Nothing was built or spent.
 - Tests: test_build 154, test_camrig 21, test_deconstruct 86, test_placement 18, skills contract 10.
 - Open from the run: the name "Roof" cost a call (the reply already lists "45° Roof"); teardown waits; the judge flagged a true line because the skill result it read was false (fixed at the source).
+
+## 2026-11-16 01:0x-02:5xZ rung 2 through the brain: every house item in one batch call (4.1 s per piece), names and teardown fixed
+- **Run 20261116-010103 (FAIL, 8 of 9 items):** 196 s to his last line, 9 Haiku + 3 Sonnet, $0.113. Three build calls failed on names ("Foundation", "Door Frame Wall", "Firepit"): `buildables about "foundation wall roof door ..."` returned the best 30 by total score, which were all roof-support walls, so the model never saw Square Foundation, WALL WITH DOOR FRAME or Campfire. Firepit never built. Build pace 9.33 s per piece of tool time.
+- **Fixes after it (commits 6f96a54, 4586373):**
+  - `buildables`: every word of an ask gets its own best pieces in turn (`M.rank_about`, round-robin), and `by_word` names them per word; a word with no piece gets an empty list. "firepit" now answers Campfire.
+  - `build`: the words of a name are enough when one piece has them all ("Door Frame Wall" -> WALL WITH DOOR FRAME); two candidates -> the question which, narrowed to the one he can pay for.
+  - Stations on a foundation's top go by the predicted view and sit where aimed (3.3-6.4 s each, were failing or 12+ s).
+  - Teardown: refunds settled once at the end, the pickup ends when nothing lies there (5 pieces 30.7 -> 19.2 s; collect 16.5 -> 2.6 s).
+- **Run 20261116-013753 (all house items true; FAIL only on a harness false negative):**
+
+  | measure | value | bar |
+  |---|---|---|
+  | model calls | 2 Haiku + 2 Sonnet, $0.086 | 80 Haiku, $1.50 |
+  | to his last line | 135.6 s | none set for the whole line |
+  | house (7 pieces, one batch call) | 29.0 s = 4.1 s per piece | 5.71 |
+  | all 10 pieces, build tool time | 44.9 s = 4.49 s per piece | 5.71 |
+  | all 10 pieces, first build call to last piece up | 47.7 s = 4.77 s per piece | 9.12 |
+  | teardown of the 11-piece stand-in | 62.7 s | not graded |
+  | judge | every line true | all true |
+
+  Items: foundation, walls, roof, door, crafting table, firepit, crate, teardown all true. `stored` read false although he put 87 Ash Logs in the new crate: the harness matched the store call's container against the crate's id and he named it "Crate". The score had `who = null, 0 spawns`: the server recorder's 4 h arm had expired 31 min before the run.
+- **Teardown cause (62.7 s, 30.0 of it approach, 14.0 aim):** two pieces took 13.7 and 13.2 s to approach. He judged "can I see it" from his eye, but the camera hangs 7 m behind him, so the eye test sent him round the house, and client.log shows both walks stuck on its walls ("local plan failed: walls everywhere", 10 m in 12 s).
+- **Fix (17af638):** `deconstruct` uses the same camrig rule as `build`. `W.view_on`: he takes a piece from where he stands when his predicted view lands on its box. `W.view_stands`: else the spots whose predicted view does, shortest walk first, each walk capped at 8 s and ended as soon as the view lands. `camrig.stands` takes `opts.clear(look, pos)` for a skill's own "it lands on this" test. Live on the house that run left: 7 pieces down in 22.8 s (4 destroyed, 3 fell with their support), approach 2.1 s in total, the longest single approach 1.3 s.
+- **Harness fixes (17af638, tools/build_run.py):** the recorder is re-armed before the line; `stored` accepts the crate by id or name; `build_pace` in every record and in `report` (tool and wall seconds per piece against Luis's 3.81 and 6.08), with the census's new pieces as the count when the recorder saw no spawn.
+- Tests: test_build 161, test_camrig 21, test_deconstruct 86.
+- Open: the clean-up after 013753 refused ("hostiles within 45 m (Giant Rat)") and left the house standing; cleared by hand. The Crafting Table gave nothing back on teardown (cost 4 Ash Logs); not looked into.
