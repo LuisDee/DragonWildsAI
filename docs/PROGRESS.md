@@ -1401,3 +1401,47 @@ Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the 
 - **Ledger:** 37 failed runs, none untagged, 7 void. Open by count: craft before the materials and a give to an NPC (Getting Started, 1 open of 3), talk with no conversation (1), the Ratcatcher pair (1), the startup cooking cut by the first request (1).
 - **Rates:** First Steps 10 of 10; Getting Started 4 of 10 chained, 4 of 5 from `gs_start`; Ratcatcher 7 of 10; Rune Mysteries 3 of 10 chained, 6 of 10 from `rm_part2`.
 - **Limits.** None of d9fb450, d061d6d, e26090d had been tried live when this was written. The after-trial clock rests on the catch-up being one moment (33 s watched). explore's path in the chain was not recorded, so where its legs went is read from its rule, not seen. Reports were not judged for truth. `further_off` has no ids: a tool that takes a name finds the thing only if its own search reaches that far.
+
+## 2026-11-16 19:37Z-21:15Z: Rune Mysteries from `rm_part2` 5 of 5; two chain windows (3 of 4, then 2 of 3, both stopped by faults outside his play); seven fixes
+**Step window, Rune Mysteries from `rm_part2`, K=5** (Controller Haiku 5.5, Planner Sonnet 5.5):
+
+| trial | result | wall time | misses |
+|---|---|---|---|
+| 194113 | pass | 77.0 s | 0 |
+| 194500 | pass | 87.3 s | 0 |
+| 194849 | pass | 101.5 s | 1 |
+| 195256 | pass | 79.9 s | 0 |
+| 195657 | pass | 76.0 s | 0 |
+
+- The one miss (194849): a goblin fight held a talk to Zanik up for 27 s, and the loot read as what the press gave. Fixed in d6f9e8a (DISCOVERIES).
+
+**Chain 20261116-200507** (fork ClaudeQ162005):
+
+| quest | result | time, ratio to Luis | misses | note |
+|---|---|---|---|---|
+| First Steps | pass | 0.48 | | |
+| Getting Started | pass | 105.6 s, 0.88 | 0 | |
+| Ratcatcher | pass | 156.4 s, 0.84 | 1 | a craft that loaded the fire and would not start |
+| Rune Mysteries | fail, void | | | Epic's lobby answered 503, the game left the server, the client crashed (crash_2026_11_16_21_15_33); after the relaunch he stood 233 s |
+
+**Chain 20261116-2039** (fork ClaudeQ162039, window 869.1 s):
+
+| quest | result | time, ratio to Luis | misses | note |
+|---|---|---|---|---|
+| First Steps | pass | 33.1 s | | |
+| Getting Started | pass | 80.7 s, 0.69 | 0 | |
+| Ratcatcher | fail, void (204431) | | 2 | `craft` station_busy, `go_to` path_blocked; both fires held leftovers of his own earlier trials that read as someone else's |
+| Rune Mysteries | not run | | | the chain stops at the first failed quest |
+
+**Fixes, each with a negative test that failed first. None tells him how to do a quest: all are in what a tool does, sees or reports.**
+- 93ec959 (move, combat): ground made good after a setback counts as progress, and a chase's budget grows with the distance it starts at. From Ratcatcher 184943, where an attack gave up 12 s after he fell down a hill.
+- d6f9e8a (interact, talk): the bag is read at the press; a talk that opened nothing reports no gifts.
+- 235f401 (craft): a station menu closed by something else mid-craft is opened again.
+- 07f1cb3 (buildables): what the `can_build_now` filter left out is told, with what each piece lacks.
+- c9fb8ff (brain): being back in the game world after a drop is a change the model is told at once, so he does not stand until thirst wakes him.
+- 61c6870 (bridge): a map travel the game starts itself pauses the loops before the world is torn down. Native-crash item; ARCHITECTURE R18.
+- 4df3901 (craft): what he left in a station is kept on disk by world and place, so it is still his after a relaunch. The two windmill fires were entered by hand from the logs (DISCOVERIES).
+
+- **Ledger:** 39 failed runs, none untagged, 9 void.
+- **Rates:** First Steps 10 of 10; Getting Started 6 of 10 chained, 4 of 5 from `gs_start`; Ratcatcher 7 of 10; Rune Mysteries 3 of 10 chained, 10 of 10 from `rm_part2`. The chain guard reads "ready".
+- **Limits.** No chain has yet passed all four quests in one sitting. None of the seven fixes had been seen working live when this was written; the travel hook has never fired live. The hand entry for the two fires rests on brain logs of the loads, not on a read of the fires' owner (the game keeps none). Reports were not judged for truth.

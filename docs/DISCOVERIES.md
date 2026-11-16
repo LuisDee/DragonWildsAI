@@ -3484,3 +3484,27 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 - In the chain, standing 13.5 m from Zanik at [278.1, 1819.5], all 20 resource rows were Ash Log, Ash Logs and Stone within 12.3 m. The two nearest essence rocks (40.6 m and 43.2 m, health 60) were inside the radius and in no list.
 - Since e26090d the census names the kinds it cut (`beyond`, one row a kind: category, name, count, nearest distance, verb, tool; at most 12) and get_state carries them as `further_off`.
 - Callers of `census_things` that look for one kind of thing must pass `keep` (it chooses before the cap). collect_water and explore do. Not yet checked: skills.lua 1012, 1028, 1434, 1544, 2680; crafting.lua 1741, 1842; deconstruct.lua 616; build.lua 120; spells.lua 811.
+
+## A map travel the game starts itself, and UE4SS's LoadMap pre-hook (2026-11-16 20:15Z, build 26574459, dev client; chain 20261116-201438, crash_2026_11_16_21_15_33)
+- Epic's lobby service answered 503 while he was gathering. The game treated the connection as lost and travelled to `L_FrontEnd` by itself. Nothing of ours had asked for it, so `_G.DW_PAUSE` was not set (only `disconnect.lua` and `join_server.lua` set it), the loops ran on in the front end, and 1.3 s after `LoadMap(L_FrontEnd)` the client died in a Lua UFunction call on an object of the world that was gone (risk R16).
+- UE4SS 3.0.1 `RegisterLoadMapPreHook(fn)` calls `fn` on the game thread at the start of every `UEngine::LoadMap`, before the old world is torn down. A value the hook returns replaces LoadMap's own result, so the hook returns nothing. A LoadMap hook cannot be taken off again: it is registered once a client process (`_G.DW_TRAVEL_HOOKED`).
+- Since 61c6870 the bridge registers it at `bridge_start` and the hook only sets the pause flag. It makes no game call and does not touch its parameters.
+- Not yet seen live: the hook firing on a travel the game started.
+
+## The interact episode's bag baseline (2026-11-16 19:48Z, build 26574459; step trial 20261116-194849)
+- `interact` decides "an item came" by comparing the bag after the press with a baseline. The baseline was read when the walk began. A fight on the way (27 s, 5 Goblin Pack looted) made the press on Zanik read as a gain 0.1 s after it, and `talk` reported the loot as given in a conversation that had not opened.
+- Since d6f9e8a the baseline is read at the press (kept for a second press from the same stand), and a talk that opened no conversation reports no bag change as the conversation's.
+
+## Pressing back to reach gameplay closes an open station menu (2026-11-16, build 26574459; Ratcatcher 20261116-184351 and -201124)
+- A rat attacked while he was loading a Campfire. The fight reflex presses back until input is gameplay; that closes the station menu. The craft job, resumed after the fight, pressed the start button of a menu that was no longer open: "I loaded the Campfire but it won't start", with 2 Raw Rat Meat and 1 Ash Logs left on the fire.
+- Since 235f401 the load, start and send steps read which station menu is open first, and open it again when it is not theirs (two reads in a row, at most 3 times).
+
+## Station contents carry no owner (2026-11-16 20:44Z, build 26574459, dev world; chain 20261116-204431)
+- Nothing readable on a station says who put an item in it. His only way to know "mine" was two in-process tables keyed by actor id (`_G.DWCraftLoads`, `_G.DWCraftLoaded`); actor ids are new every session and the tables die with the client process.
+- The dev world is not reset between trials. Two campfires at the windmill held what earlier trials of his own had left: 1 Dirty Water at [161.08, 1729.13, -4.04] (run 20261116-071227, a boil that ran short of water; brain log brain-live-20261116-081220-13488) and 2 Raw Rat Meat with 1 Ash Logs at [179.89, 1716.77, -3.26] (chain 20261116-200507, the craft that would not start; brain log brain-live-20261116-211114-4568). In the next client both read as someone else's and he rightly would not use them.
+- Since 4df3901 his loads are also kept in `client_io/state/my_loads_<world>.json` by station class and position (0.5 m, 24 h). Inputs are his by it only while every item is one he left there and there is no more of it than he left.
+- The two fires above were entered into `my_loads_dev.json` by hand from that log evidence (2026-11-16 21:12Z), with the times of the loads. A Spinning Wheel near the windmill holds 2 Coarse Animal Fur; no log of today shows who loaded it, so it is not entered and stays someone else's.
+
+## `buildables {can_build_now: true}` said nothing about what it left out (2026-11-16 20:50Z; chain 20261116-204431)
+- With no stone on him, `{about: "campfire", can_build_now: true}` answered "Decorative Fire Rune" alone. The Campfire piece (unlocked, lacking stone) was in no part of the reply, and he concluded he could not build one.
+- Since 07f1cb3 the reply carries `cannot_build_now`: the count of matching pieces the filter dropped and, when `about` is given, the best five with what each lacks or what blocks it.
