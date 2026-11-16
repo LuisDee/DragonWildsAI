@@ -5,8 +5,9 @@ the turn after PROMISE_NOTE: live 2 of 3 empty replies; the same request replaye
 after the episode's earlier calls (cache hits as live: the `cached` tokens match the log's) 4 of 18 no call. Each of
 the K runs gets its own cache namespace (a nonce line at the end of the system message), so runs don't warm each other.
 
-usage: python -m tools.replay_episode LOG EPISODE_ID K [--note FILE] [--skip i,j]
+usage: python -m tools.replay_episode LOG EPISODE_ID K [--note FILE] [--swap OLD NEW] [--skip i,j]
   --note FILE   replace the last call's final user message with FILE's text (try a wording against the logged one)
+  --swap OLD NEW  replace the text OLD by NEW in every user message of every call (a note that recurs in the run)
   --skip i,j    leave out these calls of the episode (0-based) when the live cache pattern shows they wrote nothing
 Costs K x (calls of the episode) Controller calls; state the count before a batch (CLAUDE.md section 2).
 """
@@ -44,7 +45,7 @@ def episode_calls(log: str, episode: str) -> list[tuple[int, list[dict], dict]]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("log"), ap.add_argument("episode"), ap.add_argument("k", type=int)
-    ap.add_argument("--note"), ap.add_argument("--skip", default="")
+    ap.add_argument("--note"), ap.add_argument("--skip", default=""), ap.add_argument("--swap", nargs=2)
     a = ap.parse_args()
     skip = {int(x) for x in a.skip.split(",") if x}
     calls = [c for n, c in enumerate(episode_calls(a.log, a.episode)) if n not in skip]
@@ -59,6 +60,9 @@ def main() -> None:
             m[0]["content"] += nonce
             if note and i == calls[-1][0]:
                 m[-1]["content"] = note
+            for x in m if a.swap else []:
+                if x["role"] == "user" and isinstance(x.get("content"), str):
+                    x["content"] = x["content"].replace(a.swap[0], a.swap[1])
             r = ctl._complete(m, ctl.tools, Decision(), step="turn0")
         did = [(c.name, c.arguments) for c in r.tool_calls]
         acted += any(name not in READS for name, _ in did)

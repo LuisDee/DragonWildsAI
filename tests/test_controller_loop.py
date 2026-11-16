@@ -572,6 +572,44 @@ def test_a_goal_from_a_players_words_that_ends_with_talk_only_gets_one_more_turn
         assert len(calls) == 1 and len(rig.calls("gather")) == 1
 
 
+def _review(rig):
+    from brain.interface import CommandReceived
+    rig.agent._command(CommandReceived(player="Luis", text=""), addressed=True,
+                       body_events=[{"type": "situation_review", "changes": ["hydration: low"]}])
+
+
+def test_a_later_body_run_carries_the_open_request_until_he_stops_on_it(tmp_path):
+    """Chain 20261116-114101 (Rune Mysteries): the runes were made, the run that heard the goal end went to boil
+    water, the boil failed and that run ended on the failure. The next run was a review: it ate and drank, its notes
+    said "Continue with the next step, or stop", he stopped with the quest open and stood to the end. The player's
+    request stays the open one until a reply to a note that names it makes no call."""
+    from brain.interface import CommandReceived
+    rig = Rig(tmp_path, game=_gather_world())
+    rig.controller.clock = lambda: rig.game.time
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)),
+                            FakeLLM.say("", FakeLLM.call("gather", resource="unobtainium", count=1)),
+                            FakeLLM.say("no unobtainium anywhere near"), FakeLLM.say(""), FakeLLM.say(""))
+    rig.agent._command(CommandReceived(player="Luis", text="claude, go and do the woodcutter's quest"))
+    asked = ("Luis", "claude, go and do the woodcutter's quest")
+    assert rig.agent._open_request is None  # he told the player why, in the run of the request itself: closed
+    rig.agent._open_request = asked  # as a goal's end leaves it: a body run that ended on a failure note
+    n = len(rig.controller_llm.calls)
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="unobtainium", count=1)),
+                            FakeLLM.say("can't find any"), FakeLLM.say(""))
+    _review(rig)
+    assert rig.agent._open_request == asked  # the line after a failure is about that step, not the request
+    n = len(rig.controller_llm.calls)
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
+    _review(rig)
+    note = rig.controller_llm.calls[n + 1]["messages"][-1]["content"]
+    assert "Luis asked \"claude, go and do the woodcutter's quest\": continue with the next step of that" in note, note
+    assert rig.agent._open_request is None  # he stopped on the note that named it: his call
+    n = len(rig.controller_llm.calls)
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
+    _review(rig)
+    assert "Continue with the next step, or stop." in rig.controller_llm.calls[n + 1]["messages"][-1]["content"]
+
+
 def test_continue_note_carries_the_request_the_run_is_for(rig):
     """Chain 20261116-091005: a need met mid-run, then "no new request, I'll stay quiet" with the request open."""
     from brain.controller import Decision

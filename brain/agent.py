@@ -171,6 +171,11 @@ class Agent:
         self.request_calls = 0  # model calls of the last _command_run (a board step's call budget)
         self._asked: dict | None = None  # where he stood when the open request was asked (situation "Asked:")
         self._goal_asked: dict | None = None  # the same for the goal now running (_goal_request)
+        # (player, his words): the last thing a player asked, until the model stops on it (a reply with no call to
+        # his line or to a note that names it). Body runs in between (a review that eats and drinks) carry it in
+        # their notes. Chain 20261116-114101: runes made, a failed boil ended the goal's run, the review after it
+        # ate, drank and stopped with the quest open (in live order: 0 of 4 went on; with the request named, 6 of 6)
+        self._open_request: tuple | None = None
         self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -482,6 +487,8 @@ class Agent:
         # the model's command.addressed: only a player's line is addressed to him; a body-initiated run (no text) is
         # not (live 2026-11-01: body events came as addressed=true and he opened with "hey" when nobody spoke)
         heard = addressed and bool(event.text)
+        if heard:
+            self._open_request = (event.player, event.text)
         d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=heard,
                                    body_event=body_ctx)
         if body_events:  # speak-time check of the situation itself, on fresh state
@@ -517,6 +524,15 @@ class Agent:
         fail_checked = False
         failed_any, handed, open_checked = False, False, False  # OPEN_JOB_NOTE: an open failure, a long-job tool, the check
         last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
+        # the request this run is for: his line, the one a finished goal came from, or the one still open
+        goal_for = next(((e.get("from"), e["request"]) for e in body_events or []
+                         if e.get("type") == "goal_done" and e.get("request")), None)
+        if goal_for:  # a goal's end is the next step of what he asked: open again, whatever the run before said
+            self._open_request = goal_for
+        # ...a goal still running is doing the open one: a body run beside it (a need, an attack) is not for it
+        run_asked = (event.player, event.text) if event.text else goal_for or (
+            None if self.active_goal or self.pending_goal else self._open_request)
+        named = bool(event.text)  # does the note the model last read name the request? (his own line does)
         # every call this request ran and how it went, for a hand-on's fresh run (a handed-on request carries its own on)
         work: list[dict] = [*(body_ctx.get("done_so_far") or []), *(body_ctx.get("last_results") or [])]             if isinstance(body_ctx, dict) and body_ctx.get("type") == CHAIN_BUDGET else []
         while True:
@@ -566,8 +582,9 @@ class Agent:
             # those words may ask for more than the goal did. Fresh chain 20261116-073129: Rune Mysteries part 1 handed
             # in, he read quests, said "next step is rune essence, mining near here" with no call, and stood 160 s
             # (replayed 10 times each: 1/10 went on as logged, 10/10 called gather with this one more turn)
-            goal_asked = None if event.text else next(((e.get("from"), e["request"]) for e in body_events or []
-                                                      if e.get("type") == "goal_done" and e.get("request")), None)
+            # ...and for a later body run while that request is still open (run_asked): a line with no call there
+            # gets the same one turn, and his reply to it closes the request
+            goal_asked = None if event.text else run_asked
             asked = bool(event.text) or bool(goal_asked)
             promise_check = (self.check_promises and asked and not t["ran"] and not t["failure"]
                              and bool(d.speech) and not (d.actions or d.goal or d.skill)
@@ -604,6 +621,10 @@ class Agent:
                 open_check = open_checked = stop_checked = more = True  # never doubled with the STOP_NOTE check
                 self.log.log("open_job_check", request=event.text, tool=job_tool)
             if not more:
+                if (named and run_asked and run_asked == self._open_request and not t["ran"] and not t["failure"]
+                        and not (d.actions or d.goal or d.skill)):
+                    self._open_request = None  # he stopped on it: done, or he said why not
+                    self.log.log("request_closed", request=run_asked[1])
                 break
             spoke = self._player_spoke()
             late = self.clock() >= deadline
@@ -630,6 +651,10 @@ class Agent:
             self.request_parked = parked or self.request_parked
             news = self._news()
             try:
+                promise_for = promise_check and goal_asked
+                plain = not (parked or last_turn or fail_check or open_check or promise_check or unheard or stop_check)
+                # does the note this turn's results go back with name the request (CONTINUE_FOR, PROMISE_FOR_NOTE)?
+                named = bool(event.text) or bool(promise_for) or (plain and not t["failure"] and bool(run_asked))
                 say_res = {"ok": True, "note": "said"} if line_said else \
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
                      else "not said (too close to a line you just said)"}
@@ -642,11 +667,10 @@ class Agent:
                                               PROMISE_FOR_NOTE.format(
                                                   player=goal_asked[0] or self.controller.player,
                                                   request=goal_asked[1])
-                                              if promise_check and goal_asked else
+                                              if promise_for else
                                               PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else
                                               STOP_NOTE.format(line=stop_line) if stop_check else None,
-                                              news=news,
-                                              request=(event.player, event.text) if event.text else goal_asked)
+                                              news=news, request=run_asked)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
                 if t["failure"]:
