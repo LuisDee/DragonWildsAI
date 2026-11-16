@@ -1308,3 +1308,22 @@ Luis lifted the pause ("Then lets proceed", "Resume") and doubled the day's API 
 - **Checkpoints kept:** `rm_part2` (beside Zanik, part 2 open), `rm_p2_runes_made`, `gs_start` (start of Getting Started; First Steps passed again on the way, run 152556).
 - **Seen in 143506, not first causes, queued by count:** the request ended on a question to the player with the quest open; nothing woke him after "casting again once it recharges"; the Anima Vent's state is not readable, so a press that changes nothing can't be explained; a gather for 3 left 5 essence on the ground.
 - **Limits.** The two passes each had one miss (the bar allows one) and their reports were not judged for truth. Three trials are not a rate. The world is not restored between trials (rocks grow back in under an hour), so later trials of a window meet a different world from the first. The shoot hours went on a wrong diagnosis; the visibility rule (make the shot readable before a second fix) is what ended it.
+
+## 2026-11-16 15:44Z-16:19Z: Rune Mysteries part 2 alone, K=5 from `rm_part2`: 1 of 5
+Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the $20 cap after the window.
+
+| run | result | time | misses | first thing that went wrong (ledger) |
+|---|---|---|---|---|
+| 154701 | fail | 164.9 s, 2.18 times the human time | 2 | skill: gather swung 27 times (53 s) at an essence rock that took no damage |
+| 155233 | fail | 201.5 s, 1.61 times | 6 | skill: the same rock, 27 swings again; Rocksplosion then broke it |
+| 155833 | fail (deadline) | 603.5 s, a stand of 225.2 s | 6 | skill: gather said "I can't find any" with spent rocks in sight, and look offered `mine` on rocks at health 0 |
+| 161130 | pass | 82.5 s, 0.95 times | 0 | |
+| 161528 | fail | 180.8 s, 1.06 times (inside the time bar) | 2 | model: he started cooking Raw Rat Meat with soup in the bag; the request cut across it (`still_running`), and one true "none near" from gather made two misses |
+
+- **Rates after it:** Rune Mysteries from `rm_part2` 3 of 8; Rune Mysteries 3 of 10; Getting Started 3 of 10; Ratcatcher 7 of 10. The chain guard still refuses (Getting Started 3 of its last 5, Rune Mysteries 1 of its last 5).
+- **Ledger:** 29 failed runs, none untagged, 2 void. The cause with the most open runs (2) is the essence rock that took no damage.
+- **Not voided.** The world was short of essence rocks because earlier trials and my own probes had mined them, and I weighed calling trials a to c harness faults. I did not: run 161528 shows a route inside the time bar in the same depleted world (he walked 166 m to another vent, mined 20 and came back), and the human time is worked out from what he did. The `still_running` miss in 161528 stands under the existing counting rule.
+- **Changed (c28130d, negative tests first; test_gather 152, test_client_bridge 56, test_skills 102):** gather's "none near" result now says how many rocks there are used up and how near, and how many it left because no swing hurt them; look marks a spent rock or tree `used_up` and offers no action on it; gather logs a snapshot (floor heights around the rock, its bounds, his feet against it) at the fourth swing in a row that does nothing to a rock or tree.
+- **Hand probe ClaudeP161621 (no model):** sent to the rock that took no damage; it was spent (Rocksplosion broke it in run 155233), so the case did not reproduce. What the trial logs show of where he stood is in DISCOVERIES.
+- **Limits.** One pass in five. The fixes in c28130d have not been seen live. Why the rock took no damage is not known; standing on top of it is the leading reading and is unproven. Reports were not judged for truth. A window of back-to-back trials from `rm_part2` uses up the rocks the quest needs, so later trials are harder than the first; the step runner has no check for that yet.
+- **Queued, by count of runs:** 27 swings at a rock never hit is far beyond what a player does; gather's 90 m radius floor; a request that ends on a question with the quest open (143506, 155833); nothing wakes him after "casting again once it recharges"; cooking at startup colliding with the first request.
