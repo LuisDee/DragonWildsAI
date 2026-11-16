@@ -68,7 +68,8 @@ class PlanError(Exception):
 
 def _trim_state(state: dict) -> dict:
     keep = ("position", "health", "inventory", "following", "players", "nearby_entities",
-            "nearby_resources", "nearby_items", "structures", "places")
+            "nearby_resources", "nearby_items", "structures", "places",
+            "further_off")  # kinds in sight that the nearby_* lists (the N nearest of a category) have no row of
     return {k: state[k] for k in keep if k in state}
 
 

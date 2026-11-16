@@ -126,6 +126,7 @@ function M.census(log, opts)
         table.sort(list, function(a, b) return a.distance < b.distance end)
         out[cat] = list
     end
+    out.beyond = F.beyond -- the kinds the real census's caps cut off (sense.digest_cut); the fake cuts nothing
     return out
 end
 return M

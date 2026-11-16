@@ -438,7 +438,7 @@ def _resources_near(rows: Any, limit: int = 10) -> list[dict]:
         for k in ("item", "verb", "tool", "tool_tier"):
             if r.get(k) is not None and k not in g:
                 g[k] = r[k]
-        g["nodes"] += 1
+        g["nodes"] += int(r.get("count") or 1) if r.get("category") else 1  # a further_off row stands for `count` nodes
         d = r.get("distance")
         if isinstance(d, (int, float)) and (g["nearest_m"] is None or d < g["nearest_m"]):
             g["nearest_m"] = round(float(d), 1)
@@ -483,7 +483,8 @@ def _compact_state(state: dict) -> dict:
     if isinstance(state.get("spells"), list) and state["spells"]:  # his spell list (prep: enchants, buffs, attacks)
         out["spells"] = [{k: r.get(k) for k in ("name", "role", "castable", "reason", "needs") if r.get(k) is not None}
                          for r in state["spells"][:30] if isinstance(r, dict) and r.get("name")]
-    res = _resources_near(state.get("nearby_resources"))
+    far = [r for r in state.get("further_off") or [] if isinstance(r, dict) and r.get("category") == "resources"]
+    res = _resources_near([*(state.get("nearby_resources") or []), *far])  # further_off: kinds the row cap cut off the list
     if res:  # what he can gather here, one row per kind, nearest first
         out["resources_near"] = res
     if state.get("stations_nearby"):

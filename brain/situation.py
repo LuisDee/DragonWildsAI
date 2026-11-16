@@ -109,7 +109,7 @@ class Thing:
     hostile: bool | None = None
     extra: set[str] = field(default_factory=set)  # more words that identify it (item id, class word)
     note: str | None = None  # short facts for the digest: "HP 40/60", "chop, needs Hatchet T1", "Craft"
-    group: str = "thing"  # digest line: creature | item | player | around | usable | built
+    group: str = "thing"  # digest line: creature | item | player | around | usable | built | further
     up_m: float | None = None  # height above his feet (body census up_m; negative = below)
 
     def words(self) -> set[str]:
@@ -233,6 +233,11 @@ def _owner_words(s: dict) -> str:
     return {True: "yours", False: "not placed by you"}.get(s.get("mine"), "")
 
 
+FAR_KINDS = {"creatures": "creature", "items": "item"}  # further_off category -> Thing.kind (others keep the row's own)
+FAR_SHOWN = 10
+FAR_LINE_CHARS = 520
+
+
 def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
     """Everything the companion can currently perceive: get_state lists, the body's surroundings
     digest, and the things returned by look calls this turn."""
@@ -294,6 +299,13 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
                              gives=[str(x) for x in s.get("gives") or []], actions=list(s.get("actions") or [])))
         elif isinstance(s, str):
             out.append(Thing(s, "thing"))
+    # kinds in sight that the lists above have no row of: each list is the N nearest of its category, so in a busy
+    # place a whole kind is cut off (client sense.digest_cut -> get_state.further_off; no ids, the nearest one's distance)
+    for r in state.get("further_off") or []:
+        if isinstance(r, dict) and r.get("name"):
+            t = _look_thing({**r, "kind": FAR_KINDS.get(str(r.get("category")), r.get("kind"))}, state)
+            t.id, t.note, t.group = None, _resource_note(r), "further"
+            out.append(t)
     for look in looks:
         for t in (look or {}).get("things") or []:
             if isinstance(t, dict) and t.get("name"):
@@ -800,7 +812,7 @@ COVERED_KEYS = frozenset({
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
-    "containers_remembered", "my_bases", "burn_odds",
+    "containers_remembered", "my_bases", "burn_odds", "further_off",
 })
 
 
@@ -1090,6 +1102,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         return [f"(game state unavailable: {state.get('unavailable') if state else 'no state'})"]
     names = item_names(state)
     things = perceived(state)
+    far = [t for t in things if t.group == "further"]  # their own line: not creatures or items within the lists' reach
+    things = [t for t in things if t.group != "further"]
     lines: list[str | None] = []
 
     # dead: the respawn comes by itself, so nothing he eats or drinks now helps (chat ladder 2026-11-02 01:17:08Z: a
@@ -1167,6 +1181,9 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(_line("Around", [g.label() for g in around]))
     usable = _group([t for t in things if t.group == "usable"])
     lines.append(_line("Usable", [g.label() for g in usable]))
+    if far:  # chain 20261116-184351: essence rocks 41 m off, behind 20 rows of logs and stones, were in no line
+        lines.append(("Further off, also in sight (nearer things filled the lists above): "
+                      + "; ".join(g.label() for g in _group(far)[:FAR_SHOWN]))[:FAR_LINE_CHARS])
     built = _group([t for t in things if t.group == "built"])  # building pieces with no use: foundations, walls
     lines.append(_line("Built pieces", [g.label() for g in built]))
     lines.append(house_line(state))
@@ -1194,7 +1211,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     # never by blindly replacing the last line (which may be the active job).
     optional = ("Places:", "Reflex policy:", "Skills ", "Quests:", "Stations:",
                 "Spare gear:", "Food/drink:", "Players:", "Wearing:", "World:",
-                "On the ground:", "Around:", "Usable:", "Built pieces:", "Gear vs this area:")
+                "On the ground:", "Around:", "Usable:", "Built pieces:", "Gear vs this area:", "Further off")
     for prefix in ("Creatures", "Job:", "Asked:", "Your bases", "Your farm"):
         required = next((line for line in available if line.startswith(prefix)), None)
         if required and required not in chosen:

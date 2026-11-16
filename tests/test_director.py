@@ -1005,6 +1005,11 @@ def test_the_planner_snapshot_shows_what_he_can_gather_here():
         {"name": "Tree B", "nodes": 1, "nearest_m": 6.0, "verb": "chop"},
         {"name": "Rock A", "nodes": 2, "nearest_m": 18.2, "item": "ITEM_A", "tool": "pickaxe", "tool_tier": 2}]
     assert "resources_near" not in D._compact_state({})
+    # kinds in sight that the body's row cap cut off its list (get_state.further_off) are resources near too
+    state["further_off"] = [{"category": "resources", "name": "Rock C", "count": 4, "distance": 40.6, "verb": "mine", "tool": "Pickaxe"},
+                            {"category": "creatures", "name": "Giant Rat", "count": 3, "distance": 44.0}]
+    assert D._compact_state(state)["resources_near"][2:] == [
+        {"name": "Rock C", "nodes": 4, "nearest_m": 40.6, "verb": "mine", "tool": "Pickaxe"}]
 
 
 def test_the_planner_snapshot_lists_his_spells_for_prep():

@@ -706,6 +706,41 @@ M.mapplayers = mapplayers
 --         kinds-only census (items + resources around a player: ~100 ms instead of ~200 ms live).
 --   map_players (players wanted): every OTHER player on the game map at any distance, from ME:
 --         {name, position, distance, direction ("NE"), bearing_deg (0 = north), in_sight (pawn replicated)}.
+-- What the caps cut off, one row per kind of thing, nearest first: {category, name, count, distance (the nearest),
+-- kind, verb, tool, tool_tier, item}. cut = { {category, row}, ... }; listed = the census lists as they are returned.
+-- Each list is the N nearest of everything in its category, so in a busy place a whole kind is cut off although it is
+-- well inside the radius. Chain 20261116-184351: get_state's 20 resource rows were all Ash Log, Ash Logs and Stone
+-- within 12 m; the Rune Essence rocks his quest asked for stood 41 m away, shown to neither model, and the plan went
+-- exploring for them until the trial ran out. A name that still has a row in its list is left out: it is listed.
+M.BEYOND_MAX = 12
+function M.digest_cut(cut, listed, max_rows)
+    local shown = {}
+    for cat, l in pairs(listed or {}) do
+        for _, d in ipairs(type(l) == "table" and l or {}) do
+            if type(d) == "table" and d.name then shown[tostring(cat) .. " " .. tostring(d.name)] = true end
+        end
+    end
+    local by, rows = {}, {}
+    for _, c in ipairs(cut or {}) do
+        local cat, d = c[1], c[2]
+        local key = type(d) == "table" and d.name and (tostring(cat) .. " " .. tostring(d.name)) or nil
+        if key and not shown[key] then
+            local g = by[key]
+            if not g then
+                g = { category = cat, name = d.name, count = 0, kind = d.kind, verb = d.verb, tool = d.tool,
+                      tool_tier = d.tool_tier, item = d.item or d.drop_item }
+                by[key] = g
+                rows[#rows + 1] = g
+            end
+            g.count = g.count + (tonumber(d.count) or 1)
+            if type(d.distance) == "number" and (not g.distance or d.distance < g.distance) then g.distance = d.distance end
+        end
+    end
+    table.sort(rows, function(a, b) return (a.distance or 1e9) < (b.distance or 1e9) end)
+    for i = #rows, (max_rows or M.BEYOND_MAX) + 1, -1 do rows[i] = nil end
+    return rows
+end
+
 function M.census(log, opts)
     opts = opts or {}
     if rawget(_G, "DW_PAUSE") then return { ok = false, reason = "paused" } end
@@ -739,6 +774,7 @@ function M.census(log, opts)
     local seen = { [U.short(me) or "?"] = true }
     if anchor and anchor.id then seen[anchor.id] = true end
     local out, totals = {}, {}
+    local cut = {} -- rows the caps drop, { category, row }: told as kinds in out.beyond (M.digest_cut)
 
     local function within(a)
         local at = U.loc(a)
@@ -789,11 +825,12 @@ function M.census(log, opts)
         -- trees and pickups capped separately (a third of the rows each), so ground stones and branches
         -- (they lie everywhere) don't crowd out the trees or the actors
         for _, kind in ipairs({ "tree", "pickup" }) do
-            local ok, rows = pcall(M.foliage, origin, r_cm, { max = math.max(math.ceil(max / 3), 1), kinds = { [kind] = true } })
+            local ok, rows = pcall(M.foliage, origin, r_cm, { kinds = { [kind] = true } })
             if ok then
-                for _, r in ipairs(rows) do
+                local n = math.max(math.ceil(max / 3), 1)
+                for i, r in ipairs(rows) do -- nearest first (M.foliage sorts)
                     r._comp, r._index, r._pos, r._legacy = nil, nil, nil, nil
-                    add("resources", r)
+                    if i <= n then add("resources", r) else cut[#cut + 1] = { "resources", r } end
                 end
             elseif log then log("sense: foliage " .. tostring(rows)) end
         end
@@ -873,8 +910,12 @@ function M.census(log, opts)
 
     for cat, l in pairs(out) do
         table.sort(l, function(x, y) return (x.distance or 0) < (y.distance or 0) end)
-        for i = #l, max + 1, -1 do l[i] = nil end
+        for i = #l, max + 1, -1 do
+            if cat ~= "players" and cat ~= "map_players" then cut[#cut + 1] = { cat, l[i] } end
+            l[i] = nil
+        end
     end
+    out.beyond = M.digest_cut(cut, out)
     out.players_online = online
     out.ok = true
     out.origin = U.to_wire(origin)

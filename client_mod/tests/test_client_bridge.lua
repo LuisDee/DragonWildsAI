@@ -191,6 +191,17 @@ test("get_state from the real module shapes: buckets, inventory, gear, extras", 
     assert(has(d.not_implemented, "structures") and has(d.not_implemented, "places") and not has(d.not_implemented, "position"))
 end)
 
+test("get_state tells the kinds of things its lists have no row of (further_off), and has no key when there are none", function()
+    local r = rpc("get_state")
+    assert(r.ok and r.data.further_off == nil, "nothing cut, no key")
+    FAKE.beyond = { { category = "resources", name = "Rune Essence", count = 2, distance = 40.6, verb = "mine", tool = "Pickaxe" } }
+    r = rpc("get_state")
+    FAKE.beyond = nil
+    local f = r.ok and r.data.further_off
+    assert(f and #f == 1 and f[1].name == "Rune Essence" and f[1].count == 2 and f[1].distance == 40.6 and f[1].verb == "mine",
+        json.encode(r.data and r.data.further_off))
+end)
+
 test("get_state: controller but no pawn -> companion_down", function()
     FAKE.no_pawn = true
     local r = rpc("get_state")

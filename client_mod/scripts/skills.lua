@@ -2453,7 +2453,14 @@ M._visits_near = visits_near
 -- the names of up to 3 things that only share a word with it (said when the search finds nothing, never a find)
 local function matching(api, about, radius)
     local best, part, seen = nil, {}, {}
-    for _, t in ipairs(api.census_things(radius, 40) or {}) do
+    -- keep: chosen before the census cap, so the whole radius is read (the cap is the 40 nearest of a category: with 45
+    -- logs and stones lying nearer, a rock inside the radius was never matched; the same cut as collect_water's pond)
+    local function about_it(t)
+        if t.category == "players" then return false end
+        local yes, share = api.match_one(t, about)
+        return yes or (share or 0) > 0
+    end
+    for _, t in ipairs(api.census_things(radius, 40, nil, { keep = about_it }) or {}) do
         if t.category ~= "players" then
             local yes, share = api.match_one(t, about)
             if yes and (not best or (t.distance or 1e9) < (best.distance or 1e9)) then best = t end

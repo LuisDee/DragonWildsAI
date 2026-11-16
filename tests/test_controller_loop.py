@@ -216,6 +216,31 @@ def test_situation_uses_the_body_surroundings_digest():
     assert [t.name for t in perceived(state) if t.kind == "tree"] == ["Oak Tree"]
 
 
+FAR = [{"category": "resources", "name": "Rune Essence", "count": 2, "distance": 40.6, "kind": "destructible",
+        "verb": "mine", "tool": "Pickaxe", "tool_tier": 1},
+       {"category": "creatures", "name": "Giant Rat", "count": 3, "distance": 44.0}]
+
+
+def test_situation_tells_the_kinds_in_sight_that_the_lists_have_no_row_of():
+    """Chain 20261116-184351: get_state's 20 resource rows were logs and stones within 12 m; the essence rocks his quest
+    asked for stood 41 m off, inside the radius, in no line and no list, and the plan explored for them to the deadline."""
+    state = {**REAL_STATE, "further_off": FAR}
+    lines = summary(state)
+    far = [line for line in lines if line.startswith("Further off")]
+    assert len(far) == 1 and "Rune Essence x2 (41 m, mine, needs Pickaxe T1)" in far[0] and "Giant Rat x3 (44 m)" in far[0], lines
+    for line in lines:  # only there: not as a creature to fight now, not twice through the generic extras
+        assert line in far or ("Rune Essence" not in line and "Giant Rat" not in line and "further_off" not in line), line
+    assert not [line for line in summary(REAL_STATE) if line.startswith("Further off")]
+    seen = [t for t in perceived(state) if t.name == "Rune Essence"]  # and a thing he can name (grounding)
+    assert len(seen) == 1 and seen[0].id is None and seen[0].count == 2 and seen[0].distance == 40.6 and "mine" in seen[0].actions
+
+
+def test_the_planner_is_given_the_kinds_further_off():
+    from brain.planner import _trim_state
+    assert _trim_state({"position": [0, 0, 0], "further_off": FAR, "yaw": 3})["further_off"] == FAR
+    assert "further_off" not in _trim_state({"position": [0, 0, 0]})
+
+
 def test_controller_context_is_bounded(rig):
     rig.controller_llm.push(FakeLLM.say("hi"))
     rig.controller.decide("Luis", "hello", rig.game.get_state()["data"], None)

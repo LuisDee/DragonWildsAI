@@ -200,5 +200,43 @@ do
     S._reset_perks()
 end
 
+-- what the census caps cut off is told as kinds (chain 20261116-184351: 20 rows of logs and stones within 12 m, the
+-- essence rocks 41 m off shown to nobody)
+do
+    local function row(name, dist, extra)
+        local t = { name = name, distance = dist }
+        for k, v in pairs(extra or {}) do t[k] = v end
+        return t
+    end
+    local listed = { resources = { row("Ash Logs", 3) }, creatures = {}, players_online = { "Claude" } }
+    local cutrows = { { "resources", row("Ash Logs", 9) }, { "resources", row("Rune Essence", 43.2, { verb = "mine", tool = "Pickaxe", kind = "ore" }) },
+                      { "resources", row("Rune Essence", 40.6, { verb = "mine", tool = "Pickaxe" }) }, { "creatures", row("Giant Rat", 35) },
+                      { "items", row("Stone", 20, { count = 4 }) }, { "items", row("Stone", 22, { count = 2 }) }, { "items", {} } }
+    local b = S.digest_cut and S.digest_cut(cutrows, listed) or {}
+    check("digest_cut: one row a kind, nearest first", #b == 3 and b[1].name == "Stone" and b[2].name == "Giant Rat" and b[3].name == "Rune Essence", #b)
+    check("digest_cut: counts summed, the nearest distance, how it is worked", #b == 3 and b[3].count == 2 and b[3].distance == 40.6
+        and b[3].verb == "mine" and b[3].tool == "Pickaxe" and b[3].kind == "ore" and b[3].category == "resources" and b[1].count == 6)
+    local many = {}
+    for i = 1, 30 do many[i] = { "resources", row("Kind " .. i, 50 - i) } end
+    b = S.digest_cut and S.digest_cut(many, {}) or {}
+    check("digest_cut: at most BEYOND_MAX kinds, the nearest ones", S.BEYOND_MAX and #b == S.BEYOND_MAX and b[1].name == "Kind 30", #b)
+
+    -- the census itself: three ashes at 5-7 m and one oak at 30 m, 3 rows a category (one tree row)
+    reset()
+    W.me = { X = ORIGIN.X, Y = ORIGIN.Y, Z = ORIGIN.Z }
+    W.comps = { comp("BP_InteractableFoliageISMC_Tree_C_12", ash_cls, ORIGIN, { inst(500, 0, 0), inst(600, 0, 0), inst(700, 0, 0) }),
+                comp("BP_InteractableFoliageISMC_Tree_C_13", oak_cls, ORIGIN, { inst(3000, 0, 0) }) }
+    local c = S.census(nil, { radius_m = 40, max = 3 })
+    local trees = 0
+    for _, x in ipairs((c and c.resources) or {}) do if x.kind == "foliage" then trees = trees + 1 end end
+    local far = c and c.beyond and c.beyond[1]
+    check("census: the rows are the nearest, as before", trees == 1 and c.resources[1].distance == 5, trees)
+    check("census: a kind with no row left is told in beyond (name, count, nearest, category)", c and c.beyond and #c.beyond == 1
+        and far.name:find("Oak") and far.count == 1 and far.distance == 30 and far.category == "resources" and far._comp == nil,
+        far and far.name)
+    c = S.census(nil, { radius_m = 40, max = 40 })
+    check("census: nothing cut, beyond is empty", c and type(c.beyond) == "table" and #c.beyond == 0)
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

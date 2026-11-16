@@ -1824,6 +1824,21 @@ test("BUGS L21: explore walks least-visited legs and stops when something matchi
     assert(n and n.reason == "nothing_in_range" and n.data.legs == 2 and n.data.detail:find("lava"), json.encode(n))
 end)
 
+test("explore reads its whole radius, not the 40 nearest of a category (chain 20261116-184351)", function()
+    -- live: 20+ Ash Logs and Stones lay within 12 m, the essence rocks stood 41 m off inside the radius; he was sent
+    -- to explore for them and walked away until the trial ran out
+    reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.interactables = {}; F.world.resources = {}
+    for i = 1, 45 do
+        table.insert(F.world.resources, { id = "log_" .. i, class = "BP_Spawner_AshBranch_01_C", name = "Ash Logs", kind = "foliage",
+                                          verb = "gather", position = { 2 + (i % 9), i % 5, 3 } })
+    end
+    table.insert(F.world.resources, { id = "ess_1", class = "BP_RuneEssence_Rock_C", name = "Rune Essence", kind = "ore", verb = "mine",
+                                      tool = "Pickaxe", position = { 30, 5, 3 } })
+    rpc("get_state")
+    local a = rpc("explore", { about = "rune essence" })
+    assert(a and a.reason == "already_in_sight" and a.data.found.id == "ess_1", a and json.encode(a) or "it set off walking")
+end)
+
 test("explore names its legs that fell short, and a death is not 'saw nothing' (forensics E2)", function()
     reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.interactables = {}; F.world.resources = {}
     rpc("get_state")

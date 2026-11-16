@@ -455,6 +455,8 @@ function M.get_state()
             local bk = bucket_census(cr.data)
             data.players, data.nearby_entities, data.nearby_resources = bk.players, bk.nearby_entities, bk.nearby_resources
             data.nearby_items, data.interactables, data.players_online = bk.nearby_items, bk.interactables, cr.data.players_online
+            -- the kinds of things within NEARBY_M that the lists above have no row of (the caps cut them: sense.digest_cut)
+            if type(cr.data.beyond) == "table" and #cr.data.beyond > 0 then data.further_off = cr.data.beyond end
             -- every other player on the game map at any distance (compass), and what lies around those in sight
             if type(cr.data.map_players) == "table" then
                 data.map_players = cr.data.map_players
