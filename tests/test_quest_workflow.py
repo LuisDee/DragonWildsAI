@@ -163,7 +163,8 @@ def window(dirs, monkeypatch):
 def step_args(**kw):
     return argparse.Namespace(**{"confirm": True, "checkpoint": "ClaudeQ9", "quest": "Rune Mysteries", "line": None,
                                  "until_step": None, "k": 3, "deadline": 600.0, "save_as": None, "keep_forks": False,
-                                 "wait": 0, "window_s": 3600.0, "reserve_s": 240.0, "max_haiku": 60, "usd": 0.4, **kw})
+                                 "wait": 0, "window_s": 3600.0, "reserve_s": 240.0, "max_haiku": 60, "usd": 0.4,
+                                 "regrow_days": 0, **kw})
 
 
 def test_k_trials_each_start_on_a_new_fork_and_the_window_ends_on_the_main_character(window, monkeypatch, capsys):

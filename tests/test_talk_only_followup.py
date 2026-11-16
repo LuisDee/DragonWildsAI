@@ -5,6 +5,8 @@ tool call), never its words; the model's answer is used as it is. The agent's fi
 (agent.PROMISE_NOTE) is not doubled."""
 from __future__ import annotations
 
+import copy
+
 from brain.controller import TALK_ONLY_NOTE
 from brain.interface import fail, ok
 from brain.llm import FakeLLM, LLMResponse
@@ -176,7 +178,9 @@ def _quest_rig(tmp_path, monkeypatch, quests_changed):
     monkeypatch.setenv("DW_SPEECH_CHANNEL", "say")
     r = Replay(tmp_path, STATES[5], tools=TOOLS | {"gather"})
     r.body.act("interact", ok(target=MEAT, quests_changed=quests_changed, detail="The conversation ended."))
-    r.body.act("gather", ok(detail="Got 10 rune essence."))
+    mined = copy.deepcopy(STATES[5])  # the bag holds what the gather says it got, so the executor's check agrees
+    mined["inventory"]["rune essence"] = 10
+    r.body.act("gather", ok(detail="Got 10 rune essence."), state_after=mined)
     r.model.replies["do her quest"] = FakeLLM.say("", FakeLLM.call("interact", target=MEAT))
     r.model.turns = [FakeLLM.say("", FakeLLM.call("say", text="part 1 done, next up is mining rune essence")),
                      FakeLLM.say("", FakeLLM.call("gather", resource="rune essence", count=10)), FakeLLM.say(""),
