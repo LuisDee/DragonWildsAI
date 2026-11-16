@@ -5,6 +5,10 @@
   "Ratcatcher": ["ITEM_Consumable_Meat_Rat_Roast", "ITEM_Resources_Raw_Stringy_Meat"],
   "Rune Mysteries": ["ITEM_Resources_Wood_Ash", "ITEM_Rune_Essence", "ITEM_Rune_Air", "ITEM_Rune_Astral"]
  },
+ "amounts": {
+  "_about": "How many of a deliverable the quest's step asks for, where it names a number. tools.quest_run.head_start: a leftover under a tenth of it at the start is not a head start (main, 2026-11-16).",
+  "Rune Mysteries": {"ITEM_Resources_Wood_Ash": 50}
+ },
  "_steps": {
   "Getting Started": "Build a Crafting Table and craft a Stone Club. Then bring it to Doric.",
   "Ratcatcher": "Kill rats and successfully cook one rat roast from their meat.",

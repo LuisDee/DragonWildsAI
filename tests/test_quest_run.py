@@ -105,3 +105,18 @@ def test_a_quest_deliverable_held_at_the_start_is_found_by_the_quest_and_tools_a
     assert q.carried(Cli(), "Ratcatcher") == {"ITEM_Consumable_Meat_Rat_Roast": 4}
     assert q.carried(Cli(), "Rune Mysteries") == {}  # a pickaxe is how he works, and 0 air runes is none
     assert q.carried(Cli(), "First Steps") == {}
+
+
+def test_a_leftover_under_a_tenth_of_what_the_quest_asks_is_not_a_head_start():
+    # chain 101313: one Ash Log left from the fire of the quest before, 49 of Zanik's 50 chopped, "not counted"
+    assert q.head_start({"ITEM_Resources_Wood_Ash": 1}, "Rune Mysteries") == {}
+    assert q.head_start({"ITEM_Resources_Wood_Ash": 5}, "Rune Mysteries") == {"ITEM_Resources_Wood_Ash": 5}
+    assert q.head_start({"ITEM_Rune_Essence": 1}, "Rune Mysteries") == {"ITEM_Rune_Essence": 1}  # no amount asked: any
+    assert q.head_start({"ITEM_Club_Stone": 1}, "Getting Started") == {"ITEM_Club_Stone": 1}
+    assert q.head_start({"error": "boom"}, "Rune Mysteries") == {"error": "boom"}  # an unread bag is never a pass
+    rec = {"quest": "Rune Mysteries", "done": True, "ratio": 1.08, "tool_calls": [], "idle_over_5s": [],
+           "carried_at_start": {"ITEM_Resources_Wood_Ash": 1}, "not_counted": "deliverable carried: ITEM_Resources_Wood_Ash x1"}
+    assert q.verdict(rec)["bars"]["counted"] is True
+    rec["carried_at_start"] = {"ITEM_Resources_Wood_Ash": 50}
+    assert q.verdict(rec)["bars"]["counted"] is False
+    assert q.verdict({**rec, "carried_at_start": None})["bars"]["counted"] is False  # an old record: as it was written

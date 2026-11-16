@@ -184,6 +184,29 @@ def carried(cli, quest: str) -> dict[str, int]:
     return {i: inv[i] for i in items if inv.get(i)}
 
 
+HEAD_START_SHARE = 0.1
+
+
+def head_start(held: dict, quest: str) -> dict:
+    """The deliverables held at the start that did part of the quest's work: every one, except a leftover under a
+    tenth of an amount the quest asks for (data/quest_deliverables.json "amounts"; none given = 1, so any counts).
+    Chain 101313: one Ash Log left from the fire of the quest before, 49 of Zanik's 50 chopped in the run. The human
+    bar is computed from what he gathered in the run, so a leftover does not make the bar easier."""
+    amounts = (json.loads(DELIVERABLES.read_text(encoding="utf-8")).get("amounts") or {}).get(quest) or {}
+    return {k: v for k, v in (held or {}).items()
+            if not isinstance(v, (int, float)) or v >= max(1, HEAD_START_SHARE * amounts.get(k, 1))}
+
+
+def not_counted(rec: dict) -> str | None:
+    """Why a run does not count, or None. From what he held at its start; a record without that read keeps what was
+    written in it."""
+    held = rec.get("carried_at_start")
+    if not isinstance(held, dict):
+        return rec.get("not_counted")
+    hs = head_start(held, rec.get("quest") or "")
+    return ("deliverable carried: " + ", ".join(f"{k} x{v}" for k, v in hs.items())) if hs else None
+
+
 def quests(cli) -> dict | None:
     r = cli.request("quests", {"all": True}, timeout=10)
     return r.get("data") if isinstance(r, dict) and r.get("ok") else None
@@ -308,7 +331,7 @@ def verdict(rec: dict) -> dict:
               if c.get("ok") is False and c.get("reason") not in ss.NO_MISS_REASONS and c["tool"] not in ss.READ_ONLY_TOOLS]
     stands = [i["s"] for i in rec.get("idle_over_5s") or []]
     bars = {"done": bool(rec.get("done")), "time": rec.get("ratio") is not None and rec["ratio"] <= 1.5,
-            "misses": len(misses) <= 1, "stands": not stands, "counted": not rec.get("not_counted")}
+            "misses": len(misses) <= 1, "stands": not stands, "counted": not not_counted(rec)}
     return {"pass": all(bars.values()), "bars": bars, "misses": misses, "truth": "not judged"}
 
 
@@ -424,8 +447,10 @@ def cmd_run(a) -> int:
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name,
            "holds": holds(tl["calls"]), "dialogue_left": {"before": left_before, "after": left_after},
            "carried_at_start": held_at_start}
-    if held_at_start:
-        rec["not_counted"] = "deliverable carried: " + ", ".join(f"{k} x{v}" for k, v in held_at_start.items())
+    if not_counted(rec):
+        rec["not_counted"] = not_counted(rec)
+    elif held_at_start:
+        rec["leftover"] = ", ".join(f"{k} x{v}" for k, v in held_at_start.items())
     try:
         bar = human_bar(rows, len(sent))
         rec["human"] = bar
@@ -570,7 +595,8 @@ def cmd_report(a) -> int:
               f"{'PASS' if v['pass'] else 'FAIL'} misses={len(v['misses'])} "
               f"calls={len(r['tool_calls'])} idle={r['idle_total_s']}s haiku={r['haiku']} sonnet={r['sonnet']} ${r['usd']}"
               + (f" human={h['human_s']}s ratio={r.get('ratio')}x {h.get('parts')}" if h.get("human_s") else "")
-              + (f" NOT COUNTED ({r['not_counted']})" if r.get("not_counted") else ""))
+              + (f" NOT COUNTED ({not_counted(r)})" if not_counted(r) else "")
+              + (f" (leftover at the start: {r['carried_at_start']})" if r.get("carried_at_start") and not not_counted(r) else ""))
     return 0
 
 
