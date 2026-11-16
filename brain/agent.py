@@ -67,6 +67,15 @@ PROMISE_NOTE = ("You replied without calling any tool. That line has been said. 
                 "something, or that you are doing it, call the tool(s) for it now, in order. If you can't do it "
                 "now (no tool or target for it, or something is missing), say in a few words what's stopping you. "
                 "Otherwise (you only answered or asked something) reply with no text at all.")
+# The same turn for the run that hears a goal ended, when the goal came from a player's words that may ask for more
+# than the goal did. Chain 20261116-103757 (Rune Mysteries): part 1 handed in, "Next up is mining rune essence ..."
+# with no call, and PROMISE_NOTE got an empty reply (as in chain 073129): he stood 622 s to the deadline. Replayed in
+# live order (the prompt cache as live; a single cold call of that turn acts 36/36 and shows nothing): PROMISE_NOTE
+# 4 of 18 no call, this note 0 of 24; with the quest shown finished both stay silent (7/7, 8/8).
+PROMISE_FOR_NOTE = ("You replied without calling any tool. That line has been said. {player} asked {request!r}: if that "
+                    "is not finished, call the tool(s) for its next step now, in order. If you can't do it now (no tool "
+                    "or target for it, or something is missing), say in a few words what's stopping you. If it is "
+                    "finished, reply with no text at all.")
 # Co-play 2026-11-01 11:50:11: the player asked "so why couldn't you validate ...", and the model wrote its answer as
 # plain text (a private note, never spoken) with no say call: he got silence. The model is told the truth once and
 # decides; code never speaks the note itself (it can be reasoning, controller.py SAY_SCHEMA).
@@ -557,7 +566,9 @@ class Agent:
             # those words may ask for more than the goal did. Fresh chain 20261116-073129: Rune Mysteries part 1 handed
             # in, he read quests, said "next step is rune essence, mining near here" with no call, and stood 160 s
             # (replayed 10 times each: 1/10 went on as logged, 10/10 called gather with this one more turn)
-            asked = bool(event.text) or any(e.get("type") == "goal_done" and e.get("request") for e in body_events or [])
+            goal_asked = None if event.text else next(((e.get("from"), e["request"]) for e in body_events or []
+                                                      if e.get("type") == "goal_done" and e.get("request")), None)
+            asked = bool(event.text) or bool(goal_asked)
             promise_check = (self.check_promises and asked and not t["ran"] and not t["failure"]
                              and bool(d.speech) and not (d.actions or d.goal or d.skill)
                              and (turn == 0 or (not stop_checked and getattr(d, "read_rounds", 0) > 0
@@ -628,11 +639,14 @@ class Agent:
                                                   f"{f['tool']} {f['reason']}" + (f" ({f['detail']})" if f["detail"] else "")
                                                   for f in unreported)) if fail_check else
                                               OPEN_JOB_NOTE.format(request=event.text, tool=job_tool) if open_check else
+                                              PROMISE_FOR_NOTE.format(
+                                                  player=goal_asked[0] or self.controller.player,
+                                                  request=goal_asked[1])
+                                              if promise_check and goal_asked else
                                               PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else
                                               STOP_NOTE.format(line=stop_line) if stop_check else None,
-                                              news=news, request=(event.player, event.text) if event.text else next(
-                                                  ((e.get("from"), e["request"]) for e in body_events or []
-                                                   if e.get("type") == "goal_done" and e.get("request")), None))
+                                              news=news,
+                                              request=(event.player, event.text) if event.text else goal_asked)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
                 if t["failure"]:

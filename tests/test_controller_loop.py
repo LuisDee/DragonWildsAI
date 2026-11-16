@@ -562,7 +562,11 @@ def test_a_goal_from_a_players_words_that_ends_with_talk_only_gets_one_more_turn
     calls = rig.controller_llm.calls
     assert rig.companion_said()[0] == "logs done. next step is more logs, chopping near here"
     if asked:
-        assert calls[1]["messages"][-1]["content"].startswith("You replied without calling any tool.")
+        note = calls[1]["messages"][-1]["content"]
+        assert note.startswith("You replied without calling any tool.")
+        # chain 20261116-103757: the plain note got an empty reply here and he stood to the deadline; the note for
+        # this run names what was asked, so "is it finished" is judged against the player's words, not the line
+        assert "Luis asked \"claude, go and do the woodcutter's quest\": if that is not finished" in note, note
         assert len(rig.calls("gather")) == 2
     else:
         assert len(calls) == 1 and len(rig.calls("gather")) == 1
