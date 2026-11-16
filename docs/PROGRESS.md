@@ -1134,3 +1134,31 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
   - Live on ClaudeDev 07:28Z: 1 Dirty Water staged in the dev base fire by his own load, then `craft Raw Rat Meat` there: "I made 1 Rat Roast in the Campfire ... First I took out what I'd left in it from before: 1 Dirty Water (back in my bag)", 27.7 s. `HandleExternalQuickTransfer(0)` on the resource inventory works.
 - **My mistake:** I applied the match_one Lua edit to the repo while chain 070607 ran. skills.lua hot-loaded on the clone while its bridge was the old one, and Ratcatcher's explore failed `body_error: skills.lua:2446: attempt to call a nil value (field 'match_one')` (about 7 s and a repeated talk). Rule: no repo Lua edits while a chain runs; after an edit that adds an api function, reload the bridge (`tools/client_cmd.sh client_mod/commands/bridge_start.lua`).
 - **Open, seen in these chains:** clones start with rest 7% and water 15%; reflex fights against rats are slow (he parries every attack, few swings land); Getting Started varies 0.49x-1.18x; `collect_water` given coordinates says "found no ..." and uses the nearest water; consume fails `in_bag` with a full hotbar.
+
+## 2026-11-16 07:3x-08:5xZ rung 5: chain 072935 (Ratcatcher passes, Rune Mysteries dies to three runts), then a combat wave on that death
+- **Chain 072935 (clone ClaudeQ160729):**
+
+  | quest | result | time vs the human bar | calls |
+  |---|---|---|---|
+  | First Steps | PASS | 44.4 s, 0.56x | 6 Haiku |
+  | Getting Started | PASS | 206.3 s, 0.91x | 13 Haiku |
+  | Ratcatcher | PASS | 149.3 s, 1.0x (the craft fix of 35d779b held) | 11 Haiku |
+  | Rune Mysteries | FAIL at the deadline | 903 s, 2.15x | 34 Haiku + 3 Sonnet, $0.107 |
+
+  Rune Mysteries: part 1 (50 Ash Logs to Zanik) done at 195 s. Then a rest/bedroll detour, a death to three Goblin Runts at the essence rock [255.5, 1797.3, -35.8] after an "outnumbered" flee they kept up with, the run's spend cap (0.10) used up so the brain was `budget_blocked` for the last 241 s, and after the death the Controller only talked. The promise turn (502eafe) worked live.
+- **Harness fixes after it (350dd78):** a clone starts fed, watered and rested; each fresh run may spend 0.40.
+- **Combat wave (commit 3b6a9de), measured with three-runt fights on ClaudeDev (fixture spawns at the dev base, no brain, no model spend):**
+  - *The dodge is timed from the game's own data.* The roll is invulnerable 0.15-0.75 s after it starts (the `AnimNotifyState_Invulnerability_C` window on the dodge montages). `M.evade_window` / `M.evade_lead` place the key so the learned impact falls inside it; the key goes again when the roll didn't come out. Live: in the last two unencumbered fights 16 of 16 dodges read "avoided".
+  - *A swing of his own in the wind-up* of an attack he will dodge (the dodge cuts a swing short within 1-4 frames, so it costs nothing).
+  - *No flee he can't make.* Every death today began with a flee the runts kept up with ("kept hitting me while I ran", "it kept up with me for 25 m"); the six wins at 08:13-08:21Z had no flee. Now: a creature that kept up over the whole leash is remembered (`caught_by`, this session) and he fights it when it is within 12 m; the losing-fast flee asks `cant_escape` first.
+  - *Over his carry weight the game gives no roll, sprint or jump* (probe at 352.5 of 300: the evade input went in, no evading frame, 0 m moved). `M.too_heavy()`: the plan blocks or parries instead of dodging, and he does not flee at a walk. Live while encumbered: 2 of 2 fights won (36 and 15 damage), "no flee (losing fast...): I'm carrying too much to run or roll (352 of 300 weight)".
+  - Tests: test_combat 502 pass; 7 of them fail on the code before the wave.
+- **The number that matters is not met.** Unencumbered, sword and shield, auto orders: one fight won with 66 damage, the next lost after 54 s. In the lost fight 13 presses made 2 hits, 16.2 s went on defending and 11.2 s out of reach; no flee, every dodge avoided; the damage came from one blocked hit, two retreats with stamina short and others. So three runts still kill him about every other fight, and the cause left is offence: each roll takes him out of reach and his swings miss.
+- **My mistakes in this wave:** the 08:27-08:33Z fights were fought without his kit (it lay in a grave from the death before), and the 08:35-08:36Z ones at 352 of 300 weight after I took three graves back. Neither set counts for the dodge numbers; the second one found the encumbrance gap. Combat had more than three live iterations; I stopped tuning here.
+- **Open causes, not fixed:**
+  1. Rolls carry him out of reach and his presses miss (13 presses, 2 hits).
+  2. The first flee of a session still happens (the blanket "outnumbered" rule at more than 2 hostiles, and "losing fast" when time-to-live is about time-to-win); `caught_by` lasts one session.
+  3. A "retreat" defence with stamina short gets hit.
+  4. The learned impact time has a second cluster at 0.40-0.57 s (probably hits from other runts recorded with no attacker), which mistimes parries. Idea: learn only from attributed impacts.
+  5. A second or third attacker is not defended while he answers the first ("queued swing").
+- **ClaudeDev after the tests:** graves taken back, Bronze Sword + Bronze Shield in hand, 219.5 weight, health and rest 100. A second sword and shield were granted by fixture during the wave. 67 Ash Logs, 32 Stone, 3 Bronze Swords and 1 Bronze Shield lie on the ground at the dev base sleep spot [101, 1868, -31] (dropped to get under the carry limit).

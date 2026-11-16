@@ -3378,3 +3378,13 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - A Campfire has one input slot and keeps a loaded input when it was never started. `HandleExternalQuickTransfer(slot)` with the resource inventory as source takes it back into the bag.
   - Client Lua: skill modules (skills.lua, crafting.lua, ...) hot-load on file change; client_bridge.lua loads only at bridge start or client relaunch. An edit that adds an `api.*` function and uses it in a skill breaks the running client until the bridge is reloaded.
   - Steam ignores an applaunch issued right after the client was killed. `tools/client_boot.ps1` exits 2 when another boot holds the lock.
+- **Dodge, encumbrance and fleeing in a fight (live 2026-11-16, build 26574459; probe `client_mod/commands/attack_evade_probe.lua`).**
+  - The dodge roll is invulnerable from 0.15 to 0.75 s after it starts: `AnimNotifyState_Invulnerability_C` on `AM_PlayerM_Dodge_Roll_*`, read from `pawn.EvadeComponent.DefaultAnimationSet.*Montage` -> `Notifies`. The tag `InvulnerableEvadeTag` ("Player.Status.Invulnerable.Evade") is not readable on the client.
+  - A dodge cancels a swing of his own within 1-4 frames of its input, and reads as evading (`EvadeComponent:IsEvading()`) in the same span.
+  - A neutral dodge moves him about 2.15 m, a directional one about 4.85 m.
+  - One attack's impact varies by about 0.2 s either way. Goblin Runt Attack1 / Attack2 land 0.9-0.95 s after the telegraph, SlowAttack 1.1-1.3 s.
+  - **Over his carry weight (`PlayerEncumbranceComponent`) there is no dodge roll**, as well as no sprint (`GetSprintingMaxSpeed` 350 against 580) and no jump: at 352.5 of 300 the evade input was injected, no frame read as evading and he moved 0 m.
+  - The carry limit read 300 during those fights and 400 a few minutes later, after his rest was set to 100 and the kit equipped. Which of the two moved it was not checked.
+  - Goblin Runts keep up with a sprinting player over 25 m: every flee from them today ended with them in reach.
+  - The dev fixture `set_stat` sets endurance (rest); for hydration and sustenance it answered "failed: None".
+  - Save file: a character's vitals are at `GameProgress.Character.{Sustenance.SustenanceValue, Hydration.HydrationValue, Endurance.EnduranceValue}` (tools/quest_clone.py sets them on a clone).
