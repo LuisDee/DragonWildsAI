@@ -773,6 +773,9 @@ def cmd_step(a) -> int:
                 from evals.bench.devrun import default_dev
                 dev = default_dev()
                 dev.brain_running = lambda: False
+                # the fixture's guard wants the guid of the one player on the server: the fork, not ClaudeDev (the
+                # first window with this refused all five: "other_players_connected")
+                dev.character_guid, dev.character_name = made["guid"], name
                 grown = clock_on(dev, a.regrow_days, f"quest_run step {a.checkpoint}: what earlier trials used grows back")
                 print(f"[{time.time() - t0:6.1f}s] game clock moved on: {grown}")
             start = to_start(cli, place)
