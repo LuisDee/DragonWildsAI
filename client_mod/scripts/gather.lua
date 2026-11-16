@@ -44,6 +44,7 @@ local M = { U = U }
 
 M.cfg = {
     radius_m = 30, max_radius_m = 90, widen = 1.5,
+    ground_probe_cm = 200, capsule_half_cm = 88, -- "floating": the ground is read this far beside the thing; his capsule centre stands this high
     near_radius_m = 15, near_max_radius_m = 30, -- args.near = a player: search around HIM (retro 2026-11-01 cause 4)
     decide_s = 0.1,
     tap_frames = 3,
@@ -226,6 +227,25 @@ function W.nudge(pawn, dir, scale)
     local okh, bad = pcall(function() return mv and type(mv.unsafe_ahead) == "function" and mv.unsafe_ahead(pawn, dir.X, dir.Y) end)
     if okh and bad then return end
     pcall(function() pawn:AddMovementInput(dir, scale, false) end)
+end
+-- The ground beside a thing at p (cm): the highest floor at four points r_cm from it, by move's own downward trace
+-- (ground_at), leaving out anything more than 3 m above it (a branch, an overhang). -> Z in cm; false when there is
+-- no floor under any of the four; nil when it can't be read.
+function W.ground_near(p, r_cm, ground_at)
+    local mv = not ground_at and mod("move") or nil
+    ground_at = ground_at or (mv and mv.ground_at)
+    if type(ground_at) ~= "function" then return nil end
+    local best, read = nil, false
+    for _, d in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+        local g = U.try(ground_at, nil, { (p.X + d[1] * r_cm) / 100, (p.Y + d[2] * r_cm) / 100, p.Z / 100 })
+        if type(g) == "table" and g.ok then
+            local f = g.floor_z and g.floor_z * 100
+            if not f then read = true
+            elseif f <= p.Z + 300 then read = true; if not best or f > best then best = f end end
+        end
+    end
+    if not read then return nil end
+    return best or false
 end
 function W.actions(pawn) return mcall("combat", "actions", pawn) or {} end
 function W.inject(action)
@@ -550,12 +570,26 @@ local function roots_near(J, me, radius_cm)
         local is_it = matches(cls, root.match, root.exclude)
             or (J.profile.mode == "pickup" and J.profile.item ~= nil and W.item_of(a) == J.profile.item)
         -- a profile with root.max_above_m never walks at a target hovering above walkable ground (rune essence
-        -- floating over a geyser: it must be knocked down first; live audit 2026-10-26). Measured from his own
-        -- capsule centre, so "above" means out of a swing's reach from where he can stand.
-        local floating = is_it and p and root.max_above_m and (p.Z - me.Z) > root.max_above_m * 100
-        if floating and U.dist2d(me, p) <= radius_cm then
+        -- floating over a geyser: it must be knocked down first; live audit 2026-10-26). "Above" is measured from
+        -- the ground beside the thing, at the height his capsule centre would be standing there. Measured from
+        -- where he stood, rocks lying on a rise 28 m off and 3.7 m higher were called "floating out of reach"
+        -- and he was sent looking for a way to knock them down (live 2026-11-16, run 143506; he then walked up
+        -- and mined one in 12 s). Ground that can't be read is not called floating: he walks, and the walk reports.
+        local floating, above = false, nil
+        if is_it and p and root.max_above_m and (p.Z - me.Z) > root.max_above_m * 100 and U.dist2d(me, p) <= radius_cm then
+            J.ground = J.ground or {}
+            local id = W.id(a)
+            local g = J.ground[id]
+            if g == nil then g = W.ground_near(p, M.cfg.ground_probe_cm); J.ground[id] = (g == nil) and "unread" or g end
+            if g == false then floating = true
+            elseif type(g) == "number" then
+                above = p.Z - g
+                floating = above - M.cfg.capsule_half_cm > root.max_above_m * 100
+            end
+        end
+        if floating then
             J.floating = J.floating or {}
-            J.floating[#J.floating + 1] = { id = W.id(a), pos = p, above_m = math.floor((p.Z - me.Z) / 10) / 10 }
+            J.floating[#J.floating + 1] = { id = W.id(a), pos = p, above_m = above and math.floor(above / 10) / 10 or nil }
             is_it = false
         end
         if is_it and p and U.dist2d(me, p) <= radius_cm then
@@ -878,8 +912,8 @@ local function step_scan(J, me)
     if why == "floating_only" then
         local f = hard[1]
         return fail(J, "nothing_in_range", "floating_only", string.format(
-            "The only %s near me is floating out of reach (%d of them, the nearest %.0f m up): it has to be knocked down first, then I can mine it.",
-            J.key, #hard, f.above_m), { floating = hard })
+            "The only %s near me is floating out of reach (%d of them, the nearest %s): it has to be knocked down first, then I can mine it.",
+            J.key, #hard, f.above_m and string.format("%.0f m above the ground under it", f.above_m) or "with no ground under it"), { floating = hard })
     end
     -- nothing: widen, then give up (around a named player only up to near_max_radius_m: "near me" stays near him)
     local cap = J.max_radius_cm or M.cfg.max_radius_m * 100

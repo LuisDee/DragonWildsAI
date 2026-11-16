@@ -304,6 +304,8 @@ W.foliage = function(origin, r, opts)
     return out
 end
 W.loc = function(a) return a and a.pos and { X = a.pos.X, Y = a.pos.Y, Z = a.pos.Z } end
+local real_ground_near = W.ground_near
+W.ground_near = function(p) if Wd.ground then return Wd.ground(p) end return 0 end -- a flat world unless a test says otherwise
 W.alive = function(a) return a ~= nil and a._alive == true end
 W.id = function(a) return a.id end
 W.class = function(a) return a.cls end
@@ -708,6 +710,41 @@ do
     check("essence: the reason says to knock it down first", tostring(res.data.detail):find("knocked down first", 1, true) ~= nil, res.data.detail)
     check("essence: lists the floating rocks", res.data.floating and #res.data.floating == 1 and res.data.floating[1].above_m == 5, res.data.floating and res.data.floating[1] and res.data.floating[1].above_m)
     check("profile flag is data", P.RESOURCES.rune_essence.root.max_above_m ~= nil and P.RESOURCES.stone_boulder.root.max_above_m == nil)
+    -- a rock lying on a rise is not floating: 3.7 m above where he stands, on ground that is as high (live
+    -- 2026-11-16, run 143506: called "floating out of reach" from 28 m away; walked to, it was mined in 12 s)
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    Wd.ground = function(p) return p.Z + 50 end -- the ground beside the rock is half a metre above its origin
+    local hill = new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 600, Y = 0, Z = 370 }, 40, { item = "ITEM_Rune_Essence" })
+    local res2 = run_job({ resource = "rune essence", count = 1 }, 200)
+    check("essence on a rise: not called floating", not (res2.data and res2.data.why == "floating_only"), tostring(res2.reason) .. " " .. tostring(res2.data and res2.data.detail))
+    check("essence on a rise: he went for it", hill.hp ~= hill.max or res2.ok == true or (res2.data and res2.data.why ~= "floating_only" and res2.data.why ~= nil),
+        tostring(res2.reason) .. " " .. tostring(res2.data and res2.data.why))
+    -- ground that can't be read: not called floating either (the walk reports what it finds)
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    Wd.ground = function() return nil end
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 600, Y = 0, Z = 500 }, 40)
+    local res3 = run_job({ resource = "rune essence", count = 1 }, 200)
+    check("essence, ground unreadable: not called floating", not (res3.data and res3.data.why == "floating_only"), tostring(res3.data and res3.data.why))
+    -- nothing under it at all: floating, height not stated
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    Wd.ground = function() return false end
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 600, Y = 0, Z = 500 }, 40)
+    local res4 = run_job({ resource = "rune essence", count = 1 }, 200)
+    check("essence over no floor: floating, said without a made-up height", res4.data and res4.data.why == "floating_only" and not tostring(res4.data.detail):find("nil", 1, true),
+        tostring(res4.data and res4.data.detail))
+    -- the real reader: the highest floor of the four points, nothing more than 3 m above the thing, by move's own trace
+    do
+        local floors = { 100, 250, nil, 900 } -- cm / 100 below; the fourth is a branch 6.5 m above the thing
+        local n = 0
+        local got = real_ground_near({ X = 0, Y = 0, Z = 250 }, 200, function() n = n + 1; local f = floors[n]; return { ok = true, floor_z = f and f / 100 or nil } end)
+        check("ground_near: highest floor beside it, the branch left out", got == 250 and n == 4, tostring(got))
+        check("ground_near: no floor under any point is false, an unreadable trace is nil",
+            real_ground_near({ X = 0, Y = 0, Z = 250 }, 200, function() return { ok = true } end) == false
+            and real_ground_near({ X = 0, Y = 0, Z = 250 }, 200, function() return { ok = false } end) == nil)
+    end
 end
 
 -- ================================================================ 11b. a generic word ("ore"): resolved from game identifiers to the nearest node
