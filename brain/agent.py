@@ -553,7 +553,12 @@ class Agent:
             # ...and once on a later turn whose line came after reads in that same turn (farming 2026-11-02 23:05Z: lookup
             # flax, then "I'll go look" and no call, 483 s idle): a line after fresh research is a plan, not a report
             # (a talk-only report after a verified go_to has no reads before it: no extra call for those)
-            promise_check = (self.check_promises and bool(event.text) and not t["ran"] and not t["failure"]
+            # ...and for the run that hears a goal ended, when that goal came from a player's words (_goal_request):
+            # those words may ask for more than the goal did. Fresh chain 20261116-073129: Rune Mysteries part 1 handed
+            # in, he read quests, said "next step is rune essence, mining near here" with no call, and stood 160 s
+            # (replayed 10 times each: 1/10 went on as logged, 10/10 called gather with this one more turn)
+            asked = bool(event.text) or any(e.get("type") == "goal_done" and e.get("request") for e in body_events or [])
+            promise_check = (self.check_promises and asked and not t["ran"] and not t["failure"]
                              and bool(d.speech) and not (d.actions or d.goal or d.skill)
                              and (turn == 0 or (not stop_checked and getattr(d, "read_rounds", 0) > 0
                                                 and not getattr(d, "talk_checked", False))))

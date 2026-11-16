@@ -2752,6 +2752,18 @@ do
     g.loc = { X = pawn.loc.X + 350, Y = pawn.loc.Y, Z = 400 }
     run_until(function() return follows > f0 end, 2)
     check("step in: a gap up a ledge goes to the follow", follows > f0)
+    -- on his level but the step-in gains no ground (a rock between them; rung 5 Ratcatcher 20261116-065655: 63 s
+    -- pushing at a ledge, the fight ended "timeout" with nothing said): the follow takes over, then approach
+    g.loc = { X = pawn.loc.X + 350, Y = pawn.loc.Y, Z = pawn.loc.Z }
+    world.walk_input = nil
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    local f1 = follows
+    run_until(function() return follows > f1 end, 2.5)
+    check("step in: no ground gained in 1 s goes to the follow", follows > f1, follows - f1)
+    local ap = run_until(function() local f = Cm._state().fight; return f and f.phase == "approach" end, 5)
+    F = Cm._state().fight
+    check("engage: 4 s out of reach goes back to approach", ap, F and F.phase)
+    check("engage: the way back is in the phase log", F and tostring(F.phase_log[#F.phase_log]):find("out of reach", 1, true) ~= nil, F and F.phase_log[#F.phase_log])
     fake_move.follow, world.walk_input = follow0, nil
     Cm.stop(nil, "test"); A.reset(nil)
 end

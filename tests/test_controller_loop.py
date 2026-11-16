@@ -2,6 +2,8 @@
 (research 2026-10-25 sections 3.2, 6.2, 7.1; design section 19)."""
 import json
 
+import pytest
+
 from conftest import Rig
 
 from brain.controller import MAX_SAY, clip
@@ -519,3 +521,25 @@ def test_explore_keeps_each_legs_sentence_not_the_trail():
     data = {"legs": 2, "trips": ["Walked 30 m ...", "Walked 12 m ...; fell 6.0 m."], "trail": [[0, 0, 0], [30, 0, 0]],
             "detail": "explored 2 legs (about 42 m) and saw nothing matching 'tin'"}
     assert model_view(data) == {k: v for k, v in data.items() if k != "trail"}
+
+
+@pytest.mark.parametrize("asked", [True, False])
+def test_a_goal_from_a_players_words_that_ends_with_talk_only_gets_one_more_turn(tmp_path, asked):
+    """Fresh chain 20261116-073129 (Rune Mysteries): the goal covered part 1 of what the player asked for; the run that
+    heard goal_done said "next step is rune essence, mining near here" with no call and he stood 160 s. With the
+    player's words on the goal, that line gets the one promise turn; a goal of his own ends with its line as before."""
+    rig = Rig(tmp_path, game=_gather_world())
+    rig.controller.clock = lambda: rig.game.time
+    if asked:
+        rig.agent._asked = {"request": "claude, go and do the woodcutter's quest", "from": "Luis"}
+    rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 2}}]))
+    rig.controller_llm.push(FakeLLM.say("logs done. next step is more logs, chopping near here"),
+                            FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
+    assert rig.agent.run_goal("gather 2 logs") == "done"
+    calls = rig.controller_llm.calls
+    assert rig.companion_said()[0] == "logs done. next step is more logs, chopping near here"
+    if asked:
+        assert calls[1]["messages"][-1]["content"].startswith("You replied without calling any tool.")
+        assert len(rig.calls("gather")) == 2
+    else:
+        assert len(calls) == 1 and len(rig.calls("gather")) == 1

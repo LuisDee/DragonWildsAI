@@ -84,6 +84,12 @@ M.cfg = {
     magic_aim_s = 0.25,      -- staff/wand: settle the aim this long before each cast        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
     disengage_s = 25,        -- give the heal this long before re-assessing
     lock_on = true,
+    -- a step-in has to close the gap: step_in_stall_s of it without step_in_gain_m nearer = something is between us
+    -- (a ledge, a rock), so the follow (it plans round and jumps) takes over for step_in_off_s; engage_far_s out of
+    -- reach in a row = back to approach, whose blocked rule ends it with the reason. Rung 5 Ratcatcher 20261116-065655:
+    -- a rat 3 m off on a 1.5 m ledge, the step-in stopped the follow and pushed at the ledge for 63 s (and 24.5 s in
+    -- the next fight), the fight ended "timeout" with nothing said
+    step_in_stall_s = 1.0, step_in_gain_m = 0.3, step_in_off_s = 5, engage_far_s = 4,
     step_in_m = 5, step_in_dz_cm = 150, -- a gap this short on his level (after a dodge) is closed with the movement
     -- input, as a player holds forward; move.follow's stuck/local planner stood ~2 s per gap (live 12:53, a runt:
     -- 36.7 s out of reach, 7 swings in a minute, died)
@@ -3143,7 +3149,18 @@ local function step_engage(F, pawn, me, acts, tgt)
     -- farther, or above / below him -> follow the creature (move.lua faces it when near)
     local tp = F.target_pos
     F.step_in = nil
-    if d_m > F.reach and d_m <= cfg.step_in_m and tp and me.pos and math.abs(tp.Z - me.pos.Z) <= cfg.step_in_dz_cm then
+    local can_step = d_m > F.reach and d_m <= cfg.step_in_m and tp and me.pos and math.abs(tp.Z - me.pos.Z) <= cfg.step_in_dz_cm
+        and F.t >= (F.step_in_off_until or 0)
+    if can_step then -- (decision ticks of stepping in, not seconds: a defence in between is not a stall)
+        if not F.si_d0 or d_m <= F.si_d0 - cfg.step_in_gain_m then F.si_d0, F.si_n = d_m, 0 end
+        F.si_n = F.si_n + 1
+        if F.si_n * M.DECIDE_S >= cfg.step_in_stall_s then
+            can_step, F.si_d0, F.step_in_off_until = false, nil, F.t + cfg.step_in_off_s
+            F.n_step_stalls = (F.n_step_stalls or 0) + 1
+            say(F.log, string.format("step-in made no ground (%.1f m off, something between us): the follow goes round", d_m))
+        end
+    else F.si_d0 = nil end
+    if can_step then
         if F.following then mcall("move", "stop", F.log); F.following = false end
         local dx, dy = tp.X - me.pos.X, tp.Y - me.pos.Y
         local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
@@ -3164,7 +3181,15 @@ local function step_engage(F, pawn, me, acts, tgt)
             if close then return start_defend(F, me, id, tt, (c.tele_info or {})[id]) end
         end
     end
-    if d_m > F.reach then return M.held(F, "out_of_reach") end
+    if d_m > F.reach then
+        F.far_n = (F.far_n or 0) + 1
+        if F.far_n * M.DECIDE_S >= cfg.engage_far_s then
+            F.far_n, F.step_in = 0, nil
+            set_phase(F, "approach", "out of reach")
+        end
+        return M.held(F, "out_of_reach")
+    end
+    F.far_n = 0
     if F.casting then return M.held(F, "casting") end -- the spell's own inputs are running
     -- lock on once (one frame of the toggle; InputTriggerPressed)
     if cfg.lock_on and not F.locked and acts.lock then
@@ -3473,7 +3498,16 @@ local function frame(F)
     if F.heal_pending and F.t - F.heal_pending.t >= 2.5 and F.phase ~= "disengage" and F.phase ~= "flee" then
         M._try_eat(F, me, false) -- (verifies the pending bite; eats again only below eat_hp)
     end
-    if F.t - F.t0 > M.cfg.fight_timeout_s then return finish(F, result_of(F, false, "timeout")) end
+    if F.t - F.t0 > M.cfg.fight_timeout_s then
+        local _, held = held_summary(F)
+        local tp, mp = F.target_pos, me.pos
+        local dz = tp and mp and (tp.Z - mp.Z) / 100
+        return finish(F, result_of(F, false, "timeout", { dist_m = F.dist_m and math.floor(F.dist_m * 10) / 10,
+            detail = string.format("the fight ran %d s without a kill: %d swings, %d hit%s%s", math.floor(F.t - F.t0), F.presses or 0, F.hits or 0,
+                held ~= "" and ("; not swinging for: " .. held) or "",
+                F.dist_m and string.format("; the %s is %.1f m away%s", tostring(F.target_name or "target"), F.dist_m,
+                    dz and math.abs(dz) >= 0.8 and string.format(", %.1f m %s me", math.abs(dz), dz > 0 and "above" or "below") or "") or "") }))
+    end
     local acts = actions(pawn)
     local mode = U.short(U.try(function() return pc.CurrentInputMode end))
     F.input_mode = mode

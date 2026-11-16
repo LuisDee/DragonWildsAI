@@ -83,3 +83,26 @@ def test_drafts_declare_the_character_policy():
     stages = [c for c in cap if c.family == "capstone_stage"]
     assert character_policy(stages[0]) == "fresh" and all(character_policy(c).startswith("chain:") for c in stages[1:])
     assert all(character_policy(c) == "main" for c in goal_drafts.combat_basics())  # ClaudeDev
+
+
+def test_a_locked_boot_is_waited_out_and_the_stop_holds_the_watchdog_off(tmp_path):
+    """Quest chain 20261116-073129: the watchdog's boot held the lock, this one left with exit 2, and the switch back to
+    ClaudeDev was reported failed although the other boot got him in."""
+    f = Fake(tmp_path)
+    (f.save / "ClaudeDev.json").write_text("{}")
+    rcs = [2, 2, 0]
+
+    def ps(script, *args, **kw):
+        f.calls.append((script, args))
+        if script != "client_boot.ps1":
+            return 0
+        rc = rcs.pop(0)
+        if rc == 0:
+            f.players = [{"name": "ClaudeDev", "character_guid": "E7"}]
+        return rc
+
+    f.sw.ps = ps
+    info = f.sw.ensure("ClaudeDev")
+    assert info["guid"] == "E7" and info["relaunched"] is True
+    assert f.calls[0] == ("stop_client.ps1", ("-Hold",))
+    assert [c[0] for c in f.calls[1:]] == ["client_boot.ps1"] * 3 and all("-Release" in c[1] for c in f.calls[1:])

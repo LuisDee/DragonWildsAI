@@ -38,6 +38,7 @@ NAME_FILE = ROOT / "client_io" / "state" / "character_name.txt"
 SAVE_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "SaveCharacters"
 CREATE_CMD = ROOT / "client_mod" / "commands" / "create_char.lua"
 MADE_LOG = ROOT / "logs" / "bench" / "dev_characters.jsonl"
+BOOT_LOCKED, BOOT_LOCKED_WAIT_S = 2, 600  # client_boot.ps1's exit when another boot is running; how long to wait it out
 MAX_NAME = 16  # conservative: the game's name rule is not in the reflection dump; a rejected name is a fixture gap
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{2,%d}$" % (MAX_NAME - 1))
 
@@ -93,7 +94,11 @@ class CharacterSwitch:
             raise Abort(f"invalid character name {name!r}")
         self.name_file.parent.mkdir(parents=True, exist_ok=True)
         self.name_file.write_text(name + "\n", encoding="utf-8")
-        self.ps("stop_client.ps1")  # BUGS L24: relaunch instead of a front-end return
+        # BUGS L24: relaunch instead of a front-end return. -Hold: the watchdog leaves the stopped client down, and
+        # the boot below (-Release) is the one that launches it. Quest chains 20261116-065203 and -073129: without it
+        # the watchdog launched 0.3 s after the kill (Steam ignored that launch: launch_timeout, 150 s lost) and held
+        # the boot lock, so this boot left with boot_locked and the switch was reported failed
+        self.ps("stop_client.ps1", "-Hold")
         created = False
         if not self.exists(name):
             if not create:
@@ -109,8 +114,14 @@ class CharacterSwitch:
             created = True
             self.made.append(name)
             self._record(name)
-        if self._boot() != 0:
-            raise Abort(f"client_boot did not get {name} into the dev world")
+        rc = self._boot()
+        for _ in range(int(BOOT_LOCKED_WAIT_S // 15)):  # another boot holds the lock: it boots the same name file
+            if rc != BOOT_LOCKED or self.in_world(name):
+                break
+            self.sleep(15)
+            rc = self._boot()
+        if rc != 0 and not self.in_world(name):
+            raise Abort(f"client_boot did not get {name} into the dev world (exit {rc})")
         for _ in range(int(wait_s // 3)):
             here = self.in_world(name)
             if here:
