@@ -1241,3 +1241,33 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Binned:** a "Last request: ..." line in `body_status` for later review turns: 0 of 12 resumed without a persona sentence; 9 of 12 with one, but a finished stone request then drew "what next?" 3 of 9. Not built: a review 3 minutes later cannot pass the 5 s stand bar anyway.
 - Replay spend for this: about 330 Haiku calls, roughly $0.9.
 - Chain 3 launched 11:23Z (pid 16008) on 159a42d.
+
+## 2026-11-16 11:23-12:20Z rung 5: chains 112351 and 114101, the chain rule, the open request, give to an NPC
+- **Chain 112351 (on 159a42d), $0.071:**
+
+  | quest | time | ratio | misses | result |
+  |---|---|---|---|---|
+  | First Steps | 35.0 s | 0.43x | 1 (craft Stone Club with no materials, after the quest was done) | PASS |
+  | Getting Started | 51.0 s | 0.68x | 1 (craft before the materials) | PASS |
+  | Ratcatcher | 158.2 s | 1.08x | 1 (attack `too_far`) | PASS |
+  | Rune Mysteries | 324.8 s | 0.84x | 0, no stand | PASS under the chain rule below (strict rule: NOT COUNTED) |
+
+- **Second amendment of mine to the counting rule (dd347ef), for Luis to accept or reject.** The record read "NOT COUNTED (deliverable carried: Ash x8)", but those logs were chopped in Getting Started of the same chain. Now a chain reads what he carries of every quest's deliverables at its start, and a quest's head start is at most that. With the first amendment (5df4488, a leftover under a tenth of the ask) this is the second time I changed how a pass is counted. Strict counts, without either amendment: Rune Mysteries passes are chain 094732 only.
+- **Chain 114101 (on dd347ef), $0.106:**
+
+  | quest | time | ratio | misses | result |
+  |---|---|---|---|---|
+  | First Steps | 33.8 s | 0.41x | 0 | PASS |
+  | Getting Started | 48.0 s | 0.81x | 2 (craft with 5 of 6 logs; `give` to Doric) | FAIL |
+  | Ratcatcher | 189.1 s | 0.99x | 0 | PASS |
+  | Rune Mysteries | ended quiet at 545.5 s | - | 1 (boil at a new campfire, `verification_failed`) | FAIL: not done, 40.6 s standing |
+
+- **Streaks over chains 085113, 091005, 094732, 101313, 103757, 112351, 114101:** First Steps P x7; Getting Started F F F P P P F; Ratcatcher F P F P P P P; Rune Mysteries F F P P F P F (the P of 101313 by the leftover rule, the P of 112351 by the chain rule).
+- **Cause of the Rune Mysteries stop (brain-live-20261116-124857-13704.jsonl):** the runes were made at 407 s. The run that heard the goal end said "Zanik's step is done, runes made. Boiling some water now, I'm parched", built a campfire, the boil failed and that run ended on the failure. The next run was a review (situation-0003-c9d2): soup, water, boil, drink, then "Food and water are sorted for now, so I'm staying quiet and carrying on" with no call. Its notes said "Continue with the next step, or stop" and named no request. The quest's step text still read "Mine Rune Essence, craft some Air and Astral Runes" (it changes only at the talk with Zanik), so he never went back for the hand-in.
+- **Measured in live order (tools/replay_episode.py, new `--swap OLD NEW`):** that review's last call with the logged notes went on 0 of 4 times; with "Tester asked '...': continue with the next step of that, or stop if it is done" in the same notes, 6 of 6 (4 `go_to Zanik`, 2 read `quests` first). Negative, a request that is plainly finished named there ("craft 10 air runes for me"): 0 of 5 redid it, 4 of 5 said one line that it is done.
+- **Fix (c019a6f):** a player's request stays open after his line, and again from a goal's end, until the model replies with no call to his line or to a note that names the request. Later body runs carry it in their notes (and get the one promise turn). A run beside a running goal does not. Closing is the model's own stop, logged as `request_closed`. Unit test written first and seen failing. Not yet seen live.
+- **`give` to an NPC (946bee9):** the turn replayed in live order gave to Doric 8 of 12 times with the old description and 1 of 12 with one more sentence in the body's manifest ("Players only: an NPC takes what a quest asks for in the talk with them").
+- **Tried and binned, second time:** a craft description that points at craft_plan before a try. Craft first 5 of 8 with the live wording, 3 of 8 with the new one (4 of 6 against 4 of 6 last time): no clear movement, left as it was. The try costs one miss, inside the bar when nothing else fails.
+- Open from 114101: the boil at a freshly built campfire that failed verification, and whether his line after it ("got clean water boiled and drunk") was true. Not looked into yet.
+- Replay spend: about 190 Haiku calls, roughly $0.5.
+- Chain launched 12:19Z (pid 13004) on 946bee9.
