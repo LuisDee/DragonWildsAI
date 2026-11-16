@@ -328,7 +328,7 @@ local function step(n)
         for _, h in ipairs(pending_hits) do
             if T >= h.t then
                 local tgt = Cm._state().fight and Cm._state().fight.target
-                if tgt and tgt.hp > 0 then
+                if tgt and tgt.hp > 0 and not tgt.unhittable then
                     tgt.hp = math.max(0, tgt.hp - h.amount)
                     multicast(tgt, world.instigator or pawn, h.amount)
                     if tgt.hp <= 0 and world.drop_on_death then new_item("BP_WorldItem_C_9" .. #world.items, { X = tgt.loc.X + 50, Y = tgt.loc.Y, Z = 0 }) end
@@ -2819,6 +2819,94 @@ do
     run_until(function() return follows > f0 end, 2)
     check("step in: once the dodge is over, 1 s without ground is a stall", follows > f0 and Cm._state().fight.n_step_stalls == 1, follows - f0)
     fake_move.follow, world.evading_until = follow0, nil
+    Cm.stop(nil, "test"); A.reset(nil)
+end
+
+-- (g5) he swings at what he can reach. Ratcatcher 20261116-212108: the Giant Rat he was sent for stood up a ledge at
+-- the windmill while two others bit him. The commanded fight kept to the one named: 120 s, 21 dodges, 52 s defending,
+-- 6 swings, none landed, 114 damage taken, and he died in the fight after it
+reset_world()
+do
+    local UP, BY = "BP_AI_GiantRat_Character_C_up", "BP_AI_GiantRat_Character_C_by"
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    world.wall_x = 100 -- (the foot of the ledge)
+    local up = new_creature(UP, "Giant Rat", { X = 600, Y = 0, Z = 300 }, { hp = 40, pl = 1, arch = 0 })
+    local by = new_creature(BY, "Giant Rat", { X = 0, Y = 150, Z = 0 }, { hp = 40, pl = 1, arch = 0, alert = 3 })
+    check("swap: fight starts", Cm._start_fight(nil, up, { mode = "attack", force = true, by = "brain" }).ok)
+    local bite_t = T + 1
+    world.on_step = function()
+        if by.hp <= 0 then return end
+        by.loc = { X = pawn.loc.X, Y = pawn.loc.Y + 150, Z = pawn.loc.Z } -- it stays on him
+        if T >= bite_t then bite_t = T + 1.5; pawn.hp = pawn.hp - 3; multicast(pawn, by, 3) end
+    end
+    run_until(function() return by.hp <= 0 or Cm._state().fight == nil end, 25)
+    local F = Cm._state().fight
+    check("swap: the one he went for is out of reach and another bites him: he kills that one", by.hp <= 0 and F ~= nil,
+        "by.hp " .. tostring(by.hp) .. ", " .. tostring(not F and Cm._state().last.result.reason or F.phase))
+    local back = run_until(function() local f = Cm._state().fight; return f == nil or (f.target_id == UP and f.phase == "approach") end, 8)
+    F = Cm._state().fight
+    check("swap: then he goes back for the one he went for", back and F ~= nil and F.target_id == UP, F and F.target_id)
+    MV.extra = { status = "unreachable", unreachable = { reason = "leader_above_jump_height", detail = "dz=3.0m d=5.8m lp_fail=verify_exhausted" }, lp_fail = "verify_exhausted" }
+    run_until(function() return Cm._state().fight == nil end, 10)
+    local res = Cm._state().last.result
+    check("swap: it ends on the one he went for, with the true reason", res and res.reason == "path_blocked" and res.data.target_id == UP
+        and res.data.detail == "I can't get to the Giant Rat: the Giant Rat is higher up than I can jump.", res and (tostring(res.reason) .. " " .. tostring(res.data.target_id)))
+    check("swap: the result says what he fought besides it", res and res.data.kills == 1
+        and res.data.also_fought == "Besides the Giant Rat I went for, I fought what attacked me: 1 Giant Rat killed.", res and (tostring(res.data.also_fought) .. " kills " .. tostring(res.data.kills) .. " hits " .. tostring(res.data.hits)))
+    check("swap: no went_for when it ended on the one he went for", res and res.data.went_for == nil)
+    MV.extra, world.wall_x, world.on_step = nil, nil, nil
+    A.reset(nil)
+
+    -- in reach by the distance, but his swings land nothing (1.3 m above him: the swing has a height)
+    reset_world()
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local air = new_creature(UP .. "2", "Giant Rat", { X = 150, Y = 0, Z = 130 }, { hp = 40, pl = 1, arch = 0 })
+    air.unhittable = true
+    local by2 = new_creature(BY .. "2", "Giant Rat", { X = 0, Y = -150, Z = 0 }, { hp = 40, pl = 1, arch = 0, alert = 3 })
+    Cm._start_fight(nil, air, { mode = "attack", force = true, by = "brain" })
+    bite_t = T + 1
+    world.on_step = function()
+        if by2.hp > 0 and T >= bite_t then bite_t = T + 1.5; pawn.hp = pawn.hp - 3; multicast(pawn, by2, 3) end
+    end
+    run_until(function() return by2.hp <= 0 or Cm._state().fight == nil end, 25)
+    F = Cm._state().fight
+    check("swap: swings that land nothing on the one he went for, and another bites him: he kills that one", by2.hp <= 0 and F ~= nil,
+        "by2.hp " .. tostring(by2.hp) .. ", presses " .. tostring(F and F.presses))
+    -- the fight ends while he is on another creature: the result says which one he went for
+    world.on_step = nil
+    local by3 = new_creature(BY .. "3", "Giant Rat", { X = pawn.loc.X, Y = pawn.loc.Y - 150, Z = 0 }, { hp = 5000, pl = 1, arch = 0, alert = 3 })
+    bite_t = T
+    world.on_step = function()
+        if T >= bite_t then bite_t = T + 1.5; pawn.hp = math.max(40, pawn.hp - 3); multicast(pawn, by3, 3) end
+    end
+    local on3 = run_until(function() local f = Cm._state().fight; return f == nil or f.target_id == BY .. "3" end, 25)
+    F = Cm._state().fight
+    check("swap: a third one bites him once he is back on the one he cannot hit: he takes it too", on3 and F ~= nil and F.target_id == BY .. "3", F and F.target_id)
+    Cm.stop(nil, "test")
+    res = Cm._state().last.result
+    check("swap: ended while on another creature: the result names the one he went for, not killed", res and type(res.data.went_for) == "table"
+        and res.data.went_for.id == UP .. "2" and res.data.went_for.name == "Giant Rat" and res.data.went_for.killed == false
+        and res.data.target_id == BY .. "3", res and res.data.target_id)
+    check("swap: ...and what he fought", res and res.data.also_fought == "I did not kill the Giant Rat I went for; besides it I fought what attacked me: 1 Giant Rat killed, 1 Giant Rat not killed.",
+        res and res.data.also_fought)
+    world.on_step = nil
+    A.reset(nil)
+
+    -- an ordinary fight, his swings landing: another creature's bites do not pull him off the one he went for
+    reset_world()
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local main = new_creature(UP .. "4", "Giant Rat", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    local by4 = new_creature(BY .. "4", "Giant Rat", { X = 0, Y = 150, Z = 0 }, { hp = 40, pl = 1, arch = 0, alert = 3 })
+    Cm._start_fight(nil, main, { mode = "attack", force = true, by = "brain" })
+    bite_t = T + 1
+    world.on_step = function()
+        if T >= bite_t then bite_t = T + 1.5; pawn.hp = math.max(60, pawn.hp - 3); multicast(pawn, by4, 3) end
+    end
+    step(1000)
+    F = Cm._state().fight
+    check("swap: none while his swings land on the one he went for", F ~= nil and F.target_id == UP .. "4" and (F.swaps or 0) == 0 and F.hits > 3,
+        F and (tostring(F.target_id) .. " swaps " .. tostring(F.swaps) .. " hits " .. tostring(F.hits)))
+    world.on_step = nil
     Cm.stop(nil, "test"); A.reset(nil)
 end
 

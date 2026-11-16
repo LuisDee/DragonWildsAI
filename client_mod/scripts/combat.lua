@@ -75,6 +75,9 @@ M.cfg = {
     chase_per_m_s = 0.5, -- and this much longer for each metre he starts away: the walk to a rat 58 m off up a hill is no chase
     approach_stall_s = 12, approach_gain_m = 0.5, -- approach: no 0.5 m gain for 12 s = blocked (path_blocked)
     impact_attrib_s = 0.8, max_retargets = 4, -- an HP drop this soon after a creature's impact event is its hit
+    -- he swings at what he can reach (M.swap_target): the target out of reach this long, or this many swings in a row
+    -- that landed nothing, while a creature that attacked him stands within swap_m on his level
+    swap_out_s = 2.5, swap_dry_presses = 3, swap_m = 4, swap_dz_cm = 100, max_swaps = 8,
     conversation_retry_s = 2.0, conversation_leave_s = 5.0, -- leaving an NPC dialogue for a fight (talk finding 8)
     move_axes = "xy",
     ranged_max_m = 25,       -- ranged: shoot from up to this far (shrinks when out of the projectile's range)
@@ -1589,6 +1592,7 @@ local function result_of(F, ok, reason, data)
     data.damage_taken = F.dmg_taken or 0
     data.held_back_s = held_summary(F)
     if F.cornered then data.cornered = F.cornered end
+    if F.mode == "attack" and F.first then M.fought_words(F, data) end
     return { ok = ok, reason = reason, data = data }
 end
 
@@ -2442,6 +2446,8 @@ end
 
 local function start_defend(F, me, attacker_id, tt, info)
     local c = C()
+    F.defended = F.defended or {}
+    if attacker_id then F.defended[attacker_id] = F.t end -- (an attack on him, whether it lands or not: M.swap_target)
     local D = mod("defense")
     local apos
     if attacker_id == F.target_id then apos = F.target_pos
@@ -3321,7 +3327,7 @@ local function step_engage(F, pawn, me, acts, tgt)
     F.far_n = 0
     if F.casting then return M.held(F, "casting") end -- the spell's own inputs are running
     -- lock on once (one frame of the toggle; InputTriggerPressed)
-    if cfg.lock_on and not F.locked and acts.lock then
+    if cfg.lock_on and not F.locked and not F.no_lock and acts.lock then
         F.locked = true
         tap(F, acts.lock, 1, "lock_on")
         F.next_press = math.max(F.next_press or 0, F.t + 0.12)
@@ -3350,6 +3356,8 @@ local function step_engage(F, pawn, me, acts, tgt)
             c.press_cost[k] = c.press_cost[k] and (c.press_cost[k] * 0.7 + cost * 0.3) or cost
         end
         local hit = F.hits > pp.hits
+        say(F.log, string.format("swing at the %s from %.1f m (%+.1f m in height, facing %.0f deg off): %s", tostring(F.target_name), pp.d or -1, pp.dz or 0,
+            pp.err or -1, hit and "hit" or spent and "landed nothing" or "no effect"))
         if spent or hit then F.verified, F.unverified_run = F.verified + 1, 0
         else F.unverified_run = F.unverified_run + 1 end
         if F.unverified_run >= cfg.verify_presses then
@@ -3369,7 +3377,7 @@ local function step_engage(F, pawn, me, acts, tgt)
         F.last_press_t = F.t
         F.presses = F.presses + 1
         C().counts.presses = C().counts.presses + 1
-        F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits, err = err }
+        F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits, err = err, d = d_m, dz = tp and me.pos and (tp.Z - me.pos.Z) / 100 }
         return
     end
     -- special: charge covers it, target is worth it, not too often
@@ -3390,7 +3398,7 @@ local function step_engage(F, pawn, me, acts, tgt)
     F.last_press_t = F.t
     F.presses = F.presses + 1
     C().counts.presses = C().counts.presses + 1
-    F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits, err = err }
+    F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits, err = err, d = d_m, dz = tp and me.pos and (tp.Z - me.pos.Z) / 100 }
 end
 
 local function step_loot(F, pawn, me)
@@ -3555,6 +3563,112 @@ function M.hazard_frame(F, pawn, me, acts)
     return false
 end
 
+-- The fight goes on against another creature. One place for it: what was read of the old target (HP, distance, a
+-- fatal hit, who killed it) is not carried over to the new one. The creature the fight began with is remembered
+-- (F.first), and every other one he fights is listed (F.others), for the result's words and the way back.
+local function switch_target(F, row)
+    if F.locked and not F.dead_seen and U.alive(F.target) then
+        -- his lock is on a creature that lives: let it go (one frame of the toggle, as finish does). Which creature a
+        -- new press would lock cannot be read (FLockOnTarget has no reflected fields), so he fights on without one
+        local pawn = F.pc and U.try(function() return F.pc.Pawn end)
+        local acts = U.valid(pawn) and actions(pawn)
+        if acts and acts.lock then inject(acts.lock) end
+        F.no_lock = true
+    end
+    F.first = F.first or { actor = F.target, id = F.target_id, name = F.target_name, killed = (F.dead_seen and not F.killed_by) or false }
+    if row.id ~= F.first.id then
+        F.others = F.others or {}
+        local known
+        for _, o in ipairs(F.others) do if o.id == row.id then known = true end end
+        if not known then F.others[#F.others + 1] = { id = row.id, name = row.name, killed = false } end
+    end
+    F.target, F.target_id, F.target_name = row.actor, row.id, row.name
+    F.dead_seen, F.locked, F.following, F.follow_t = false, false, false, nil
+    F.target_hp, F.target_pos, F.dist_m = row.hp, row.pos, row.distance_m or 99
+    F.fatal_hit, F.killed_by, F.out_since, F.far_n, F.si_d0 = nil, nil, nil, 0, nil
+    F.sw_hits, F.sw_presses = F.hits, F.presses
+    M.set_reach(F, row.actor)
+end
+
+-- The nearest threat that this fight has not seen dead. The census is cached for cfg.census_s, so a row read just
+-- before a death still says alive: taken as the next target, the same creature's death was counted as a second kill
+-- (test_combat (g5), one run in two).
+local function live_threat(F, me, c)
+    for _, th in ipairs(M.pick_threats(creatures_near(me.pos, M.cfg.assist_m), c.attackers, c.ally_attackers, M.orders, F.t)) do
+        if not (F.dead_ids or {})[th.id] then return th end
+    end
+end
+
+-- His kill of the current target, noted on the fight's list of who he fought.
+function M.note_kill(F)
+    if F.first and F.first.id == F.target_id then F.first.killed = true end
+    for _, o in ipairs(F.others or {}) do if o.id == F.target_id then o.killed = true end end
+end
+
+-- A commanded fight that took on other creatures too: data.also_fought says so in words he can speak, and
+-- data.went_for names the creature he was sent for when the fight ended on another one with that one not killed.
+function M.fought_words(F, data)
+    local first = F.first
+    if not first or not F.others or #F.others == 0 then return end
+    local names, k, n = {}, {}, {}
+    for _, o in ipairs(F.others) do
+        local nm = o.name or "creature"
+        if not k[nm] and not n[nm] then names[#names + 1] = nm end
+        if o.killed then k[nm] = (k[nm] or 0) + 1 else n[nm] = (n[nm] or 0) + 1 end
+    end
+    local parts = {}
+    for _, nm in ipairs(names) do if k[nm] then parts[#parts + 1] = string.format("%d %s killed", k[nm], nm) end end
+    for _, nm in ipairs(names) do if n[nm] then parts[#parts + 1] = string.format("%d %s not killed", n[nm], nm) end end
+    local settled = first.killed or F.target_id == first.id
+    if not settled then data.went_for = { name = first.name, id = first.id, killed = false } end
+    data.also_fought = string.format(settled and "Besides the %s I went for, I fought what attacked me: %s."
+        or "I did not kill the %s I went for; besides it I fought what attacked me: %s.", tostring(first.name or "creature"), table.concat(parts, ", "))
+end
+
+-- He swings at what he can reach. Ratcatcher 20261116-212108: the Giant Rat he was sent for stood up a ledge while
+-- two others bit him; the fight kept to the one named for 120 s (21 dodges, 6 swings, none landed, 114 damage) and he
+-- died in the next. When the target has been out of his reach for swap_out_s, or swap_dry_presses swings in a row
+-- landed nothing on it, and a creature that attacked him (a hit, or a swing he had to answer) within
+-- attacker_memory_s stands within swap_m on his level, the fight goes on against that one. The one he went for is
+-- taken up again when the others are down (frame, restore). -> true when the target changed
+function M.swap_target(F, me, c)
+    local cfg = M.cfg
+    if F.hits ~= F.sw_hits then F.sw_hits, F.sw_presses = F.hits, F.presses end
+    if (F.dist_m or 99) > F.reach then F.out_since = F.out_since or F.t else F.out_since = nil end
+    if F.t - (F.swap_t or -9) < 0.25 then return false end
+    F.swap_t = F.t
+    local why
+    local dry = F.presses - (F.sw_presses or 0)
+    if F.out_since and F.t - F.out_since >= cfg.swap_out_s then why = string.format("out of my reach for %.1f s", F.t - F.out_since)
+    elseif dry >= cfg.swap_dry_presses then why = string.format("%d swings in a row landed nothing on it", dry) end
+    if not why or (F.swaps or 0) >= cfg.max_swaps or not me.pos then return false end
+    local best, seen_n = nil, 0
+    for _, cr in ipairs(creatures_near(me.pos, cfg.swap_m)) do
+        if cr.id ~= F.target_id and not cr.dead and not cr.follower and not (M.orders.avoid or {})[(cr.name or ""):lower()] then
+            seen_n = seen_n + 1
+            local last = math.max(c.attackers[cr.id] or -1e9, (F.defended or {})[cr.id] or -1e9)
+            if F.t - last <= cfg.attacker_memory_s and cr.pos and math.abs(cr.pos.Z - me.pos.Z) <= cfg.swap_dz_cm
+                and (not best or (cr.distance_m or 99) < (best.distance_m or 99)) then best = cr end
+        end
+    end
+    if not best then
+        if F.t - (F.swap_said or -9) >= 2 then
+            F.swap_said = F.t
+            say(F.log, string.format("the %s: %s; nothing else that attacked me is within %d m on my level (%d other creature%s there)",
+                tostring(F.target_name), why, cfg.swap_m, seen_n, seen_n == 1 and "" or "s"))
+        end
+        return false
+    end
+    F.swaps = (F.swaps or 0) + 1
+    say(F.log, string.format("the %s (%s): %s; the %s (%s) attacked me and is %.1f m off: fighting it", tostring(F.target_name), tostring(F.target_id), why,
+        tostring(best.name), tostring(best.id), best.distance_m or -1))
+    switch_target(F, best)
+    F.phase_log[#F.phase_log + 1] = string.format("%.1f swap to %s (%s)", F.t - F.t0, tostring(best.name), why)
+    if #F.phase_log > 30 then table.remove(F.phase_log, 1) end
+    set_phase(F, "approach", "fighting what is on me")
+    return true
+end
+
 local function frame(F)
     local c = C()
     if F.gen ~= c.gen or F.done then return end
@@ -3632,7 +3746,8 @@ local function frame(F)
         local tp, mp = F.target_pos, me.pos
         local dz = tp and mp and (tp.Z - mp.Z) / 100
         return finish(F, result_of(F, false, "timeout", { dist_m = F.dist_m and math.floor(F.dist_m * 10) / 10,
-            detail = string.format("the fight ran %d s without a kill: %d swings, %d hit%s%s", math.floor(F.t - F.t0), F.presses or 0, F.hits or 0,
+            detail = string.format("the fight ran %d s %s: %d swings, %d hit%s%s", math.floor(F.t - F.t0),
+                (F.kills or 0) == 0 and "without a kill" or string.format("and was not over (%d kill%s)", F.kills, F.kills == 1 and "" or "s"), F.presses or 0, F.hits or 0,
                 held ~= "" and ("; not swinging for: " .. held) or "",
                 F.dist_m and string.format("; the %s is %.1f m away%s", tostring(F.target_name or "target"), F.dist_m,
                     dz and math.abs(dz) >= 0.8 and string.format(", %.1f m %s me", math.abs(dz), dz > 0 and "above" or "below") or "") or "") }))
@@ -3745,14 +3860,18 @@ local function frame(F)
         if not F.dead_seen then return finish(F, result_of(F, false, "unknown_target", { detail = "target no longer visible" })) end
         F.kills = F.kills + 1
     end
+    if F.dead_seen then
+        F.dead_ids = F.dead_ids or {}
+        F.dead_ids[F.target_id] = true
+        if not F.killed_by then M.note_kill(F) end
+    end
     if F.dead_seen and (F.phase == "engage" or F.phase == "defend" or F.phase == "approach" or F.phase == "equip") then
         -- another attacker still on us? retarget instead of looting
-        local nxt = M.pick_threats(creatures_near(me.pos, M.cfg.assist_m), c.attackers, c.ally_attackers, M.orders, F.t)[1]
+        local nxt = live_threat(F, me, c)
         -- self-defence is the reflex's job in any fight: a commanded fight retargets only what is hitting him
         if nxt and nxt.id ~= F.target_id and (F.mode == "reflex" or nxt.why == "attacked_me") then
             say(F.log, "retarget " .. nxt.id)
-            F.target, F.target_id, F.target_name, F.dead_seen, F.locked, F.following = nxt.actor, nxt.id, nxt.name, false, false, false
-            M.set_reach(F, nxt.actor)
+            switch_target(F, nxt)
             return set_phase(F, "approach", "next attacker")
         end
         mcall("move", "stop", F.log)
@@ -3893,6 +4012,8 @@ local function frame(F)
             end
         end
     end
+    if (F.phase == "engage" or F.phase == "approach") and tgt and not F.dead_seen and not F.rg and not F.dis and not F.casting
+        and M.swap_target(F, me, c) then return end
     if F.phase == "react" then
         if F.t >= F.react_until then set_phase(F, "equip") end
     elseif F.phase == "equip" then
@@ -3936,13 +4057,12 @@ local function frame(F)
     elseif F.phase == "engage" then
         if F.rg then step_ranged(F, pawn, me, acts, tgt) else step_engage(F, pawn, me, acts, tgt) end
         if F.dist_m and F.dist_m > F.reach * 3 then
-            local nxt = M.pick_threats(creatures_near(me.pos, M.cfg.assist_m), c.attackers, c.ally_attackers, M.orders, F.t)[1]
+            local nxt = live_threat(F, me, c)
             if nxt and nxt.id ~= F.target_id and nxt.why == "attacked_me" and (nxt.distance_m or 99) <= F.reach * 1.5
                 and (F.retargets or 0) < M.cfg.max_retargets then
                 F.retargets = (F.retargets or 0) + 1
                 say(F.log, "target moved away; " .. tostring(nxt.name) .. " is on me: fighting it")
-                F.target, F.target_id, F.target_name, F.dead_seen, F.locked, F.following = nxt.actor, nxt.id, nxt.name, false, false, false
-                M.set_reach(F, nxt.actor)
+                switch_target(F, nxt)
             else
                 set_phase(F, "approach", "target moved away")
             end
@@ -3959,16 +4079,26 @@ local function frame(F)
         step_flee(F, pawn, me)
     elseif F.phase == "loot" or F.phase == "restore" then
         -- attacked while looting or putting things back: answer it first
-        local nxt = F.t - (F.loot_threat_t or -9) >= 0.5 and M.pick_threats(creatures_near(me.pos, M.cfg.assist_m), c.attackers, c.ally_attackers, M.orders, F.t)[1]
+        local nxt = F.t - (F.loot_threat_t or -9) >= 0.5 and live_threat(F, me, c)
         if nxt then F.loot_threat_t = F.t end
         if nxt and nxt.why == "attacked_me" and (F.retargets or 0) < M.cfg.max_retargets then
             F.retargets = (F.retargets or 0) + 1
             say(F.log, "attacked by " .. nxt.id .. " during " .. F.phase .. ": fighting back")
             mcall("move", "stop", F.log)
             F.loot_item = nil
-            F.target, F.target_id, F.target_name, F.dead_seen, F.locked, F.following = nxt.actor, nxt.id, nxt.name, false, false, false
-            M.set_reach(F, nxt.actor)
+            switch_target(F, nxt)
             return set_phase(F, "approach", "attacked by " .. tostring(nxt.name))
+        end
+        -- the others are down: the fight he was asked for is with the creature he went for
+        if F.phase == "restore" and not F.restore_sent and F.mode == "attack" and F.first and F.first.id ~= F.target_id and not F.first.killed then
+            local row = U.alive(F.first.actor) and read_creature(F.first.actor, me.pos) or nil
+            if row and not row.dead then
+                say(F.log, string.format("back to the %s I went for (%s), %.1f m off", tostring(row.name), tostring(row.id), row.distance_m or -1))
+                switch_target(F, row)
+                return set_phase(F, "approach", "back to the one I went for")
+            elseif not row then
+                return finish(F, result_of(F, false, "unknown_target", { detail = string.format("the %s I went for is no longer in sight", tostring(F.first.name or "creature")) }))
+            end
         end
         if F.phase == "loot" then step_loot(F, pawn, me) else step_restore(F, pawn) end
     end
