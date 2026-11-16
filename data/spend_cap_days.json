@@ -1,0 +1,6 @@
+{
+  "note": "A daily cap Luis set for one UTC day (tools/spend.py day_cap_usd). An entry ends with its day; without one the cap is DW_DAILY_CAP_USD, else 10.",
+  "days": {
+    "2026-11-16": {"usd": 20.0, "by": "Luis", "said": "Double todays limit to 20$"}
+  }
+}

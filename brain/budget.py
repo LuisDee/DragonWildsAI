@@ -34,8 +34,9 @@ def run_allowance() -> bool:
     """True when the cap in force is a run's allowance: DW_SPEND_CAP_USD set below the daily cap."""
     try:
         run = float(os.environ.get("DW_SPEND_CAP_USD") or "nan")
-        day = float(os.environ.get("DW_DAILY_CAP_USD") or 10.0)
-    except ValueError:
+        from tools.spend import day_cap_usd
+        day = day_cap_usd()
+    except Exception:
         return False
     return run == run and run < day
 

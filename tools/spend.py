@@ -6,7 +6,7 @@
                        (brain/budget.py calls it every 30 s and fails closed on an error)
 
 Prices: data/model_prices.json (one shared table, filled from the official pricing page; its source and as_of travel
-with every result). Day = UTC calendar day (all logs are UTC). Cap: DW_SPEND_CAP_USD, else DW_DAILY_CAP_USD, else 10.
+with every result). Day = UTC calendar day (all logs are UTC). Cap: DW_SPEND_CAP_USD, else the day's entry in data/spend_cap_days.json, else DW_DAILY_CAP_USD, else 10.
 
 Sources: every JSONL under the log dir (brain/paths.py log_dir) whose rows carry a usage block
 {prompt, completion, cached, cache_write}:
@@ -52,14 +52,32 @@ def load_prices(path: Path = PRICES_FILE) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def cap_usd() -> float:
-    for k in ("DW_SPEND_CAP_USD", "DW_DAILY_CAP_USD"):
-        try:
-            if os.environ.get(k):
-                return float(os.environ[k])
-        except ValueError:
-            pass
-    return 10.0
+DAY_CAPS_FILE = paths.REPO_ROOT / "data" / "spend_cap_days.json"  # a cap Luis set for one UTC day: {"days": {"2026-11-16": {"usd": 20}}}
+
+
+def _env_usd(key: str) -> float | None:
+    try:
+        return float(os.environ[key]) if os.environ.get(key) else None
+    except ValueError:
+        return None
+
+
+def day_cap_usd(day: date | None = None, path: Path | None = None) -> float:
+    """The cap of one UTC day (today when none is given): what Luis set for that day in data/spend_cap_days.json,
+    else DW_DAILY_CAP_USD, else 10. A day's entry ends with the day, so a raise never outlives it."""
+    day = day or datetime.now(timezone.utc).date()
+    try:
+        usd = float(json.loads((path or DAY_CAPS_FILE).read_text(encoding="utf-8"))["days"][day.isoformat()]["usd"])
+        if usd > 0:
+            return usd
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+    return _env_usd("DW_DAILY_CAP_USD") or 10.0
+
+
+def cap_usd(day: date | None = None) -> float:
+    """The cap in force: a run's allowance (DW_SPEND_CAP_USD) when a harness set one, else the day's cap."""
+    return _env_usd("DW_SPEND_CAP_USD") or day_cap_usd(day)
 
 
 def _model_id(model: str | None) -> str | None:
@@ -267,7 +285,7 @@ def summarize(rows: list[dict], cap: float, prices: dict, label: dict) -> dict:
 def spend_day(day: date, log_dir: Path | None = None, cap: float | None = None, files: list[Path] | None = None) -> dict:
     start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).timestamp()
     prices = load_prices()
-    cap = cap_usd() if cap is None else cap
+    cap = cap_usd(day) if cap is None else cap
     logs = Path(log_dir) if log_dir else paths.log_dir()
     return summarize(calls(logs, start, start + 86400, prices, files), cap, prices, {"day": day.isoformat(), "tz": "UTC"})
 

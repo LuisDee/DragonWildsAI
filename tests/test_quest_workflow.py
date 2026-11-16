@@ -350,3 +350,22 @@ def test_tags_count_by_cause_and_a_void_run_is_named_for_the_rates(tmp_path):
     assert c[1]["cause"] == "miss: talk no_conversation" and c[0]["items"] == {"Rune Mysteries": 2}
     assert fl.tag(["0"], None, None, False, "def5678", path=p) == 1  # a fix alone keeps the class and cause
     assert fl.rows(p)[0]["class"] == "game" and fl.rows(p)[0]["fix"] == "def5678"
+
+
+# --- the day's spend cap ---------------------------------------------------------------------------------------------
+
+def test_a_cap_set_for_one_day_holds_for_that_day_only_and_a_runs_allowance_still_wins(tmp_path, monkeypatch):
+    from datetime import date
+    from tools import spend
+    f = tmp_path / "caps.json"
+    f.write_text(json.dumps({"days": {"2026-11-16": {"usd": 20.0}}}), encoding="utf-8")
+    monkeypatch.setattr(spend, "DAY_CAPS_FILE", f)
+    monkeypatch.delenv("DW_SPEND_CAP_USD", raising=False)
+    monkeypatch.delenv("DW_DAILY_CAP_USD", raising=False)
+    assert spend.day_cap_usd(date(2026, 11, 16)) == 20.0 and spend.day_cap_usd(date(2026, 11, 17)) == 10.0
+    monkeypatch.setenv("DW_DAILY_CAP_USD", "12")
+    assert spend.day_cap_usd(date(2026, 11, 17)) == 12.0 and spend.cap_usd(date(2026, 11, 16)) == 20.0
+    monkeypatch.setenv("DW_SPEND_CAP_USD", "2.5")  # a harness run's allowance
+    assert spend.cap_usd(date(2026, 11, 16)) == 2.5
+    monkeypatch.setattr(spend, "DAY_CAPS_FILE", tmp_path / "none.json")
+    assert spend.day_cap_usd(date(2026, 11, 16)) == 12.0
