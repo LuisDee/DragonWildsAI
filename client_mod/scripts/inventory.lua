@@ -1064,6 +1064,19 @@ local function reflex_emit(ev)
         ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(ev.ts)) end
     -- the reflex's last use, for consume's "not carried" words (skills.lua: "my reflex drank the last ... 2 s ago")
     if ev.action == "use" and ev.ok and ev.item then _G.DW_REFLEX_LAST_USE = { item = ev.item, name = ev.name, kind = ev.kind, t = os.time() } end
+    -- every use it made, for a skill that verifies by counting his bag (crafting.lua `gained`). Chain 20261116-114101,
+    -- 11:56:06Z: it drank a boil's Clean Water 0.6 s after it landed and the craft read "couldn't pick up what it
+    -- made". A use whose check says the stat did not rise comes off again (2 of 144 uses in the vitals log).
+    if ev.item and ((ev.action == "use" and ev.ok) or (ev.action == "verify" and ev.ok == false)) then
+        local L = rawget(_G, "DW_REFLEX_USES") or {}
+        if ev.action == "use" then
+            L[#L + 1] = { item = ev.item, name = ev.name, kind = ev.kind, ts = ev.ts }
+            if #L > 40 then table.remove(L, 1) end
+        else
+            for i = #L, 1, -1 do if L[i].item == ev.item then table.remove(L, i); break end end
+        end
+        _G.DW_REFLEX_USES = L
+    end
     local line = U.try(function() return json_mod.encode(ev) end)
     local f = line and io.open(ROOT .. "/client_io/events/vitals.jsonl", "a")
     if f then f:write(line, "\n"); f:close() end

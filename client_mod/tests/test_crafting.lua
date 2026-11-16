@@ -29,6 +29,12 @@ local function inv_counts()
     return c
 end
 local function add_inv(item, n)
+    if F.reflex_takes == item then -- the stay-fed reflex uses one the moment it lands (inventory.lua keeps the ledger)
+        F.reflex_takes, n = nil, n - 1
+        local L = rawget(_G, "DW_REFLEX_USES") or {}
+        L[#L + 1] = { item = item, name = "Iron Bar", kind = "drink", ts = os.time() + 1 }
+        _G.DW_REFLEX_USES = L
+    end
     for _, r in ipairs(F.inv) do if r.item == item then r.count = r.count + n; return end end
     F.inv[#F.inv + 1] = { item = item, name = C.item_name_of(item), count = n, slot = #F.inv + 10, slot_type = "InventoryItems" }
 end
@@ -1102,6 +1108,27 @@ do -- a step or a craft short of a raw material says where he has gathered it be
     for _, st in ipairs((r2.data or {}).steps or {}) do if st.gathered_before then any = true end end
     check("plan: no memory, no line", r2.ok and not any)
     C.W.gather_memory = old
+end
+
+do -- the stay-fed reflex drinks what a boil has just handed him (chain 20261116-114101, 11:56:06Z: Clean Water out of a
+   -- new campfire, drunk 0.6 s later; the craft counted his bag, read "couldn't pick up what it made", a miss)
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    _G.DW_REFLEX_USES = nil
+    F.reflex_takes = "ITEM_Resources_IronBar"
+    local r = run({ recipe = "RECIPE_Process_IronBar" })
+    local d = r.data or {}
+    check("proc/reflex used the output: the craft made it", r.ok and d.count == 1, tostring(r.reason) .. " " .. tostring(d.detail))
+    check("proc/reflex used the output: says who used it", d.reflex_used and d.reflex_used[1].count == 1
+          and tostring(d.detail):find("My stay-fed reflex drank it", 1, true) ~= nil, d.detail)
+    check("proc/reflex used the output: none of it in the bag", (inv_counts().ITEM_Resources_IronBar or 0) == 0)
+    -- a use from before the craft is not this craft's
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    _G.DW_REFLEX_USES = { { item = "ITEM_Resources_IronBar", name = "Iron Bar", kind = "drink", ts = os.time() - 30 } }
+    r = run({ recipe = "RECIPE_Process_IronBar" })
+    check("proc/an older reflex use is not counted", r.ok and r.data.count == 1 and r.data.reflex_used == nil, (r.data or {}).detail)
+    _G.DW_REFLEX_USES = nil
 end
 
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))

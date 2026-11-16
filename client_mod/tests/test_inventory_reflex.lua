@@ -607,6 +607,11 @@ do
     api.HandleInternalDragAndDrop = nil
     I._input_gate = g0
     I.reflex_stop()
+    -- the ledger of its uses (crafting.lua adds them back when it counts what a craft made)
+    local L = rawget(_G, "DW_REFLEX_USES") or {}
+    local last = L[#L] or {}
+    check(last.name == "Dirty Water" and last.kind == "drink" and type(last.ts) == "number" and last.item ~= nil,
+          "the use is in the ledger with its time (" .. tostring(last.name) .. ", " .. tostring(last.ts) .. ")")
 end
 
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))

@@ -1481,6 +1481,41 @@ local function known_spots(api, item)
 end
 M._known_spots = known_spots
 
+-- What the stay-fed reflex used out of his bag since a snapshot of it was read (inventory.lua keeps the ledger
+-- DW_REFLEX_USES): a count against that snapshot adds it back, else a drink taken as a boil's water lands reads as
+-- "the craft made nothing" (chain 20261116-114101). SNAP_AT: when each snapshot was read, wall clock.
+local SNAP_AT = setmetatable({}, { __mode = "k" })
+local okw, walltime = pcall(require, "walltime")
+local function wall()
+    return (okw and type(walltime) == "table" and type(walltime.now) == "function") and walltime.now() or os.time()
+end
+local function snap(counts)
+    if type(counts) == "table" then SNAP_AT[counts] = wall() end
+    return counts
+end
+local function reflex_used(before, item)
+    local at, n, kind = SNAP_AT[before], 0, nil
+    for _, u in ipairs(at and rawget(_G, "DW_REFLEX_USES") or {}) do
+        if u.item == item and (tonumber(u.ts) or 0) > at then n, kind = n + 1, u.kind end
+    end
+    return n, kind
+end
+-- -> the list for a result's data and the sentence for its detail (nil, "" when the reflex used none of it)
+local function reflex_note(before, outputs, total)
+    local list, words = {}, {}
+    for _, o in ipairs(outputs) do
+        local n, kind = reflex_used(before, o.item)
+        if n > 0 then
+            list[#list + 1] = { item = o.item, name = o.name, count = n }
+            local verb = kind == "drink" and "drank" or kind == "food" and "ate" or "used"
+            words[#words + 1] = (n == 1 and total == 1) and ("My stay-fed reflex " .. verb .. " it as it came out, so it isn't in my bag.")
+                or ("My stay-fed reflex " .. verb .. " " .. n .. " " .. tostring(o.name) .. " as they came out, so those aren't in my bag.")
+        end
+    end
+    if #list == 0 then return nil, "" end
+    return list, " " .. table.concat(words, " ")
+end
+
 local function start_craft(api, args, ctx0)
     -- lying in a bed or shelter, the game lets him neither walk nor use a station (rung 3 gate 19:56Z: "I can't get
     -- the game to let me use the Crafting Table", 6 sides tried, while he lay in the Summon Shelter)
@@ -1574,7 +1609,7 @@ local function start_craft(api, args, ctx0)
     for _, o in ipairs(list) do if o ~= a then job.alternatives[#job.alternatives + 1] = { recipe = o.recipe, status = o.status } end end
     job.open = { phase = "approach", moving = false, approaches = 0, presses = 0 }
     job.phase = "open"
-    job.before = copy(ctx.have)
+    job.before = snap(copy(ctx.have))
     W.arm_result_hook(api)
     return job
 end
@@ -1582,7 +1617,7 @@ end
 -- Counts helpers: nil when either inventory read failed (unknown, never a zero)
 local function gained(before, now, item)
     if type(before) ~= "table" or type(now) ~= "table" then return nil end
-    return (now[item] or 0) - (before[item] or 0)
+    return (now[item] or 0) - (before[item] or 0) + reflex_used(before, item)
 end
 
 local function base_data(job)
@@ -1602,7 +1637,7 @@ end
 -- bench: send -> await verdict + inventory
 local function bench_step(api, job, t)
     if job.phase == "send" then
-        job.before = api.counts() or job.before -- fresh: he may have eaten or picked up on the way
+        job.before = snap(api.counts()) or job.before -- fresh: he may have eaten or picked up on the way
         job.seq0 = state().seq or 0
         local ok, err = W.send_craft(api, job.a.recipe, job.a.crafts)
         if not ok then return api.fail("not_implemented", { detail = "The crafting menu didn't take my order (" .. tostring(err) .. ")." }) end
@@ -1630,7 +1665,9 @@ local function bench_step(api, job, t)
         local consumed = {}
         for _, c in ipairs(job.plan.inputs) do consumed[#consumed + 1] = { item = c.item, name = c.name, count = -gained(job.before, now, c.item) } end
         d.count, d.gained, d.consumed, d.result_code = got, got, consumed, v and v.result or api.null
-        d.detail = "I made " .. got .. " " .. tostring(out.name) .. " at the " .. tostring(job.station.name) .. "."
+        local used, said = reflex_note(job.before, { out }, got)
+        d.reflex_used = used
+        d.detail = "I made " .. got .. " " .. tostring(out.name) .. " at the " .. tostring(job.station.name) .. "." .. said
         return { ok = true, data = d }
     end
     if t >= job.until_t then
@@ -1829,6 +1866,13 @@ local function produced_total(api, job, s)
     return n
 end
 
+-- how many of what it can drop reached his bag (what the reflex used out of it since counts)
+local function bagged(api, job)
+    local n, now = 0, api.counts()
+    for _, o in ipairs(out_items(job)) do n = n + math.max(0, gained(job.before, now, o.item) or 0) end
+    return n
+end
+
 local function out_total(job)
     local n = 0
     for _, o in ipairs(job.plan.outputs) do n = n + o.count end
@@ -1851,7 +1895,7 @@ local function proc_step(api, job, t)
                 .. " instead of " .. tostring(job.a.name) .. "."
             return api.fail("station_busy", d)
         end
-        job.before = api.counts() or job.before -- fresh: he may have eaten or picked up on the way
+        job.before = snap(api.counts()) or job.before -- fresh: he may have eaten or picked up on the way
         if not s.running then
             local ok, err = W.toggle(api)
             if not ok then return api.fail("not_implemented", { detail = "The " .. tostring(job.station.name) .. "'s start button didn't respond (" .. tostring(err) .. ")." }) end
@@ -1922,8 +1966,9 @@ local function proc_step(api, job, t)
         end
         local targets = proc_collect_targets(api, job)
         local sk = api.module("skills")
+        -- all of it reached his bag: a row the census still lists is stale (it lags a few seconds), not one to walk to
         if #targets > 0 and (job.picks or 0) < out_total(job) + 3 and sk and sk._episode_poll and sk._new_episode
-            and not job.pickup_fail then
+            and not job.pickup_fail and bagged(api, job) < out_total(job) then
             local th = targets[1]
             -- close the station's menu first, as a player does: with it open the game offers no pickup at all (live
             -- 2026-11-02 03:31Z, 447/400 so the Leather stayed on the ground: 4 spots, "no use from where I can stand",
@@ -1991,8 +2036,10 @@ local function proc_step(api, job, t)
                     .. (job.pickup_fail and (" " .. tostring((job.pickup_fail.data or {}).detail or "")) or ""))
             return api.fail("verification_failed", d)
         end
+        local used, said = reflex_note(job.before, job.plan.outputs, total)
+        d.reflex_used = used
         d.detail = "I made " .. total .. " " .. tostring(out and out.name) .. " in the " .. tostring(job.station.name)
-            .. (job.fuel and job.fuel.source == "station" and " (using the fuel that was already in it)" or "") .. "."
+            .. (job.fuel and job.fuel.source == "station" and " (using the fuel that was already in it)" or "") .. "." .. said
             .. (bad > 0 and (" The rest came out wrong: " .. spoilt .. ".") or "")
         if total < out_total(job) then d.partial = true end
         if d.took_out then
