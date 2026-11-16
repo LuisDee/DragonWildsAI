@@ -241,6 +241,24 @@ def test_the_planner_is_given_the_kinds_further_off():
     assert "further_off" not in _trim_state({"position": [0, 0, 0]})
 
 
+def test_the_planner_is_given_the_quest_log_with_its_map_markers():
+    """Run 20261116-222242: the quest step's own marker (Windmill Area, an 80 m area he stood inside) was in the
+    Controller's situation only. The plan had no place to name and explored for 'rats near the windmill', then for
+    'windmill': two misses and 151 s, until a later Controller turn walked to the marker by its name."""
+    from brain.planner import _trim_state
+    area = {"name": "Windmill Area", "kind": "area", "radius_m": 80.0, "inside": True, "distance_m": 76,
+            "position": [156.1, 1713.4, -3.5]}
+    log = {"active": [{"quest": "Ratcatcher", "main": True, "where": [area], "internal": 7,
+                       "step": "Kill rats and successfully cook one rat roast from their meat."}],
+           "complete": ["First Steps", "Getting Started"]}
+    out = _trim_state({"position": [0, 0, 0], "quests": log})["quests"]
+    assert out["active"] == [{"quest": "Ratcatcher", "where": [area],
+                              "step": "Kill rats and successfully cook one rat roast from their meat."}]
+    assert out["complete"] == ["First Steps", "Getting Started"]
+    assert "quests" not in _trim_state({"position": [0, 0, 0]})
+    assert "quests" not in _trim_state({"position": [0, 0, 0], "quests": {"active": [], "complete": []}})
+
+
 def test_controller_context_is_bounded(rig):
     rig.controller_llm.push(FakeLLM.say("hi"))
     rig.controller.decide("Luis", "hello", rig.game.get_state()["data"], None)

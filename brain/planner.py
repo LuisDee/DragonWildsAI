@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient
 from .llm_json import DecisionError, extract_json, json_decision
-from .situation import asked_line, bases_line
+from .situation import asked_line, bases_line, quest_rows
 from .state_store import SkillRegistry, Task, TaskTree
 
 SYSTEM = """You are the planner for an AI companion in RuneScape: Dragonwilds.
@@ -70,7 +70,14 @@ def _trim_state(state: dict) -> dict:
     keep = ("position", "health", "inventory", "following", "players", "nearby_entities",
             "nearby_resources", "nearby_items", "structures", "places",
             "further_off")  # kinds in sight that the nearby_* lists (the N nearest of a category) have no row of
-    return {k: state[k] for k in keep if k in state}
+    out = {k: state[k] for k in keep if k in state}
+    # his quest log: each active step in the game's words with its map markers (the places a plan can name). Run
+    # 20261116-222242: only the Controller had it, and the plan explored for a marker's name as a thing to see
+    q = state.get("quests") if isinstance(state.get("quests"), dict) else {}
+    log = {"active": quest_rows(state, 8), "complete": list(q.get("complete") or [])[:30]}
+    if log["active"] or log["complete"]:
+        out["quests"] = log
+    return out
 
 
 def _where(state: dict) -> dict:
