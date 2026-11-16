@@ -715,7 +715,7 @@ function M.on_damage(ctx, ev, point)
                         blockable = U.try(function() return bo.bWasBlockableAttack end) }
             end
         end
-        c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = t, amount = amount, inst = iid, block = blk,
+        c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = t, amount = amount, inst = iid, block = blk, point = point and true or false,
                                     absorbed = num(U.try(function() return e.AmountAbsorbedByShield end)) }
         if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
         if f then f.dmg_taken = (f.dmg_taken or 0) + amount; M.note_damage(f, amount) end
@@ -2492,8 +2492,9 @@ local function start_defend(F, me, attacker_id, tt, info)
               me_seq0 = c.me_seq or 0, blk_seq0 = c.block_seq or 0, imp_seq0 = c.impact_seq or 0, info = info }
     F.last_tele = tt
     if F.following then mcall("move", "stop", F.log); F.following = false end
-    set_phase(F, "defend", string.format("%s %s impact %.2fs %s (%s)", plan.action, tostring(info.key), plan.impact_s or -1,
-        tostring(plan.src), tostring(plan.why)))
+    set_phase(F, "defend", string.format("%s %s impact %.2fs %s (%s%s)", plan.action, tostring(info.key), plan.impact_s or -1,
+        tostring(plan.src), tostring(plan.why), (plan.why == "out_of_reach" and ctx.dist_cm and plan.reach_cm)
+            and string.format(": %.1f m off, taken to reach %.1f m", ctx.dist_cm / 100, plan.reach_cm / 100) or ""))
 end
 M._start_defend = start_defend
 
@@ -2537,7 +2538,8 @@ local function finish_defend(F)
         .. (d.face_key and string.format(", turned %.0f deg from it at the key", d.face_key) or "")
         .. (d.face_hit and string.format(", %.0f deg at the hit", d.face_hit) or "")
         .. (d.verdict and string.format(", the server: %s%s", tostring(M.BLOCK_RESULT[d.verdict.result] or d.verdict.result),
-            d.verdict.blocked and string.format(", %.0f blocked", d.verdict.blocked) or "") or "")))
+            d.verdict.blocked and string.format(", %.0f blocked", d.verdict.blocked) or "") or "")
+        .. (d.hit_via and (", " .. d.hit_via) or "")))
     F.last_defence = { action = act, outcome = outcome, key = d.key, impact_s = d.impact_t and (d.impact_t - d.tel_t) or nil,
                        plan_at = d.plan.at_s, why = d.plan.why, moved = d.moved, face_key = d.face_key, face_hit = d.face_hit,
                        verdict = d.verdict and M.BLOCK_RESULT[d.verdict.result] or nil }
@@ -2782,6 +2784,7 @@ local function step_defend(F, pawn, me, acts)
                 d.impact_t = d.impact_t or e.t
                 if (e.absorbed or 0) > 0 then d.blocked = true end
                 d.verdict = e.block or d.verdict
+                if (e.amount or 0) > 0 then d.hit_via = e.point and "a point hit" or "a plain hit" end
             end
         end
     end
@@ -3373,6 +3376,15 @@ local function step_engage(F, pawn, me, acts, tgt)
         tap(F, acts.lock, 1, "lock_on")
         F.next_press = math.max(F.next_press or 0, F.t + 0.12)
         return
+    end
+    -- a swing goes where the camera looks: the attack key turns his body to the camera's yaw within 8 frames (live
+    -- probe swing_face_probe 2026-11-17: 120 deg). So in reach the camera is on the one he swings at, as a player's
+    -- is. (Window s9: after a block that faced another attacker, 8 swings went 84 to 168 deg off the target and
+    -- landed nothing.)
+    if F.target_pos and me.pos then
+        pcall(function()
+            F.pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(F.target_pos.Y - me.pos.Y, F.target_pos.X - me.pos.X)), Roll = 0 })
+        end)
     end
     -- face: a short nudge toward the target when the body points away (orient-to-movement pawn)
     local err = face_err(pawn, me.pos, F.target_pos)

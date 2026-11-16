@@ -267,7 +267,8 @@ function D.plan(info, ctx, orders, rng)
     -- (live 2026-11-01 22:08: "none, out_of_reach" on a cow that had just stepped away and came back in for 36)
     local closing = math.max(0, ctx.closing_cms or 0) * T
     p.closing_cm = closing > 0 and math.floor(closing) or nil
-    if ctx.dist_cm and ctx.dist_cm > th.reach_cm + cfg.reach_margin_cm + closing then p.action, p.why = "none", "out_of_reach"; return p end
+    p.reach_cm = th.reach_cm + cfg.reach_margin_cm + closing -- (the farthest it is taken to hit from, for the line)
+    if ctx.dist_cm and ctx.dist_cm > p.reach_cm then p.action, p.why = "none", "out_of_reach"; return p end
     local st = ctx.stamina or 0
     local blockable = not info.unblockable
     local parryable = blockable and not info.unparryable

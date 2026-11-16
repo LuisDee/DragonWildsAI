@@ -3194,6 +3194,9 @@ do -- the plan: he has to face it by the impact. The turn fits in a parry's lead
     local n = Dm.plan({ key = "RatF:Bite", dmg_time = 0.45 }, ctxf(180, { stamina = 12 }), {}, fixed)
     check("face: the same with no stamina for a dodge -> the block all the same", n.action == "block", n.action)
     check("face: a wider block angle on his own component is used", Dm.plan(info, ctxf(150, { block_angle = 300 }), {}, fixed).action == "parry")
+    local far = Dm.plan(info, ctxf(0, { dist_cm = 900 }), {}, fixed)
+    check("reach: an unanswered telegraph carries the reach it was judged by", far.action == "none" and far.why == "out_of_reach"
+        and far.reach_cm and far.reach_cm < 900, tostring(far.action) .. " " .. tostring(far.reach_cm))
 end
 reset_world()
 do -- the fight: the one behind him swings; the camera goes on it, the block turns him, the hit is blocked
@@ -3250,6 +3253,14 @@ do -- the fight: the one behind him swings; the camera goes on it, the block tur
                 lines:find("180 deg at the hit", 1, true) ~= nil and lines:find("the server: not blocking", 1, true) ~= nil, lines:sub(-400))
         else
             check("face fight: no damage taken", pawn.hp == 100, pawn.hp)
+        end
+        -- back in the fight: a swing goes where the camera looks too (live probe swing_face_probe 2026-11-17), so the
+        -- camera returns to the one he swings at. Window s9: 8 swings went 84 to 168 deg off the target after such a block
+        run_until(function() return world.ctrl_rot and math.abs(world.ctrl_rot.Yaw) < 1 end, 2)
+        check("face fight (" .. case.name .. "): the camera is back on the one he swings at", world.ctrl_rot and math.abs(world.ctrl_rot.Yaw) < 1,
+            world.ctrl_rot and world.ctrl_rot.Yaw)
+        if case.want == "hit" then
+            check("face fight: the hit names the damage event that carried it", lines:find("a point hit", 1, true) ~= nil, lines:sub(-300))
         end
         Cm.stop(nil, "test")
         A.reset(nil)
