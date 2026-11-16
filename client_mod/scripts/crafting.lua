@@ -51,6 +51,9 @@ M.cfg = {
     open_wait_s = 3.0,      -- after the press: wait this long for the game to open the station's menu
     presses = 2,
     reopens = 3,            -- a menu that something else closed mid-craft is opened again this many times
+    loads_keep_s = 86400,   -- what he left in a station is his for this long (the record on disk), wall clock
+    loads_match_m = 0.5,    -- ...at a station of that class standing within this of where he left it
+    loads_max = 60, loads_reread_s = 30,
     result_wait_s = 6.0,    -- after SendCraftRequest: wait for the server's verdict + the inventory
     move_wait_s = 3.0,      -- after each drag into the station: wait for its inventory to show it
     start_wait_s = 4.0,     -- after the start button: wait for bStationRunning
@@ -1412,20 +1415,142 @@ local function loads_ledger()
 end
 local LEDGER_S = 3600
 -- ...and which items he put into which station, and when: only those are his to take back out (load_step)
-local function my_leftover(api, station_id, item)
-    local l = rawget(_G, "DWCraftLoaded")
-    local at = l and l[station_id] and l[station_id][item]
-    return at ~= nil and api.now() - at < LEDGER_S
+-- Both ledgers die with the client process and are keyed by actor ids that are new every session. So what he left in
+-- a station is also kept on disk, by world and by where the station stands (client_io/state/my_loads_<world>.json).
+-- Chain 20261116-204431: both fires at the windmill held what earlier trials of his own had left (1 Dirty Water from
+-- a boil that ran short, 2 Raw Rat Meat from a craft that would not start); to the next client they were "someone
+-- else's" and he would not cook. A station's inputs are his by this record only while EVERY item in them is one he
+-- left there, no more of it than he left, within cfg.loads_keep_s: anything added since makes the lot someone else's.
+M.fs = { open = io.open, rename = os.rename, remove = os.remove }
+function M.loads_path(world) return ROOT .. "/client_io/state/my_loads_" .. tostring(world) .. ".json" end
+local UTIL, JSON
+function W.world_id()
+    UTIL = UTIL or assert(loadfile(ROOT .. "/mod/body/util.lua"))()
+    return (UTIL.world_id(ROOT))
 end
-local function note_loaded(api, station_id, item)
+local function json() JSON = JSON or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))(); return JSON end
+local function r2(x) return math.floor((tonumber(x) or 0) * 100 + 0.5) / 100 end
+local function kept_loads()
+    local world = W.world_id()
+    if not world then return nil end
+    local m = rawget(_G, "DWCraftKept")
+    if m and m.world == world and os.time() - (m.read or 0) < M.cfg.loads_reread_s then return m end
+    m = { world = world, read = os.time(), stations = {} }
+    local f = M.fs.open(M.loads_path(world), "rb")
+    if f then
+        local txt = f:read("a") or ""; f:close()
+        local ok, d = pcall(function() return json().decode(txt) end)
+        if ok and type(d) == "table" and d.world == world and type(d.stations) == "table" then m.stations = d.stations end
+    end
+    _G.DWCraftKept = m
+    return m
+end
+local function kept_find(m, st)
+    local p = st and st.position
+    if type(p) ~= "table" then return nil end
+    for i, e in ipairs(m.stations) do
+        if e.class == st.class and type(e.at) == "table" then
+            local dx, dy, dz = (e.at[1] or 0) - (p[1] or 0), (e.at[2] or 0) - (p[2] or 0), (e.at[3] or 0) - (p[3] or 0)
+            if dx * dx + dy * dy + dz * dz <= M.cfg.loads_match_m ^ 2 then return e, i end
+        end
+    end
+end
+local function kept_save(m)
+    local now, keep = os.time(), {}
+    for _, e in ipairs(m.stations) do
+        local any = false
+        for item, k in pairs(type(e.items) == "table" and e.items or {}) do
+            if type(k) ~= "table" or now - (k.t or 0) >= M.cfg.loads_keep_s then e.items[item] = nil else any = true end
+        end
+        if any then keep[#keep + 1] = e end
+    end
+    while #keep > M.cfg.loads_max do table.remove(keep, 1) end
+    m.stations = keep
+    local path = M.loads_path(m.world)
+    local tmp = path .. ".tmp"
+    local f = M.fs.open(tmp, "wb")
+    if not f then
+        os.execute('mkdir "' .. (ROOT .. "/client_io/state"):gsub("/", "\\") .. '" 2>nul')
+        f = M.fs.open(tmp, "wb")
+    end
+    if not f then return false end
+    f:write(json().encode({ v = 1, world = m.world, stations = m.stations }, { indent = true })); f:close()
+    M.fs.remove(path)
+    return M.fs.rename(tmp, path) == true
+end
+-- One of his drags landed: the station now holds n of the item.
+local function kept_put(st, item, n)
+    return pcall(function()
+        local m = kept_loads()
+        if not m or type(st.position) ~= "table" then return end
+        local e = kept_find(m, st)
+        if not e then
+            e = { class = st.class, name = st.name, at = { r2(st.position[1]), r2(st.position[2]), r2(st.position[3]) }, items = {} }
+            m.stations[#m.stations + 1] = e
+        end
+        e.items = type(e.items) == "table" and e.items or {}
+        e.items[item] = { n = n, t = os.time() }
+        kept_save(m)
+    end)
+end
+-- Are these input rows all his by the record: every item one he left at this place, no more of it than he left?
+local function kept_mine(st, rows)
+    local ok, mine = pcall(function()
+        local m = kept_loads()
+        local e = m and kept_find(m, st)
+        if not e or type(e.items) ~= "table" or #rows == 0 then return false end
+        local now, sum = os.time(), {}
+        for _, r in ipairs(rows) do sum[r.item] = (sum[r.item] or 0) + (tonumber(r.count) or 0) end
+        for item, n in pairs(sum) do
+            local k = e.items[item]
+            if not (type(k) == "table" and now - (k.t or 0) < M.cfg.loads_keep_s and n <= (tonumber(k.n) or 0)) then return false end
+        end
+        return true
+    end)
+    return ok and mine == true
+end
+local function my_leftover(api, st, r)
+    local l = rawget(_G, "DWCraftLoaded")
+    local at = l and l[st.id] and l[st.id][r.item]
+    if at ~= nil and api.now() - at < LEDGER_S then return true end
+    return kept_mine(st, { r })
+end
+local function note_loaded(api, st, item, n)
     local l = rawget(_G, "DWCraftLoaded")
     if not l then l = {}; _G.DWCraftLoaded = l end
-    l[station_id] = l[station_id] or {}
-    l[station_id][item] = api.now()
+    l[st.id] = l[st.id] or {}
+    l[st.id][item] = api.now()
+    kept_put(st, item, n)
 end
-local function foreign_inputs(api, station_id, rows)
-    local mine = loads_ledger()[station_id]
+-- A craft of his ended: what he left in the station's input slots is what the record holds for it now (an item he
+-- took back out or the station used up is no longer his there; a row he neither loaded nor had on record is left out).
+local function kept_sync(api, st, rows, loaded)
+    return pcall(function()
+        local m = kept_loads()
+        if not m or type(st.position) ~= "table" then return end
+        local e, i = kept_find(m, st)
+        local l = rawget(_G, "DWCraftLoaded")
+        local items, any = {}, false
+        for _, r in ipairs(rows or {}) do
+            local at = l and l[st.id] and l[st.id][r.item]
+            if (loaded and loaded[r.item]) or (at ~= nil and api.now() - at < LEDGER_S) or (e and type(e.items) == "table" and e.items[r.item]) then
+                items[r.item] = { n = (items[r.item] and items[r.item].n or 0) + (tonumber(r.count) or 0), t = os.time() }
+                any = true
+            end
+        end
+        if e then
+            if any then e.items = items else table.remove(m.stations, i) end
+        elseif any then
+            m.stations[#m.stations + 1] = { class = st.class, name = st.name, items = items,
+                                            at = { r2(st.position[1]), r2(st.position[2]), r2(st.position[3]) } }
+        end
+        kept_save(m)
+    end)
+end
+local function foreign_inputs(api, st, rows)
+    local mine = loads_ledger()[st.id]
     if mine and api.now() - mine < LEDGER_S then return nil end
+    if rows and #rows > 0 and kept_mine(st, rows) then return nil end
     local held = {}
     for _, r in ipairs(rows or {}) do held[#held + 1] = tostring(r.count) .. " " .. tostring(r.name or name_of_id(r.item)) end
     return (#held > 0) and table.concat(held, ", ") or nil
@@ -1439,7 +1564,7 @@ local function station_takes(api, row, a)
     local s = actor and W.station_state(api, actor, "processing")
     if not s then return true end -- unreadable: the load step reports the truth
     if s.running and s.recipe and s.recipe ~= a.recipe then return false, "it is making " .. tostring(s.recipe) end
-    local theirs = foreign_inputs(api, row.id, s.resources.rows)
+    local theirs = foreign_inputs(api, row, s.resources.rows)
     if theirs then return false, "it holds " .. theirs .. " that someone else left" end
     local sh = W.shelter(api, actor, row.position)
     if sh and sh.rule == "shelter_only" and sh.covered == false then return false, "it only works in a shelter and has open sky over it" end
@@ -1448,7 +1573,7 @@ local function station_takes(api, row, a)
     local foreign = {}
     for _, r in ipairs(s.resources.rows) do
         have[r.item] = true
-        if not want[r.item] and not s.running and my_leftover(api, row.id, r.item) then
+        if not want[r.item] and not s.running and my_leftover(api, row, r) then
             -- what he put in himself comes out at the load (load_step): its slot counts as free
         else
             used = used + 1
@@ -1597,7 +1722,7 @@ local function start_craft(api, args, ctx0)
     if a.kind == "processing" then -- never walk to and open a station holding someone else's inputs (Luis's rule)
         local actor = api.actor_of({ id = row.id, class = row.class })
         local st = actor and W.station_state(api, actor, "processing")
-        local theirs = st and foreign_inputs(api, row.id, st.resources.rows)
+        local theirs = st and foreign_inputs(api, row, st.resources.rows)
         if theirs then
             return api.fail("station_busy", { station = row.name, station_id = row.id, someone_elses = theirs,
                 detail = "The " .. tostring(row.name) .. " " .. tostring(row.id) .. " holds " .. theirs
@@ -1716,7 +1841,7 @@ local function proc_setup(api, job)
     job.actor, job.st0 = actor, s
     job.station_before = { resources = s.resources.rows, fuel = s.fuel.rows, output = s.output.rows, running = s.running,
                            recipe = s.recipe }
-    local theirs = foreign_inputs(api, job.station.id, s.resources.rows)
+    local theirs = foreign_inputs(api, job.station, s.resources.rows)
     if theirs then
         local d = base_data(job)
         d.station_before, d.someone_elses = job.station_before, theirs
@@ -1762,7 +1887,7 @@ local function load_step(api, job, t)
             local want, stray = {}, {}
             for _, c in ipairs(job.plan.inputs) do want[c.item] = true end
             for _, r in ipairs(s.resources.rows or {}) do
-                if not want[r.item] and my_leftover(api, job.station.id, r.item) then stray[#stray + 1] = r end
+                if not want[r.item] and my_leftover(api, job.station, r) then stray[#stray + 1] = r end
             end
             for _, r in ipairs(stray) do
                 if W.take_from(api, r.slot, s._res) then
@@ -1782,7 +1907,7 @@ local function load_step(api, job, t)
     if job.moving then
         if now_in >= job.moving.expect then
             loads_ledger()[job.station.id] = api.now()
-            if q.into == "resources" then note_loaded(api, job.station.id, q.item) end
+            if q.into == "resources" then note_loaded(api, job.station, q.item, now_in) end
             job.loaded[q.item] = (job.loaded[q.item] or 0) + job.moving.amount
             q.count = q.count - job.moving.amount
             job.moving = nil
@@ -2124,6 +2249,15 @@ local function action(api, ctx, job)
         if job.open and (job.open.child_gen or job.open.moving) and not (sk and sk._episode_cleanup and sk._episode_cleanup(api,job.open,job.token)) then return false end
         if job.ep and (job.ep.child_gen or job.ep.moving) and not (sk and sk._episode_cleanup and sk._episode_cleanup(api,job.ep,job.token)) then return false end
         if job.ui_open and not paused() then pcall(W.close, api, job.plan.kind); job.ui_open = false end
+        -- what he leaves in the station now goes on record (kept_sync), once, on every way out
+        if job.plan.kind == "processing" and not job.kept_synced and not paused()
+           and ((job.loaded and next(job.loaded)) or (job.cleared and #job.cleared > 0)) then
+            job.kept_synced = true
+            pcall(function()
+                local s = W.station_state(api, job.actor, "processing")
+                if s then kept_sync(api, job.station, s.resources.rows, job.loaded) end
+            end)
+        end
         local IN = api.module("input")
         if IN and IN.release then pcall(IN.release, "screen") end
         if release(api, job, why) == false then return false end
@@ -2192,7 +2326,7 @@ local function stations_tool(api, args)
             local function names(c) local o = {}; for _, r in ipairs(c.rows) do o[#o + 1] = tostring(r.name or r.item) .. " x" .. r.count end; return o end
             w.state = { running = st.running, recipe = st.recipe, remaining_s = r1(st.remaining_s), fuel_s = r1(st.fuel_s),
                         resources = names(st.resources), fuel = names(st.fuel), output = names(st.output) }
-            local theirs = foreign_inputs(api, s.id, st.resources.rows)
+            local theirs = foreign_inputs(api, s, st.resources.rows)
             if theirs then w.someone_elses = theirs .. " (not mine to use)" end
         end
         local sh = actor and W.shelter(api, actor, s.position)
@@ -2304,7 +2438,7 @@ function M.state_extras(api, data)
                     for _, x in ipairs(s.output.rows) do c[#c + 1] = tostring(x.name or x.item) .. " x" .. x.count .. " (done)" end
                     if #c > 0 then r.contents = c end
                     if (s.fuel.slots or 0) > 0 then r.fuel = #s.fuel.rows > 0 end
-                    r.others_left = foreign_inputs(api, t.id, s.resources.rows)
+                    r.others_left = foreign_inputs(api, t, s.resources.rows)
                 end
             end
             rows[#rows + 1] = r

@@ -14,6 +14,11 @@ local SK = assert(loadfile(root .. "/client_mod/scripts/skills.lua"))()
 local GP = assert(loadfile(root .. "/client_mod/scripts/gather_profiles.lua"))()
 local REAL = assert(loadfile(root .. "/mod/body/recipe_data.lua"))()
 C.set_data(REAL)
+-- the record of what he left in stations (kept on disk in the live client): a file of this run, world "test"
+local LOADS_DIR = ((arg and arg[1]) or os.getenv("TEMP") or "."):gsub("\\", "/")
+local LOADS_STAMP = tostring(os.time())
+C.loads_path = function(world) return LOADS_DIR .. "/my_loads_" .. tostring(world) .. "_" .. LOADS_STAMP .. ".json" end
+C.W.world_id = function() return "test" end
 
 local function path_of(id) return C.index().path_of[id] end
 local function has_step(steps, what, key, val)
@@ -245,6 +250,7 @@ end
 local function reset(o)
     o = o or {}
     T = 1000
+    if not o.keep_loads then os.remove(C.loads_path("test")); _G.DWCraftKept = nil end
     ARB.owner=nil
     _G.DWArbiter=ARB
     _G.DWCraft, _G.DW_PAUSE = { results = {}, seq = 0 }, nil
@@ -648,6 +654,68 @@ do -- the station's menu closed by something else between the load and the start
           and tostring((r.data or {}).detail):find("menu keeps closing", 1, true) ~= nil and r.data.menu_reopened == 1,
           tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
     C.cfg.reopens = reopens
+end
+do -- what he left in a station is still his in a new session (chain 20261116-204431: both fires at the windmill held
+   -- what earlier trials of his own had left, 1 Dirty Water and 2 Raw Rat Meat; his record of his loads had died
+   -- with those client processes, so they were "someone else's" and he would not cook)
+    local fire = station("Campfire", "fire_1", { 8, 3, 0 })
+    local function relaunch(id) -- new actor ids, the in-process ledgers gone, the file read afresh
+        _G.DWCraftLoads, _G.DWCraftLoaded, _G.DWCraftKept = {}, {}, nil
+        fire.id = id
+        reset({ keep_loads = true, stations = { fire }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+                have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+        fire.fuel, fire.out, fire.running = {}, {}, false
+    end
+    reset({ stations = { fire }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    local move, reopens = C.W.move_into, C.cfg.reopens
+    C.W.move_into = function(...) local ok = move(...); F.ui = nil; return ok end
+    C.cfg.reopens = 1
+    local r = run({ input = "raw farm meat", count = 1 }); C.W.move_into = move; C.cfg.reopens = reopens
+    check("kept loads: a craft that failed left his meat on the fire", not r.ok and #fire.res == 1
+          and fire.res[1].item == "ITEM_Resources_Meat_Farm", tostring(r.reason) .. " res=" .. #fire.res)
+    relaunch("fire_7")
+    r = run({ input = "raw farm meat", count = 1 })
+    check("kept loads: in a new session what he left is still his, and he cooks there", r.ok
+          and (inv_counts().ITEM_Consumable_Farm_Steak or 0) >= 1, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    -- the file itself: his 2 Flax on that fire (a recipe that doesn't use them takes them out first)
+    local function seed(n, world, at)
+        local f = assert(io.open(C.loads_path(world or "test"), "wb"))
+        f:write('{"v":1,"world":"' .. (world or "test") .. '","stations":[{"class":"' .. fire.class .. '","at":[' .. (at or "8,3,0")
+                .. '],"items":{"ITEM_Resources_Flax":{"n":' .. n .. ',"t":' .. os.time() .. '}}}]}')
+        f:close()
+    end
+    local function flax(n, more)
+        fire.res = { { slot = 0, item = "ITEM_Resources_Flax", name = "Flax", count = n }, more }
+    end
+    seed(2); relaunch("fire_8"); flax(2)
+    r = run({ item = "Steak", station = "fire_8" })
+    check("kept loads: his leftover of another recipe comes out first, then he cooks", r.ok and inv_counts().ITEM_Resources_Flax == 2
+          and r.data.took_out and #r.data.took_out == 1, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    -- ...and anything added since is someone else's: never his by the place alone
+    seed(2); relaunch("fire_9"); flax(3)
+    r = run({ item = "Steak", station = "fire_9" })
+    check("kept loads: more of it than he left is someone else's", r.reason == "station_busy" and fire.res[1].count == 3
+          and tostring((r.data or {}).detail):find("someone else left", 1, true) ~= nil, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    seed(2); relaunch("fire_10"); flax(2, { slot = 1, item = "ITEM_Resources_Coarse_Animal_Fur", name = "Coarse Animal Fur", count = 1 })
+    r = run({ item = "Steak", station = "fire_10" })
+    check("kept loads: an item he never put there makes the lot someone else's", r.reason == "station_busy" and #fire.res == 2,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    local keep = C.cfg.loads_keep_s
+    C.cfg.loads_keep_s = 0
+    seed(2); relaunch("fire_11"); flax(2)
+    r = run({ item = "Steak", station = "fire_11" })
+    C.cfg.loads_keep_s = keep
+    check("kept loads: a record past its time counts for nothing", r.reason == "station_busy", tostring(r.reason))
+    seed(2, nil, "8,5,0"); relaunch("fire_12"); flax(2)
+    r = run({ item = "Steak", station = "fire_12" })
+    check("kept loads: another fire 2 m away is not that one", r.reason == "station_busy", tostring(r.reason))
+    seed(2, "other"); relaunch("fire_13"); flax(2)
+    r = run({ item = "Steak", station = "fire_13" })
+    os.remove(C.loads_path("other"))
+    check("kept loads: another world's record counts for nothing here", r.reason == "station_busy", tostring(r.reason))
+    fire.res = {}
+    reset()
 end
 do -- his own leftovers that this recipe doesn't use come out of an idle station first (same run: the rat after the
    -- boil had "no free slot ... it already holds 1 Dirty Water", and he walked 130 m to another fire)
