@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -682,11 +683,34 @@ SWITCH_S = 70.0  # a switch of character, measured (quest_fresh.jsonl "made.s": 
 AUTOSAVE_S = 330.0  # the client writes a character's save every 5 minutes
 
 
+START_M = 6.0  # a trial starts within this of where the checkpoint's save was written
+
+
+def to_start(cli, place: list[float] | None, tries: int = 4, timeout: float = 200.0) -> dict | None:
+    """Walk the fork to where its checkpoint was saved, before the trial's clock: the server spawns a new guid at the
+    world spawn (quest_clone.place_of). Harness work on Claude's own fork, not part of the trial. None = the save
+    names no place."""
+    if not place:
+        return None
+    t, r = time.time(), None
+    for i in range(tries):
+        r = cli.request("go_to", {"target": place}, timeout=timeout)
+        d = (r.get("data") if isinstance(r, dict) else None) or {}
+        if isinstance(r, dict) and r.get("ok"):
+            return {"place": place, "ok": True, "walk_s": round(time.time() - t, 1), "tries": i + 1, "trip": d.get("trip")}
+    st = cli.request("get_state", {}, timeout=20)
+    pos = ((st.get("data") if isinstance(st, dict) else None) or {}).get("position")
+    near = bool(pos) and math.dist(pos, place) <= START_M
+    return {"place": place, "ok": near, "walk_s": round(time.time() - t, 1), "tries": tries, "position": pos,
+            "why": None if near else str((r or {}).get("data") if isinstance(r, dict) else r)[:300]}
+
+
 def cmd_step(a) -> int:
     """ONE lock window, K trials of one quest (or of it up to --until-step) from a checkpoint: each trial is a new
-    fork of the checkpoint's save (tools/quest_clone.py fork), so every trial starts from the same quest state, bag
-    and place, and a fix is judged by passes of K instead of by one run. --save-as: when the first trial is done,
-    wait for the game's next save of that fork and keep it as a new checkpoint (the next step's start)."""
+    fork of the checkpoint's save (tools/quest_clone.py fork), walked to where that save was written (to_start), so
+    every trial starts from the same quest state, bag and place, and a fix is judged by passes of K instead of by one
+    run. A fork that does not get to the place is not a trial. --save-as: when the first trial is done, wait for the
+    game's next save of that fork and keep it as a new checkpoint (the next step's start)."""
     if not a.confirm:
         print("refusing: this relaunches the client on forked characters; pass --confirm")
         return 2
@@ -697,13 +721,14 @@ def cmd_step(a) -> int:
         print(f"no --line given and {a.quest!r} is not in FRESH_PLAN")
         return 2
     src = quest_clone.source_of(a.checkpoint)  # before the lock: a wrong label never costs a window
+    place = quest_clone.place_of(a.checkpoint)
     if a.save_as and (quest_clone.CHECKPOINT_DIR / f"{a.save_as}.json").exists():
         print(f"checkpoint {a.save_as!r} exists already: pick a new --save-as label")
         return 2
     stamp = time.strftime("%d%H%M", time.gmtime())
     forks = [f"ClaudeS{stamp}{chr(97 + i)}" for i in range(min(a.k, 26))]
     out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "checkpoint": a.checkpoint, "source": str(src),
-           "quest": a.quest, "until_step": a.until_step, "k": a.k, "trials": []}
+           "quest": a.quest, "until_step": a.until_step, "k": a.k, "place": place, "trials": []}
     used = []
     with clone_window(a.wait, out, STEP_OUT) as (sw, cli, t0):
         for name in forks:
@@ -718,6 +743,14 @@ def cmd_step(a) -> int:
             used.append(name)
             made = sw.ensure(name, create=False, wait_s=150)
             print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
+            start = to_start(cli, place)
+            if start is not None:
+                print(f"[{time.time() - t0:6.1f}s] to the checkpoint's place: {start}")
+                left = a.window_s - a.reserve_s - (time.time() - t0)
+                if not start["ok"] or left < 90:
+                    out["trials"].append({"character": name, "start": start, "skipped": "not at the checkpoint's place"
+                                          if not start["ok"] else f"window: {left:.0f} s left after the walk"})
+                    continue
             ns = ap_.Namespace(confirm=True, quest=a.quest, line=list(line), until="complete", until_step=a.until_step,
                                deadline=min(a.deadline, left), max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}",
                                wait=0, grant=[], judge=False, in_lock=True, no_heal=True, character=name,
@@ -725,7 +758,7 @@ def cmd_step(a) -> int:
             rc = cmd_run(ns)
             t_end = time.time()
             last = _last_run()
-            out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), **_summary(last)})
+            out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), "start": start, **_summary(last)})
             if a.save_as and last.get("done") and "saved_as" not in out:
                 kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=AUTOSAVE_S)
                 out["saved_as"] = str(kept) if kept else f"no save of {name} within {AUTOSAVE_S:.0f} s"

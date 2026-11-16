@@ -228,6 +228,67 @@ def test_the_window_stops_forking_when_the_time_left_would_not_fit_a_trial(windo
     assert window.on == ["ClaudeDev"] and sorted(p.name for p in qc.SAVE_DIR.iterdir()) == ["ClaudeDev.json", "ClaudeQ9.json"]
 
 
+PLACED = SAVE.replace('"Stats":', '"GameProgress":{"Character":{"LastAccessibleLocation":{"Position":'
+                      '"V(X=26785.72, Y=182498.32, Z=-4204.14)"}}},"Stats":')
+
+
+class Body:
+    """go_to answers from a list (the last answer repeats); get_state says where he is."""
+
+    def __init__(self, answers, position=None):
+        self.answers, self.position, self.sent = list(answers), position, []
+
+    def request(self, tool, args, timeout=0):
+        self.sent.append((tool, args))
+        if tool == "get_state":
+            return {"ok": True, "data": {"position": self.position}}
+        return self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+
+
+def test_a_checkpoint_names_the_place_its_save_was_written_at_in_metres(dirs):
+    assert qc.place_of("ClaudeQ9") is None  # a save without one
+    (qc.CHECKPOINT_DIR / "at_zanik.json").write_bytes(PLACED.encode("utf-8"))
+    assert qc.place_of("at_zanik") == [267.86, 1824.98, -42.04]
+
+
+def test_a_trial_is_walked_to_the_checkpoints_place_before_its_clock(window, monkeypatch):
+    (qc.CHECKPOINT_DIR / "at_zanik.json").write_bytes(PLACED.encode("utf-8"))
+    body = Body([{"ok": False, "reason": "no_path"}, {"ok": True, "data": {"trip": "Walked 233 m in 37 s"}}])
+    monkeypatch.setattr(q.cl, "_debug_client", lambda: body)
+    order = []
+
+    def run(ns):
+        order.append(("run", len(body.sent)))
+        r = rec("r1", ns.quest, character=ns.character, checkpoint=ns.checkpoint)
+        with q.OUT.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({**r, "verdict": q.verdict(r)}) + chr(10))
+        return 0
+    monkeypatch.setattr(q, "cmd_run", run)
+    assert q.cmd_step(step_args(k=1, checkpoint="at_zanik")) == 0
+    assert body.sent == [("go_to", {"target": [267.86, 1824.98, -42.04]})] * 2 and order == [("run", 2)]
+    row = json.loads(q.STEP_OUT.read_text(encoding="utf-8"))
+    assert row["place"] == [267.86, 1824.98, -42.04]
+    assert row["trials"][0]["start"]["ok"] and row["trials"][0]["start"]["tries"] == 2 and row["trials"][0]["pass"]
+
+
+def test_a_fork_that_does_not_get_to_the_place_is_not_a_trial(window, monkeypatch):
+    (qc.CHECKPOINT_DIR / "at_zanik.json").write_bytes(PLACED.encode("utf-8"))
+    body = Body([{"ok": False, "reason": "no_path", "data": {"detail": "the walkable map ends 3 m short"}}],
+                position=[52.9, 1890.2, -35.3])
+    monkeypatch.setattr(q.cl, "_debug_client", lambda: body)
+    monkeypatch.setattr(q, "cmd_run", lambda ns: pytest.fail("a trial ran from the wrong place"))
+    assert q.cmd_step(step_args(k=1, checkpoint="at_zanik")) == 1
+    t = json.loads(q.STEP_OUT.read_text(encoding="utf-8"))["trials"][0]
+    assert t["skipped"] == "not at the checkpoint's place" and "3 m short" in t["start"]["why"] and "pass" not in t
+    assert window.on[-1] == "ClaudeDev"
+
+
+def test_a_walk_that_ends_within_reach_of_the_place_counts_as_there():
+    body = Body([{"ok": False, "reason": "blocked"}], position=[266.0, 1824.0, -41.2])
+    assert q.to_start(body, [267.86, 1824.98, -42.04], tries=2)["ok"]
+    assert q.to_start(body, None) is None and len(body.sent) == 3  # two walks and one read; no place, no walk
+
+
 # --- a run that ends at a step ---------------------------------------------------------------------------------------
 
 def test_a_run_ends_done_when_the_quest_reaches_the_step_asked_for(tmp_path, monkeypatch):

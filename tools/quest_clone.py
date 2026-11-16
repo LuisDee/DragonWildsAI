@@ -308,6 +308,22 @@ def source_of(ref: str) -> Path:
     raise SystemExit(f"no checkpoint, character save or file {ref!r}")
 
 
+PLACE_RE = re.compile(r"V\(X=(-?[\d.]+), Y=(-?[\d.]+), Z=(-?[\d.]+)\)")
+
+
+def place_of(ref: str) -> list[float] | None:
+    """Where the character stood when the save was written, in metres (the save's own LastAccessibleLocation), or None
+    when the save has none. The dev server spawns a guid it has never seen at the world spawn, not here (live
+    2026-11-16: a fork of a save made beside Zanik came up 226 m from her), so a trial from a checkpoint is walked
+    here first (tools/quest_run.py to_start)."""
+    try:
+        save = json.loads(source_of(ref).read_bytes().decode("utf-8-sig"))
+        m = PLACE_RE.fullmatch(save["GameProgress"]["Character"]["LastAccessibleLocation"]["Position"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return [round(float(v) / 100.0, 2) for v in m.groups()] if m else None
+
+
 def refork(text: str, name: str) -> str:
     """A save's text with only its char_guid and char_name replaced (each in the file exactly once): a character the
     server has never seen, so it loads from this file and not from the server's cached copy."""
