@@ -505,6 +505,27 @@ def score(t0: float, t1: float, who: str = "ClaudeDev") -> dict:
             "wall_s_per_piece": round((t1 - t0) / n, 1) if n else None}
 
 
+def proven_spots(runs_file: Path) -> list[list[float]]:
+    """Spots where a whole stand-in went up in an earlier rung 2 run (so the ground there is flat enough), the latest
+    first. Flat ground is rare near his base: run 20261116-025003 tried 40 fresh spots, 39 not flat, and built nothing,
+    while the spot the three runs before it used stood free."""
+    out: list[list[float]] = []
+    try:
+        lines = runs_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for line in reversed(lines):
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        s = (r.get("site") or {}).get("spot")
+        if (isinstance(s, list) and len(s) >= 3 and ((r.get("fixture") or {}).get("n") or 0) >= 10
+                and not any(math.dist(s[:2], q[:2]) < 1.0 for q in out)):
+            out.append([float(v) for v in s[:3]])
+    return out
+
+
 def build_pace(calls: list[dict], sc: dict, t0: float, n_new: int = 0) -> dict:
     """The building alone, against Luis: the whole window's unit_s also counts the teardown, the storing and the
     model's turns, which Luis's 3.81 s per piece does not.
@@ -585,9 +606,18 @@ def cmd_run(a) -> int:
                     # dev world near his base is built up: "no fresh spot" at 45 m clear within 110 m, 02:4xZ)
                     # (05:0xZ: walked points level within 1 m on one side ran out after 8 spots; the body's own
                     # ground_check decides flat now, so the walked-points filter only says he has been there)
-                    spot = (fresh_spot(pts, base, nav, clear, ring=(40.0, 320.0), level_m=3.0, avoid=tried,
-                                       mine=mine_pts(pts, ledger), mine_clear_m=MINE_GUARD_M + reach)
-                            if a.rung2 else fresh_spot(pts, base, nav, clear))
+                    spot = None
+                    if a.rung2:  # a spot that held a whole stand-in before and is free again, before a search
+                        flags = mine_pts(pts, ledger)
+                        for ps in proven_spots(OUT):
+                            if (all(math.dist(ps[:2], q[:2]) >= (MINE_GUARD_M + reach if m else clear) - 0.5 for q, m in zip(pts, flags))
+                                    and not any(math.dist(ps[:2], q[:2]) < (q[3] if len(q) > 3 else 12.0) for q in tried)):
+                                spot = ps
+                                break
+                    if spot is None:
+                        spot = (fresh_spot(pts, base, nav, clear, ring=(40.0, 320.0), level_m=3.0, avoid=tried,
+                                           mine=mine_pts(pts, ledger), mine_clear_m=MINE_GUARD_M + reach)
+                                if a.rung2 else fresh_spot(pts, base, nav, clear))
                     how = f"census ({len(pts)} pieces), {clear:.0f}+ m clear ({MINE_GUARD_M + reach:.0f}+ of his own), near his base {base}"
                     if spot is None:
                         print("no fresh spot found near him")

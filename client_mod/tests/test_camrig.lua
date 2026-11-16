@@ -112,5 +112,25 @@ check("stands: a straight walk through the wall counts as round something", spot
 local none = C.stands(r6, feet, far_ground, world, { ok = function() return false end })
 check("stands: every spot refused -> none", #none == 0)
 
+-- 7. the cursor's ray starts at the point of the centre ray nearest the pawn: with a wall close behind me the boom
+-- is pushed in, that point lies behind the camera and behind the wall, and the cursor lands on the wall
+local function back_wall(a, b)
+    if (a[1] - 99.5) * (b[1] - 99.5) < 0 then
+        local tt = (99.5 - a[1]) / (b[1] - a[1])
+        return true, { 99.5, a[2] + (b[2] - a[2]) * tt, a[3] + (b[3] - a[3]) * tt }
+    end
+    return false
+end
+local up_ahead = { 102, 2000, -27.5 }
+local r7 = { pivot = { 100, 2000, -28.8 }, arm_m = 7.0, socket = { 0, 0.2, 0 } }
+local l3 = C.look(r7, up_ahead, back_wall)
+check("look: without the pawn's place the ray starts at the camera (clear past a wall behind me)", l3 and l3.clear and l3.k < 0.2 and l3.cam[1] > 99.5, l3 and l3.off_m)
+r7.pawn = { 100, 2000, -30 }
+local l4 = C.look(r7, up_ahead, back_wall)
+check("look: the cursor's ray starts behind the pushed-in camera", l4 and l4.from_m < 0 and l4.from[1] < 99.5, l4 and l4.from_m)
+check("look: and lands on the wall behind me, not on the target", l4 and not l4.clear and math.abs(l4.sees[1] - 99.5) < 1e-6, l4 and l4.off_m)
+local l5 = C.look({ pivot = { 100, 2000, -28.8 }, arm_m = 7.0, socket = { 0, 0.2, 0 }, pawn = { 100, 2000, -30 } }, up_ahead, function() return false end)
+check("look: in the open the ray starts near me, ahead of the camera, and is clear", l5 and l5.clear and l5.from_m > 5, l5 and l5.from_m)
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

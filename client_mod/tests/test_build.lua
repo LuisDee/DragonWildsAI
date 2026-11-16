@@ -742,7 +742,7 @@ do
     r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
     da = r and r.data or {}
     check("ceiling on a wall: aimed at the wall face just below its top from the E, pressed, square from the census",
-        r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[1] - 10.1) < 1e-6
+        r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[1] - 10.52) < 1e-6
         and math.abs(G.aimed[3] - 2.83) < 1e-6 and tostring(da.built):find("sits squarely on top of the Wall (BP_Foundation_C_A), reaching E", 1, true),
         r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)) .. " aimed " .. (G.aimed and table.concat(G.aimed, ",") or "-"))
     attach_game({ no_preview = true, box = TB, built_at = { 11.8, 0, 3.03 } })

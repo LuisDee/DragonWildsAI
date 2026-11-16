@@ -80,7 +80,8 @@ end
 -- What the screen centre would land on if I aimed at target from where I stand, BEFORE turning the camera (the
 -- engine's own trace as the judge, as Baritone checks a rotation before it acts). trace(a_m, b_m) -> hit, point_m.
 -- -> { pitch, yaw, cam (where the camera would stand), k (the arm, pushed in by what is behind me), sees (the first
---      thing on the centre ray, or the target), off_m (how far that is from the target), clear = off_m <= tol_m }
+--      thing on the cursor's ray, or the target), off_m (how far that is from the target), clear = off_m <= tol_m,
+--      from (where the cursor's ray starts when rig.pawn is known), from_m (that point along the ray from the camera) }
 function C.look(rig, target, trace, tol_m)
     local s, L = rig.socket or C.cfg.socket, rig.arm_m or C.cfg.arm_m
     local r = { pivot = rig.pivot, arm_m = L, socket = s, k = 1 }
@@ -97,7 +98,23 @@ function C.look(rig, target, trace, tol_m)
         cam = C.camera(r, pitch, yaw)
     end
     local out = { pitch = pitch, yaw = yaw, cam = cam, k = r.k, sees = target, off_m = 0 }
-    local hit2, p2 = trace(cam, target)
+    -- The game's cursor ray starts at the point of the centre ray nearest the pawn, not at the camera (the engine
+    -- sample's idiom: Start = Cam + Dir * ((PawnLocation - Cam) | Dir)). With the boom pushed in (a wall close
+    -- behind me) that point lies BEHIND the camera, and what stands there is what the cursor lands on. Live
+    -- 2026-11-16 (commands/cursor_start_probe.lua): in a closed room the cursor sat on an open door leaf 0.28 m
+    -- behind the camera, to the mm at that point, while the camera's own ray met the wall I aimed at.
+    local from = cam
+    if rig.pawn then
+        local d = { target[1] - cam[1], target[2] - cam[2], target[3] - cam[3] }
+        local reach = math.sqrt(d[1] * d[1] + d[2] * d[2] + d[3] * d[3])
+        if reach > 0.1 then
+            local along = ((rig.pawn[1] - cam[1]) * d[1] + (rig.pawn[2] - cam[2]) * d[2] + (rig.pawn[3] - cam[3]) * d[3]) / reach
+            along = math.min(along, reach - 0.05)
+            from = { cam[1] + d[1] / reach * along, cam[2] + d[2] / reach * along, cam[3] + d[3] / reach * along }
+            out.from, out.from_m = from, along
+        end
+    end
+    local hit2, p2 = trace(from, target)
     if hit2 and p2 then
         out.sees = p2
         out.off_m = math.sqrt((p2[1] - target[1]) ^ 2 + (p2[2] - target[2]) ^ 2 + (p2[3] - target[3]) ^ 2)
@@ -111,7 +128,8 @@ end
 -- cheapest, act once. feet = my pawn's location (m). opts = { radii, steps, tol_m | tol_for(pos), up_m (how far
 -- above or below my own level a spot may lie), ok(pos) (e.g. not where the piece goes), max (direct spots wanted),
 -- clear(look, pos) (my own test of the predicted view, e.g. "it lands on this piece's box", in place of look.clear) }
--- -> { { pos (the pawn's location there), walk_m, direct (a clear straight walk from here), look }, ... }
+-- -> { { pos (the pawn's location there), walk_m, direct (a clear straight walk from here), look }, ... },
+--    stats { tried, no_ground, not_ok, blocked (the view from there lands elsewhere), best_off_m (the nearest miss) }
 function C.stands(rig, feet, target, trace, opts)
     opts = opts or {}
     local off = { rig.pivot[1] - feet[1], rig.pivot[2] - feet[2], rig.pivot[3] - feet[3] }
@@ -127,27 +145,34 @@ function C.stands(rig, feet, target, trace, opts)
     end
     table.sort(cands, function(a, b) return a[3] < b[3] end)
     local out, direct = {}, 0
+    local stats = { tried = 0, no_ground = 0, not_ok = 0, blocked = 0 }
     for _, c in ipairs(cands) do
+        stats.tried = stats.tried + 1
         -- the ground there, near my own level (a roof or the foot of a bank is no place to stand)
         local top = { c[1], c[2], feet[3] - half + up }
         local hit, g = trace(top, { c[1], c[2], feet[3] - half - up })
+        if not (hit and g and top[3] - g[3] > 0.05) then stats.no_ground = stats.no_ground + 1 end
         if hit and g and top[3] - g[3] > 0.05 then
             local pos = { c[1], c[2], g[3] + half }
+            if opts.ok and not opts.ok(pos) then stats.not_ok = stats.not_ok + 1 end
             if not opts.ok or opts.ok(pos) then
                 local tol = opts.tol_for and opts.tol_for(pos) or opts.tol_m
-                local look = C.look({ pivot = { pos[1] + off[1], pos[2] + off[2], pos[3] + off[3] }, arm_m = rig.arm_m, socket = rig.socket },
-                    target, trace, tol)
+                local look = C.look({ pivot = { pos[1] + off[1], pos[2] + off[2], pos[3] + off[3] }, arm_m = rig.arm_m, socket = rig.socket,
+                    pawn = rig.pawn and pos }, target, trace, tol)
                 if look and ((opts.clear and opts.clear(look, pos)) or (not opts.clear and look.clear)) then
                     local blocked = trace({ feet[1], feet[2], feet[3] }, pos)
                     out[#out + 1] = { pos = pos, walk_m = c[3] + (blocked and (opts.round_m or 8) or 0), direct = not blocked, look = look }
                     if not blocked then direct = direct + 1 end
                     if direct >= (opts.max or 3) then break end
+                else
+                    stats.blocked = stats.blocked + 1
+                    if look and look.off_m and (not stats.best_off_m or look.off_m < stats.best_off_m) then stats.best_off_m = look.off_m end
                 end
             end
         end
     end
     table.sort(out, function(a, b) return a.walk_m < b.walk_m end)
-    return out
+    return out, stats
 end
 
 -- The live rig: U = sense.U, pc, pawn. Reads only. k: how far the arm is pushed in right now, from where the camera
@@ -165,7 +190,8 @@ function C.rig(U, pc, pawn)
     local to = v3(function() return boom.TargetOffset end) or C.cfg.target_offset
     local arm = tonumber((U.try(function() return boom.TargetArmLength end)))
     local rig = { pivot = { at[1] + to[1], at[2] + to[2], at[3] + to[3] }, arm_m = arm and arm / 100 or C.cfg.arm_m,
-                  socket = v3(function() return boom.SocketOffset end) or C.cfg.socket, k = 1 }
+                  socket = v3(function() return boom.SocketOffset end) or C.cfg.socket, k = 1,
+                  pawn = v3(function() return pawn:K2_GetActorLocation() end) or at } -- (the boom sits on the pawn's location)
     local cam = v3(function() return pc.PlayerCameraManager:GetCameraLocation() end)
     local s = rig.socket
     local full = math.sqrt((rig.arm_m - s[1]) ^ 2 + s[2] ^ 2 + s[3] ^ 2)

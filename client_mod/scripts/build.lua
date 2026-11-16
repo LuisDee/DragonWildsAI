@@ -373,7 +373,7 @@ M.cfg.build = {
     -- stay where I am when the aim point is within stay_m, my view of it is clear and I'm not in the piece's way
     stay_m = 6.0, stay_clear_m = 0.5, stay_off_floor_m = 0.15, stay_ceiling_m = 0.2,
     -- can't place from here: walk to the nearest spot whose predicted view lands on the aim point (camrig.stands)
-    stand_search = true, stand_radii_m = { 2.5, 4.0, 5.5 }, stand_walk_s = 15, stand_arrive_m = 0.4, stand_view_every_s = 0.2, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
+    stand_search = true, stand_radii_m = { 2.5, 4.0, 5.5 }, stand_radii_ceiling_m = { 1.6, 2.5, 4.0, 5.5 }, stand_walk_s = 15, stand_arrive_m = 0.4, stand_view_every_s = 0.2, stand_still_m = 0.03, stand_settle_s = 1.5, capsule_r_m = 0.45, batch_max = 12, reaim_cam_m = 0.15, reaims_max = 8,
     -- the cursor jumped from my aim onto the flush spot = a seen snap. Under edge_in_m: live 2026-11-16 a door frame's
     -- cursor sat 0.01 m from the flush spot, green, and was called off target: its cursor target is edge_in_m from the
     -- flush spot, 0.29999999999999716 in floats, and the rule asked for >= 0.3 (false on 21 % of positions)
@@ -516,14 +516,36 @@ function W.stands(api, job, here)
     local rig = cfg.aim_exact and W.rig(api)
     if not (rig and here and on and on.anchor and on.anchor.box) then return nil end
     local spot, axis = M.flush_spot(on.anchor, on.side, on.box)
-    local aim = M.aim_point(on, spot, axis)
-    if not (spot and aim) then return nil end
-    local okc, list = pcall(function()
-        return camrig().stands(rig, here, aim, trace_m(api), { max = 3, radii = cfg.stand_radii_m,
-            tol_for = function(pos) return W.view_tol(on, pos) end,
-            ok = function(pos) return not M.in_the_way(pos, spot, on.box, (on.mount or {}).yaw or 0) end })
-    end)
-    return okc and list or nil
+    if not spot then return nil end
+    -- a roof or ceiling off a wall's top snaps from either face of the wall (live 2026-11-16: from outside a closed
+    -- room on its outer face in 3.9 s, from inside on its room face in 3.9 s): the spots for both, the shortest
+    -- walk first. W.stay_ok takes whichever face the view from where he stands lands on.
+    local ceiling = (on.mount or {}).ceiling
+    local f0 = on.face or 1
+    local all, sum
+    for _, f in ipairs(ceiling and { f0, -f0 } or { f0 }) do
+        on.face = f
+        local aim = W.aim_point(api, on, spot, axis)
+        if aim then
+            local okc, list, stats = pcall(function()
+                -- (a nearer ring too for a ceiling: a 3 m cell has no spot 2.5 m back)
+                return camrig().stands(rig, here, aim, trace_m(api), { max = 3, radii = ceiling and cfg.stand_radii_ceiling_m or cfg.stand_radii_m,
+                    tol_for = function(pos) return W.view_tol(on, pos) end,
+                    ok = function(pos) return not M.in_the_way(pos, spot, on.box, (on.mount or {}).yaw or 0) end })
+            end)
+            if not okc then on.face = f0; return nil, { error = tostring(list) } end
+            all = all or {}
+            for _, s in ipairs(list or {}) do s.face = f; all[#all + 1] = s end
+            if not sum then sum = stats
+            elseif stats then
+                for _, k in ipairs({ "tried", "no_ground", "not_ok", "blocked" }) do sum[k] = (sum[k] or 0) + (stats[k] or 0) end
+                if stats.best_off_m and (not sum.best_off_m or stats.best_off_m < sum.best_off_m) then sum.best_off_m = stats.best_off_m end
+            end
+        end
+    end
+    on.face = f0
+    if all then table.sort(all, function(a, b) return a.walk_m < b.walk_m end) end
+    return all, sum
 end
 -- What the screen centre would land on if I aimed at pos from here (camrig.look with the game's line trace); nil
 -- when the boom can't be read.
@@ -934,9 +956,31 @@ function M.aim_point(on, spot, axis)
     local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
     local bottom = a.position[3] + a.box.origin[3] - a.box.extent[3]
     if on.side == "in" then return { a.position[1], a.position[2], bottom + (top - bottom) * 0.88 } end
-    if on.mount and on.mount.ceiling and axis then return { a.position[1] + axis[1] * 0.1, a.position[2] + axis[2] * 0.1, top - cfg.ceiling_below_m } end
+    if on.mount and on.mount.ceiling and axis then
+        -- ON the wall's face on the roof's side (a point 0.1 m from the wall's middle lay inside the wall: a view from
+        -- inside a closed room, looking up at it steeply, met the face 0.33 m before it and no spot passed the 0.2 m
+        -- rule; rung 2 run 20261116-020523, the roof 63 s and not placed)
+        local ta = M.thin_axis(a.box)
+        local h = (ta and (a.box.extent[ta] + 0.02) or 0.1) * (on.face or 1) -- face -1: the wall's other face
+        return { a.position[1] + axis[1] * h, a.position[2] + axis[2] * h, top - cfg.ceiling_below_m }
+    end
     if on.mount and axis then return { spot[1] - axis[1] * cfg.edge_in_m, spot[2] - axis[2] * cfg.edge_in_m, top } end
     return spot
+end
+-- The aim point for an attach, with a wall's REAL face for a roof or ceiling off its top: found once by the game's
+-- own trace (the census box of a wall is 1 m thick, the wall 0.4: a point on the box's face hangs in the air 0.3 m
+-- off the wall, and from outside the view went over the wall's top; live 2026-11-16).
+function W.aim_point(api, on, spot, axis)
+    local p = M.aim_point(on, spot, axis)
+    if not (p and axis and on.mount and on.mount.ceiling and on.anchor and on.anchor.position) then return p end
+    local f = on.face or 1
+    on.face_pts = on.face_pts or {}
+    if on.face_pts[f] == nil then
+        local a = on.anchor.position
+        local okt, hit, at = pcall(trace_m(api), { a[1] + axis[1] * 1.2 * f, a[2] + axis[2] * 1.2 * f, p[3] }, { a[1], a[2], p[3] })
+        on.face_pts[f] = (okt and hit and at) or false
+    end
+    return on.face_pts[f] or p
 end
 -- What stands on each edge of a floor piece (a foundation) and over it, from the census: the perception a house
 -- needs (which edges still want a wall, which cells have a ceiling, which frames are still openings).
@@ -1189,8 +1233,22 @@ function W.stay_ok(api, job, here)
     -- had none, so he aimed from wherever he stood, the view landed on a wall of the room (the preview 1.7-2.1 m
     -- off, "Blocked") and the crafting table, crate and campfire each failed twice
     local mount = on.mount or {}
+    if mount.ceiling and not on.one_face then
+        -- either face of the wall will do (see W.stands): the one the view from here lands on becomes the job's
+        local f0 = on.face or 1
+        local why1, off1
+        for _, f in ipairs({ f0, -f0 }) do
+            on.face, on.one_face = f, true
+            local okf, whyf = W.stay_ok(api, job, here)
+            on.one_face = nil
+            if okf then return true end
+            if not why1 then why1, off1 = whyf, job.stay_off_m end
+        end
+        on.face, job.stay_off_m = f0, off1
+        return false, why1
+    end
     local spot, axis = M.flush_spot(on.anchor, on.side, on.box)
-    local aim = M.aim_point(on, spot, axis)
+    local aim = W.aim_point(api, on, spot, axis)
     if not (spot and aim) then return false, "no_aim" end
     if math.sqrt((aim[1] - here[1]) ^ 2 + (aim[2] - here[2]) ^ 2) > cfg.stay_m then return false, "far" end
     local a = on.anchor
@@ -2026,12 +2084,19 @@ local function step(api, job, t)
         -- point never crosses the anchor piece (a side) / beside the anchor (top)
         if job.on and not job.stand_at and cfg.stand_search and not job.stands_done then
             job.stands_done = true
-            local list = here and W.stands(api, job, here)
+            local list, stats
+            if here then list, stats = W.stands(api, job, here) end
+            job.stay_log = job.stay_log or {}
             if list and #list > 0 then
                 job.stand_list, job.stand_i, job.stand_at = list, 1, list[1].pos
-                job.stay_log = job.stay_log or {}
                 job.stay_log[#job.stay_log + 1] = string.format("  -> %d spots with a clear view, the nearest %.1f m%s", #list, list[1].walk_m,
                     list[1].direct and "" or " (round something)")
+            else
+                stats = stats or {}
+                job.stay_log[#job.stay_log + 1] = stats.error and ("  -> the stand search failed: " .. stats.error)
+                    or string.format("  -> no spot with a clear view (%d tried: %d no ground, %d in its way, %d view lands elsewhere%s); the old stand rule",
+                        stats.tried or 0, stats.no_ground or 0, stats.not_ok or 0, stats.blocked or 0,
+                        stats.best_off_m and string.format(", nearest %.2f m off", stats.best_off_m) or "")
             end
         end
         if job.on and not job.stand_at then
@@ -2096,11 +2161,24 @@ local function step(api, job, t)
             -- I'm not where the piece goes. Rung 2 run 20261116-013406: spots 1.2 and 1.5 m away counted as reached
             -- at once (the old 1.2 m rule), so he placed from where the check had just said in_the_way /
             -- view_blocked: a red door-frame wall 0.30 m off its edge, a roof 1.4 m off
+            -- ... and I have come to rest there. Live 2026-11-16 (a roof from beside an open door): the walk was
+            -- ended on a clear view 0.3 m on, his pawn was then back where it started (25 cm, a correction) and he
+            -- placed from the spot the check had just refused: the preview 0.96 m off.
             if here and (not job.view_t or t >= job.view_t) then
                 job.view_t = t + cfg.stand_view_every_s
-                job.view_ok = W.stay_ok(api, job, here) and true or false
+                local okv = W.stay_ok(api, job, here) and true or false
+                local still = job.view_at and math.sqrt((here[1] - job.view_at[1]) ^ 2 + (here[2] - job.view_at[2]) ^ 2) <= cfg.stand_still_m
+                if okv and not still then
+                    if job.moving then api.call("move", "stop") end
+                    job.settle_t = job.settle_t or (t + cfg.stand_settle_s)
+                end
+                job.view_ok, job.view_at = okv and still or false, okv and here or nil
             end
             there = job.view_ok
+            if not there and job.settle_t then
+                if job.view_at and t < job.settle_t then return nil end -- coming to rest: the view again from there
+                job.settle_t = nil
+            end
         else
             there = (job.stand_at and ds and ds <= 1.2 and not (job.shelter and math.abs(here[3] - job.stand_at[3]) > cfg.shelter_up_m))
                 or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5)
@@ -2312,7 +2390,8 @@ local function step(api, job, t)
                 if mount and mount.ceiling and axis then
                     -- off a wall's top: from the side it reaches into, aim at the wall's face just below its top (I
                     -- can't see the top from the ground); the nearest plug for a tile there is the top edge
-                    local p = { a0.position[1] + axis[1] * 0.1, a0.position[2] + axis[2] * 0.1, a_top - cfg.ceiling_below_m }
+                    job.on.mount = job.on.mount or mount
+                    local p = W.aim_point(api, job.on, spot, axis)
                     add(p, 3.0)
                     job.on.cursor_target, job.on.cursor_tol_m, job.on.cursor_tol_z_m = p, 0.6, 0.4
                 elseif mount and axis then
