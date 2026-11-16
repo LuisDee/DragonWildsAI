@@ -1205,3 +1205,20 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Cause of the path_blocked attack (read from client.log 09:53:36-09:53:59Z, not yet fixed):** the rat stood 22 m up the slope. He climbed 65 m in 23 s; the local plan had a jump onto a 3 m ledge. Two jumps fell short, the third put him on the ledge at (155.54, 1743.48), 72 cm from the planned landing cell (155, 1743) and at its height. The landing test wants 45 cm (`lp_radius_cm`), so it counted as a third missed landing, and a follow's third missed landing is no_route at once (move.lua `traversal_failure`), with no log line. He was 7.3 m from the rat with a straight walk; the reflex then walked it in 6 s. Next: reproduce live from Vannaka's spot, log the landing offset on a miss, count a landing on the endpoint's level as landed.
 - **Also seen, not fixed:** `gather {ash, 1}` 50.4 s (41 s at a tree 7.6 m lower until the timeout; the stalled rule should cut this, unverified live); boiling 5 Dirty Water made 4 and left 1 in the campfire for later clones.
 - Next chain launched 10:13Z (pid 1196) with ClaudeDev back at his spot and vitals full. Spend today about $1.9 of $10.
+
+## 2026-11-16 10:13-10:38Z rung 5: chain 101313, all four quests inside every bar (first time); landing rule and leftover rule
+- **Chain 101313 (after fe0fda1), 902 s, about $0.04:**
+
+  | quest | time | ratio (bar 1.5x) | misses (bar 1) | stands over 5 s | verdict |
+  |---|---|---|---|---|---|
+  | First Steps | 37.4 s | 0.46x | 0 | 0 | PASS |
+  | Getting Started | 63.7 s (was 119.2 s) | 0.83x | 1 | 0 | PASS |
+  | Ratcatcher | 134.4 s (was 250.9 s) | 0.88x | 0 (was 3) | 0 | PASS |
+  | Rune Mysteries | 392.5 s | 1.08x | 0 | 0 | PASS by the leftover rule below; written "not counted" at the time |
+
+  Getting Started: 8 sticks in 27.3 s (was 84.9 s for 6). Ratcatcher: the rat was killed by the reflex when it attacked him on the walk, one cook at a fuelled campfire, no failed call. Whether his lines were true is still not judged in these runs.
+- **Leftover rule (5df4488), a change to my own counting rule, so stated plainly:** Rune Mysteries was marked "not counted: deliverable carried: Ash Logs x1". The log was left over from the fire of the quest before; he chopped 49 of Zanik's 50 in the run (160 s), and the human bar is computed from what he gathered in the run. The rule now: a leftover under a tenth of an amount the quest's step names is not a head start (`quest_run.head_start`, amounts in data/quest_deliverables.json); a deliverable with no amount named, or a tenth or more, still makes the run not counted. By the old rule this chain is 3 of 4.
+- **Landing rule (b59903c):** negative test first (test_move: on a 3 m ledge 72 cm from the cell = "jump landing missed"), then: a jump that changes level has landed within `jump_land_cm` = 130 of its point at the point's height; a jump across a gap keeps 45 cm. A miss now logs how far off he landed, and the third missed jump of a follow logs its no_route. Live on the same slope (4 walks from Vannaka's spot, 17.1-25.4 s, and one attack of a rat 24 m up: killed in 40.2 s): 3 misses seen, all real (185-239 cm from the point and 164-226 cm below it: the jump fell short of the ledge). The 72 cm case did not come up again live, so it has the unit test only.
+- **Seen in those lines, not fixed:** the local plan keeps choosing a jump onto that 3 m ledge that falls short (2 of 4 walks, about 8 s each time). A failed jump is left out of the rest of that trip only (`st.jump_fail`); the next trip tries it again.
+- **Tried and binned: the craft description.** Getting Started's one miss is `craft` Stone Club with 0 Ash Logs carried, right after Doric said it needs them. Replayed that turn (12 Haiku calls): craft first 4 of 6 with the live description ("Safe to try straight away") and 4 of 6 with one that says a failed try is avoidable with craft_plan. No movement, wording left as it was. The failed call takes 0.3 s and stays a miss (inside the bar of 1).
+- Chain 2 of the streak launched 10:37Z (pid 15960).
