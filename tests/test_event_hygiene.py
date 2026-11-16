@@ -1427,3 +1427,41 @@ def test_a_failure_he_already_told_needs_no_extra_turn(tmp_path):
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude grab your grave"})
     r.at(0).step()
     assert not any(str(m.get("content") or "").startswith("Before you stop") for c in r.model.calls for m in c["messages"])
+
+
+def test_back_in_the_world_after_a_drop_is_reviewed_at_once_with_the_request_still_open(tmp_path):
+    """Chain 20261116-201438 (Rune Mysteries): Epic's lobby service dropped the client mid-gather and the client was
+    relaunched. The request's run ended on body_restarted while he was out of the world; he was back 40 s later and
+    nothing told him: he stood 233 s, until thirst woke a review. The broker now tells the model the change it saw
+    (out of the world, then in it again); what to do about it is the model's."""
+    r = Replay(tmp_path, _vitals_state(60), tools={"get_state", "say", "go_to", "gather", "interact"})
+    r.at(0).step()  # the baseline
+    r.body.act("gather", fail("body_restarted", detail="my body's bridge restarted and dropped the command"))
+    r.model.replies["do her quest"] = FakeLLM.say("", FakeLLM.call("gather", resource="ash", count=49))
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude go and see Zanik and do her quest"})
+    r.at(10).step()
+    assert r.agent._open_request == ("Zezima", "claude go and see Zanik and do her quest")
+    live = r.body.get_state
+    r.body.get_state = lambda: fail("companion_down", detail="no local player controller")
+    seen = len(r.model.contexts)
+    for t in (45, 56, 67, 78):
+        r.at(t).step()
+    assert len(r.model.contexts) == seen  # out of the world: nothing to decide
+    r.body.get_state = live
+    r.body.act("gather", ok(resource="ash", gained=49))
+    r.model.body_reply = lambda ctx: FakeLLM.say("", FakeLLM.call("gather", resource="ash", count=49))
+    r.at(85).step()
+    assert len(r.model.contexts) == seen + 1, "back in the world: reviewed at once"
+    ev = r.model.contexts[-1]["body_event"]
+    back = [c for c in ev["changes"] if c["what"] == "body"]
+    assert ev["type"] == "situation_review" and back and back[0]["now"] == "back in the game world", ev
+    assert 35 <= back[0]["away_s"] <= 45 and "companion_down" in back[0]["was"], back
+    assert [c[0] for c in r.body.calls] == ["gather", "gather"]  # the model's choice, here the fake's
+    # a single failed read (a timeout) is no drop: nothing to review
+    r.body.get_state = lambda: fail("timeout", detail="no reply in 5 s")
+    r.at(300).step()
+    r.body.get_state = live
+    seen = len(r.model.contexts)
+    r.at(301).step()
+    r.at(312).step()
+    assert len(r.model.contexts) == seen

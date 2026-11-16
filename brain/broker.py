@@ -74,6 +74,7 @@ REVIEW_IDLE_S = 300.0  # no command or action this long with a player close by =
 REVIEW_NEAR_M = 15.0
 REVIEW_BAG_FULL = 0.9
 FIGHT_QUIET_S = 30.0  # an attack this recent = in combat: no review
+BODY_AWAY_S = 5.0  # no state for this long (out of the game world: a drop, a relaunch), then state again = a change
 ACTIVITY_KEEP = 8  # recent_activity lines in every Controller context
 ACTIONS_KEEP = 5  # recent brain actions in body_status
 FAILURES_KEEP = 2  # failures older than those 5 still shown (within DIGEST_KEEP_S), so a run of ok steps
@@ -307,6 +308,7 @@ class EventBroker:
         self._sleep_ok: bool | None = None
         self._bag_full: bool | None = None
         self._pending: list[dict] = []  # changes since the last review
+        self._away: tuple[float, str] | None = None  # (since, why): get_state has failed since then
         self._last_review: dict | None = None  # {"at", "changes", "you_said"}
         self._last_busy: float | None = None  # last command / brain action (None: since the first observation)
         self._first_seen: float | None = None
@@ -716,6 +718,17 @@ class EventBroker:
         if not state or state.get("unavailable"):
             return
         now, pos = self.clock(), _pos(state.get("position"))
+        if self._away is not None:
+            # Out of the game world and in it again (chain 20261116-201438: Epic's lobby dropped the client mid-gather,
+            # the request's run ended on body_restarted, he was back 40 s later and stood 233 s until thirst woke a
+            # review). The change goes to the model like any other; what to do about it is the model's.
+            since, why = self._away
+            self._away = None
+            if now - since >= BODY_AWAY_S:
+                self._change({"what": "body", "now": "back in the game world", "away_s": round(now - since),
+                              "was": f"out of the game world ({why})"})
+                self._still_since = None
+                self._track.clear()  # where he stood before is no measure of how he moves now
         self._seen = state
         self.learn_names(state)
         if self._first_seen is None:
@@ -798,6 +811,12 @@ class EventBroker:
                 self._change({"what": "bag", "used": bag["used"], "capacity": bag["capacity"]})
             self._bag_full = full
 
+    def note_unavailable(self, why: str) -> None:
+        """A get_state that failed, after the body had been seen in the world: he may be out of it (observe tells the
+        model when he is back)."""
+        if self._away is None and self._seen:
+            self._away = (self.clock(), str(why))
+
     def note_busy(self) -> None:
         """A command arrived or the brain ran an action: not idle, and the conversation covers it."""
         self._last_busy = self.clock()
@@ -828,7 +847,8 @@ class EventBroker:
         worse = any(c.get("direction") == "down" and self._bands.get(c["what"], (0, 0))[0] >
                     self._reviewed_bands.get(c["what"], 0) for c in self._pending)
         # day/night is time-critical (L10: he stayed in bed after day): no gap. The sleep window opening is not.
-        worse = worse or any(c.get("what") == "time_of_day" for c in self._pending)
+        # ...and so is being back in the world after a drop: what he was doing was cut off
+        worse = worse or any(c.get("what") in ("time_of_day", "body") for c in self._pending)
         last = self._last_review
         if last and now - last["at"] < REVIEW_MIN_GAP_S and not worse:
             return None

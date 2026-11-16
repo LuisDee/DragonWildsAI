@@ -321,6 +321,7 @@ class Agent:
             state = self.executor.state(max_age=POST_ACTION_REUSE_S if after_action else None)
             self._wake_state = (now, getattr(self.executor, "_cache", None), state)
         except StateUnavailable as exc:
+            self.broker.note_unavailable(str(exc))
             return {"unavailable": str(exc)}
         self.broker.observe(state)  # where am I, am I moving, who is in sight (body_status "Where:")
         self._sampled_at = self.broker.clock()
