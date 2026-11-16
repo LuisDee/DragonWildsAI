@@ -1409,6 +1409,18 @@ local function loads_ledger()
     return l
 end
 local LEDGER_S = 3600
+-- ...and which items he put into which station, and when: only those are his to take back out (load_step)
+local function my_leftover(api, station_id, item)
+    local l = rawget(_G, "DWCraftLoaded")
+    local at = l and l[station_id] and l[station_id][item]
+    return at ~= nil and api.now() - at < LEDGER_S
+end
+local function note_loaded(api, station_id, item)
+    local l = rawget(_G, "DWCraftLoaded")
+    if not l then l = {}; _G.DWCraftLoaded = l end
+    l[station_id] = l[station_id] or {}
+    l[station_id][item] = api.now()
+end
 local function foreign_inputs(api, station_id, rows)
     local mine = loads_ledger()[station_id]
     if mine and api.now() - mine < LEDGER_S then return nil end
@@ -1433,9 +1445,13 @@ local function station_takes(api, row, a)
     for _, c in ipairs(a.inputs or {}) do want[c.item] = true end
     local foreign = {}
     for _, r in ipairs(s.resources.rows) do
-        used = used + 1
         have[r.item] = true
-        if not want[r.item] then foreign[#foreign + 1] = tostring(r.count) .. " " .. tostring(r.name or name_of_id(r.item)) end
+        if not want[r.item] and not s.running and my_leftover(api, row.id, r.item) then
+            -- what he put in himself comes out at the load (load_step): its slot counts as free
+        else
+            used = used + 1
+            if not want[r.item] then foreign[#foreign + 1] = tostring(r.count) .. " " .. tostring(r.name or name_of_id(r.item)) end
+        end
     end
     local need = 0
     for it in pairs(want) do if not have[it] then need = need + 1 end end
@@ -1575,6 +1591,8 @@ local function base_data(job)
         for _, p in ipairs(job.passed) do w[#w + 1] = "the nearer " .. tostring(p.name) .. " (" .. tostring(p.why) .. ")" end
         d.why_this_station = "I used the " .. tostring(job.station.name) .. " " .. tostring(job.station.id) .. ", not " .. table.concat(w, "; ")
     end
+    if job.cleared and #job.cleared > 0 then d.took_out = job.cleared end -- his own leftovers, back in his bag
+    if job.short then d.short = job.short end -- inputs that were no longer all in his bag at the load
     return d
 end
 
@@ -1694,9 +1712,36 @@ local function load_step(api, job, t)
     local inv = q.into == "fuel" and s.fuel or s.resources
     local target = q.into == "fuel" and s._fuel or s._res
     local now_in = inv.by_item[q.item] or 0
+    -- What he put in himself on an earlier load and this recipe doesn't use comes out first, as a player clicks it
+    -- back into his bag (only items he loaded: my_leftover). Ratcatcher run 20261116-071227: a boil that ran short
+    -- left 1 Dirty Water on the fire, the rat after it had "no free slot", and he walked 130 m to another fire
+    if job.cleared == nil then
+        job.cleared = {}
+        if not s.running then
+            local want, stray = {}, {}
+            for _, c in ipairs(job.plan.inputs) do want[c.item] = true end
+            for _, r in ipairs(s.resources.rows or {}) do
+                if not want[r.item] and my_leftover(api, job.station.id, r.item) then stray[#stray + 1] = r end
+            end
+            for _, r in ipairs(stray) do
+                if W.take_from(api, r.slot, s._res) then
+                    job.cleared[#job.cleared + 1] = { item = r.item, name = r.name or name_of_id(r.item), count = r.count }
+                end
+            end
+            if #job.cleared > 0 then job.clear_until = t + M.cfg.move_wait_s; return nil end
+        end
+    end
+    if job.clear_until then
+        local left = 0
+        for _, c in ipairs(job.cleared) do left = left + (s.resources.by_item[c.item] or 0) end
+        if left > 0 and t < job.clear_until then return nil end
+        job.clear_until = nil
+        if left > 0 then job.cleared = {} end -- they didn't come out (no room in my bag): the load says what's in the way
+    end
     if job.moving then
         if now_in >= job.moving.expect then
             loads_ledger()[job.station.id] = api.now()
+            if q.into == "resources" then note_loaded(api, job.station.id, q.item) end
             job.loaded[q.item] = (job.loaded[q.item] or 0) + job.moving.amount
             q.count = q.count - job.moving.amount
             job.moving = nil
@@ -1717,6 +1762,17 @@ local function load_step(api, job, t)
     local rows = carried_rows(api, q.item)
     local row = rows[1]
     if not row then
+        -- less of it in his bag than when the craft began (same run: a rat fight came between, and his thirst reflex
+        -- drank one of the 2 Dirty Water): enough for one craft went in -> he makes what went in and says so
+        local put = job.loaded[q.item] or 0
+        local per = (put + q.count) / math.max(1, tonumber(job.a.crafts) or 1)
+        if q.into == "resources" and put >= per then
+            job.short = job.short or {}
+            job.short[#job.short + 1] = { item = q.item, name = q.name, loaded = put, missing = q.count }
+            table.remove(job.queue, 1)
+            if not job.queue[1] then job.phase = "start" end
+            return nil, true
+        end
         local d = base_data(job)
         d.detail = "I ran out of " .. tostring(q.name) .. " while loading the " .. tostring(job.station.name) .. "."
         return api.fail("missing_materials", d)
@@ -1936,7 +1992,17 @@ local function proc_step(api, job, t)
             .. (job.fuel and job.fuel.source == "station" and " (using the fuel that was already in it)" or "") .. "."
             .. (bad > 0 and (" The rest came out wrong: " .. spoilt .. ".") or "")
         if total < out_total(job) then d.partial = true end
-        if job.timed_out and total < out_total(job) then
+        if d.took_out then
+            local w = {}
+            for _, c in ipairs(d.took_out) do w[#w + 1] = tostring(c.count) .. " " .. tostring(c.name) end
+            d.detail = d.detail .. " First I took out what I'd left in it from before: " .. table.concat(w, ", ") .. " (back in my bag)."
+        end
+        for _, sh in ipairs(job.short or {}) do
+            d.detail = d.detail .. " Only " .. sh.loaded .. " " .. tostring(sh.name) .. " went in: the other " .. sh.missing
+                .. " I began with " .. (sh.missing == 1 and "was" or "were") .. " no longer in my bag when I loaded."
+        end
+        if job.short then -- said above
+        elseif job.timed_out and total < out_total(job) then
             d.detail = d.detail .. " The " .. tostring(job.station.name) .. " was still on the rest after " .. job.timed_out.after_s
                 .. " s, so I stopped waiting (" .. total .. " of " .. out_total(job) .. ")."
         elseif total < out_total(job) and bad == 0 then

@@ -583,6 +583,60 @@ do -- input: what a station makes from a carried item, the way a player puts raw
     local r2 = run({ input = "Ash Logs" })
     check("input: an item no recipe takes says so", r2.ok == false and r2.reason ~= nil, tostring(r2.reason) .. " " .. tostring((r2.data or {}).detail))
 end
+do -- less of the input in his bag at the load than when the craft began (Ratcatcher run 20261116-071227: he set out
+   -- to boil 2 Dirty Water, a rat fight came first and his thirst reflex drank one; the craft loaded 1, failed "ran
+   -- out while loading" and left it on the fire): he cooks what went in and says what was short
+    reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) },
+            unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 2, ITEM_Resources_Wood_Ash = 2 } })
+    local open, ate = C.W.open_station, false
+    C.W.open_station = function(...) if not ate then ate = true; add_inv("ITEM_Resources_Meat_Farm", -1) end; return open(...) end
+    local r = run({ input = "raw farm meat", count = 2 }); C.W.open_station = open
+    check("short load: cooks what went in", r.ok and (inv_counts().ITEM_Consumable_Farm_Steak or 0) == 1 and #F.stations[1].res == 0,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    check("short load: says what was short", r.ok and r.data.partial == true and r.data.short and r.data.short[1].loaded == 1
+          and tostring(r.data.detail):find("Only 1 .- went in", 1) ~= nil, tostring((r.data or {}).detail))
+end
+do -- his own leftovers that this recipe doesn't use come out of an idle station first (same run: the rat after the
+   -- boil had "no free slot ... it already holds 1 Dirty Water", and he walked 130 m to another fire)
+    local fire = station("Campfire", "fire_1", { 8, 3, 0 })
+    reset({ stations = { fire }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    fire.res = { { slot = 0, item = "ITEM_Resources_Flax", name = "Flax", count = 2 },
+                 { slot = 1, item = "ITEM_Resources_Coarse_Animal_Fur", name = "Coarse Animal Fur", count = 1 } }
+    _G.DWCraftLoads = { fire_1 = T }
+    _G.DWCraftLoaded = { fire_1 = { ITEM_Resources_Flax = T, ITEM_Resources_Coarse_Animal_Fur = T } }
+    local r = run({ item = "Steak", station = "fire_1" })
+    check("own leftovers: taken out, then cooked", r.ok and (inv_counts().ITEM_Consumable_Farm_Steak or 0) == 1
+          and inv_counts().ITEM_Resources_Flax == 2 and inv_counts().ITEM_Resources_Coarse_Animal_Fur == 1,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    check("own leftovers: reported", r.ok and r.data.took_out and #r.data.took_out == 2
+          and tostring(r.data.detail):find("took out", 1, true) ~= nil and tostring(r.data.detail):find("2 Flax", 1, true) ~= nil,
+          tostring((r.data or {}).detail))
+    -- with no station named he still picks his own fire (its slots come free at the load)
+    reset({ stations = { fire }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    fire.res = { { slot = 0, item = "ITEM_Resources_Flax", name = "Flax", count = 2 },
+                 { slot = 1, item = "ITEM_Resources_Coarse_Animal_Fur", name = "Coarse Animal Fur", count = 1 } }
+    fire.fuel, fire.out, fire.running = {}, {}, false
+    _G.DWCraftLoads = { fire_1 = T }
+    _G.DWCraftLoaded = { fire_1 = { ITEM_Resources_Flax = T, ITEM_Resources_Coarse_Animal_Fur = T } }
+    r = run({ item = "Steak" })
+    check("own leftovers: his own fire is still a station that takes it", r.ok and r.data.station_id == "fire_1",
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    -- an item he never put in (someone added it to the fire he used) stays where it is
+    reset({ stations = { fire }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
+            have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
+    fire.res = { { slot = 0, item = "ITEM_Resources_Flax", name = "Flax", count = 2 },
+                 { slot = 1, item = "ITEM_Resources_Coarse_Animal_Fur", name = "Coarse Animal Fur", count = 1 } }
+    fire.fuel, fire.out, fire.running = {}, {}, false
+    _G.DWCraftLoads = { fire_1 = T }
+    _G.DWCraftLoaded = { fire_1 = { ITEM_Resources_Flax = T } }
+    r = run({ item = "Steak", station = "fire_1" })
+    check("own leftovers: what he never loaded is not taken", inv_counts().ITEM_Resources_Coarse_Animal_Fur == nil
+          and #fire.res >= 1, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    _G.DWCraftLoads, _G.DWCraftLoaded = {}, nil
+end
 do -- lying in a bed: the game blocks walking and stations, so craft says so at once (rung 3 gate 19:56Z)
     reset({ stations = { station("Campfire", "fire_1", { 8, 3, 0 }) }, unlocked = U({ "RECIPE_Consumable_Steak_From_Farm" }),
             have = { ITEM_Resources_Meat_Farm = 1, ITEM_Resources_Wood_Ash = 2 } })
