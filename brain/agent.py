@@ -20,6 +20,7 @@ from typing import Literal
 
 from . import item_stats, needs
 from . import open_ask as oa
+from . import result_knowledge
 from . import situation as sit
 from .consume_order import interleave
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
@@ -907,6 +908,8 @@ class Agent:
             if not outcome.ok and outcome.reason in (Reason.UNKNOWN_TARGET, Reason.INVALID_ARGS, Reason.NOT_PERCEIVED,
                                                      Reason.AMBIGUOUS_TARGET):
                 res["args_help"] = self.controller.arg_help(call.name)  # how to name a target for this tool
+            if not outcome.ok:  # not found: what his own knowledge says about where it is (facts, with source)
+                result_knowledge.enrich(getattr(self.controller, "knowledge", None), call.name, call.arguments, res, self.log)
             results[call.id or call.name] = res
             if not outcome.ok:
                 failure, failed_call = (call.name, outcome.reason, outcome.data), call

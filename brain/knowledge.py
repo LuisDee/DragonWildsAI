@@ -798,6 +798,47 @@ class Knowledge:
             data["note"] = "Nothing found in game data or the wiki. Say you don't know rather than guess."
         return {"ok": True, "reason": None, "data": data}
 
+    def node_facts(self, query: str) -> dict | None:
+        """Where the wiki says a resource node is found and the tool it takes, for a resource named in ``query``
+        ("copper", "copper ore rocks", "rune_essence"), or None. The node whose own name (less the generic words
+        ore/node/tree/rock...) the query fully names; the most specific one when several do. Live 2026-11-17: he
+        explored home twice for copper, which grows two regions away, and never called lookup."""
+        q = _terms(query)
+        if not q:
+            return None
+        with self._lock:
+            rows = self.db.execute("SELECT title, heading, body, url FROM docs WHERE tier = 1 AND kind = 'resource node' "
+                                   "ORDER BY rowid").fetchall()
+        best = None
+        for title, heading, _, _ in rows:
+            if heading:
+                continue
+            own = _terms(title) - NODE_GENERIC
+            if own and own <= q and (best is None or (len(own), -len(title)) > (len(best[1]), -len(best[0]))):
+                best = (title, own)
+        if best is None:
+            return None
+        title = best[0]
+        lead = next((r for r in rows if r[0] == title and not r[1]), None)
+        loc = re.search(r"^location: (.+)$", lead[2], re.M) if lead else None
+        tool = re.search(r"^tool: (.+)$", lead[2], re.M) if lead else None
+        tool_s = tool.group(1).strip() if tool else next(
+            (m.group(1).strip() for r in rows if r[0] == title for m in [re.search(r"\btool=([^;\n]+)", r[2])] if m), None)
+        loc_s = _place_list(loc.group(1)) if loc else None
+        if not loc_s and not tool_s:
+            return None
+        return {"title": title, "location": loc_s, "tool": tool_s, "url": lead[3] if lead else None}
+
+
+NODE_GENERIC = frozenset({"ore", "node", "tree", "plant", "bush", "rock", "deposit"})
+
+
+def _place_list(text: str) -> str | None:
+    """A wiki location line as a plain list: '* Fractured Plains - Stormtouched Highlands - Dowdun Reach' ->
+    'Fractured Plains, Stormtouched Highlands, Dowdun Reach' (the mirror flattens the infobox's bullets)."""
+    parts = [p.strip() for p in re.split(r"^\s*[-*]\s*|\s*\*\s*|\s+-\s+|\s*,\s*", text) if p and p.strip()]
+    return ", ".join(dict.fromkeys(parts)) or None
+
 
 def open_knowledge(log=None) -> Knowledge | None:
     """The default index for the live brain, or None (then the lookup tool is not offered)."""
