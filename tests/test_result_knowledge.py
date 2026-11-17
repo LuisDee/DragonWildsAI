@@ -71,7 +71,9 @@ def test_a_thing_the_wiki_lacks_adds_nothing(kb):
 @needs_wiki
 def test_a_failure_that_is_not_not_found_is_untouched(kb):
     cases = [
-        ("gather", {"resource": "copper"}, {"ok": False, "reason": "wrong_tool", "data": {"why": "tool_tier_too_low"}}),
+        # a wrong_tool that is not about his tool (an unknown why), or not from gather, is no tool fact
+        ("gather", {"resource": "copper"}, {"ok": False, "reason": "wrong_tool", "data": {"why": "something_else"}}),
+        ("explore", {"about": "copper"}, {"ok": False, "reason": "wrong_tool", "data": {"why": "no_tool"}}),
         ("gather", {"resource": "copper"}, {"ok": False, "reason": "path_blocked", "data": {}}),
         # nodes there but used up, or only floating: found, not missing
         ("gather", {"resource": "copper"}, {"ok": False, "reason": "nothing_in_range",
@@ -225,3 +227,62 @@ def test_state_may_be_a_reader_called_only_when_there_is_a_fact(places):
     assert rk.note(_KB({}), "gather", {"resource": "copper"}, _copy(GATHER_COPPER), read, places=places) is None
     assert not calls
     assert "Fractured Plains 759 m NE" in _gather(_KB(COPPER), read, places)[1] and calls == [1]
+
+
+# ---- gather's wrong_tool (live 2026-11-17 23:19Z, logs brain-live-20261117-231925-27552 and -232246-18856, "thirty
+# copper ore in the chest at your base"): the first gather copper failed "I need a pickaxe for copper and I don't have
+# one" and no fact was added (only nothing_in_range had one), so he never learned copper takes a Bone pickaxe (tier 2)
+# or better; he ran craft_plan Bronze Pickaxe, saw a long unlock chain and parked within 20 s, both trials.
+
+GATHER_COPPER_NO_TOOL = {"ok": False, "reason": "wrong_tool", "data": {
+    "resource": "copper", "detail": "I need a pickaxe for copper and I don't have one.", "why": "no_tool",
+    "need": "pickaxe"}}
+# the fork's start state from the first get_state of 231925 (bag and gear as read; no pickaxe of any kind)
+FORK_START = {"position": [151.6, 1912.19, -31.58],
+              "gear": {"HeldRight": "ITEM_Sword_Bronze", "HeldLeft": "ITEM_Shield_Bronze",
+                       "Head": "ITEM_Armour_T2_Head_Leather"},
+              "inventory": {"ITEM_Sword_Bronze": 1, "ITEM_Shield_Bronze": 1, "ITEM_Resources_Stone": 5,
+                            "ITEM_Resources_AnimalBone": 4, "ITEM_Resources_Skin_Scraps": 7,
+                            "ITEM_Resources_Wood_Ash": 1, "ITEM_Rune_Nature": 2040, "ITEM_Rune_Earth": 1615}}
+
+
+def test_copper_no_pickaxe_from_the_logs_gets_the_tier_line(places):
+    q, text = rk.note(_KB(COPPER), "gather", {"resource": "copper", "count": 30, "radius": 80},
+                      _copy(GATHER_COPPER_NO_TOOL), FORK_START, places=places)
+    assert q == "copper" and len(text) <= rk.MAX_CHARS
+    assert text.startswith(f"wiki, Copper Ore Node: found in {REGIONS}; tool: Bone pickaxe or better (tier 2)")
+    assert "Fractured Plains" in text and " m NE" in text
+    assert text.endswith("you carry no pickaxe")
+
+
+@needs_wiki
+def test_copper_no_pickaxe_with_the_real_wiki(kb):
+    res = _copy(GATHER_COPPER_NO_TOOL)
+    assert rk.enrich(kb, "gather", {"resource": "copper", "count": 30}, res)
+    assert res["knowledge"] == TODAY
+    assert {k: v for k, v in res.items() if k != "knowledge"} == GATHER_COPPER_NO_TOOL
+
+
+def test_a_tool_below_the_tier_gets_it_too(places):
+    low = {"ok": False, "reason": "wrong_tool", "data": {
+        "why": "tool_tier_too_low", "resource": "copper", "need_tier": 2, "have_tier": 1,
+        "detail": "copper needs a tier 2 pickaxe; my best is my Stone Pickaxe (tier 1)."}}
+    q, text = rk.note(_KB(COPPER), "gather", {"resource": "copper"}, low, AT_HOME, places=places)
+    assert q == "copper" and "tool: Bone pickaxe or better (tier 2)" in text
+    assert text.endswith("your best pickaxe: Stone Pickaxe (tier 1), below it")
+
+
+def test_a_wrong_tool_the_wiki_has_nothing_on_adds_nothing():
+    for name in ("oak", "maple", "rune_essence", "unobtainium"):
+        res = {"ok": False, "reason": "wrong_tool", "data": {
+            "resource": name, "why": "no_tool", "need": "hatchet",
+            "detail": f"I need a hatchet for {name} and I don't have one."}}
+        before = _copy(res)
+        assert not rk.enrich(_KB({}), "gather", {"resource": name}, res, state=AT_HOME) and res == before
+
+
+@needs_wiki
+def test_a_wrong_tool_on_a_thing_with_no_node_page_adds_nothing(kb):
+    res = {"ok": False, "reason": "wrong_tool", "data": {"resource": "unobtainium", "why": "no_tool", "need": "pickaxe"}}
+    before = _copy(res)
+    assert not rk.enrich(kb, "gather", {"resource": "unobtainium"}, res) and res == before

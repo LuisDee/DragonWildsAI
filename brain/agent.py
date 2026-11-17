@@ -496,7 +496,8 @@ class Agent:
         outcome = self.executor.run_task(task)
         detail = (outcome.data or {}).get("detail") if isinstance(outcome.data, dict) else None
         task.detail = str(detail)[:TASK_DETAIL_CHARS] if detail else None
-        if not outcome.ok:  # not found: what his own knowledge says about where it is (facts, with source), on every
+        if not outcome.ok:  # not found, or gather's wrong_tool: what his own knowledge says about where it is and the
+            # tool it takes against his best (facts, with source), on every
             # path: a Planner step's result is what the replan and the stuck message show (live 2026-11-17 22:24Z, run
             # 20261117-212448-L2: explore and gather ran as plan steps and only the turn's own calls carried it)
             got = result_knowledge.note(getattr(self.controller, "knowledge", None), task.skill, task.args,

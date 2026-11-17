@@ -21,14 +21,25 @@ MAX_CHARS = 300
 # gather's "not found" (client_mod/scripts/gather.lua): no_resource_nearby, and no_node_of_kind for a category;
 # the older body (mod/body/gather.lua) gives no why. Nodes there but used up or left alone are not "not found".
 GATHER_NOT_FOUND = (None, "no_resource_nearby", "no_node_of_kind")
+# gather's wrong_tool: no tool of the kind carried, or his best below the node's tier (live 2026-11-17 23:19Z, logs
+# brain-live-20261117-231925-27552 and -232246-18856: "I need a pickaxe for copper and I don't have one" carried no
+# fact, so he never learned copper takes a Bone pickaxe (tier 2) or better, planned a Bronze one and parked in 20 s)
+GATHER_WRONG_TOOL = ("no_tool", "tool_tier_too_low")
 
 
 def query_of(tool: str, args: dict | None, result: dict | None) -> str | None:
-    """The thing a failed gather or explore looked for and did not find, else None."""
-    if not isinstance(result, dict) or result.get("ok") is not False or result.get("reason") != "nothing_in_range":
+    """The thing a failed gather or explore looked for and did not find, or that gather lacked the tool for, else None."""
+    if not isinstance(result, dict) or result.get("ok") is not False:
         return None
     args = args if isinstance(args, dict) else {}
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if result.get("reason") == "wrong_tool":
+        if tool != "gather" or data.get("why") not in GATHER_WRONG_TOOL:
+            return None
+        q = args.get("resource") or data.get("resource")
+        return q if isinstance(q, str) and q.strip() else None
+    if result.get("reason") != "nothing_in_range":
+        return None
     if tool == "gather":
         if data.get("why") not in GATHER_NOT_FOUND or data.get("used_up") or data.get("left_alone"):
             return None
@@ -129,7 +140,8 @@ def _tool_part(need: tuple[str, int, str], state: dict) -> str:
 
 def note(knowledge: Any, tool: str, args: dict | None, result: dict | None,
          state: dict | Callable[[], dict] | None = None, *, places: Any = None) -> tuple[str, str] | None:
-    """(query, text) for a not-found gather/explore result whose thing the knowledge places, else None.
+    """(query, text) for a not-found gather/explore result, or a gather wrong_tool one, whose thing the knowledge
+    places, else None.
     ``state``: his get_state, or a reader of it called only when there is a fact; without it, no map or tool part.
     ``places``: a brain.places.Places (default: the newest map data file)."""
     q = query_of(tool, args, result)
