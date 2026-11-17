@@ -973,7 +973,8 @@ def test_l5_a_plain_answer_costs_one_check_turn_and_stays_one_line(tmp_path):
     r.model.replies["how are you"] = FakeLLM.say("Doing well, thanks!")
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude how are you"})
     r.at(0).step()
-    assert r.body.said == ["Doing well, thanks!"] and r.body.calls == [] and len(r.model.calls) == 2
+    # the check turn, then the open-ask turn after his silent stop (brain/open_ask.py); still one line
+    assert r.body.said == ["Doing well, thanks!"] and r.body.calls == [] and len(r.model.calls) == 3
 
 
 def test_l6_one_state_read_before_an_action(tmp_path):
@@ -1414,7 +1415,7 @@ def test_a_request_that_ends_with_an_unsaid_failure_gets_one_turn_to_say_it(tmp_
                      FakeLLM.say("can't reach that grave, it's right by the drop that killed me")]
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude grab your grave"})
     r.at(0).step()
-    note = r.model.calls[-1]["messages"][-1]["content"]
+    note = r.model.calls[3]["messages"][-1]["content"]  # (the open-ask turn comes after his line: brain/open_ask.py)
     assert note.startswith("Before you stop: these steps failed") and "interact path_blocked" in note and why in note
     assert r.body.said == ["can't reach that grave, it's right by the drop that killed me"]
 

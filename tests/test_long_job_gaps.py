@@ -36,10 +36,10 @@ def _plans(n, *tasks):
 # --------------------------------------------------------------------------- 1. a silent turn closes the ask
 
 
-@pytest.mark.xfail(strict=True, reason="gap 1: brain/agent.py:666-671 sets _open_request = None and logs request_closed "
-                                       "on a turn with no tool call; nothing reads the game to see the ask is met")
-def test_an_ask_stays_open_while_the_game_shows_it_is_not_done(tmp_path):
-    # brain/agent.py:670 (`self._open_request = None  # he stopped on it: done, or he said why not`)
+def test_an_ask_is_not_closed_by_silence_before_one_turn_shows_it_open(tmp_path):
+    # fixed by variant C (brain/open_ask.py; docs/research/2026-11-17-open-ask-replay.md): a silent stop no longer
+    # closes the ask; one more turn shows it as data with request_done / park_request, and only a second silent turn
+    # closes it, logged with after_open_ask_turn (code does not judge his claim: item 6 of the ask-ends note)
     rig = Rig(tmp_path)
     asked = ("Luis", "claude, bring me 3 logs")
     # he claims it and calls nothing, twice (the L5 promise turn, then an empty reply)
@@ -47,10 +47,14 @@ def test_an_ask_stays_open_while_the_game_shows_it_is_not_done(tmp_path):
     rig.agent._command(CommandReceived(player=asked[0], text=asked[1]))
     assert rig.game.players["Luis"].inventory.get("log", 0) == 0  # the game: nothing was given
     assert not rig.game.calls or all(n != "give" for n, _ in rig.game.calls)
-    # fixed: the ask is still held (or was parked by the model with a reason, which this default-path test does not
-    # model); it was not closed by silence
-    assert not _kinds(rig, "request_closed")
-    assert rig.agent._open_request == asked
+    kinds = [r["kind"] for r in rig.log.read_all() if r["kind"] in ("open_ask_turn", "request_closed")]
+    assert kinds == ["open_ask_turn", "request_closed"]  # not closed by the silence itself
+    opened, = _kinds(rig, "open_ask_turn")
+    assert opened["request"] == asked[1] and opened["shown"]["open_request"]["words"] == asked[1]
+    last = rig.controller_llm.calls[-1]
+    assert last["messages"][-1]["content"].startswith("Open request: ")
+    assert {"request_done", "park_request"} <= {t["function"]["name"] for t in last["tools"]}
+    assert _kinds(rig, "request_closed")[0]["after_open_ask_turn"] is True
 
 
 # --------------------------------------------------------------------------- 2. a brain restart loses the ask

@@ -71,7 +71,8 @@ def test_follow_up_turns_carry_the_situation_summary(tmp_path):
     obs = [json.loads(m["content"].split("Current observation: ", 1)[1])
            for c in r.model.calls for m in c["messages"][-2:-1]
            if m["role"] == "user" and str(m["content"]).startswith("Current observation: ")]
-    assert len(obs) == 2
+    assert len(obs) == 3  # two follow-up turns, then the open-ask turn after his silent stop (brain/open_ask.py)
+    assert obs[2]["situation"] == "unchanged since you last saw it"
     first_lines = r.model.contexts[0]["situation"]
     # the same lines the first turn had (the state did not change), then "unchanged" rather than a repeat
     assert obs[0]["situation"] in (first_lines, "unchanged since you last saw it")
@@ -89,7 +90,7 @@ def test_a_changed_situation_is_shown_again(tmp_path):
     r.model.turns = [LLMResponse(content="")]
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude grab that"})
     r.at(0).step()
-    follow = r.model.calls[-1]["messages"]
+    follow = r.model.calls[1]["messages"]  # the follow-up turn (the open-ask turn comes after it)
     obs = json.loads(next(m["content"] for m in reversed(follow) if str(m.get("content", "")).startswith("Current observation: "))
                      .split("Current observation: ", 1)[1])
     assert isinstance(obs["situation"], list) and obs["situation"] != r.model.contexts[0]["situation"]

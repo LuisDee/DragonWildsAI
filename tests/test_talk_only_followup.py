@@ -90,9 +90,11 @@ def test_after_a_turn_that_worked_a_talk_only_reply_is_the_report_with_no_check(
     r = _rig(tmp_path, worked=True)
     r.model.turns = [FakeLLM.say("got it, raw though")]
     _run(r)
-    assert r.body.said == ["got it, raw though"] and len(r.model.calls) == 2
+    # (the third call is the open-ask turn after his silent stop: brain/open_ask.py)
+    assert r.body.said == ["got it, raw though"] and len(r.model.calls) == 3
     assert r.records("talk_only_check") == [] and TALK_ONLY_NOTE not in _notes(r)
-    assert "comes with its tool call in this same reply" in _notes(r)[-1]
+    assert "comes with its tool call in this same reply" in _notes(r)[-2]
+    assert _notes(r)[-1].startswith("Open request: ")
 
 
 def test_a_silent_follow_up_costs_no_check(tmp_path):
@@ -109,7 +111,7 @@ def test_the_first_turn_check_is_not_doubled(tmp_path):
     r.model.turns = [LLMResponse(content="")]
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude how are you"})
     r.at(0).step()
-    assert r.body.said == ["not bad, you?"] and len(r.model.calls) == 2
+    assert r.body.said == ["not bad, you?"] and len(r.model.calls) == 3  # (+ the open-ask turn: brain/open_ask.py)
     assert r.records("talk_only_check") == []
 
 
@@ -201,7 +203,9 @@ def test_a_talk_only_reply_right_after_a_result_gave_quest_work_gets_the_check(t
 
 def test_a_result_that_only_completed_a_quest_keeps_the_report_with_no_check(tmp_path, monkeypatch):
     r = _quest_rig(tmp_path, monkeypatch, [{"quest": "Rune Mysteries", "from": "given", "to": "complete"}])
-    assert TALK_ONLY_NOTE not in _notes(r) and [c[0] for c in r.body.calls] == ["interact"]
+    assert TALK_ONLY_NOTE not in _notes(r) and [c[0] for c in r.body.calls][:1] == ["interact"]
+    # the report stood; the scripted gather came on the open-ask turn after it (brain/open_ask.py), not on a check
+    assert [x["outcome"] for x in r.records("open_ask_turn")] == ["world"]
 
 
 def test_a_later_turn_that_reads_then_only_promises_gets_the_promise_note(tmp_path):

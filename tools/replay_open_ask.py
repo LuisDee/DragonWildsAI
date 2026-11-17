@@ -35,12 +35,13 @@ import json
 import math
 import os
 import random
-import re
 import sys
 import time
 from pathlib import Path
 
 from brain import paths
+from brain.open_ask import (DONE_TOOL, OPEN_UNTIL, PARK_TOOL, WORN, _name, _names_of, changes,  # noqa: F401 (re-exported)
+                             quest_log, worn)
 
 ROOT = paths.REPO_ROOT
 LOGS = ROOT / "logs"
@@ -63,20 +64,7 @@ READS = {"agility_courses", "buildables", "combat_brief", "craft_plan", "farm_pl
 CLOSERS = {"request_done": "done_claim", "park_request": "park"}
 NEED_CONSUME = {"consume", "collect_water", "set_vitals_policy"}
 
-PARK_TOOL = {"type": "function", "function": {
-    "name": "park_request",
-    "description": "Stop working on the player's open request for now. The player hears the reason. The request stays "
-                   "open until park_request or request_done is called.",
-    "parameters": {"type": "object", "properties": {"reason": {
-        "type": "string", "description": "Why it stops here, in a few plain words the player reads."}},
-        "required": ["reason"]}}}
-DONE_TOOL = {"type": "function", "function": {
-    "name": "request_done",
-    "description": "Close the player's open request as finished. The request stays open until request_done or "
-                   "park_request is called.",
-    "parameters": {"type": "object", "properties": {"evidence": {
-        "type": "string", "description": "What in the game shows it is finished (quest log, bag, what you wear)."}},
-        "required": ["evidence"]}}}
+# The two tools and their wording live in brain/open_ask.py (the live chain offers the measured ones).
 
 
 # ------------------------------------------------------------------ log reading (pure)
@@ -168,66 +156,6 @@ def goal_request(messages: list[dict]) -> tuple[str | None, str] | None:
 # ------------------------------------------------------------------ facts (pure)
 
 
-def _name(item: str, names: dict[str, str], cat: dict) -> str:
-    if item in names:
-        return names[item]
-    n = (cat.get(item) or {}).get("name")
-    return n or re.sub(r"^ITEM_", "", str(item)).replace("_", " ")
-
-
-def _names_of(*states: dict | None) -> dict[str, str]:
-    out = {}
-    for s in states:
-        for row in (s or {}).get("inventory_items") or []:
-            if isinstance(row, dict) and row.get("item") and row.get("name"):
-                out[row["item"]] = row["name"]
-    return out
-
-
-WORN = (("head", "Head"), ("body", "Body"), ("legs", "Legs"), ("right_hand", "held_right"), ("left_hand", "held_left"),
-        ("back", "Back"))
-
-
-def worn(state: dict | None, names: dict, cat: dict) -> dict[str, str | None]:
-    g = (state or {}).get("gear") or {}
-    return {slot: (_name(g[key], names, cat) if g.get(key) else None) for slot, key in WORN}
-
-
-def quest_log(state: dict | None) -> dict:
-    q = (state or {}).get("quests") or {}
-    return {"active": [{"quest": a.get("quest"), "step": (a.get("step") or "").strip()}
-                       for a in q.get("active") or [] if isinstance(a, dict)],
-            "complete": list(q.get("complete") or [])}
-
-
-def changes(before: dict | None, after: dict | None, cat: dict | None = None, limit: int = 12) -> dict:
-    """What changed between two state reads: bag counts, worn slots, quest steps. Facts only."""
-    cat = cat or {}
-    names = _names_of(before, after)
-    out: dict = {}
-    b_inv = {k: int(v) for k, v in ((before or {}).get("inventory") or {}).items() if isinstance(v, (int, float))}
-    a_inv = {k: int(v) for k, v in ((after or {}).get("inventory") or {}).items() if isinstance(v, (int, float))}
-    delta = {k: a_inv.get(k, 0) - b_inv.get(k, 0) for k in set(b_inv) | set(a_inv)}
-    delta = sorted(((k, d) for k, d in delta.items() if d), key=lambda kd: (-abs(kd[1]), kd[0]))
-    out["bag"] = {_name(k, names, cat): (f"+{d}" if d > 0 else str(d)) for k, d in delta[:limit]} or "no change"
-    wb, wa = worn(before, names, cat), worn(after, names, cat)
-    out["worn"] = {s: f"{wb[s] or 'nothing'} -> {wa[s] or 'nothing'}" for s in wb if wb[s] != wa[s]} or "no change"
-    qb, qa = quest_log(before), quest_log(after)
-    steps_b = {a["quest"]: a["step"] for a in qb["active"]}
-    q = {}
-    for a in qa["active"]:
-        if a["quest"] not in steps_b:
-            q[a["quest"]] = f"new: {a['step']}"
-        elif steps_b[a["quest"]] != a["step"]:
-            q[a["quest"]] = f"{steps_b[a['quest']]} -> {a['step']}"
-    for name in qa["complete"]:
-        if name not in qb["complete"]:
-            q[name] = "completed" + (f" (still active: {next(a['step'] for a in qa['active'] if a['quest'] == name)})"
-                                     if any(a["quest"] == name for a in qa["active"]) else "")
-    out["quests"] = q or "no change"
-    return out
-
-
 def end_state(state: dict | None, cat: dict | None = None) -> dict:
     """Variant D: game data that says how far things stand, the same block for every ask (no ask-to-kind mapping)."""
     out: dict = {"quest_log": quest_log(state)}
@@ -256,7 +184,7 @@ def open_block(case: dict, variant: str) -> dict:
     block = {"player": case["player"], "words": case["words"], "asked_s_ago": case["age_s"],
              "changed_since_asked": case["changes"]}
     if variant == "C":
-        block["open_until"] = "request_done or park_request is called"
+        block["open_until"] = OPEN_UNTIL
     if variant == "D":
         block["game_state_now"] = case["end_state"]
     return {"open_request": block}

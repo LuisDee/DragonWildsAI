@@ -633,10 +633,13 @@ def test_a_later_body_run_carries_the_open_request_until_he_stops_on_it(tmp_path
     rig.controller.clock = lambda: rig.game.time
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)),
                             FakeLLM.say("", FakeLLM.call("gather", resource="unobtainium", count=1)),
-                            FakeLLM.say("no unobtainium anywhere near"), FakeLLM.say(""), FakeLLM.say(""))
+                            FakeLLM.say("no unobtainium anywhere near"), FakeLLM.say(""), FakeLLM.say(""),
+                            FakeLLM.say(""))
     rig.agent._command(CommandReceived(player="Luis", text="claude, go and do the woodcutter's quest"))
     asked = ("Luis", "claude, go and do the woodcutter's quest")
-    assert rig.agent._open_request is None  # he told the player why, in the run of the request itself: closed
+    # he told the player why, in the run of the request itself, and stayed silent on the open-ask turn: closed
+    assert rig.agent._open_request is None
+    assert [r.get("after_open_ask_turn") for r in rig.log.read_all() if r["kind"] == "request_closed"] == [True]
     rig.agent._open_request = asked  # as a goal's end leaves it: a body run that ended on a failure note
     n = len(rig.controller_llm.calls)
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="unobtainium", count=1)),
@@ -645,15 +648,17 @@ def test_a_later_body_run_carries_the_open_request_until_he_stops_on_it(tmp_path
     assert rig.agent._open_request == asked  # the line after a failure is about that step, not the request
     n = len(rig.controller_llm.calls)
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
-                            FakeLLM.say(""))
+                            FakeLLM.say(""), FakeLLM.say(""))
     _review(rig)
     note = rig.controller_llm.calls[n + 1]["messages"][-1]["content"]
     assert "Luis asked \"claude, go and do the woodcutter's quest\": continue with the next step of that" in note, note
     # a stop with nothing while it is open is asked about once (agent.STOP_FOR_NOTE, window s17)...
     note = rig.controller_llm.calls[n + 2]["messages"][-1]["content"]
     assert note.startswith("You stopped: no tool call and nothing said. Luis asked \"claude, go and do the"), note
-    assert len(rig.controller_llm.calls) == n + 3
-    assert rig.agent._open_request is None  # ...and he stopped on the note that named it: his call
+    # ...then the open ask is shown once as data (brain/open_ask.py)...
+    assert rig.controller_llm.calls[n + 3]["messages"][-1]["content"].startswith("Open request: ")
+    assert len(rig.controller_llm.calls) == n + 4
+    assert rig.agent._open_request is None  # ...and he stopped on it again: his call
     n = len(rig.controller_llm.calls)
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
     _review(rig)

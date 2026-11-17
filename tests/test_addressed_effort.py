@@ -55,7 +55,8 @@ def test_a_players_line_runs_at_medium_for_the_whole_request(tmp_path):
     r.model.turns = [LLMResponse(content="")]
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come here"})
     r.at(0).step()
-    assert r.model.efforts == ["medium", "medium"]  # the decision and its follow-up turn
+    # the decision, its follow-up turn, and the open-ask turn after his silent stop (brain/open_ask.py)
+    assert r.model.efforts == ["medium", "medium", "medium"]
     prompts = [x for x in r.records("prompt") if x.get("component") == "controller"]
     assert {p["effort"] for p in prompts} == {"medium"}  # what was actually sent
 

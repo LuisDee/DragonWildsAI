@@ -14,10 +14,12 @@ planner call; "what have you learned?" and "forget <skill>" are answered without
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Literal
 
-from . import needs
+from . import item_stats, needs
+from . import open_ask as oa
 from . import situation as sit
 from .consume_order import interleave
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
@@ -117,6 +119,13 @@ OPEN_JOB_NOTE = ("He asked {request!r}. This request ends here unless you act: i
                  "route exists (your situation lists them), take it now or hand the rest to {tool}; if you are truly "
                  "blocked, reply with no text at all.")
 LONG_JOB_TOOLS = ("add_task", "start_goal")
+# An ask still open when a turn calls nothing is not closed by that silence: ONE more turn shows it as data (his
+# words, how long ago, what changed in the game since) and offers request_done(evidence) and park_request(reason)
+# (brain/open_ask.py; replay docs/research/2026-11-17-open-ask-replay.md, variant C: went on 12 of 38 against 0 of 38,
+# and 24 of the 26 that did not ended in a logged park with a reason or a done claim with evidence). A second silent
+# turn closes it as before. At most one such turn per chain; the chain's MAX_TURNS and REQUEST_SECONDS still hold. A run
+# that handed the ask to a job (start_goal, run_skill, add_task) closes as before: the job carries it, its end reopens it.
+ASKS_SEEN = 8  # baselines kept for asks (where the game stood when each was asked)
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
 GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
@@ -148,6 +157,20 @@ def _step_results(tasks: list[Task]) -> list[str]:
         row = f"{_task_label(t)}: " + ("ok" if t.done else f"FAILED: {t.last_reason}")
         rows.append(row + (f". {t.detail[:GOAL_RESULT_CHARS]}" if t.detail else ""))
     return rows
+
+
+def _ask_outcome(d) -> str:
+    """How the open-ask turn ended, by its calls only (tools.unseen and the window's count read it)."""
+    names = {c.name for c in d.actions}
+    if oa.DONE in names:
+        return "done_claim"
+    if oa.PARK in names:
+        return "park"
+    if names or d.goal or d.skill:
+        return "world"
+    if d.refusals:
+        return "refused"
+    return "say" if d.speech else "silent"
 
 
 def _work_rows(d, t: dict, chars: int, unrun: bool = False) -> list[dict]:
@@ -208,6 +231,8 @@ class Agent:
         # their notes. Chain 20261116-114101: runes made, a failed boil ended the goal's run, the review after it
         # ate, drank and stopped with the quest open (in live order: 0 of 4 went on; with the request named, 6 of 6)
         self._open_request: tuple | None = None
+        self.keep_asks_open = True  # an open ask survives one silent turn (oa, the open-ask turn)
+        self._ask_seen: dict[tuple, tuple[float, dict]] = {}  # (player, words) -> (when, the state read then)
         self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -522,6 +547,7 @@ class Agent:
         heard = addressed and bool(event.text)
         if heard:
             self._open_request = (event.player, event.text)
+            self._note_ask(self._open_request, state, new=True)  # a line heard now is a new ask
         # a goal he queued that has not begun (step() starts it after this run): the run is told of it. Run
         # 20261117-041914: "chopping them now" + start_goal, a hunger event came in before the goal began, and the
         # run for it knew nothing of the waiting goal: it chopped the 48 logs and handed them in itself (260 s),
@@ -562,11 +588,13 @@ class Agent:
         fail_checked = False
         failed_any, handed, open_checked = False, False, False  # OPEN_JOB_NOTE: an open failure, a long-job tool, the check
         last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
+        open_ask, open_asked, open_prev = False, False, False  # the open-ask turn: now, once in this chain, the last one
         # the request this run is for: his line, the one a finished goal came from, or the one still open
         goal_for = next(((e.get("from"), e["request"]) for e in body_events or []
                          if e.get("type") == "goal_done" and e.get("request")), None)
         if goal_for:  # a goal's end is the next step of what he asked: open again, whatever the run before said
             self._open_request = goal_for
+            self._note_ask(goal_for, state)  # (kept when it was heard in this session: the baseline is the ask's)
         # ...a goal still running is doing the open one: a body run beside it (a need, an attack) is not for it
         run_asked = (event.player, event.text) if event.text else goal_for or (
             None if self.active_goal or self.pending_goal else self._open_request)
@@ -602,6 +630,9 @@ class Agent:
                 fd = t["failure"][2] if isinstance(t["failure"][2], dict) else {}
                 unreported.append({"turn": turn, "tool": t["failure"][0], "reason": t["failure"][1],
                                    "detail": str(fd.get("detail") or "")[:200] or None})
+            if t.get("closed") and not t["ran"] and not t["failure"]:
+                break  # he closed the open ask (request_done / park_request) and ran nothing else: his stop
+            open_prev, open_ask = open_ask, False
             fail_check = False
             if parked or last_turn:  # caps spend: the model heard why and had its one turn to say it
                 self.log.log("chain_stopped", turns=turn, why="parked" if parked else "deadline", parked=parked)
@@ -667,9 +698,18 @@ class Agent:
             if not more:
                 if (named and run_asked and run_asked == self._open_request and not t["ran"] and not t["failure"]
                         and not (d.actions or d.goal or d.skill)):
-                    self._open_request = None  # he stopped on it: done, or he said why not
-                    self.log.log("request_closed", request=run_asked[1])
-                break
+                    # a stop on the open ask: one more turn shows it as data, with request_done / park_request (oa)
+                    why_not = "had one this run" if open_asked else (
+                        "handed to a job" if handed else self._no_open_ask_turn(turn, deadline))
+                    if why_not is None:
+                        open_ask = open_asked = more = stop_checked = True  # never doubled with a check
+                    else:
+                        self._open_request = None  # he stopped on it twice (or no turn was left): closed as before
+                        self.log.log("request_closed", request=run_asked[1], after_open_ask_turn=open_prev,
+                                     **({} if open_prev else {"no_open_ask_turn": why_not}))
+                        break
+                if not more:
+                    break
             spoke = self._player_spoke()
             late = self.clock() >= deadline
             if late and t["ran"] and not spoke and turn < MAX_TURNS:
@@ -697,15 +737,17 @@ class Agent:
             try:
                 promise_for = promise_check and goal_asked
                 plain = not (parked or last_turn or fail_check or open_check or promise_check or unheard or stop_check
-                             or stop_for)
+                             or stop_for or open_ask)
                 # does the note this turn's results go back with name the request (CONTINUE_FOR, PROMISE_FOR_NOTE)?
-                named = bool(event.text) or bool(promise_for) or stop_for or (
+                named = bool(event.text) or bool(promise_for) or stop_for or open_ask or (
                     plain and not t["failure"] and bool(run_asked))
+                shown = self._open_ask_block(run_asked, state) if open_ask else None
                 say_res = {"ok": True, "note": "said"} if line_said else \
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
-                                              note=PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
+                                              note=oa.NOTE_PREFIX + json.dumps(shown, ensure_ascii=False, default=str)
+                                              if open_ask else PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
                                               UNREPORTED_NOTE.format(player=self.controller.player, items="; ".join(
                                                   f"{f['tool']} {f['reason']}" + (f" ({f['detail']})" if f["detail"] else "")
                                                   for f in unreported)) if fail_check else
@@ -718,14 +760,21 @@ class Agent:
                                               STOP_NOTE.format(line=stop_line) if stop_check else
                                               STOP_FOR_NOTE.format(player=goal_asked[0] or self.controller.player,
                                                                    request=goal_asked[1]) if stop_for else None,
-                                              news=news, request=run_asked)
+                                              news=news, request=run_asked,
+                                              extra_tools=list(oa.ASK_TOOL_SCHEMAS) if open_ask else None)
             except Exception as exc:  # model/provider error: the template still says why
+                if open_ask:
+                    self.log.log("open_ask_turn", request=run_asked[1], player=run_asked[0], shown=shown,
+                                 turn=turn, outcome="error")
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
                 if t["failure"]:
                     self.controller.report_failure(*t["failure"])
                     said = True
                 break
             self.request_calls += d.model_calls
+            if open_ask:
+                self.log.log("open_ask_turn", request=run_asked[1], player=run_asked[0], shown=shown, turn=turn,
+                             outcome=_ask_outcome(d), actions=[c.name for c in d.actions], speech=d.speech)
             self.log.log("chain_turn", turn=turn, actions=[c.name for c in d.actions], speech=d.speech)
             # A model-selected goal/skill is recovery work even without primitive actions.
             # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
@@ -807,7 +856,12 @@ class Agent:
         acts = interleave(d.actions, state)  # food and drink locks are separate: a drink never waits behind food
         if [id(c) for c in acts] != [id(c) for c in d.actions]:
             self.log.log("consume_interleaved", order=[(c.arguments or {}).get("item") for c in acts if c.name == "consume"])
+        closed = None  # request_done / park_request closed the open ask this turn
         for call in ([] if failure else acts):
+            if call.name in oa.ASK_TOOLS:
+                results[call.id or call.name] = self._close_ask(call, extra)
+                closed = call.name
+                continue
             if call.name in ("remember", "forget_skill"):
                 res = self._remember(call.arguments, state, event.player) if call.name == "remember" \
                     else self._forget_skill(call.arguments)
@@ -864,7 +918,58 @@ class Agent:
                 results[failed_call.id or failed_call.name] = {"ok": False, "reason": failure[1], "data": failure[2],
                                                                "args_help": self.controller.arg_help("run_skill")}
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
-                "spoken": spoken, "ran": ran, "body": body}
+                "spoken": spoken, "ran": ran, "body": body, "closed": closed}
+
+    # ---------------------------------------------------------------- the open ask (brain/open_ask.py)
+
+    def _note_ask(self, ask: tuple, state: dict, new: bool = False) -> None:
+        """Where the game stood when this ask opened: the baseline its open-ask turn's changes are read against.
+        new: a line heard now (a new ask, even in the same words); an ask reopened by a goal's end keeps its own."""
+        if (ask in self._ask_seen and not new) or not oa.readable(state):
+            return
+        self._ask_seen.pop(ask, None)  # re-inserted last: the oldest baseline is the one dropped
+        self._ask_seen[ask] = (self.clock(), state)
+        while len(self._ask_seen) > ASKS_SEEN:
+            self._ask_seen.pop(next(iter(self._ask_seen)))
+
+    def _no_open_ask_turn(self, turn: int, deadline: float) -> str | None:
+        """Why the chain cannot run the open-ask turn now (its budgets hold), or None."""
+        if not self.keep_asks_open:
+            return "off"
+        if turn >= MAX_TURNS:
+            return "turn budget"
+        if self.clock() >= deadline:
+            return "deadline"
+        if self._player_spoke():
+            return "the player spoke"
+        return None
+
+    def _open_ask_block(self, ask: tuple, state: dict) -> dict:
+        """The open ask as data, from fresh state against the state read when it was asked (facts, no advice)."""
+        seen = self._ask_seen.get(ask)
+        if seen is None or not oa.readable(state):
+            changed = "unknown: no state read from when it was asked" if seen is None else "unknown: no state read now"
+        else:
+            try:
+                cat = item_stats.catalog()
+            except Exception:  # names fall back to the body's own and the id
+                cat = {}
+            changed = oa.changes(seen[1], state, cat)
+        return oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed)
+
+    def _close_ask(self, call, extra: list[str]) -> dict:
+        """request_done / park_request: the open ask ends here. The claim or the reason is recorded, never judged; a
+        park reason is said (the player hears it, as the tool says)."""
+        ask, self._open_request = self._open_request, None
+        words = str((call.arguments or {}).get(oa.ARG[call.name]) or "").strip() or None
+        who, what = ask or (None, None)
+        if call.name == oa.PARK:
+            self.log.log("request_parked", request=what, player=who, reason=words)
+            if words:
+                extra.append(words)
+        else:
+            self.log.log("request_done_claimed", request=what, player=who, evidence=words)
+        return {"ok": True, "note": "request parked" if call.name == oa.PARK else "request closed as finished"}
 
     def _note_progress(self, t: dict, before: dict, after: dict, player: str) -> str | None:
         """The no-progress breaker (brain/progress.py), on the turn's body results before the model reads them:

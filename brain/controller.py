@@ -40,6 +40,7 @@ from . import situation as sit
 from .interface import (BRAIN_TOOLS, PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
 from .jsonl_log import JsonlLogger
+from .open_ask import ASK_TOOLS
 from .llm import (LLMClient, LLMResponse, ToolCall, assistant_message, model_view, request_log_fields, strip_markers,
                   tool_result_message)
 from .spells import SpellBook
@@ -447,6 +448,8 @@ class Controller:
         self._spoke: set[str] = set()  # everyone who has spoken to him this session (players, by the chat's own name)
         self._player_names: list[str] = [player] if player else []  # what a player argument may be (_note_players)
         self.tools = self._tool_list()
+        # tools offered for one turn only (next_turn extra_tools: request_done / park_request while an ask is open)
+        self._extra: list[dict] = []
         self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
         self.on_say: Callable[[str], None] | None = None  # told about every line the companion says
         self.voice = Voice(clock=clock)  # the single speech gate (near-duplicates)
@@ -529,10 +532,10 @@ class Controller:
         self.tools = self._tool_list()
 
     def non_interrupting(self) -> set[str]:
-        return NON_INTERRUPTING | (set(self.director.tool_names) if self.director is not None else set())
+        return NON_INTERRUPTING | set(ASK_TOOLS) | (set(self.director.tool_names) if self.director is not None else set())
 
     def offered(self) -> set[str]:
-        return {t["function"]["name"] for t in self.tools}
+        return {t["function"]["name"] for t in self.tools + self._extra}
 
     def note_event(self, event: Event) -> None:
         if isinstance(event, PROGRESS_EVENTS):
@@ -745,7 +748,7 @@ class Controller:
         resp = LLMResponse()
         for step in range(self.max_calls):
             tag = f"{label}{step}" if label else step
-            resp = self._complete(messages, self.tools, d, step=tag)
+            resp = self._complete(messages, self.tools + self._extra, d, step=tag)
             calls = self.acts(resp)
             reads = [c for c in calls if c.name in self.read_tools and c.name in offered]
             commits = [c for c in calls if c.name not in self.read_tools]
@@ -776,7 +779,7 @@ class Controller:
             messages.append(tool_result_message(call, {"ok": None, "note": "not run: no more looking this turn"}))
         self._answer_says(messages, resp, d)
         messages.append({"role": "user", "content": FINAL_PASS_NOTE})
-        tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
+        tools = [t for t in self.tools + self._extra if t["function"]["name"] not in self.read_tools]
         try:
             final = self._complete(messages, tools, d, step=f"{tag}final")
         except Exception as exc:  # the turn ends as before (nothing done), the error is logged
@@ -892,10 +895,19 @@ class Controller:
 
     def next_turn(self, d: Decision, results: dict[str, dict], state: dict | None = None,
                   failed: bool = False, note: str | None = None, news: list[str] | None = None,
-                  request: tuple[str, str] | None = None) -> Decision:
+                  request: tuple[str, str] | None = None, extra_tools: list[dict] | None = None) -> Decision:
         """The standard agent loop: the results of the turn's tool calls go back to the model, which
         continues its plan (more tools), reports, or stops (an empty reply). Reads run inline again.
-        request: (player, his words) this run is for (his chat line, or the request a finished goal came from)."""
+        request: (player, his words) this run is for (his chat line, or the request a finished goal came from).
+        extra_tools: offered on this turn only (agent: request_done / park_request on the open-ask turn)."""
+        self._extra = list(extra_tools or [])
+        try:
+            return self._next_turn(d, results, state, failed, note, news, request)
+        finally:
+            self._extra = []
+
+    def _next_turn(self, d: Decision, results: dict[str, dict], state: dict | None, failed: bool, note: str | None,
+                   news: list[str] | None, request: tuple[str, str] | None) -> Decision:
         msgs = list(d.messages)
         calls = (msgs[-1].get("tool_calls") or []) if msgs else []
         for tc in calls:  # every tool call of the turn needs a result
@@ -1040,6 +1052,9 @@ class Controller:
                 if new != call.name and new in offered:
                     self.log.log("controller_alias", said=call.name, tool=new, args=args)
                     call.name, call.arguments = new, args
+            if call.name in ASK_TOOLS and call.name in offered:  # offered this turn only; the agent records it
+                d.actions.append(call)
+                continue
             if call.name == "start_goal":
                 if call.arguments.get("goal"):
                     d.goal = str(call.arguments["goal"])
