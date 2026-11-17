@@ -7,7 +7,7 @@ The ladder and its bars in `docs/GOAL-2026-11-01.md` stay the standard. This fil
 ## The goal text (what `/goal` holds)
 
 ```
-Work docs/GOAL-2026-11-17-long-jobs.md on the dev world, run by CLAUDE.md section 2 (rules 1 to 12). Each session starts with `quest_run rates`, `failure_ledger report` and `unseen report`; announce, then start the server, client and brain if they are down.
+Work docs/GOAL-2026-11-17-long-jobs.md on the dev world, run by CLAUDE.md section 2 (rules 1 to 12). Each session starts with `quest_run rates`, `failure_ledger report` and `unseen report`; announce, then start the server, client and brain if they are down. First of all: keep a world snapshot (`world_snapshot keep base`), then the confirm window the unseen ledger asks for.
 
 1. Long jobs that survive interruption: one ask carried to an end the game state confirms, through hunger and thirst, a fight, his own death and grave, a full bag and a brain restart, using a memory of his own chests. The thinking model plans and revises while the fast model keeps acting; neither waits for the other (search first: docs/research/2026-11-17-long-jobs-planner-actor.md). Measure first, then work the interruption with the most open runs alone from a checkpoint. Then the whole jobs: armour made from nothing and worn, a supply run into his chest, gear up for a vault.
 2. Jump landings: make every landing readable, then bring the paths with a landing judged missed from 36 % to under 10 %, with no attack ended by it. Decide 61412a5 on that evidence.
@@ -18,6 +18,15 @@ Held-out: the asks listed in the doc are run and scored but never fixed against,
 
 Unchanged: nothing tells him how to do a quest or task (fixes only in tools, perception, reports and the harness). Do not re-run items AT STANDARD. Tag every failed run in the ledger; evidence in PROGRESS.md; commit and push each change; keep about five subagents busy on offline work; never ask for a go. Stop at the daily spend cap or for Steam Guard.
 ```
+
+## On resume, in this order
+
+1. **A named world.** Announce, stop the server with `-Hold`, `world_snapshot keep base`, start it. The restore itself is untried live: its first use is a trial of the tool (does the server load the restored save, does the client rejoin), not of him.
+2. **The confirm window** (rule 12). The ledger opens with 20 fixes unseen, over the cap of 8. `docs/research/2026-11-17-unseen-triage.md` says which of them the existing logs already settle and the shortest trials for the rest.
+3. **Jump landings made readable** (the log line of section 2), then the course.
+4. **The first long-job window:** I1 to I5 once each, for a number and a ledger row (`docs/research/2026-11-17-long-job-harness.md` has the wiring).
+
+Offline at the same time, by subagents: the lookup eval and its fix (section 3), replay studies of the turns where an ask was dropped, the planner and actor design.
 
 ## 1. Long jobs that survive interruption
 
@@ -129,3 +138,4 @@ Not parked, because the tools now carry it: fixes not yet seen live (`tools/unse
 
 1. The miss bar for a long job: 1 per job as the ladder says, or a rate (for example 1 per 5 minutes).
 2. Placement: whether the fallback is allowed (the placement call sent only when the game's preview says valid, with the preview's own transform).
+3. World restore and his dev character: the world save holds the server's copy of every character it has seen. `world_snapshot restore` refuses when the server's logs show a player other than Claude joined after the snapshot (none has since 2026-11-02, as far back as the logs go). If Luis plays on the dev world again, a later restore needs his word (`--others-ok`).

@@ -2030,3 +2030,39 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Ledger:** 58 rows, none untagged, 10 void. No failed run in s31.
 - **Spend** on 2026-11-17 UTC: $3.01 of $10 by the guard (1,284 calls). s31 cost about $0.08.
 - **Body:** client on `ClaudeDev`; dev server and client left up; no brain running.
+
+## 2026-11-17 14:25Z-16:40Z: the run is stopped; the retro; Luis's pivot to long jobs, jump landings and a lookup; rules 8 to 12 and the tools behind them; nothing ran on the body
+
+**Luis's pivot.** "Long jobs that survive interruption", "jump landings" and "a lookup for enemies and vaults", because they can go on without him. He asked for a log of what is set aside, for changes so the next stint has fewer blockers, and whether subagents are used. He added that long jobs should make the thinking model and the fast model work at the same time, and that how others do it should be searched.
+
+**What was written.**
+- `docs/RETRO-2026-11-17-session.md`: what the two days produced and the 11 things that slowed them, each with what changed.
+- `docs/GOAL-2026-11-17-long-jobs.md`: the working goal, the text for `/goal`, the order on resume, the interruption steps I1 to I5, the jobs L1 to L3, the held-out asks H1 to H3, the parked list (12 rows) and three decisions that are Luis's.
+- `CLAUDE.md` section 1 points at it; section 2 has rules 8 to 12 and the breadth rule (4191544).
+
+**What was built (all offline; tests only, none used live yet).**
+
+| Commit | What | What it is for |
+|---|---|---|
+| bb5214f | `quest_run` refuses a window on uncommitted code in `client_mod/` or `brain/` | the unfinished `combat.lua` that hot-loaded into window s29 |
+| eaee93c | `tools/ab.py`: Wilson interval, Fisher's exact test, trials needed | rule 11: a window's number and sample size named first |
+| 7536640 | `tools/world_snapshot.py`: keep, restore (a dry run unless `--confirm`), verify, list; 23 tests | rule 9: a window starts from a named world |
+| 8b08085 | `tools/unseen.py` and `docs/unseen_fixes.jsonl`: 20 open rows, 2 confirmed; 16 tests | rule 12: no fix stays unseen; cap 8 |
+
+- **World snapshot facts** (read, not run): the world is `SaveGames\CompanionDev.sav`, its `.backup` and 122 `SpudCache` files, 12.4 MB. A restore between windows costs about 1.5 to 2.5 minutes (server start about 23 s, client boot median 39 s). The tool stops and starts nothing, and refuses under a running server, without the hold file, or under a held live lock.
+- **A guard I added on review:** the world save holds the server's copy of every character it has seen. A restore refuses when the server's logs show a player other than Claude joined after the snapshot. In the logs (back to 2026-11-02, 264 joins) no other player has joined.
+- **The unseen scan of the existing logs:** 9 of the 20 open fixes show their own line after their commit (c2a9835, f1108be, 235f401, 62d7fc7, c835589 in part, 02d2cfd, 46c0ca9, d5f57ad indirectly, 61412a5); 5 never ran (e5b851c, 1cffdc4, 82a9824, 07f1cb3, c9fb8ff); 6 have no line of their own. A hit is an exposure, not a confirmation. Reading each is handed to a subagent.
+
+**A count I corrected.** In the 14:25Z entry and to Luis I said one window was too small to judge 61412a5. For walks that holds (6 of 38 against 2 of 11). For jumps it does not: 8 of 43 paths with a landing judged missed before, 11 of 16 after, p = 0.0005 by Fisher's exact test.
+
+**Long jobs: what the code does today** (survey by a subagent, the main claims checked in the code; table in the goal doc). The ask lives in memory and closes on any turn with no call. Death, a full bag and over-weight are two re-plans and then stuck. A brain restart loses the ask. His chests are remembered by an id that changes each session, and the full-bag options never list one (`brain/stash.py:96` gives a dict, `brain/needs.py:399` wants a list). The Controller cannot read the place memory or the gear comparison. Last measured 2026-11-02: `gear_up` 0 of 5, `bag` 0 of 1.
+
+**Subagents.** 4 launches in the three days from 15 to 17 Nov before today, against "about five busy". Today: 3 finished (the long-job survey, the unseen ledger, the world snapshot) and 5 running at 16:40Z, each with its own files: how others run a planner and an actor at once on one long job; a reading of the unseen fixes against the logs; an eval of `lookup` on enemies and vaults (30 questions, half held out, no model calls); jump landings measured from the logs with a search of how Unreal, Detour and game bots judge a jump; the harness parts for job trials. Rule 7 now says the offline work is handed out before a window starts.
+
+**State at 16:40Z.**
+- **Body:** stopped since 14:25Z by Luis's word. Dev server (PID 19608) and client up, client on `ClaudeDev`, no brain. Nothing ran on it and no Lua was edited. It stays so until Luis sets the goal or says to resume.
+- **Rates and ledger:** unchanged from 14:25Z (58 rows, none untagged, 10 void).
+- **Spend** on 2026-11-17 UTC: $3.01 of $10 by the guard (1,284 calls), unchanged.
+- **Limits.** `world_snapshot` has never kept or restored the real world: that the server loads a restored save is not shown. The held-out set is only as good as my keeping to it. The unseen ledger opens at 20, over its cap of 8, so the first window on resume is a confirm window.
+- **For Luis:** the miss bar for a long job (1 per job, or a rate); whether the placement fallback is allowed; a world restore after he has played on the dev world needs his word.
+- **Next, on resume:** the order in the goal doc (a named world, the confirm window, landings made readable, I1 to I5 once each).
