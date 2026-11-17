@@ -68,6 +68,36 @@ def preflight(a) -> list[str]:
     return bad
 
 
+CODE_DIRS = ("client_mod", "brain")  # what a window plays with; the Lua hot-loads into the running client
+
+
+def dirty_code(root: Path = ROOT) -> list[str]:
+    """Uncommitted changes under client_mod/ and brain/, as git's short status rows. A window plays the working tree,
+    not a commit: on 2026-11-16/17 an unfinished combat.lua hot-loaded into a trial for 19 s and cost the window.
+    Empty when git cannot say."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "status", "--porcelain", "--", *CODE_DIRS], cwd=root, capture_output=True,
+                             text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [row.strip() for row in out.stdout.splitlines() if row.strip()] if out.returncode == 0 else []
+
+
+def refuse_dirty(a, rows: list[str] | None = None) -> bool:
+    """True (and says why) when a window would start on uncommitted code. --dirty-ok REASON lets it run and prints the
+    reason, so the window's log holds it. Not asked inside a window (in_lock): its start was checked."""
+    rows = dirty_code() if rows is None else rows
+    if not rows or getattr(a, "in_lock", False):
+        return False
+    if getattr(a, "dirty_ok", None):
+        print(f"running on uncommitted code ({len(rows)} files): {a.dirty_ok}")
+        return False
+    print("not running: uncommitted changes in " + " or ".join(d + "/" for d in CODE_DIRS) + " (a window plays the "
+          "working tree):\n  " + "\n  ".join(rows[:12]) + "\ncommit them, or pass --dirty-ok REASON")
+    return True
+
+
 # ------------------------------------------------------------------ the human time bar (Luis has no quest baseline)
 BASELINE = ROOT / "data" / "baselines" / "luis-2026-11-01.json"
 # average adult silent reading, 238 words/min (Brysbaert 2019, "How many words do we read per minute?", J. Memory and
@@ -359,6 +389,8 @@ def cmd_run(a) -> int:
     if not a.confirm:
         print("refusing: a live run moves Claude and sends test chat on the dev server; pass --confirm")
         return 2
+    if refuse_dirty(a):
+        return 7
     a.start_brain, a.use_running_brain = True, False
     from tools.live_lock import held
     from tools import m1_session
@@ -634,6 +666,8 @@ def cmd_fresh(a) -> int:
     if not a.confirm:
         print("refusing: this relaunches the client on a new character; pass --confirm")
         return 2
+    if refuse_dirty(a):
+        return 7
     import argparse as ap_
     from evals.bench.devchar import NAME_RE
     from tools import failure_ledger
@@ -759,6 +793,8 @@ def cmd_step(a) -> int:
     if not a.confirm:
         print("refusing: this relaunches the client on forked characters; pass --confirm")
         return 2
+    if refuse_dirty(a):
+        return 7
     import argparse as ap_
     from tools import quest_clone
     line = a.line or [l for q, l, _ in FRESH_PLAN if q == a.quest]
@@ -906,6 +942,9 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--reserve-s", type=float, default=240.0, help="kept for the switch back to ClaudeDev")
     st.add_argument("--max-haiku", type=int, default=60)
     st.add_argument("--usd", type=float, default=0.4, help="each trial's spend cap on top of today's spend")
+    for p in (r, fr, st):
+        p.add_argument("--dirty-ok", metavar="REASON", help="run although client_mod/ or brain/ has uncommitted "
+                       "changes (the reason is printed into the window's log)")
     rt = sub.add_parser("rates", help="pass rate and streak per item, void runs left out; and whether the chain may run")
     rt.add_argument("-n", type=int, default=10)
     rt.add_argument("--since", default="20261116", help="only runs from this run id on")

@@ -19,6 +19,24 @@ def _result(ts, tool, ok, **data):
     return {"kind": "tool_result", "ts": ts, "tool": tool, "result": {"ok": ok, "data": data}}
 
 
+def test_a_window_does_not_start_on_uncommitted_code(tmp_path, capsys):
+    import argparse
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "client_mod").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "note.md").write_text("x")           # outside the code a window plays with
+    assert q.dirty_code(tmp_path) == []
+    (tmp_path / "client_mod" / "combat.lua").write_text("x")  # an unfinished file the running client would hot-load
+    rows = q.dirty_code(tmp_path)
+    assert len(rows) == 1 and "client_mod" in rows[0]
+    assert q.refuse_dirty(argparse.Namespace(dirty_ok=None), rows) is True
+    assert "combat.lua" in capsys.readouterr().out or "client_mod" in rows[0]
+    assert q.refuse_dirty(argparse.Namespace(dirty_ok="a log line only"), rows) is False
+    assert q.refuse_dirty(argparse.Namespace(dirty_ok=None, in_lock=True), rows) is False  # inside a window
+    assert q.refuse_dirty(argparse.Namespace(dirty_ok=None), []) is False
+
+
 def test_the_bar_counts_successful_steps_at_his_pace_and_reading_time():
     rows = [_state(0, 0, 0),
             _result(5, "go_to", False, detail="path_blocked"),           # a miss: nothing
