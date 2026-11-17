@@ -53,7 +53,20 @@ Luis: long jobs should "push the synergy between the planning thinking model and
 - **Today:** the Controller (Haiku) mostly waits while the Planner (Sonnet) composes. His first act comes about 20 s after an ask when the Planner is involved, 7 to 10 s when it is not.
 - **Aim:** the Controller starts on what is plainly next while the Planner thinks; a plan or a revision lands between two of his calls without stopping him; the Planner is called again when the world has moved off the plan (a death, a full bag, a step that failed twice), not on a clock.
 - **Measures:** seconds from the ask to his first act; seconds he stands while a plan is composed; Planner calls per job and their cost; how often a revision arrived after the step it was about.
-- **Search before building:** `docs/research/2026-11-17-long-jobs-planner-actor.md` (dual-process agents, game agents with long tasks, task ledgers, durable execution). The design is taken from what it finds, most reusable first.
+- **What the search found** (`docs/research/2026-11-17-long-jobs-planner-actor.md`; ten patterns, sources and licences inside):
+  - Acting while the planner thinks is measured to work in real-time studies (HLA on Overcooked: 114 to 130 with both models against 33 to 102 slow-only; AgileThinker: 0.89 against 0.57 reactive-only). All on other models; none on Haiku with Sonnet.
+  - Done must be read from the game. Voyager got 73 % fewer items without its check, and our own closing tool `request_done` closed wrongly 5 of 10 times.
+  - Nobody has published a number for a job that survives a restart or the agent's death. Mindcraft (MIT) has the mechanism: the goal is saved, reloaded, and the model is told what interrupted it.
+  - The board with the Director already has most of the parts (the ask on disk, steps checked by predicates on fresh state, a stale decision discarded). Its one clear gap: no step runs while a decision is pending (`brain/director.py:1144`). The default path has none of it and calls the planner in line (`brain/agent.py:1207`).
+- **The order it gives, each with its measure** (adapt; no framework is adopted):
+  1. The ask on disk when it is heard, read back at start with a "where you were" turn. Measure: I5.
+  2. Death and a full bag are interruptions with a true message, not failed steps. Measure: I3, I4.
+  3. The actor runs while a plan is being composed, with an honest note that it is. Measure: seconds to his first act, and misses per job against the waiting arm (`tools.ab`).
+  4. A revision lands as one write and one event line; the running command is not stopped. Measure: revisions that came after their step.
+  5. The planner is called by events only (the ask, a step failed twice, a stall, death, a full bag, a restart). Measure: Planner calls and cost per job.
+  6. The end condition is written at the ask and checked by code. Measure: "done" said with the condition false, 0.
+  7. A command's intent is saved before it is sent, and reconciled from the game after a restart. Measure: side effects repeated after I5, 0.
+- The search points at the board as the one holder. The trial below still decides.
 
 ### What "done" means
 
