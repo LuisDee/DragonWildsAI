@@ -126,7 +126,7 @@ Rules for the held-out set: its runs are scored and tagged by class in the ledge
 
 ## 4. Capstone: a vault from one ask
 
-Rung 6 of the ladder. Tried only when L1 to L3 are at standard and the jump course passes. The first vault is the one the storyline uses: Vertentis Kara, whose boss is a rat king in its "rat boss room" (corrected 2026-11-17: Velgar, power level 4, is a separate boss at Velgar's Rise in Ghornfell, not this vault's; the lookup eval and the wiki mirror pages 3517 and 10114). Its facts and the path to its door: `docs/research/2026-11-17-vault-capstone.md`. Its first three runs are held-out scores.
+Rung 6 of the ladder. Tried only when L1 to L3 are at standard and the jump course passes. The first vault trial is **Crasorak Kara** (decided 2026-11-17 from `docs/research/2026-11-17-vault-capstone.md`): first in the wiki's order, the shortest vault, about 290 m from his saved place, no quest in front of it and no Windstep on the way to its boss. Then **Vertentis Kara**, the storyline's vault (power level 2, boss the Rat King, 280 HP). Velgar (power level 4, 6,000 HP, four phases, poison) is the end of Dragon Slayer at Velgar's Rise, not a vault boss: a later rung. What blocks the first run today: the door and what is behind it (an untried teleport; no reads of doors, levers or traps), group fights against guardians above his level, and a death inside (the grave lands outside and the ask is lost). Leather armour needs thread from a spinning wheel under a roof (parked), so he would go in one power level low. No human time exists for a vault: one run by Luis on the dev world, recorded, is the ask. Its first three runs are held-out scores.
 
 ## Parked on 2026-11-17 (owed; return in this order unless Luis says otherwise)
 
