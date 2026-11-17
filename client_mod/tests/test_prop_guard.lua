@@ -244,5 +244,243 @@ do
     check("player_name: refuses the stale entry, falls back to the object name", U.player_name(golem) == "BP_Golem_C_1" and FAKE_AV == nil, FAKE_AV)
 end
 
+-- 7. vault reads (sense.lua "vaults", docs/research/2026-11-17-vault-reads.md): a fake actor of each class the note
+--    names (field names from dump 26574459), every read through U.prop. What reads is told; a read that fails or gives
+--    nil adds no field and the census (look) still lists the thing; a stale cache entry is refused, never read.
+do
+    UE_CACHE = {}; FAKE_AV = nil
+    local S = assert(loadfile(root .. "/client_mod/scripts/sense.lua"))()
+    S.U.is_ue_object = U.is_ue_object
+    S.U.prop_reset()
+    local clock = 0
+    S.vault_clock = function() return clock end
+    local function fresh() clock = clock + S.VAULT_TTL_S + 1 end
+    local BP = "BlueprintGeneratedClass"
+    local function at(x, y, z) return function() return { X = x, Y = y, Z = z } end end
+    local function arr(items) return { ForEach = function(_, cb) for i, v in ipairs(items) do if cb(i, v) then break end end end } end
+    local function cm(x, y, z) return { X = x, Y = y, Z = z } end
+
+    -- native classes
+    local Registry = struct("Class", "/Script/Dominion.GameplayObjectRegistry", "v01", Actor, { { "Dungeons", "ArrayProperty" } })
+    local Audio = struct("Class", "/Script/Dominion.LocalPlayerAudioSubsystem", "v02", Object, { { "bInDungeon", "BoolProperty" } })
+    local Target = struct("Class", "/Script/Dominion.TeleportationTarget", "v03", Actor, { { "TargetName", "NameProperty" } })
+    local SwitchBase = struct("Class", "/Script/Dominion.SwitchBase", "v04", WorldActor,
+        { { "Switchables", "ArrayProperty" }, { "SwitchState", "StructProperty" } })
+    local ISwitch = struct("Class", "/Script/Dominion.InteractableSwitch", "v05", SwitchBase,
+        { { "InteractionComponent" }, { "HighestPosition", "ByteProperty" } })
+    local SwActor = struct("Class", "/Script/Dominion.SwitchableActor", "v06", WorldActor, {})
+    local STrap = struct("Class", "/Script/Dominion.SwitchableTrap", "v07", SwActor, { { "TrapBehaviourModules", "ArrayProperty" } })
+    local ATrap = struct("Class", "/Script/Dominion.AnimatingTrap", "v08", STrap, { { "UserReadableName", "TextProperty" } })
+    local Module = struct("Class", "/Script/Dominion.TrapBehaviourModule", "v09", Object, { { "bActive", "BoolProperty" } })
+    local VChest = struct("Class", "/Script/Dominion.WorldChest", "v10", Actor,
+        { { "InventoryComponent" }, { "ChestRespawnProfile", "StructProperty" }, { "ChestState", "EnumProperty" } })
+    local Dungeon = struct("Class", "/Script/Dominion.Dungeon", "v11", Actor,
+        { { "BoxComponent" }, { "DungeonUserVisibleName", "TextProperty" } })
+    local Scene = struct("Class", "/Script/Engine.SceneComponent", "v12", Object, { { "AttachParent" }, { "RelativeLocation", "StructProperty" },
+        { "RelativeRotation", "StructProperty" }, { "RelativeScale3D", "StructProperty" } })
+    local Box = struct("Class", "/Script/Engine.BoxComponent", "v13", Scene, { { "BoxExtent", "StructProperty" } })
+    -- Blueprint classes (BP headers: the plain and the _Locked teleporter both derive from AWorldActor and each declares its own
+    -- TeleportDestinationName)
+    local tp_c = struct(BP, "/Game/Gameplay/World/Misc/BP_InteractablePlayerTeleporter.BP_InteractablePlayerTeleporter_C", "0xV1",
+        WorldActor, { { "Interaction" }, { "TeleportDestinationName", "NameProperty" } })
+    local tpl_c = struct(BP, "/Game/Gameplay/World/Misc/BP_InteractablePlayerTeleporter_Locked.BP_InteractablePlayerTeleporter_Locked_C",
+        "0xV2", WorldActor, { { "Interaction" }, { "TeleportDestinationName", "NameProperty" }, { "IsUnlocked", "BoolProperty" } })
+    local lever_c = struct(BP, "/Game/Gameplay/World/Mechanisms/BP_BinaryLever.BP_BinaryLever_C", "0xV3", ISwitch, {})
+    local chest_c = struct(BP, "/Game/Vault/BP_VaultChest.BP_VaultChest_C", "0xV4", VChest, {})
+    local trap_c = struct(BP, "/Game/Vault/BP_FireTrap.BP_FireTrap_C", "0xV5", ATrap, {})
+    local door_c = struct(BP, "/Game/Vault/BP_FinalDoor_vault_Refactored.BP_FinalDoor_vault_Refactored_C", "0xV6", SwActor, {})
+    local L = "/Game/Maps/World/L_World.L_World:PersistentLevel."
+    local function key(st, name) return st.path .. ":" .. name end
+
+    -- the world: he stands at (0, 0, 0); the vault "Crasorak Kara" is the box x 1000..5000, y -2000..2000, z -500..500
+    local W = { me = cm(0, 0, 0), ics = {}, all = {} }
+    local pawn = { IsValid = function() return true end, K2_GetActorLocation = function() return W.me end,
+                   GetFullName = function() return "BP_PlayerCharacter_C " .. L .. "BP_PlayerCharacter_C_1" end }
+    local pc = { IsValid = function() return true end, IsLocalController = function() return true end, Pawn = pawn,
+                 GetFullName = function() return "BP_PlayerController_C " .. L .. "BP_PlayerController_C_1" end }
+    function FindAllOf(cls)
+        if cls == "BP_PlayerController_C" then return { pc } end
+        if cls == "InteractionComponent" then return W.ics end
+        return W.all[cls] or {}
+    end
+    local function add(cls, o) W.all[cls] = W.all[cls] or {}; table.insert(W.all[cls], o); return o end
+    local function interactable(a, prompt, x, y, z)
+        W.ics[#W.ics + 1] = { IsValid = function() return true end, GetOwner = function() return a end, InteractionPrompt = ftext(prompt),
+            K2_GetComponentLocation = at(x, y, z), GetFullName = function() return "InteractionComponent " .. U.path_of(a) .. ".Interaction" end }
+        return a
+    end
+    local vault_box = { min = cm(1000, -2000, -500), max = cm(5000, 2000, 500), IsValid = true }
+    local dungeons = { { UserVisibleName = ftext("Crasorak Kara"), Box = vault_box } }
+    local reg = add("GameplayObjectRegistry", instance(Registry, "GameplayObjectRegistry " .. L .. "GameplayObjectRegistry_1",
+        { [key(Registry, "Dungeons")] = arr(dungeons) }))
+    local audio_vals = { [key(Audio, "bInDungeon")] = false }
+    add("LocalPlayerAudioSubsystem", instance(Audio, "LocalPlayerAudioSubsystem /Engine/Transient.GameEngine_1:LocalPlayer_1.LocalPlayerAudioSubsystem_1", audio_vals))
+    add("TeleportationTarget", instance(Target, "TeleportationTarget " .. L .. "TeleportationTarget_1",
+        { [key(Target, "TargetName")] = ftext("CK_Inside") }, { K2_GetActorLocation = at(3000, 0, 0) }))
+    add("TeleportationTarget", instance(Target, "TeleportationTarget " .. L .. "TeleportationTarget_2",
+        { [key(Target, "TargetName")] = ftext("CK_Outside") }, { K2_GetActorLocation = at(-500, 0, 0) }))
+    local door = instance(door_c, "BP_FinalDoor_vault_Refactored_C " .. L .. "BP_FinalDoor_vault_Refactored_C_1", {})
+    local tp_vals = { [key(tp_c, "TeleportDestinationName")] = ftext("CK_Inside") }
+    interactable(instance(tp_c, "BP_InteractablePlayerTeleporter_C " .. L .. "BP_InteractablePlayerTeleporter_C_1", tp_vals,
+        { K2_GetActorLocation = at(500, 0, 0) }), "Enter", 500, 0, 0)
+    local tpl_vals = { [key(tpl_c, "TeleportDestinationName")] = ftext("CK_Outside"), [key(tpl_c, "IsUnlocked")] = false }
+    interactable(instance(tpl_c, "BP_InteractablePlayerTeleporter_Locked_C " .. L .. "BP_InteractablePlayerTeleporter_Locked_C_1", tpl_vals,
+        { K2_GetActorLocation = at(600, 0, 0) }), "Enter", 600, 0, 0)
+    local lever_vals = { [key(SwitchBase, "SwitchState")] = { ServerTimeOfInteraction = 12.5, SwitchPosition = 1 },
+                         [key(ISwitch, "HighestPosition")] = 1, [key(SwitchBase, "Switchables")] = arr({ door }) }
+    interactable(instance(lever_c, "BP_BinaryLever_C " .. L .. "BP_BinaryLever_C_1", lever_vals, { K2_GetActorLocation = at(700, 0, 0) }),
+        "Pull", 700, 0, 0)
+    local chest_vals = { [key(VChest, "ChestState")] = 2 }
+    add("WorldChest", interactable(instance(chest_c, "BP_VaultChest_C " .. L .. "BP_VaultChest_C_1", chest_vals,
+        { K2_GetActorLocation = at(800, 0, 0) }), "Open", 800, 0, 0))
+    local m_on = instance(Module, "TrapDamageModule " .. L .. "BP_FireTrap_C_1.TrapDamageModule_1", { [key(Module, "bActive")] = true })
+    local m_off = instance(Module, "TrapCollisionModule " .. L .. "BP_FireTrap_C_1.TrapCollisionModule_1", { [key(Module, "bActive")] = false })
+    local trap_vals = { [key(ATrap, "UserReadableName")] = ftext("Fire Jet"), [key(STrap, "TrapBehaviourModules")] = arr({ m_on, m_off }) }
+    add("SwitchableTrap", instance(trap_c, "BP_FireTrap_C " .. L .. "BP_FireTrap_C_1", trap_vals, { K2_GetActorLocation = at(900, 0, 0) }))
+
+    local function census() fresh(); return S.census(nil, { radius_m = 30 }) end
+    local function row(c, word)
+        for _, cat in ipairs({ "interactables", "hazards" }) do
+            for _, d in ipairs(c[cat] or {}) do if tostring(d.id):find(word, 1, true) then return d, cat end end
+        end
+    end
+    local c = census()
+    check("vault: the census reads", c and c.ok == true, c and c.reason)
+    check("vault: no raw read faulted", FAKE_AV == nil, FAKE_AV)
+    check("vault: outside, the game's flag says so and no vault is named", c.in_vault == false and c.vault == nil, tostring(c.vault))
+    local t = row(c, "Teleporter_C_1")
+    check("vault: a door says where it leads (its target stands in the vault's box)",
+        t and t.destination == "CK_Inside" and t.leads_to == "Crasorak Kara" and t.arrives_at and t.arrives_at[1] == 30 and t.locked == nil,
+        t and (tostring(t.destination) .. " " .. tostring(t.leads_to)))
+    check("vault: a door keeps its prompt and name", t and t.prompt == "Enter" and t.name == "Interactable Player Teleporter", t and t.name)
+    t = row(c, "Locked_C_1")
+    check("vault: a locked door says it is locked, and leads outside (every vault's box is known)",
+        t and t.locked == true and t.leads_to == "outside" and t.destination == "CK_Outside", t and tostring(t.leads_to))
+    local lv = row(c, "BinaryLever")
+    check("vault: a lever's raw position, its highest, and what it drives",
+        lv and lv.switch_position == 1 and lv.switch_highest == 1 and lv.drives and lv.drives[1] == "BP_FinalDoor_vault_Refactored_C_1",
+        lv and tostring(lv.switch_position))
+    local ch = row(c, "VaultChest")
+    check("vault: a chest's state", ch and ch.kind == "chest" and ch.chest_state == "emptied", ch and tostring(ch.chest_state))
+    local tr, tcat = row(c, "FireTrap")
+    check("vault: a trap is a hazard with its name and its active parts",
+        tr and tcat == "hazards" and tr.kind == "trap" and tr.name == "Fire Jet" and tr.parts == 2 and tr.active_parts == 1,
+        tr and (tostring(tcat) .. " " .. tostring(tr.name) .. " " .. tostring(tr.parts)))
+    check("vault: no vault field on a thing that is none of these",
+        t and t.switch_position == nil and t.chest_state == nil and lv.destination == nil and lv.chest_state == nil)
+
+    -- inside: the flag and the box agree
+    W.me = cm(3000, 100, 0); audio_vals[key(Audio, "bInDungeon")] = true
+    c = census()
+    check("vault: inside, in_vault and the vault's name", c.in_vault == true and c.vault == "Crasorak Kara", tostring(c.vault))
+    check("vault: still no fault", FAKE_AV == nil, FAKE_AV)
+
+    -- reads that fail or give nothing: nothing false is said, every thing is still listed
+    W.me = cm(0, 0, 0)
+    reg = nil; W.all.GameplayObjectRegistry = nil -- no registry, no Dungeon actors: no vault box is known
+    W.all.LocalPlayerAudioSubsystem = nil         -- no subsystem: no flag
+    tp_vals[key(tp_c, "TeleportDestinationName")] = ftext("None")
+    tpl_vals[key(tpl_c, "IsUnlocked")] = nil
+    lever_vals[key(SwitchBase, "SwitchState")] = nil
+    lever_vals[key(SwitchBase, "Switchables")] = { ForEach = function() error("array gone") end }
+    chest_vals[key(VChest, "ChestState")] = 7
+    trap_vals[key(ATrap, "UserReadableName")] = nil
+    trap_vals[key(STrap, "TrapBehaviourModules")] = nil
+    c = census()
+    check("vault (unread): the census still reads and lists all five", c and c.ok == true
+        and #(c.interactables or {}) == 4 and #(c.hazards or {}) == 1, c and #(c.interactables or {}))
+    check("vault (unread): no in_vault, no vault", c.in_vault == nil and c.vault == nil)
+    t = row(c, "Teleporter_C_1")
+    check("vault (unread): a destination of None is no destination", t and t.destination == nil and t.leads_to == nil and t.prompt == "Enter")
+    t = row(c, "Locked_C_1")
+    check("vault (unread): no vault box known -> no 'outside' claim; no lock state read -> no locked",
+        t and t.destination == "CK_Outside" and t.arrives_at ~= nil and t.leads_to == nil and t.locked == nil, t and tostring(t.leads_to))
+    lv = row(c, "BinaryLever")
+    check("vault (unread): a lever whose state does not read says no position", lv and lv.switch_position == nil and lv.drives == nil
+        and lv.prompt == "Pull")
+    ch = row(c, "VaultChest")
+    check("vault (unread): a chest state outside the enum is not told", ch and ch.chest_state == nil and ch.kind == "chest")
+    tr = row(c, "FireTrap")
+    check("vault (unread): a trap with no name or modules: its class word, no parts", tr and tr.name == "Fire Trap" and tr.parts == nil,
+        tr and tr.name)
+    -- a target name two targets share: no arrival point
+    add("TeleportationTarget", instance(Target, "TeleportationTarget " .. L .. "TeleportationTarget_3",
+        { [key(Target, "TargetName")] = ftext("CK_Outside") }, { K2_GetActorLocation = at(9000, 0, 0) }))
+    c = census()
+    t = row(c, "Locked_C_1")
+    check("vault (unread): two targets of one name -> no arrives_at", t and t.destination == "CK_Outside" and t.arrives_at == nil)
+    -- the whole vault_row failing leaves the row as it was
+    local real = S.teleport_targets
+    S.teleport_targets = function() error("boom") end
+    c = census()
+    t = row(c, "Locked_C_1")
+    check("vault (unread): an error inside the vault reads leaves the row listed", c.ok and t and t.prompt == "Enter" and t.name ~= nil)
+    S.teleport_targets = real
+    check("vault (unread): no fault", FAKE_AV == nil, FAKE_AV)
+
+    -- the ADungeon actors when the registry has nothing: a box turned 90 degrees (8000 long in x before the turn)
+    local function dungeon(name, mid, ext, yaw, attached)
+        local box = instance(Box, "BoxComponent " .. L .. "Dungeon_" .. name .. ".BoxComponent", {
+            [key(Scene, "AttachParent")] = attached, [key(Scene, "RelativeLocation")] = mid,
+            [key(Scene, "RelativeRotation")] = { Pitch = 0, Yaw = yaw, Roll = 0 }, [key(Scene, "RelativeScale3D")] = cm(1, 1, 1),
+            [key(Box, "BoxExtent")] = ext })
+        return add("Dungeon", instance(Dungeon, "Dungeon " .. L .. "Dungeon_" .. name, {
+            [key(Dungeon, "DungeonUserVisibleName")] = ftext(name), [key(Dungeon, "BoxComponent")] = box },
+            { K2_GetActorLocation = function() return mid end }))
+    end
+    dungeon("Vertentis Kara", cm(20000, 0, 0), cm(4000, 1000, 500), 90, nil)
+    add("LocalPlayerAudioSubsystem", instance(Audio, "LocalPlayerAudioSubsystem /Engine/Transient.GameEngine_1:LocalPlayer_1.LocalPlayerAudioSubsystem_1", audio_vals))
+    W.me = cm(20500, 3500, 0) -- inside only because the box is turned
+    c = census()
+    check("vault (actor box): the turned box holds him", c.vault == "Vertentis Kara" and c.in_vault == true, tostring(c.vault))
+    W.me = cm(23500, 500, 0)
+    c = census()
+    check("vault (actor box): outside the turned box he is in none", c.vault == nil, tostring(c.vault))
+    local _, complete = S.vault_list()
+    check("vault (actor box): every actor box read -> complete", complete == true)
+    dungeon("Attached Area", cm(0, 0, 0), cm(100, 100, 100), 0, door) -- attached: its relative transform is not its world one
+    fresh()
+    local list
+    list, complete = S.vault_list()
+    check("vault (actor box): an attached box is not used, and the list is no longer complete", #list == 1 and complete == false, #list)
+    check("vault (actor box): no fault", FAKE_AV == nil, FAKE_AV)
+
+    -- R17: a chest Blueprint class at the address a lever class had; a Locked teleporter class at the address the plain one had
+    UE_CACHE = {}; FAKE_AV = nil; S.U.prop_reset()
+    local lev2_c = struct(BP, "/Game/WP/BP_BinaryLever.BP_BinaryLever_C", "0xR1", ISwitch, {})
+    local lev2 = instance(lev2_c, "BP_BinaryLever_C " .. L .. "BP_BinaryLever_C_9",
+        { [key(SwitchBase, "SwitchState")] = { SwitchPosition = 0 } })
+    local d0 = {}
+    S.vault_row(lev2, d0)
+    check("stale setup: the lever reads its position", d0.switch_position == 0 and UE_CACHE["0xR1"].SwitchState ~= nil)
+    local ch2_c = struct(BP, "/Game/WP/BP_VaultChest.BP_VaultChest_C", "0xR1", VChest, {})
+    local ch2 = instance(ch2_c, "BP_VaultChest_C " .. L .. "BP_VaultChest_C_9", { [key(VChest, "ChestState")] = 1 })
+    check("stale: the raw SwitchState read on the chest faults", not pcall(function() return ch2.SwitchState end) and FAKE_AV == "SwitchState")
+    FAKE_AV = nil
+    local d1 = { kind = "chest" }
+    local ok1 = pcall(S.vault_row, ch2, d1)
+    check("stale: vault_row on the chest never reads SwitchState, and reads its own ChestState",
+        ok1 and FAKE_AV == nil and d1.switch_position == nil and d1.chest_state == "opened", tostring(FAKE_AV) .. " " .. tostring(d1.chest_state))
+    local tpa_c = struct(BP, "/Game/WP/BP_InteractablePlayerTeleporter.BP_InteractablePlayerTeleporter_C", "0xR2", WorldActor,
+        { { "TeleportDestinationName", "NameProperty" } })
+    local tpa = instance(tpa_c, "BP_InteractablePlayerTeleporter_C " .. L .. "BP_InteractablePlayerTeleporter_C_9",
+        { [key(tpa_c, "TeleportDestinationName")] = ftext("A") })
+    local d2 = {}
+    S.vault_row(tpa, d2)
+    check("stale setup: the plain teleporter reads its destination", d2.destination == "A")
+    local tpb_c = struct(BP, "/Game/WP/BP_InteractablePlayerTeleporter_Locked.BP_InteractablePlayerTeleporter_Locked_C", "0xR2",
+        WorldActor, { { "TeleportDestinationName", "NameProperty" }, { "IsUnlocked", "BoolProperty" } })
+    local tpb = instance(tpb_c, "BP_InteractablePlayerTeleporter_Locked_C " .. L .. "BP_InteractablePlayerTeleporter_Locked_C_9",
+        { [key(tpb_c, "TeleportDestinationName")] = ftext("B"), [key(tpb_c, "IsUnlocked")] = true })
+    check("stale: the raw read on the Locked class faults (the cache holds the plain class's declaration)",
+        not pcall(function() return tpb.TeleportDestinationName end) and FAKE_AV == "TeleportDestinationName")
+    FAKE_AV = nil
+    local d3 = {}
+    local ok3 = pcall(S.vault_row, tpb, d3)
+    check("stale: vault_row refuses it (no destination said) and does not fault", ok3 and FAKE_AV == nil and d3.destination == nil,
+        tostring(FAKE_AV) .. " " .. tostring(d3.destination))
+    check("stale: counted", S.U.prop_stats().stale >= 1, S.U.prop_stats().stale)
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

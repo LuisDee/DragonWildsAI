@@ -54,6 +54,26 @@ check("not_in_world: no pawn / front end", hub2.not_in_world(nil) and
     hub2.not_in_world({ GetFullName = function() return "BP_PlayerCharacter_C /Game/Maps/L_FrontEnd.L_FrontEnd:X" end }) and
     not hub2.not_in_world({ GetFullName = function() return "BP_PlayerCharacter_C /Game/Maps/World/L_World.L_World:X" end }))
 
+-- quiet subscribers (the teleport's begin and end, client_bridge.hook_teleport): called with NO arguments, also while
+-- paused; the others still skip under the pause
+local TP = "/Script/Dominion.DominionPlayerCharacter:Client_NotifyTeleportWithDelayComplete"
+local quiet_args, loud = {}, 0
+check("a quiet subscriber registers natively", hub2.on(TP, "bridge:teleport_end", function(...) quiet_args[#quiet_args + 1] = select("#", ...) end,
+    { quiet = true }) and natives[TP] == 1)
+hub2.on(TP, "other", function() loud = loud + 1 end)
+local trap = setmetatable({}, { __index = function() error("touched a param") end })
+_G["POST_" .. TP](trap, trap)
+check("unpaused: the quiet one gets no argument, the other runs", #quiet_args == 1 and quiet_args[1] == 0 and loud == 1)
+_G.DW_PAUSE = true
+_G["POST_" .. TP](trap)
+_G.DW_PAUSE = nil
+check("paused: only the quiet one runs, with no argument", #quiet_args == 2 and quiet_args[2] == 0 and loud == 1)
+local st = hub2.status().paths[TP]
+check("status lists the quiet subscriber", st and table.concat(st.subs, ","):find("bridge:teleport_end (quiet)", 1, true) ~= nil)
+hub2.off(TP, "bridge:teleport_end")
+_G["POST_" .. TP]("z")
+check("off drops a quiet subscriber too", #quiet_args == 2 and loud == 2)
+
 -- the A/B switch: no native registration at all
 _G.DWHookHub = nil
 local hub3 = dofile(FILE)

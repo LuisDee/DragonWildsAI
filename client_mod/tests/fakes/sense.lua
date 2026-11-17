@@ -127,6 +127,7 @@ function M.census(log, opts)
         out[cat] = list
     end
     out.beyond = F.beyond -- the kinds the real census's caps cut off (sense.digest_cut); the fake cuts nothing
+    if not (opts and (opts.near or opts.lean)) then out.in_vault, out.vault = F.in_vault, F.vault end -- sense.vault_here
     return out
 end
 return M

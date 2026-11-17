@@ -476,6 +476,8 @@ function M.get_state()
             data.players, data.nearby_entities, data.nearby_resources = bk.players, bk.nearby_entities, bk.nearby_resources
             data.nearby_m = M.NEARBY_M  -- the reach of the lists above, so an empty one can be said with its radius
             data.nearby_items, data.interactables, data.players_online = bk.nearby_items, bk.interactables, cr.data.players_online
+            -- in a vault or not (the game's own flag) and which one holds him (sense.vault_here); absent when unread
+            data.in_vault, data.vault = cr.data.in_vault, cr.data.vault
             -- the kinds of things within NEARBY_M that the lists above have no row of (the caps cut them: sense.digest_cut)
             if type(cr.data.beyond) == "table" and #cr.data.beyond > 0 then data.further_off = cr.data.beyond end
             -- every other player on the game map at any distance (compass), and what lies around those in sight
@@ -866,6 +868,8 @@ local CATS = {
     { key = "items", kind = "item", verb = "pickup", actions = { "interact" } },
     { key = "resources" }, -- gatherable (interact = collect) or destructible (chop/mine/hit)
     { key = "interactables", verb = "interact", actions = { "interact" } },
+    -- a vault's traps (sense.describe_trap: name, active_parts of parts): perceived, nothing to do to them
+    { key = "hazards", kind = "trap" },
 }
 M.CATS = CATS
 
@@ -1201,7 +1205,8 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local m = S.bridge.null -- a boolean only when about was given (an and/or chain would turn false into null)
     if about then m = matched end
     return { ok = true, data = { origin = r.data.origin, radius_m = radius, about = about or S.bridge.null, total = #things,
-                                 things = out, matched = m, near = r.data.near or S.bridge.null } }
+                                 things = out, matched = m, near = r.data.near or S.bridge.null,
+                                 in_vault = r.data.in_vault, vault = r.data.vault } } -- absent when unread (sense.vault_here)
 end }
 
 -- The live actor behind a thing (class word from the census row; alive only).
@@ -2076,6 +2081,74 @@ function M.hook_travel()
     return ok
 end
 
+-- A teleport INSIDE the map (a vault door, docs/research/2026-11-17-vault-reads.md A8) is no LoadMap: hook_travel never
+-- fires, and the whole area around him streams out at once (the Unstuck crash was a Lua read across such a teleport).
+-- The server tells the client through these Client RPCs (dump 26574459, ADominionPlayerCharacter): post-hooks through
+-- hookhub (one per path a process, never unregistered), "quiet" subscribers called with NO arguments, so no parameter
+-- is read; begin sets DW_PAUSE (by "teleport") like hook_travel, end notes the time. check_unpause then lifts that
+-- pause only TELEPORT_SETTLE_S after an end (or after TELEPORT_MAX_PAUSE_S): he never leaves L_World, so the join rule
+-- alone would lift it at once. Events teleport_begin / teleport_end; log "bridge: teleport_begin" / "teleport_end".
+-- OFF (M.TELEPORT_HOOKS = false): a hook on these RPCs has never run on this client. Before it is turned on a live
+-- offline probe must show it is safe and fires for a vault door (probe P3 of the note; the main session runs it):
+-- DW_TELEPORT_HOOKS=1 in the client's environment, or M.hook_teleport({ force = true }) from a probe command. Open
+-- question for the probe: do a lodestone hop or a respawn send the same RPCs (the pause would end their action).
+M.TELEPORT_HOOKS = os.getenv("DW_TELEPORT_HOOKS") == "1"
+M.TELEPORT_BEGIN = { "/Script/Dominion.DominionPlayerCharacter:Client_NotifyTeleportWithVFXDelayBegin",
+                     "/Script/Dominion.DominionPlayerCharacter:Client_NotifyTeleportWithLoadingScreenBegin" }
+M.TELEPORT_END = { "/Script/Dominion.DominionPlayerCharacter:Client_NotifyTeleportWithDelayComplete",
+                   "/Script/Dominion.DominionPlayerCharacter:Client_OnEveryCellsLoadedForTheFirstTime" }
+M.TELEPORT_SETTLE_S, M.TELEPORT_MAX_PAUSE_S = 5, 60
+function M.teleport_state()
+    local t = rawget(_G, "DWTeleport")
+    if type(t) ~= "table" then t = { begins = 0, ends = 0 }; _G.DWTeleport = t end
+    return t
+end
+function M.hook_teleport(opts)
+    opts = opts or {}
+    if not (M.TELEPORT_HOOKS or opts.force) then return false, "off" end
+    local hub = M.module("hookhub")
+    if not (hub and type(hub.on) == "function") then return false, "no hookhub" end
+    local sense = M.module("sense")
+    local pawn = sense and type(sense.local_pawn) == "function" and select(2, pcall(sense.local_pawn)) or nil
+    local defer = type(hub.not_in_world) == "function" and hub.not_in_world(pawn) or false
+    local all = true
+    for _, path in ipairs(M.TELEPORT_BEGIN) do
+        local ok = hub.on(path, "bridge:teleport_begin", function()
+            local t = M.teleport_state()
+            t.begins, t.begin_at, t.end_at = t.begins + 1, now_s(), nil
+            if rawget(_G, "DW_PAUSE") ~= true then _G.DW_PAUSE_BY = "teleport" end
+            _G.DW_PAUSE = true
+        end, { quiet = true, defer = defer, log = text_log })
+        all = all and ok == true
+    end
+    for _, path in ipairs(M.TELEPORT_END) do
+        local ok = hub.on(path, "bridge:teleport_end", function()
+            local t = M.teleport_state()
+            t.ends, t.end_at = t.ends + 1, now_s()
+        end, { quiet = true, defer = defer, log = text_log })
+        all = all and ok == true
+    end
+    S.tp_armed = all
+    return all
+end
+
+-- the hooks' notes as events (from the bridge's own step, not from inside the hook)
+local function teleport_watch()
+    local t = rawget(_G, "DWTeleport")
+    if type(t) ~= "table" then return end
+    S.tp_seen = S.tp_seen or { begins = 0, ends = 0 }
+    if t.begins > S.tp_seen.begins then
+        S.tp_seen.begins = t.begins
+        ev("teleport_begin", { n = t.begins })
+        text_log("bridge: teleport_begin n=" .. t.begins)
+    end
+    if t.ends > S.tp_seen.ends then
+        S.tp_seen.ends = t.ends
+        ev("teleport_end", { n = t.ends, after_s = (t.begin_at and t.end_at) and (t.end_at - t.begin_at) or S.bridge.null })
+        text_log("bridge: teleport_end n=" .. t.ends)
+    end
+end
+
 local function on_pause_start()
     S.pause = { since = now_s(), by = rawget(_G, "DW_PAUSE_BY") or "command" }
     _G.DW_PAUSE_BY = nil
@@ -2084,7 +2157,8 @@ local function on_pause_start()
     if a then
         if a.pause_cleanup then pcall(a.pause_cleanup) end
         a.cancel = nil
-        finish(a, fail("companion_down", { detail = "client paused (disconnect or join in progress)" }))
+        finish(a, fail("companion_down", { detail = S.pause.by == "teleport" and "client paused: I'm being teleported"
+                                                    or "client paused (disconnect or join in progress)" }))
     end
     for _, w in ipairs(S.waiters) do
         (w.chan or S.bridge).reply(w.id, fail("companion_down", { detail = "client paused" }))
@@ -2097,6 +2171,15 @@ local function check_unpause()
     local P = S.pause
     if t - P.since < M.PAUSE_SETTLE_S or (P.checked and t - P.checked < 1) then return end
     P.checked = t
+    if P.by == "teleport" then -- an in-map teleport: wait for its end and a settle time (he never leaves L_World)
+        local tp = rawget(_G, "DWTeleport")
+        local ended = type(tp) == "table" and tp.end_at ~= nil and t - tp.end_at >= M.TELEPORT_SETTLE_S
+        if not ended and t - P.since < M.TELEPORT_MAX_PAUSE_S then return end
+        if not ended and not P.tp_timeout then
+            P.tp_timeout = true
+            ev("teleport_pause_timeout", { waited_s = t - P.since })
+        end
+    end
     local sense = M.module("sense")
     local pawn = sense and type(sense.local_pawn) == "function" and select(2, pcall(sense.local_pawn)) or nil
     local name = pawn and select(2, pcall(function() return pawn:GetFullName() end)) or nil
@@ -2112,6 +2195,10 @@ local function check_unpause()
 end
 
 function M.step()
+    if rawget(_G, "DWTeleport") then
+        local okt, errt = pcall(teleport_watch)
+        if not okt then ev("client_teleport_watch_error", { err = tostring(errt) }) end
+    end
     if paused() then
         if not S.pause then on_pause_start() end
         local ok, err = pcall(S.bridge.poll) -- commands still answered (companion_down, see dispatch)
@@ -2151,6 +2238,12 @@ function M.step()
     if not ok then ev("client_activity_forward_error", { err = tostring(err) }) end
     ok, err = pcall(supervise, S.rearm == true)
     if not ok then ev("client_supervise_error", { err = tostring(err) }) end
+    -- the teleport hooks: OFF unless M.TELEPORT_HOOKS (see M.hook_teleport); armed once in the world, tried once a second
+    if M.TELEPORT_HOOKS and not S.tp_armed and (not S.tp_try or now_s() - S.tp_try >= 1) then
+        S.tp_try = now_s()
+        ok, err = pcall(M.hook_teleport)
+        if not ok then ev("client_teleport_hook_error", { err = tostring(err) }) end
+    end
 end
 
 function M.status()

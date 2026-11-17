@@ -512,6 +512,40 @@ test("look: a mined-out rock is marked used up and offers no action; a whole one
     assert(geyser.used_up == nil and geyser.actions[1] == "mine", json.encode(geyser))
 end)
 
+test("vault: look and get_state tell in_vault and the vault; a door says where it leads; a trap is a hazard with no action", function()
+    FAKE.move.position = nil
+    FAKE.world.hazards = { { id = "trap_1", class = "BP_FireTrap_C", name = "Fire Jet", kind = "trap", parts = 2, active_parts = 1,
+                             position = { 2, 2, 3 } } }
+    local n0 = #FAKE.world.interactables
+    FAKE.world.interactables[n0 + 1] = { id = "door_1", class = "BP_InteractablePlayerTeleporter_C", name = "Interactable Player Teleporter",
+        kind = "interactable", prompt = "Enter", position = { 3, 2, 3 }, destination = "CK_Inside", leads_to = "Crasorak Kara",
+        arrives_at = { 30, 0, 0 }, locked = false }
+    FAKE.in_vault, FAKE.vault = true, "Crasorak Kara"
+    local r = rpc("look", {})
+    assert(r.ok and r.data.in_vault == true and r.data.vault == "Crasorak Kara", json.encode(r.data))
+    local by = {}
+    for _, t in ipairs(r.data.things) do by[t.id] = t end
+    local trap = by.trap_1
+    assert(trap and trap.category == "hazards" and trap.kind == "trap" and trap.actions == nil and trap.active_parts == 1
+           and trap.parts == 2 and trap.verb == nil, json.encode(trap))
+    local door = by.door_1
+    assert(door and door.leads_to == "Crasorak Kara" and door.destination == "CK_Inside" and door.locked == false
+           and door.actions[1] == "interact", json.encode(door))
+    local s = rpc("get_state")
+    assert(s.ok and s.data.in_vault == true and s.data.vault == "Crasorak Kara", json.encode({ s.data.in_vault, s.data.vault }))
+    -- outside: the flag reads false and no vault is named
+    FAKE.in_vault, FAKE.vault = false, nil
+    r = rpc("look", {})
+    assert(r.ok and r.data.in_vault == false and r.data.vault == nil, json.encode(r.data.in_vault))
+    -- unread (no subsystem, no boxes): nothing is said, look and get_state work as before
+    FAKE.in_vault = nil
+    r = rpc("look", {})
+    assert(r.ok and r.data.in_vault == nil and r.data.vault == nil and #r.data.things > 0)
+    s = rpc("get_state")
+    assert(s.ok and s.data.in_vault == nil and s.data.vault == nil)
+    FAKE.world.hazards, FAKE.world.interactables[n0 + 1] = nil, nil
+end)
+
 test("match_one: a thing is what the words ask for only when it answers one of the things they name", function()
     local ess = { name = "Rune Essence", class = "BP_RuneEssence_Node_C", kind = "resource", verb = "mine", drops = "Rune Essence" }
     -- Rune Mysteries chain 20261116-065203: explore ended on Rune Essence for "Air Altar or Rune Altar"
@@ -913,6 +947,70 @@ test("a map travel the game starts itself pauses the loops before the world goes
     assert(_G.DW_PAUSE == nil, "cleared again")
     step(); drain()
     _G.RegisterLoadMapPreHook = nil
+end)
+
+-- A vault door is an in-map teleport (docs/research/2026-11-17-vault-reads.md A8): no LoadMap, so hook_travel never fires.
+test("teleport hooks: OFF by default; forced on, a begin pauses the loops (no parameter touched) until its end and a settle time", function()
+    _G.DWTeleport, _G.DWHookHub = nil, nil
+    local regs, saved = {}, _G.RegisterHook
+    -- the teleport's notes go to the client's own log (jlog events and text lines), not to the brain channel
+    local function logged(name)
+        local k = 0
+        for _, e in ipairs(H.log.events) do if e.name == name then k = k + 1 end end
+        return k
+    end
+    _G.RegisterHook = function(path, _, post) regs[path] = post; return 1, 2 end
+    local fh = assert(io.open(here .. "/../scripts/hookhub.lua", "rb"))
+    install("hookhub", fh:read("a"))
+    fh:close()
+    assert(B.TELEPORT_HOOKS == false, "off by default")
+    local ok, why = B.hook_teleport()
+    assert(ok == false and why == "off" and next(regs) == nil, "nothing hooked while off")
+    for _ = 1, 3 do T = T + 1; step() end
+    drain()
+    assert(next(regs) == nil, "the step does not arm them while off")
+    assert(B.hook_teleport({ force = true }) == true, "forced: armed")
+    local n = 0
+    for _ in pairs(regs) do n = n + 1 end
+    assert(n == 4 and regs[B.TELEPORT_BEGIN[1]] and regs[B.TELEPORT_END[2]], "one native hook per RPC: " .. n)
+    B._supervise(true)
+    local _, _, gid = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.move.calls = {}
+    local touched = 0
+    local param = setmetatable({}, { __index = function() touched = touched + 1 end, __newindex = function() touched = touched + 1 end })
+    regs[B.TELEPORT_BEGIN[1]](param, param, param)
+    assert(touched == 0 and _G.DW_PAUSE == true, "the begin only sets the flag")
+    step()
+    local msgs = drain()
+    local g = results(msgs, gid)[1]
+    assert(g and g.reason == "companion_down" and tostring(g.data and g.data.detail):find("teleported", 1, true), json.encode(g))
+    assert(#FAKE.move.calls == 0, "no cancel call into the game while paused")
+    assert(logged("teleport_begin") == 1, "the begin is told")
+    assert(B.status().pause and B.status().pause.by == "teleport", json.encode(B.status().pause))
+    T = T + B.PAUSE_SETTLE_S + 1; step(); T = T + B.PAUSE_CLEAR_S + 1; step(); T = T + 1; step()
+    assert(_G.DW_PAUSE == true, "no end yet: stays paused although the pawn never left L_World")
+    regs[B.TELEPORT_END[1]](param) -- while paused: the quiet subscriber still runs, with no argument
+    assert(touched == 0, "the end touched no parameter")
+    step()
+    drain()
+    assert(logged("teleport_end") == 1, "the end is told")
+    T = T + 2; step()
+    assert(_G.DW_PAUSE == true, "within the settle time after the end")
+    T = T + B.TELEPORT_SETTLE_S; step(); T = T + B.PAUSE_CLEAR_S + 1; step(); T = T + 1; step()
+    assert(_G.DW_PAUSE == nil, "released after the end and the settle time")
+    drain()
+    -- a begin that never ends: released after TELEPORT_MAX_PAUSE_S, and said
+    regs[B.TELEPORT_BEGIN[2]]()
+    step(); drain()
+    T = T + B.TELEPORT_MAX_PAUSE_S + 1; step()
+    drain()
+    assert(logged("teleport_pause_timeout") == 1 and logged("teleport_begin") == 2, "the timeout is told")
+    T = T + 1; step(); T = T + B.PAUSE_CLEAR_S + 1; step(); T = T + 1; step()
+    assert(_G.DW_PAUSE == nil, "released after the longest wait")
+    step(); drain()
+    uninstall("hookhub")
+    _G.RegisterHook, _G.DWTeleport, _G.DWHookHub = saved, nil, nil
+    step(); drain()
 end)
 
 test("gather module: async via HANDLERS, flat failure keeps why/detail, gather.jsonl -> gather_progress", function()

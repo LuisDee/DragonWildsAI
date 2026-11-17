@@ -13,7 +13,8 @@
 --   * modules subscribe handlers by key: hub.on(path, key, fn); the native callback dispatches to every
 --     subscriber (each in pcall);
 --   * while _G.DW_PAUSE is set (disconnect / join / world teardown) the callback returns at once,
---     before touching any parameter or UObject;
+--     before touching any parameter or UObject (only "quiet" subscribers run, with no arguments at all: they
+--     note that the function ran, e.g. a teleport's end while the teleport's own pause is set);
 --   * the native registration is deferred until a pawn exists in the game world (opts.defer_until_world):
 --     registering at the main menu is never needed and is where the vitals hooks went silent.
 -- State lives in _G.DWHookHub (survives hot reloads of this file and of the subscribing modules).
@@ -75,8 +76,14 @@ local function native(path, log)
     local ok, pre, post = pcall(RegisterHook, path, function() end, function(...)
         local hub = rawget(_G, "DWHookHub")
         if not hub then return end
-        if rawget(_G, "DW_PAUSE") == true then hub.counts.paused_skips = hub.counts.paused_skips + 1; return end
         local r = hub.paths[path]
+        -- quiet subscribers (opts.quiet) are called with NO arguments, also while paused: they only note that the
+        -- function ran (a teleport's begin and end); nothing of the hook's parameters or the world reaches them
+        for key, fn in pairs(r and r.quiet or {}) do
+            local ok2, err = pcall(fn)
+            if not ok2 then hub.counts.errors = hub.counts.errors + 1; r.last_error = key .. ": " .. tostring(err) end
+        end
+        if rawget(_G, "DW_PAUSE") == true then hub.counts.paused_skips = hub.counts.paused_skips + 1; return end
         if not r then return end
         hub.counts.dispatched = hub.counts.dispatched + 1
         for key, fn in pairs(r.subs) do
@@ -98,13 +105,21 @@ end
 -- Subscribe fn (called with the hook's own arguments) under `key` (replaces that key's previous fn).
 -- opts.defer: the caller knows it is NOT in the game world (no pawn, the front-end menu): the native
 -- registration waits (pending) until a later call without defer (or M.flush). Paused = deferred too.
+-- opts.quiet: fn is called with no arguments, also while DW_PAUSE is set (it must make no game call: it may only note
+-- that the function ran). The native registration itself still waits for an unpaused call, as for any subscriber.
 -- Returns true when the path is natively hooked now, false + reason when pending or failed.
 function M.on(path, key, fn, opts)
     opts = opts or {}
     local h = H()
     local rec = h.paths[path] or { subs = {} }
     h.paths[path] = rec
-    rec.subs[key] = fn
+    if opts.quiet then
+        rec.quiet = rec.quiet or {}
+        rec.quiet[key], rec.subs[key] = fn, nil
+    else
+        rec.subs[key] = fn
+        if rec.quiet then rec.quiet[key] = nil end
+    end
     if rec.native then return true end
     if not opts.defer and not paused() then return native(path, opts.log), rec.error end
     rec.pending = true
@@ -114,7 +129,10 @@ end
 -- Drop a subscriber (the native hook stays; it just has one fewer handler).
 function M.off(path, key)
     local rec = H().paths[path]
-    if rec then rec.subs[key] = nil end
+    if rec then
+        rec.subs[key] = nil
+        if rec.quiet then rec.quiet[key] = nil end
+    end
 end
 
 -- Register every pending path now (call once a pawn is in the world).
@@ -138,6 +156,7 @@ function M.status()
     for p, r in pairs(h.paths) do
         local keys = {}
         for k in pairs(r.subs) do keys[#keys + 1] = k end
+        for k in pairs(r.quiet or {}) do keys[#keys + 1] = k .. " (quiet)" end
         table.sort(keys)
         paths[p] = { native = r.native == true, pending = r.pending == true, subs = keys, error = r.error, last_error = r.last_error }
     end

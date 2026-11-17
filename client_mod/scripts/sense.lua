@@ -554,6 +554,8 @@ local function describe_interactable(a, ic, kind, origin)
         local who = text(U.try(function() return bed:GetClaimingCharacterName() end))
         if who then d.claimed_by = who end
     end
+    -- a vault's door teleporter, lever or chest says what state it is in (M.vault_row, below; property reads only)
+    if M.vault_row then pcall(M.vault_row, a, d) end -- a failed read adds nothing; the row stands as it was
     return d
 end
 
@@ -725,6 +727,201 @@ function M.resolve_foliage(id)
     return nil, hidden and "felled_or_picked" or "not_found"
 end
 
+-- ------------------------------------------------------------------ vaults (read only)
+-- What a player sees at and in a Dragonkin vault (design: docs/research/2026-11-17-vault-reads.md, A1 A3 A4 A6 A7).
+-- Property reads only, each through U.prop on the actor or component (R17); the fields of engine-built structs
+-- (SwitchState, FDungeonData, FBox, FVector) are plain reads, as places.lua reads Landmarks. No UFunction call beyond
+-- the census's own position read (U.loc), no RPC, no write, nothing under DW_PAUSE. Field names: dump 26574459, a
+-- SERVER dump made with nobody near a vault: whether each one replicates to the client is unknown until probes P1-P4.
+--   get_state, look  in_vault  ULocalPlayerAudioSubsystem.bInDungeon, the game's own flag (it switches the music)
+--                    vault     the vault whose box holds him: AGameplayObjectRegistry.Dungeons[i] {Box, UserVisibleName},
+--                              else the ADungeon actors (DungeonUserVisibleName; BoxComponent's BoxExtent x RelativeScale3D
+--                              about its RelativeLocation, used only when the box is the actor's root, i.e. not attached
+--                              and standing where the actor stands, so its relative transform is its world one).
+--                              Several boxes hold him: the smallest.
+--   a teleporter row (any interactable that declares TeleportDestinationName: BP_InteractablePlayerTeleporter_C, its
+--                    _Locked variant, ASwitchableTeleporter) destination = that FName; arrives_at = where the
+--                    ATeleportationTarget of that TargetName stands (left out when none or several have it); leads_to =
+--                    the vault whose box holds arrives_at, or "outside" when every vault's box is known and none holds
+--                    it; locked = not IsUnlocked (only on a class that declares IsUnlocked)
+--   a switch row     (SwitchState declared: BP_BinaryLever_C) switch_position = SwitchState.SwitchPosition (the raw
+--                    number: which one means "pulled" is not known yet), switch_highest = HighestPosition, drives = the
+--                    ids of its Switchables
+--   a chest row      chest_state "unopened" | "opened" | "emptied" (AWorldChest.ChestState, EChestState 0-2)
+--   hazards          a census category: each SwitchableTrap (AAnimatingTrap: fire jets, spikes) in range, kind "trap",
+--                    name = UserReadableName, parts = its behaviour modules that read, active_parts = those with bActive
+-- The vault boxes and the teleport targets are always-loaded actors: read at most every VAULT_TTL_S into plain tables
+-- (names and numbers, never a UObject: R16). A read that fails or gives nil adds no field.
+-- Log lines, each only when it changes: "[DWClient] vault_list n=<n> source=<registry|actor|none> complete=<bool>",
+-- "[DWClient] vault_targets n=<n>", "[DWClient] vault_read in_vault=<bool|nil> vault=<name|nil> teleporters=<n>
+-- switches=<n> chests=<n> traps=<n>".
+M.VAULT_TTL_S = 30
+M.CHEST_STATES = { [0] = "unopened", [1] = "opened", [2] = "emptied" }
+M.VAULT = { noted = {} } -- caches: t, vaults, complete; t_targets, targets (name -> {X, Y, Z} cm, false = several)
+M.vault_clock = os.clock
+
+local function vec(v)
+    local ok, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
+    if ok and type(x) == "number" and type(y) == "number" and type(z) == "number" then return { X = x, Y = y, Z = z } end
+    return nil
+end
+
+function M.vault_note(kind, line, key)
+    key = key or kind
+    if M.VAULT.noted[key] == line then return end
+    M.VAULT.noted[key] = line
+    pcall(print, "[DWClient] " .. kind .. " " .. line .. "\n")
+end
+
+-- -> the vaults as boxes: {name, min, max} (the registry's, axis-aligned) or {name, mid, half, yaw} (an actor's), and
+-- complete = every vault the game lists has a readable box (only then can a point be said to be in none of them)
+function M.vault_list()
+    if rawget(_G, "DW_PAUSE") then return {}, false end
+    local V, now = M.VAULT, M.vault_clock()
+    if V.vaults and V.t and now - V.t < M.VAULT_TTL_S then return V.vaults, V.complete end
+    local out, complete, source = {}, true, "none"
+    local reg = U.find_all("GameplayObjectRegistry", { skip_defaults = true })[1]
+    U.each(reg and P(reg, "Dungeons") or nil, function(e)
+        local name = text(U.try(function() return e.UserVisibleName end))
+        local box = U.try(function() return e.Box end)
+        local mn, mx = vec(U.try(function() return box.min end)), vec(U.try(function() return box.max end))
+        local valid = U.try(function() return box.IsValid end)
+        if name and mn and mx and valid ~= false and valid ~= 0 and mn.X < mx.X and mn.Y < mx.Y and mn.Z <= mx.Z then
+            out[#out + 1] = { name = name, min = mn, max = mx }
+        else complete = false end
+    end, 64)
+    if #out > 0 then source = "registry"
+    else
+        complete = true
+        for _, dg in ipairs(U.find_all("Dungeon", { skip_defaults = true })) do
+            local name = text(P(dg, "DungeonUserVisibleName"))
+            local box = P(dg, "BoxComponent")
+            local row
+            if name and U.valid(box) and not U.valid(P(box, "AttachParent")) then
+                local c, e, s = vec(P(box, "RelativeLocation")), vec(P(box, "BoxExtent")), vec(P(box, "RelativeScale3D"))
+                local rot = P(box, "RelativeRotation")
+                local okr, yaw, pitch, roll = pcall(function() return rot.Yaw, rot.Pitch, rot.Roll end)
+                local at = U.loc(dg)
+                if c and e and s and okr and num(yaw) and num(pitch) and num(roll) and math.abs(pitch) < 0.5
+                   and math.abs(roll) < 0.5 and at and U.dist(at, c) < 1 then
+                    row = { name = name, mid = c, yaw = yaw,
+                            half = { X = math.abs(e.X * s.X), Y = math.abs(e.Y * s.Y), Z = math.abs(e.Z * s.Z) } }
+                end
+            end
+            if row then out[#out + 1] = row else complete = false end
+        end
+        if #out > 0 then source = "actor" end
+    end
+    if #out == 0 then complete = false end
+    V.t, V.vaults, V.complete = now, out, complete
+    M.vault_note("vault_list", string.format("n=%d source=%s complete=%s", #out, source, tostring(complete)))
+    return out, complete
+end
+
+-- the vault (a vault_list row) whose box holds the point p (cm); several: the smallest; nil when none
+function M.vault_at(p, vaults)
+    if type(p) ~= "table" or type(p.X) ~= "number" then return nil end
+    local best, best_v
+    for _, v in ipairs(vaults or {}) do
+        local inside, vol
+        if v.min then
+            inside = p.X >= v.min.X and p.X <= v.max.X and p.Y >= v.min.Y and p.Y <= v.max.Y
+                and p.Z >= v.min.Z and p.Z <= v.max.Z
+            vol = (v.max.X - v.min.X) * (v.max.Y - v.min.Y) * math.max(v.max.Z - v.min.Z, 1)
+        elseif v.mid then
+            local c, s = math.cos(math.rad(v.yaw or 0)), math.sin(math.rad(v.yaw or 0))
+            local dx, dy = p.X - v.mid.X, p.Y - v.mid.Y
+            inside = math.abs(dx * c + dy * s) <= v.half.X and math.abs(dy * c - dx * s) <= v.half.Y
+                and math.abs(p.Z - v.mid.Z) <= v.half.Z
+            vol = v.half.X * v.half.Y * math.max(v.half.Z, 1)
+        end
+        if inside and (not best_v or vol < best_v) then best, best_v = v, vol end
+    end
+    return best
+end
+
+-- TargetName -> where that ATeleportationTarget stands (cm); false when several share the name
+function M.teleport_targets()
+    if rawget(_G, "DW_PAUSE") then return {} end
+    local V, now = M.VAULT, M.vault_clock()
+    if V.targets and V.t_targets and now - V.t_targets < M.VAULT_TTL_S then return V.targets end
+    local out, n = {}, 0
+    for _, t in ipairs(U.find_all("TeleportationTarget", { skip_defaults = true })) do
+        local name = text(P(t, "TargetName"))
+        local at = name and U.loc(t)
+        if at then
+            if out[name] == nil then out[name], n = at, n + 1 else out[name] = false end
+        end
+    end
+    V.t_targets, V.targets = now, out
+    M.vault_note("vault_targets", "n=" .. n)
+    return out
+end
+
+-- adds the vault fields to an interactable's row d (see above); called by describe_interactable
+function M.vault_row(a, d)
+    local dest = text(P(a, "TeleportDestinationName"))
+    if dest then
+        d.destination = dest
+        local at = M.teleport_targets()[dest]
+        if at then
+            d.arrives_at = U.to_wire(at)
+            local vaults, complete = M.vault_list()
+            local v = M.vault_at(at, vaults)
+            if v then d.leads_to = v.name elseif complete then d.leads_to = "outside" end
+        end
+        local unlocked = P(a, "IsUnlocked")
+        if type(unlocked) == "boolean" then d.locked = not unlocked end
+    end
+    local ss = P(a, "SwitchState")
+    local pos = ss ~= nil and num(U.try(function() return ss.SwitchPosition end)) or nil
+    if pos then
+        d.switch_position = pos
+        local hi = num(P(a, "HighestPosition"))
+        if hi then d.switch_highest = hi end
+        local ids = {}
+        U.each(P(a, "Switchables"), function(x)
+            local id = U.alive(x) and U.short(x) or nil
+            if id then ids[#ids + 1] = id end
+        end, 16)
+        if #ids > 0 then d.drives = ids end
+    end
+    if d.kind == "chest" then
+        local cs = num(P(a, "ChestState"))
+        if cs and M.CHEST_STATES[cs] then d.chest_state = M.CHEST_STATES[cs] end
+    end
+end
+
+-- a trap's census row (category hazards)
+function M.describe_trap(a, origin)
+    local d = base(a, origin)
+    d.kind = "trap"
+    d.name = text(P(a, "UserReadableName")) or clean_class(d.class)
+    local n, on = 0, 0
+    U.each(P(a, "TrapBehaviourModules"), function(m)
+        local b = nil
+        if U.valid(m) then b = P(m, "bActive") end
+        if type(b) == "boolean" then
+            n = n + 1
+            if b then on = on + 1 end
+        end
+    end, 32)
+    if n > 0 then d.parts, d.active_parts = n, on end
+    return d
+end
+
+-- {in_vault, vault} where he stands (cm); each left out when it does not read
+function M.vault_here(at)
+    if rawget(_G, "DW_PAUSE") then return {} end
+    local out = {}
+    local sub = U.find_all("LocalPlayerAudioSubsystem", { skip_defaults = true })[1]
+    local b = sub and P(sub, "bInDungeon")
+    if type(b) == "boolean" then out.in_vault = b end
+    local v = at and M.vault_at(at, (M.vault_list())) or nil
+    if v then out.vault = v.name end
+    return out
+end
+
 -- ------------------------------------------------------------------ census
 local function owner_of(c) local o = U.try(function() return c:GetOwner() end); return U.alive(o) and o or nil end
 
@@ -864,6 +1061,7 @@ function M.census(log, opts)
     pass("creatures", { "DominionAICharacter" }, describe_creature)
     pass("items", { "WorldItem" }, describe_item)
     pass("resources", { "DestructibleWorldActor", "OreNode", "BaseInteractableResource" }, describe_resource)
+    pass("hazards", { "SwitchableTrap" }, M.describe_trap) -- a vault's fire jets and spikes (vault section above)
     -- standing trees / bushes / pickups still drawn as foliage (see M.foliage); opts.foliage=false skips
     if (not want or want.resources) and opts.foliage ~= false then
         -- trees and pickups capped separately (a third of the rows each), so ground stones and branches
@@ -979,6 +1177,20 @@ function M.census(log, opts)
     out.radius_m = r_cm / 100
     out.totals = totals
     out.prop_guard = U.prop_stats() -- R17 counters since load (undeclared reads skipped, stale entries refused)
+    -- in a vault or not, and which (from where HE stands: not for a census around another player, nor a lean one)
+    if not lean and not anchor then
+        local okv, vh = pcall(M.vault_here, my_at)
+        if okv and type(vh) == "table" then out.in_vault, out.vault = vh.in_vault, vh.vault end
+        local n = { teleporters = 0, switches = 0, chests = 0 }
+        for _, d in ipairs(out.interactables or {}) do
+            if d.destination then n.teleporters = n.teleporters + 1 end
+            if d.switch_position then n.switches = n.switches + 1 end
+            if d.chest_state then n.chests = n.chests + 1 end
+        end
+        M.vault_note("vault_read", string.format("in_vault=%s vault=%s teleporters=%d switches=%d chests=%d traps=%d r=%d",
+            tostring(out.in_vault), tostring(out.vault), n.teleporters, n.switches, n.chests, #(out.hazards or {}),
+            math.floor(r_cm / 100)), "vault_read" .. r_cm) -- one line per radius (look and get_state differ), on change
+    end
     out.ms = math.floor((os.clock() - t0) * 1000)
     return out
 end
