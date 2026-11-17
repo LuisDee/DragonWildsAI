@@ -638,6 +638,7 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
         return fail("invalid_args", { detail = "tolerance must be positive" })
     end
     local coords = type(target) == "table" and to_m(target) or nil
+    local named -- what a thing's name was taken to be (thing_named), said in every answer of this go_to
     local gts = type(target) == "string" and (target == "my_grave" and "" or target:match("^my_grave:(.+)$"))
     if gts then -- BUGS L19/L22: a remembered death spot (newest, or my_grave:<ts>), at any distance
         local sk = M.module("skills")
@@ -653,9 +654,12 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     if not coords and type(target) == "string" then
         -- go_to reaches as far as a known actor is (a fishing node 134 m off, live 2026-10-26), not only look's 80 m
         local t = M.API.find_thing(target, M.GOTO_FIND_M)
+        if not t then t, named = M.API.thing_named(target, M.GOTO_FIND_M) end -- a thing's name, not an id
         if t and t.position and t.category ~= "creatures" and t.category ~= "players" then
             if not has_z(t.position) then return fail("verification_failed", { detail = "destination height unavailable" }) end
             coords = to_m(t.position)
+        else
+            named = nil
         end
     end
     release_orphan_owner()
@@ -717,11 +721,13 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
         return nil
     end
     local note = type(r.data) == "table" and r.data.target_via == "map" and map_note(target, r.data.target_position) or nil
-    if note then -- every answer of this go_to says he was found on the map (and how far he was)
+    local via = note and "map" or nil
+    note = note or named
+    if note then -- every answer of this go_to says he was found on the map (and how far he was), or which thing a name was
         local poll0 = a.poll
         a.poll = function(self)
             local res = poll0(self)
-            if type(res) == "table" and type(res.data) == "table" then res.data.via, res.data.resolved = "map", res.data.resolved or note end
+            if type(res) == "table" and type(res.data) == "table" then res.data.via, res.data.resolved = via or res.data.via, res.data.resolved or note end
             return res
         end
     end
@@ -1126,6 +1132,52 @@ local function find_thing(id, radius_m)
     return nil, fail("unknown_target", { target = id, detail = "not perceived within " .. (radius_m or M.LOOK_MAX_RADIUS_M) .. " m" })
 end
 
+-- A thing in sight meant by its NAME ("Campfire"), or by its name written with its id the way a situation line shows
+-- them ("Campfire BP_Station_Campfire_C_2147464952"): the id's thing, else the nearest thing of exactly that name
+-- (letter case aside) among items, resources, stations and built pieces. Creatures and players are not matched here:
+-- move.lua tracks them as moving actors. -> thing | nil, a sentence saying what the words were taken to be.
+-- Live: 4 of the 416 go_to calls of 14 to 17 Nov named a thing ("Rune Altar" twice, "Campfire", and the name with its
+-- id in run 20261117-121459 with the fire 31 m off). find_thing knows ids only, so each went to move.lua as a player's
+-- name and came back unknown_target, "is not in sight, and no player of that name is on the game map": a miss each.
+local function thing_named(what, radius_m)
+    what = tostring(what or ""):match("^%s*(.-)%s*$")
+    if what == "" then return nil end
+    local tried = 0
+    for tok in what:gmatch("[^%s%(%)%[%],]+") do
+        if tok ~= what and tried < 2 and (tok:find("_", 1, true) or tok:find(":", 1, true)) then
+            tried = tried + 1
+            local t = find_thing(tok, radius_m)
+            if t and t.position and t.category ~= "creatures" and t.category ~= "players" then
+                return t, string.format("%q read as the id in it: %s%s", what, tostring(t.name or t.id),
+                    tonumber(t.distance) and string.format(", %d m away", math.floor(t.distance + 0.5)) or "")
+            end
+        end
+    end
+    local lw = what:lower()
+    local function same(t) return tostring(t.name or ""):lower() == lw end
+    local best, n = nil, 0
+    local function take(t)
+        if not (t.position and same(t)) then return end
+        n = n + 1
+        if not best or (tonumber(t.distance) or math.huge) < (tonumber(best.distance) or math.huge) then best = t end
+    end
+    for _, t in ipairs(census_things(radius_m or M.LOOK_MAX_RADIUS_M, nil, nil,
+        { keep = same, kinds = { items = true, resources = true, interactables = true } }) or {}) do take(t) end
+    if not best then -- a built piece the census does not list (find_thing's own second source)
+        local bmod, here = M.module("build"), my_position()
+        local okb, rows = pcall(function() return bmod.W.built_pieces(M.API, here, radius_m or M.LOOK_MAX_RADIUS_M) end)
+        for _, e in ipairs(okb and here and type(rows) == "table" and rows or {}) do
+            if type(e.position) == "table" then
+                take({ id = e.id, name = e.name, position = e.position, category = "structures", distance = dist2d(here, e.position) })
+            end
+        end
+    end
+    if not best then return nil end
+    return best, string.format("%q taken as the %s %s(id %s)%s", what, tostring(best.name),
+        tonumber(best.distance) and string.format("%d m away ", math.floor(best.distance + 0.5)) or "", tostring(best.id),
+        n > 1 and string.format(", the nearest of %d of that name in sight", n) or "")
+end
+
 R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local radius = math.min(tonumber(args.radius) or M.LOOK_RADIUS_M, M.LOOK_MAX_RADIUS_M)
     local max = math.max(1, math.min(tonumber(args.max) or M.LOOK_MAX, 40))
@@ -1450,6 +1502,7 @@ M.API = {
         return MAP ~= nil and MAP.same_name(a, b) or false
     end,
     find_thing = function(id, r) return find_thing(id, r) end,
+    thing_named = function(what, r) return thing_named(what, r) end,
     match_score = function(t, about) return M.match_score(t, about) end,
     match_one = function(t, about) return M.match_one(t, about) end,
     resolve_name = function(rows, what, opts) return M.resolve_name(rows, what, opts) end,

@@ -346,6 +346,32 @@ test("go_to a player: verifies current target position, module reasons mapped", 
     end
 end)
 
+test("go_to a thing in sight by its name, or by its name written with its id: walks to it and says which it took", function()
+    -- window s30, run 20261117-121459: go_to "Campfire BP_Station_Campfire_C_2147464952" with the fire 31 m off was
+    -- answered unknown_target "is not in sight, and no player of that name is on the game map" (4 of 416 calls)
+    FAKE.move.position = nil
+    for _, name in ipairs({ "Workbench", "workbench", "Workbench bench_1", "Workbench (id bench_1)" }) do
+        local _, _, id = rpc("go_to", { target = name })
+        assert(FAKE.move.target and FAKE.move.target[1] == 6 and FAKE.move.target[2] == 2, name .. " -> " .. json.encode(FAKE.move.target))
+        FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.0 }, { 5.5, 2, 3 }
+        step()
+        local r = results(drain(), id)[1]
+        assert(r and r.ok and tostring(r.data.resolved):find("Workbench", 1, true) and tostring(r.data.resolved):find("bench_1", 1, true)
+            and r.data.via == nil, name .. " -> " .. json.encode(r))
+        FAKE.move.position = nil
+    end
+    -- a creature's name, a player's name and a name nothing in sight carries stay move.lua's to judge (a string)
+    for _, name in ipairs({ "Deer", "Luis", "Rune Altar" }) do
+        local _, _, id = rpc("go_to", { target = name })
+        assert(FAKE.move.target and FAKE.move.target[1] == 3 and FAKE.move.target[2] == 4, name .. " -> " .. json.encode(FAKE.move.target))
+        FAKE.move.mode, FAKE.move.result = "idle", { status = "failed", reason = "target_not_visible" }
+        step()
+        local r = results(drain(), id)[1]
+        assert(r and r.reason == "unknown_target" and r.data.resolved == nil, name .. " -> " .. json.encode(r))
+    end
+    FAKE.move.position = nil
+end)
+
 test("go_to: a move stopped from elsewhere -> interrupted", function()
     local _, _, id = rpc("go_to", { target = "Luis" })
     FAKE.move.mode, FAKE.move.result = "idle", { status = "stopped" }
