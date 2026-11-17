@@ -494,3 +494,11 @@ def test_start_ref_prefers_a_mid_job_checkpoint_only_when_it_exists(doc, tmp_pat
     assert j.start_ref(job, "I3", None)[0] == "job_l2_mid"
     assert j.start_ref(job, None, None)[0] == "ClaudeDev"
     assert j.start_ref(job, "I3", "rm_part2") == ("rm_part2", "--from")
+
+
+def test_a_stop_file_ends_the_trial_stopped(doc, tmp_path):
+    stop = tmp_path / "job_run.stop"
+    stop.write_text("", encoding="utf-8")
+    io = FakeIO(script=l2_script(store_at=400.0), states=lambda t: state(mine=[CRATE]))
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"], "stop_file": str(stop)})
+    assert rec["ended"] == "stopped" and not rec["job_done"]

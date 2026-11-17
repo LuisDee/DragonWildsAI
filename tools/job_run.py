@@ -38,6 +38,10 @@ ROOT = paths.REPO_ROOT
 JOBS = ROOT / "data" / "jobs.json"
 OUT = ROOT / "logs" / "evals" / "job_runs.jsonl"
 WINDOW_OUT = ROOT / "logs" / "evals" / "job_windows.jsonl"
+# a window is stopped by creating this file, never by killing it: the trial ends "stopped" and the window still
+# switches back to ClaudeDev (2026-11-17 18:04Z: a killed L2 window left the client on its fork, and the next
+# window's fixtures took him for another player)
+STOP_FILE = ROOT / "logs" / "job_run.stop"
 STEPS = ("I1", "I2", "I3", "I4", "I5")
 SAMPLE_S = 15.0       # a get_state read for the end predicate and the body's state, this often
 CONFIRM_S = 60.0      # an interruption trial goes on this long after he took the job up again (it was not a blip)
@@ -665,6 +669,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
             why = "haiku cap"
         elif rel > float(opts.get("deadline", 1800)):
             why = "deadline"
+        elif Path(opts.get("stop_file") or STOP_FILE).exists():
+            why = "stopped"
         elif not open_prompt and not open_tool and quiet >= q.QUIET_S and calls["calls"]:
             why = "quiet"
         if why:
@@ -858,6 +864,9 @@ def cmd_window(a, step: str | None) -> int:
     try:
         with q.clone_window(a.wait, out, WINDOW_OUT) as (sw, cli, t0):
             for name in forks:
+                if STOP_FILE.exists():
+                    out["trials"].append({"character": name, "skipped": f"{STOP_FILE.name} present"})
+                    break
                 left = a.window_s - a.reserve_s - (time.time() - t0) - q.SWITCH_S
                 if left < 120:
                     out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left"})
