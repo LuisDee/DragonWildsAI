@@ -254,6 +254,8 @@ def is_storage(cid: str, kinds: dict | None = None, read: dict | None = None) ->
         return False
     if read.get("read") and isinstance(read.get("items"), dict):
         return True
+    if read.get("no_inventory"):  # the body found it and it holds no inventory: not storage
+        return False
     return None
 
 
@@ -265,7 +267,9 @@ def read_container(reply: Any) -> dict:
     out = {"kind": d.get("kind"), "class": d.get("class")}
     if r.get("ok") is not True or not isinstance(d.get("contents"), list):
         why = r.get("reason") or d.get("detail") or ("no inventory read on it" if r.get("ok") else "no reply")
-        return {**out, "read": False, "why": str(why)[:200]}
+        # found, and no inventory on it: the game holds nothing in it (his door, 2026-11-17 runs 211950 and 212448)
+        none_in = r.get("ok") is True and d.get("contents") is None
+        return {**out, "read": False, "why": str(why)[:200], **({"no_inventory": True} if none_in else {})}
     from brain import stash
     items: dict[str, int] = {}
     for e in d["contents"]:

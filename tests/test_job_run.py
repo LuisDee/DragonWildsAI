@@ -775,3 +775,13 @@ def test_l1_the_cowl_he_wears_is_the_jobs_own_head_start_rule(doc):
     start = j.snapshot(_gs([{"item": "ITEM_Armour_T2_Head_Leather", "count": 1, "where": "loadout", "loadout_slot": "Head"}]))
     assert start["carried"] == {"ITEM_Armour_T2_Head_Leather": 1}
     assert j.not_counted(job, start) == "held at the start: ITEM_Armour_T2_Head_Leather x1"
+
+
+def test_a_door_he_built_is_not_left_unread_as_a_chest():
+    """Live 2026-11-17 (runs 20261117-211950-L2, -212448-L2): his T1 door was read ok with no inventory on it, counted
+    as a storage container "not known", and both runs ended "end state unread" (not counted) with 0 of 30 copper.
+    A piece the body found that holds no inventory is not storage."""
+    door = j.read_container({"ok": True, "data": {"class": "BP_T1_Door_C"}})
+    assert door["read"] is False and door.get("no_inventory") is True
+    assert j.is_storage("BP_T1_Door_C_2147472981", {}, door) is False
+    assert j.is_storage("BP_Storage_Crate_C_1", {}, j.read_container({"ok": False, "reason": "not_found"})) is None
