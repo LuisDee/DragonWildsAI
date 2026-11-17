@@ -45,6 +45,29 @@ ROOT = paths.REPO_ROOT
 OUT = ROOT / "logs" / "evals" / "chat_ladder.jsonl"
 CLIENT_BRIDGE = ROOT / "client_io" / "bridge"
 HOLD_FILES = [ROOT / "logs" / "client.hold", ROOT / "logs" / "client.stopped"]
+NAV_ALIVE = ROOT / "client_io" / "nav" / "alive.lua"  # the nav helper's heartbeat (tools/nav_oracle.py Authority)
+
+
+def nav_not_ready(path: Path | None = None, now: float | None = None, max_age_s: float = 30.0) -> str | None:
+    """Why the nav helper cannot give his walks a route, or None. While it is "recovering" every walk falls back to
+    straight lines and local plans (2026-11-17 17:50Z: an L2 trial ran 9 minutes like that after a server restart,
+    and an explore leg sprinted off a 37 m drop). A window starts only once it offers routes."""
+    p = path or NAV_ALIVE
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return f"the nav helper has no heartbeat ({p.name} unreadable)"
+    st = re.search(r'state="([a-z_]+)"', text)
+    up = re.search(r"updated=([0-9.]+)", text)
+    why = re.search(r'reason="([^"]*)"', text)
+    age = (now or time.time()) - float(up.group(1)) if up else None
+    if age is None or age > max_age_s:
+        return f"the nav helper's heartbeat is stale ({'unknown' if age is None else f'{age:.0f} s'} old)"
+    if not st or st.group(1) != "offered":
+        return (f"the nav helper is {st.group(1) if st else 'in no known state'}"
+                f"{' (' + why.group(1) + ')' if why and why.group(1) else ''}: after a server restart run "
+                "`python -m tools.nav_oracle policy <server pid>` and stop the helper (the client watchdog restarts it)")
+    return None
 TESTER = "Tester"
 WORLD = "dev_ladder"   # a clean brain world store for the ladder (no parked boards or week-old notes)
 TOL_M, DZ_M = 3.0, 3.0
@@ -523,6 +546,8 @@ def preflight(a) -> list[str]:
     from evals.bench.devtarget import forbidden_addresses, joined_from_game_log
     from tools.scenario_run import Ops
     bad = [f"hold file {p.name} present" for p in HOLD_FILES if p.exists()]
+    if (nav := nav_not_ready()) is not None:
+        bad.append(nav)
     joined = joined_from_game_log()
     if not joined or not joined.startswith("127.0.0.1"):
         bad.append(f"client not on the dev server (joined {joined})")
