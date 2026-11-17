@@ -342,6 +342,185 @@ def test_parse_metabot_and_its_snapshot(tmp_path):
     assert cr["Magpie"]["weak"] == ["None"] and not cr["Magpie"]["_src"].out()
 
 
+# ---------------------------------------------------------------- the game's own tables (bestiary_tables_probe.lua)
+
+# The probe's output as the runner writes it (client_io/out/bestiary_tables_probe.json): {ok, result}. Same shapes as
+# client_mod/tests/test_bestiary_probe.lua produces over its fake engine.
+PROBE = {"ok": True, "result": {
+    "probe": "bestiary_tables_probe", "version": 1, "vault": None,
+    "unread": ["DT_AIAttackDamage_DowdunReach: table not loaded (/DowdunReach/...)"], "truncated": [],
+    "journal": {"found": 3, "with_weaknesses": 3, "entries": [
+        {"asset": "JOURNAL_World_Fauna_GiantRat", "name": "Giant Rat", "power_level": 1,
+         "weaknesses": ["Weakness: Slash", "Resistance: Crush", "Occasionally lacks confidence"], "locations": ["Temple Woods"],
+         "ai_data": "/Game/Gameplay/AI/GiantRat/AIData_GiantRat.AIData_GiantRat_C"},
+        {"asset": "JOURNAL_World_Fauna_Zogre", "name": "Zogre", "weaknesses": ["Crush"]},
+        {"asset": "JOURNAL_World_Fauna_Wisp", "name": "Plague Wisp", "weaknesses": ["Weakness: Fire"]}]},
+    "attack_damage": {"DT_AIAttackDamage_BG": {"rows": {"GiantRat_Bite": 12, "GiantRat_Lunge": 18, "Nobody_Hit": 5}},
+                      "DT_AIAttackDamage_Fellhollow": {"rows": []}},
+    "attacks": {"registry": {"n": 3, "paths": ["/Game/Gameplay/AI/GiantRat/ATK_GiantRat_Bite.ATK_GiantRat_Bite_C"]},
+                "loaded": {
+                    "ATK_GiantRat_Bite": {"path": "/Game/Gameplay/AI/GiantRat/Attacks/ATK_GiantRat_Bite.ATK_GiantRat_Bite_C",
+                                          "flags": 1, "unblockable": True, "effects": ["GE_Poison_C"],
+                                          "hits": [{"table": "DT_AIAttackDamage_BG", "row": "GiantRat_Bite", "damage": 12,
+                                                    "types": ["DamageType.Physical.Stab"], "damage_class": 1, "time": 0.6}]},
+                    "ATK_Mystery_Swing": {"path": "/Game/Gameplay/AI/Mystery/ATK_Mystery_Swing.ATK_Mystery_Swing_C",
+                                          "hits": [{"row": "Mystery_Swing", "table_loaded": False}]}}},
+    "enemy_loot": {"DT_EnemyLootDropTable": {"rows": {
+        "GiantRat": [{"min_power_level": 1, "drops": ["DT_LootDropTable:GiantRat_Common"]},
+                     {"min_power_level": 3, "drops": ["DT_LootDropTable:GiantRat_Common", "DT_LootDropTable:GiantRat_Night",
+                                                      "DT_LootDropTable:Missing_Row"]}],
+        "Ogre": [{"min_power_level": 4, "drops": ["DT_LootDropTable:Ogre_Pack"]}],
+        "Unknown": [{"min_power_level": 1, "drops": ["DT_LootDropTable:GiantRat_Common"]}]}}},
+    "loot_rows": {
+        "DT_LootDropTable:GiantRat_Common": {"drop_chance": 1, "conditions": [], "recipes": [],
+                                             "items": [{"item": "ITEM_RawRatMeat", "item_name": "Raw Rat Meat", "min": 1, "max": 1, "chance": 1}]},
+        "DT_LootDropTable:GiantRat_Night": {"drop_chance": 0.1, "conditions": ["night"],
+                                            "items": [{"item": "ITEM_ShinyTooth", "item_name": "Shiny Tooth", "min": 1, "max": 2, "chance": 0.02}]},
+        "DT_LootDropTable:Ogre_Pack": {"drop_chance": 1, "items": [{"item": "ITEM_ZogrePack", "item_name": "Zogre Pack", "min": 1, "max": 1,
+                                                                    "chance": 1, "damagers_only": True}]},
+        "DT_LootDropTable:Missing_Row": False},
+    "chests": {"found": 3, "actors": [
+        {"id": "BP_WorldChest_Vault_C_7", "vault": "Test Kara", "profile": {"table": "DT_ChestRespawn", "row": "Vault_A"},
+         "respawn": "on_opened", "roll": {"table": "DT_Rolls", "row": "Roll_A"}, "min_extra_rolls": 1, "max_extra_rolls": 2,
+         "guaranteed_items": [], "guaranteed_sets": [{"set": "DT_ItemSets:Core", "items": [{"item": "ITEM_VaultCore", "item_name": "Vault Core",
+                                                                                             "min": 1, "max": 1, "chance": 1}]}],
+         "extra_sets": [{"set": "DT_ItemSets:Tomes", "chance": 0.1, "items": [{"item": "ITEM_SkillTome", "item_name": "Skill Tome",
+                                                                               "min": 1, "max": 3, "chance": 0.5}]}]},
+        {"id": "BP_WorldChest_Vault_C_9", "profile": {"table": "DT_ChestRespawn", "row": "Chest_TestKara_Small"},
+         "roll": {"table": "DT_Rolls", "row": "Roll_B"}, "guaranteed_items": [{"item": "ITEM_VaultShard", "item_name": "Vault Shard",
+                                                                               "min": 2, "max": 4, "chance": 1}]},
+        {"id": "BP_WorldChest_Vault_C_8", "profile": {"row": "Somewhere_Else", "table_loaded": False},
+         "unread": "profile table not loaded on the client"},
+        {"id": "BP_WorldChest_C_3", "profile": {"table": "DT_ChestRespawn", "row": "Field_Chest"}, "roll": {"row": "Roll_C"},
+         "guaranteed_items": [{"item": "ITEM_Coin", "item_name": "Coins", "min": 5, "max": 5, "chance": 1}]}]},
+}}
+
+
+def write_probe(tmp_path, doc, name="probe.json"):
+    p = tmp_path / name
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    return p
+
+
+@pytest.fixture(scope="module")
+def game_doc(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("probe")
+    probe = bb.load_probe([write_probe(tmp, PROBE)])
+    mirror = bb.Mirror.from_pages({
+        "Giant Rat": page(1, "Giant Rat", RAT), "Zogre": page(2, "Zogre", OGRE), "Test Kara": page(3, "Test Kara", VAULT),
+        "Chest (Test Kara)": page(4, "Chest (Test Kara)", CHEST), "Boss": page(5, "Boss", BOSS),
+        "Dragonkin Vault": page(6, "Dragonkin Vault", DV), "Vault Shard": page(7, "Vault Shard", "x"),
+    }, {"Giant rat": "Giant Rat", "Ogre": "Zogre", "Dungeon": "Dragonkin Vault"})
+    ext = tmp / "bestiary_external.json"
+    ext.write_text(json.dumps(EXTERNAL), encoding="utf-8")
+    orig = bb.class_aliases, bb.observed_attacks, bb.apply_external
+    bb.class_aliases = lambda names, dump=None, combat=None: {"Giant Rat": ["GiantRat"]}
+    bb.observed_attacks = lambda names, skills=None: {}
+    bb.apply_external = lambda creatures, path=None: orig[2](creatures, ext)
+    try:
+        return bb.build(mirror, probe)
+    finally:
+        bb.class_aliases, bb.observed_attacks, bb.apply_external = orig
+
+
+def test_journal_lines_to_affinities():
+    got = bb._game_affinities(["Weakness: Stab, Fire", "Resistance: Crush", "Immune: Poison and Bleed", "Slash",
+                               "Occasionally lacks confidence", "Weakness: Stab"])
+    assert got == {"weak": ["Stab", "Fire", "Slash"], "resist": ["Crush"], "immune": ["Poison", "Bleed"]}
+    assert bb._game_affinities(["Lives in the woods."]) == {}
+
+
+def test_load_probe_takes_the_union_of_runs_and_refuses_a_failed_run(tmp_path):
+    other = json.loads(json.dumps(PROBE))
+    other["result"]["attacks"]["loaded"] = {"ATK_GiantRat_Lunge": {"path": "/Game/Gameplay/AI/GiantRat/ATK_GiantRat_Lunge.ATK_GiantRat_Lunge_C",
+                                                                   "hits": [{"table": "DT_AIAttackDamage_BG", "row": "GiantRat_Lunge"}]}}
+    other["result"]["loot_rows"]["DT_LootDropTable:GiantRat_Night"] = False  # a later run that could not read it keeps the read
+    bare = write_probe(tmp_path, other["result"], "bare.json")  # the bare result (no runner wrapper) also loads
+    u = bb.load_probe([write_probe(tmp_path, PROBE), bare])
+    assert set(u["attacks"]) == {"ATK_GiantRat_Bite", "ATK_Mystery_Swing", "ATK_GiantRat_Lunge"}
+    assert u["loot_rows"]["DT_LootDropTable:GiantRat_Night"]["drop_chance"] == 0.1
+    assert len(u["files"]) == 2 and len(u["unread"]) == 2
+    bad = write_probe(tmp_path, {"ok": False, "error": "load: syntax"}, "bad.json")
+    with pytest.raises(ValueError, match="not a bestiary_tables_probe result"):
+        bb.load_probe([bad])
+
+
+def test_game_journal_outranks_the_wiki_and_keeps_what_it_replaced(game_doc):
+    rat = game_doc["creatures"]["Giant Rat"]
+    assert rat["weak"] == ["Slash"] and rat["src"]["weak"] == [bb.GAME]
+    assert rat["differs"] == {"weak": {"values": ["Stab"], "src": [1]}} and rat["src"]["differs"] == [1]
+    assert rat["resist"] == ["Crush"] and rat["src"]["resist"] == [bb.GAME] and "resist" not in rat["differs"]
+    assert rat["journal"]["lines"][2] == "Occasionally lacks confidence" and rat["src"]["journal"] == [bb.GAME]
+    assert "Weak to Slash." in rat["text"] and "other sources said Stab" in rat["text"]
+    assert "the game's own data on his client (" in rat["text"]
+    z = game_doc["creatures"]["Zogre"]
+    assert z["weak"] == ["Crush"] and z["src"]["weak"] == [bb.GAME] and "differs" not in z  # same value: no conflict
+    assert z["immune"] == ["Poison"] and z["src"]["immune"] == [bb.METABOT]  # the journal said nothing: metabot stays
+
+
+def test_game_attacks_join_damage_types_and_flags(game_doc):
+    rat = game_doc["creatures"]["Giant Rat"]
+    bite, lunge = rat["game_attacks"]
+    assert bite == {"name": "Bite", "asset": "ATK_GiantRat_Bite", "damage": [12], "types": ["stab"], "class": ["melee"],
+                    "unblockable": True, "effects": ["GE_Poison"]}
+    assert lunge == {"name": "Lunge", "row": "DT_AIAttackDamage_BG:GiantRat_Lunge", "damage": [18]}  # row, no class loaded
+    assert rat["src"]["game_attacks"] == [bb.GAME]
+    assert "Attacks in the game's data (base damage before armour): Bite (12 damage, stab, melee, unblockable, effect GE_Poison)" in rat["text"]
+    assert "Attacks: Bite" in rat["text"]  # the wiki's list stays beside it
+
+
+def test_game_drops_per_power_level(game_doc):
+    rat = game_doc["creatures"]["Giant Rat"]
+    assert [lv["min_power_level"] for lv in rat["game_drops"]] == [1, 3]
+    assert len(rat["game_drops"][1]["drops"]) == 2  # the unreadable row is left out, not invented
+    assert "Drops in the game's tables: from power level 1: Raw Rat Meat 1 (always); from power level 3:" in rat["text"]
+    assert "Shiny Tooth 1-2 (2 % of a 10 % roll at night)" in rat["text"]
+    z = game_doc["creatures"]["Zogre"]  # the loot row "Ogre" matched through the wiki redirect alias
+    assert z["game_drops"][0]["drops"][0]["items"][0] == {"item": "Zogre Pack", "id": "ITEM_ZogrePack", "min": 1, "max": 1,
+                                                         "chance": 1, "damagers_only": True}
+
+
+def test_chest_items_placed_by_label_or_row_name(game_doc):
+    v = game_doc["vaults"]["Test Kara"]
+    rolls = sorted(v["chest_items"]["rolls"], key=lambda r: r["roll"])
+    assert [r["roll"] for r in rolls] == ["Roll_A", "Roll_B"] and v["src"]["chest_items"] == [bb.GAME]
+    assert rolls[0]["extra_rolls"] == [1, 2] and rolls[0]["guaranteed"][0]["item"] == "Vault Core"
+    assert "Chest loot in the game's tables: always Vault Core 1; plus 1-2 rolls among: Skill Tome 1-3 (50 %) [set 10 %]" in v["text"]
+    assert "Vault Shard 2-4" in v["text"]
+    assert "Chests: " in v["text"]  # the wiki's chest page stays too
+    assert game_doc["counts"]["vaults_missing"]["chest_items"] == 0
+
+
+def test_probe_report_names_what_did_not_match(game_doc):
+    pr = game_doc["probe"]
+    assert pr["unmatched"]["journal"] == ["Plague Wisp"]
+    assert pr["unmatched"]["attacks"] == ["ATK_Mystery_Swing"]
+    assert pr["unmatched"]["enemy_loot"] == ["Unknown"]
+    assert pr["unmatched"]["chests"] == ["BP_WorldChest_C_3 (Field_Chest)"]  # the unread chest has no loot: not listed
+    assert pr["journal_matched"] == 2 and pr["replaced"] == 1 and pr["chests_placed"] == 2
+    assert pr["unread"] == ["probe.json: DT_AIAttackDamage_DowdunReach: table not loaded (/DowdunReach/...)"]
+    for sec in ("creatures", "vaults"):
+        for k, e in game_doc[sec].items():
+            assert len(e["text"]) <= bb.ENTRY_CHARS, k
+            for f in e:
+                if f not in ("kind", "name", "title", "page", "aliases", "text", "src", "class_names", "role", "vaults"):
+                    assert e["src"].get(f), (k, f)
+
+
+def test_build_cli_takes_from_probe(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_build(mirror=None, probe=None):
+        seen["probe"] = probe
+        return {"counts": {}, "probe": {"files": [], "unmatched": {"journal": []}, "unread": []}}
+    monkeypatch.setattr(bb, "build", fake_build)
+    monkeypatch.setattr(bb, "OUT", tmp_path / "bestiary.json")
+    f = write_probe(tmp_path, PROBE)
+    assert bb.main(["build", "--from-probe", str(f)]) == 0
+    assert set(seen["probe"]["attacks"]) == {"ATK_GiantRat_Bite", "ATK_Mystery_Swing"}
+    assert json.loads((tmp_path / "bestiary.json").read_text(encoding="utf-8"))["probe"]["files"] == []
+
+
 # ---------------------------------------------------------------- matching and the lookup merge
 
 
@@ -397,7 +576,7 @@ def test_built_file_counts_and_contract():
                 if f not in ("kind", "name", "title", "page", "aliases", "text", "src", "class_names", "role", "vaults"):
                     assert e["src"].get(f), (k, f)
             for f, ids in e["src"].items():
-                assert all(isinstance(i, int) or i in (bb.METABOT, bb.OWN) for i in ids), (k, f, ids)
+                assert all(isinstance(i, int) or i in (bb.METABOT, bb.OWN, bb.GAME) for i in ids), (k, f, ids)
                 if f == "observed_attacks":
                     assert ids == [bb.OWN], k
     assert d["vaults"]["Crasorak Kara"]["boss"][0]["creature"] == "Vault Overlord"

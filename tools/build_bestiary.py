@@ -18,11 +18,16 @@ Sources (all in the repo, read only):
 
 Neither the game dump nor the mirror holds attack damage, affinities or vault chest items: the dump has only the
 data-table names (docs/research/2026-11-17-bestiary-gaps.md has the read-only live probe plan).
+* ``--from-probe`` (optional, repeatable): the output of client_mod/commands/bestiary_tables_probe.lua run on his client
+  (the game's journal weaknesses, attack damage table, each loaded attack's damage types and flags, the enemy loot
+  tables, loaded vault chests' loot rolls). Src tag "game"; merged last, so it outranks the wiki and metabot.gg (a
+  replaced value is kept under ``differs``). Fields ``journal``, ``game_attacks``, ``game_drops``, vault ``chest_items``.
 
 Each entry carries ``text``: what a player reads (facts only, no advice, no order of actions), under 1,500 characters,
 and ``src``: for every field, the wiki page ids it came from.
 
     .venv\\Scripts\\python.exe -m tools.build_bestiary build            # writes data/bestiary.json
+    .venv\\Scripts\\python.exe -m tools.build_bestiary build --from-probe client_io/out/bestiary_tables_probe.json
     .venv\\Scripts\\python.exe -m tools.build_bestiary show "giant rat"  # what the lookup would return first
     .venv\\Scripts\\python.exe -m tools.build_bestiary score            # tuned half of evals/lookup_enemies_eval.py
     .venv\\Scripts\\python.exe -m tools.build_bestiary score --heldout-once   # adds the held-out half's one number
@@ -54,6 +59,7 @@ EXTERNAL = ROOT / "data" / "bestiary_external.json"
 METABOT_URL = "https://metabot.gg/en/dragonwilds/bestiary"
 OWN = "own fights"  # src tag: observed by his own client
 METABOT = "metabot.gg"  # src tag: metabot.gg's datamined bestiary
+GAME = "game"  # src tag: the game's own tables, read on his client (client_mod/commands/bestiary_tables_probe.lua)
 SCHEMA = "dw_bestiary/1"
 ENTRY_CHARS = 1500  # an entry's text, at most
 TEXT_BUDGET = 3000  # all result texts of one lookup with the bestiary (entries first, then the old lookup's results)
@@ -673,6 +679,243 @@ def apply_external(creatures: dict[str, dict], path: Path | None = EXTERNAL) -> 
     return filled
 
 
+# ------------------------------------------------------------------------------ the game's own tables (live probe)
+
+GAME_WORDS = {"stab", "slash", "crush", "fire", "water", "earth", "air", "magic", "ranged", "melee", "poison", "bleed",
+              "burning", "frost", "ice", "lightning", "arrow", "arrows"}
+JOURNAL_LINE = re.compile(r"^\s*(weak(?:ness(?:es)?)?|resist(?:ance|ances|s)?|immun(?:e|ity|ities))\s*:\s*(.+)$", re.I)
+DAMAGE_CLASS = {1: "melee", 2: "magic", 3: "ranged"}
+
+
+def load_probe(paths: Iterable[Path | str]) -> dict:
+    """One or more outputs of client_mod/commands/bestiary_tables_probe.lua (the runner's {ok, result} or the bare
+    result), as their union: attacks by asset, journal entries by asset, table rows by table, chests by actor id.
+    A run near other creatures loads other attack classes, so several runs add up."""
+    u: dict[str, Any] = {"files": [], "journal": {}, "attack_damage": {}, "attacks": {}, "registry": set(),
+                         "enemy_loot": {}, "loot_rows": {}, "chests": {}, "unread": []}
+    for p in paths:
+        raw = json.loads(Path(p).read_text(encoding="utf-8"))
+        res = raw.get("result", raw) if isinstance(raw, dict) else {}
+        if not isinstance(res, dict) or res.get("probe") != "bestiary_tables_probe":
+            raise ValueError(f"{p}: not a bestiary_tables_probe result (ok={raw.get('ok') if isinstance(raw, dict) else None}, "
+                             f"error={raw.get('error') if isinstance(raw, dict) else None})")
+        u["files"].append(str(p))
+        u["unread"] += [f"{Path(p).name}: {x}" for x in res.get("unread") or []]
+        for e in (res.get("journal") or {}).get("entries") or []:
+            if e.get("asset"):
+                u["journal"][e["asset"]] = e
+        for t, tab in (res.get("attack_damage") or {}).items():
+            if isinstance(tab, dict) and isinstance(tab.get("rows"), dict):
+                u["attack_damage"].setdefault(t, {}).update(tab["rows"])
+        att = res.get("attacks") or {}
+        u["registry"] |= set((att.get("registry") or {}).get("paths") or [])
+        if isinstance(att.get("loaded"), dict):
+            u["attacks"].update(att["loaded"])
+        for t, tab in (res.get("enemy_loot") or {}).items():
+            if isinstance(tab, dict) and isinstance(tab.get("rows"), dict):
+                u["enemy_loot"].setdefault(t, {}).update(tab["rows"])
+        for k, r in (res.get("loot_rows") or {}).items():
+            if r or k not in u["loot_rows"]:
+                u["loot_rows"][k] = r
+        for c in (res.get("chests") or {}).get("actors") or []:
+            c = dict(c)
+            c.setdefault("vault", res.get("vault"))
+            u["chests"][(c.get("vault"), c.get("id"))] = c
+    return u
+
+
+def _game_affinities(lines: list[str]) -> dict[str, list[str]]:
+    """The journal's Weaknesses lines -> {weak, resist, immune}: 'Weakness: Stab', 'Resistance: Crush, Air',
+    'Immune: Poison', or a bare damage word ('Stab' = weak). Lore lines ('Occasionally lacks confidence') are not facts."""
+    out: dict[str, list[str]] = {}
+    for ln in lines:
+        m = JOURNAL_LINE.match(ln or "")
+        if m:
+            field = {"w": "weak", "r": "resist", "i": "immune"}[m.group(1)[0].lower()]
+            vals = [x.strip(" .") for x in re.split(r",|/|\band\b", m.group(2)) if x.strip(" .")]
+        elif (ln or "").strip(" .").lower() in GAME_WORDS:
+            field, vals = "weak", [ln.strip(" .")]
+        else:
+            continue
+        for v in vals:
+            if v not in out.setdefault(field, []):
+                out[field].append(v)
+    return out
+
+
+def _creature_index(creatures: dict[str, dict]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """norm(name, title, alias) -> titles; norm(game class stem) -> titles."""
+    names: dict[str, list[str]] = defaultdict(list)
+    stems: dict[str, list[str]] = defaultdict(list)
+    for title, e in creatures.items():
+        for n in {title, e["name"], *(e.get("aliases") or [])}:
+            if title not in names[_norm(n)]:
+                names[_norm(n)].append(title)
+        for s in e.get("class_names") or []:
+            if title not in stems[_norm(s)]:
+                stems[_norm(s)].append(title)
+    return names, stems
+
+
+def _one(hits: list[str] | None) -> str | None:
+    return hits[0] if hits and len(hits) == 1 else None
+
+
+def _ai_folder(path: str | None) -> str | None:
+    m = re.search(r"/Gameplay/AI/([A-Za-z0-9]+)/", path or "")
+    return m.group(1) if m else None
+
+
+def _items(rows: list[dict]) -> list[dict]:
+    out = []
+    for r in rows or []:
+        it = {"item": r.get("item_name") or r.get("item"), "id": r.get("item"), "min": r.get("min"), "max": r.get("max"),
+              "chance": r.get("chance")}
+        if r.get("damagers_only"):
+            it["damagers_only"] = True
+        out.append({k: v for k, v in it.items() if v is not None})
+    return out
+
+
+def apply_probe(creatures: dict[str, dict], vaults: dict[str, dict], probe: dict) -> dict:
+    """Merge the game's own data (load_probe) into the entries, src tag GAME. Preferred over the wiki and metabot.gg:
+    a journal weakness replaces their value, and what it replaced is kept under ``differs`` with its sources. Adds
+    ``journal``, ``game_attacks`` (per attack: damage per hit from the attack damage table, damage types, melee /
+    magic / ranged, unblockable / unparryable, effects), ``game_drops`` (per minimum power level) and, on vaults,
+    ``chest_items``. Returns what matched and what did not."""
+    names, stems = _creature_index(creatures)
+    stats: dict[str, Any] = {"files": probe["files"], "journal_matched": 0, "affinity_fields": 0, "replaced": 0,
+                             "attacks_matched": 0, "drops_matched": 0, "chests_placed": 0,
+                             "unmatched": {"journal": [], "attacks": [], "enemy_loot": [], "chests": []},
+                             "unread": probe["unread"][:50]}
+
+    def setf(e: dict, field: str, value: Any) -> None:
+        e[field] = value
+        e["_src"].d[field] = [GAME]
+
+    # 1. the journal: weaknesses, resistances, immunities
+    for asset, j in sorted(probe["journal"].items()):
+        title = _one(names.get(_norm(j.get("name") or ""))) or _one(stems.get(_norm(_ai_folder(j.get("ai_data")) or "")))
+        if not title:
+            if j.get("weaknesses") and j.get("name"):
+                stats["unmatched"]["journal"].append(j["name"])
+            continue
+        e = creatures[title]
+        stats["journal_matched"] += 1
+        rec = {k: v for k, v in (("entry", asset), ("lines", j.get("weaknesses")), ("power_level", j.get("power_level")),
+                                 ("locations", j.get("locations"))) if v}
+        setf(e, "journal", rec)
+        for field, vals in _game_affinities(j.get("weaknesses") or []).items():
+            old = e.get(field)
+            if old and [x.lower() for x in old] != [x.lower() for x in vals]:
+                e.setdefault("differs", {})[field] = {"values": old, "src": list(e["_src"].d.get(field, []))}
+                for i in e["_src"].d.get(field, []):
+                    e["_src"].add("differs", i)
+                stats["replaced"] += 1
+            setf(e, field, vals)
+            stats["affinity_fields"] += 1
+
+    # 2. attacks: each loaded ATK_<Stem>_<Name> default, and damage rows no loaded attack names
+    by_creature: dict[str, list[dict]] = defaultdict(list)
+    keys: dict[str, list[str]] = defaultdict(list)  # game stems first, then creature names ("Zogre" -> zogre)
+    for k, ts in list(stems.items()) + list(names.items()):
+        keys[k] += [t for t in ts if t not in keys[k]]
+    longest = sorted(((s, t) for s, t in keys.items() if len(s) >= 3), key=lambda kv: -len(kv[0]))
+    used_rows: set[tuple[str, str]] = set()
+
+    def owner(asset: str, path: str | None) -> str | None:
+        folder = _norm(_ai_folder(path) or "")
+        hit = _one(stems.get(folder)) or _one(names.get(folder))
+        if hit:
+            return hit
+        for s, titles in longest:
+            if _norm(asset).startswith("atk" + s) and len(titles) == 1:
+                return titles[0]
+        return None
+
+    for asset, a in sorted(probe["attacks"].items()):
+        title = owner(asset, a.get("path"))
+        hits = a.get("hits") or []
+        for h in hits:
+            if h.get("table") and h.get("row"):
+                used_rows.add((h["table"], h["row"]))
+        if not title:
+            stats["unmatched"]["attacks"].append(asset)
+            continue
+        dmg = [h.get("damage") if h.get("damage") is not None else probe["attack_damage"].get(h.get("table") or "", {}).get(h.get("row"))
+               for h in hits]
+        types = list(dict.fromkeys(t.rsplit(".", 1)[-1].lower() for h in hits for t in h.get("types") or []))
+        classes = list(dict.fromkeys(DAMAGE_CLASS[h["damage_class"]] for h in hits if h.get("damage_class") in DAMAGE_CLASS))
+        item = {"name": re.sub(r"^ATK_[A-Za-z0-9]+?_", "", asset).replace("_", " "), "asset": asset,
+                "damage": [d for d in dmg if isinstance(d, (int, float))] or None, "types": types or None,
+                "class": classes or None, "unblockable": a.get("unblockable"), "unparryable": a.get("unparryable"),
+                "effects": [re.sub(r"_C$", "", x) for x in a.get("effects") or []] or None,
+                "next": re.sub(r"_C$", "", a["next"]) if a.get("next") else None}
+        by_creature[title].append({k: v for k, v in item.items() if v})
+    for table, rows in sorted(probe["attack_damage"].items()):
+        for row, dmg in sorted(rows.items()):
+            if (table, row) in used_rows or not isinstance(dmg, (int, float)):
+                continue
+            stem, title = next(((s, ts[0]) for s, ts in longest if len(ts) == 1 and _norm(row).startswith(s)), (None, None))
+            if title:
+                parts = row.split("_")
+                cut = next((i for i in range(1, len(parts)) if _norm("".join(parts[:i])) == stem), 0)
+                by_creature[title].append({"name": " ".join(parts[cut:]) or row, "row": f"{table}:{row}", "damage": [dmg]})
+    for title, atts in by_creature.items():
+        setf(creatures[title], "game_attacks", atts)
+        stats["attacks_matched"] += len(atts)
+
+    # 3. drops per minimum power level, through each drop row
+    for table, rows in sorted(probe["enemy_loot"].items()):
+        for row, levels in sorted(rows.items()):
+            title = _one(names.get(_norm(row))) or _one(stems.get(_norm(row)))
+            if not title:
+                stats["unmatched"]["enemy_loot"].append(row)
+                continue
+            out = []
+            for lv in levels or []:
+                drops = []
+                for key in lv.get("drops") or []:
+                    d = probe["loot_rows"].get(key)
+                    if not d:
+                        continue
+                    drops.append({k: v for k, v in (("chance", d.get("drop_chance")), ("conditions", d.get("conditions")),
+                                                    ("items", _items(d.get("items")))) if v})
+                if drops:
+                    out.append({"min_power_level": lv.get("min_power_level"), "drops": drops})
+            if out:
+                setf(creatures[title], "game_drops", out)
+                stats["drops_matched"] += 1
+
+    # 4. vault chests: placed by the run's vault label, else by the vault's name inside the profile or roll row
+    vnames = {_norm(t): t for t in vaults} | {_norm(a): t for t, v in vaults.items() for a in v.get("aliases") or []}
+    for (label, cid), c in sorted(probe["chests"].items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1]))):
+        if not (c.get("guaranteed_sets") or c.get("guaranteed_items") or c.get("extra_sets")):
+            continue
+        title = vnames.get(_norm(label or ""))
+        if not title:
+            rows = _norm(" ".join(str((c.get(k) or {}).get("row") or "") for k in ("profile", "roll")))
+            title = next((t for n, t in vnames.items() if n and n in rows), None) or \
+                next((t for t in vaults if len(t.split()[0]) >= 5 and _norm(t.split()[0]) in rows), None)
+        if not title:
+            stats["unmatched"]["chests"].append(f"{cid} ({(c.get('profile') or {}).get('row')})")
+            continue
+        v = vaults[title]
+        ci = v.get("chest_items") or {"rolls": []}
+        roll = (c.get("roll") or {}).get("row")
+        if roll not in [r.get("roll") for r in ci["rolls"]]:
+            ci["rolls"].append({k: val for k, val in (
+                ("roll", roll), ("respawn", c.get("respawn")),
+                ("guaranteed", _items(c.get("guaranteed_items")) + [i for s in c.get("guaranteed_sets") or [] for i in _items(s.get("items"))]),
+                ("extra_rolls", [c.get("min_extra_rolls"), c.get("max_extra_rolls")] if c.get("max_extra_rolls") else None),
+                ("extra_sets", [{"chance": s.get("chance"), "items": _items(s.get("items"))} for s in c.get("extra_sets") or []]),
+            ) if val})
+            ci["rolls"].sort(key=lambda r: str(r.get("roll")))
+        setf(v, "chest_items", ci)
+        stats["chests_placed"] += 1
+    return stats
+
+
 def build_creatures(mirror: Mirror) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for title, page in sorted(mirror.pages.items()):
@@ -1097,7 +1340,7 @@ def _fit(parts: list[str], shrinkers: list) -> str:
     return text
 
 
-NAMED_SOURCES = {METABOT: "metabot.gg datamined bestiary", OWN: "his own fights"}
+NAMED_SOURCES = {METABOT: "metabot.gg datamined bestiary", OWN: "his own fights", GAME: "the game's own data on his client"}
 
 
 def _sources(src: dict[str, list]) -> str:
@@ -1106,8 +1349,9 @@ def _sources(src: dict[str, list]) -> str:
     for field, v in src.items():
         for i in v:
             if isinstance(i, str):
-                named[i].append(field.replace("observed_attacks", "attacks seen").replace("weak", "weak to")
-                                .replace("resist", "resistant to").replace("immune", "immune to"))
+                named[i].append(field.replace("observed_attacks", "attacks seen").replace("game_attacks", "attacks")
+                                .replace("game_drops", "drops").replace("chest_items", "chest loot")
+                                .replace("weak", "weak to").replace("resist", "resistant to").replace("immune", "immune to"))
     bits = (["wiki pages " + ", ".join(str(i) for i in ids)] if ids else []) + \
         [f"{NAMED_SOURCES.get(k, k)} ({', '.join(fs)})" for k, fs in named.items()]
     return "Sources: " + "; ".join(bits) + "." if bits else ""
@@ -1127,6 +1371,54 @@ def _observed_line(obs: list[dict], short: bool = False) -> str:
         bits.append(f"{a['name']} ({', '.join(x for x in fx if x)})")
     return "Attacks seen in his own fights (the game's attack names; damage is what he took through his armour): " + \
         "; ".join(bits) + "."
+
+
+def _pct(x: Any) -> str | None:
+    if not isinstance(x, (int, float)):
+        return None
+    return "always" if x >= 1 else f"{x * 100:.3g} %"
+
+
+def _amount(it: dict) -> str:
+    lo, hi = it.get("min"), it.get("max")
+    return "" if lo is None else f" {lo}" if hi in (None, lo) else f" {lo}-{hi}"
+
+
+def _game_attack_line(atts: list[dict], short: bool = False) -> str:
+    """'Attacks in the game's data: Bite (12 damage, stab, melee, unblockable, effect GE_Poison); ...'."""
+    bits = []
+    for a in atts:
+        dmg = a.get("damage") or []
+        d = (f"{dmg[0]:g} damage" if len(dmg) == 1 else ("damage " + " + ".join(f"{x:g}" for x in dmg))) if dmg else None
+        fx = [d] if short else [d, ", ".join(a.get("types") or []) or None, ", ".join(a.get("class") or []) or None,
+                                "unblockable" if a.get("unblockable") else None, "unparryable" if a.get("unparryable") else None,
+                                ("effect " + ", ".join(a["effects"])) if a.get("effects") else None]
+        fx = [x for x in fx if x]
+        bits.append(a["name"] + (f" ({', '.join(fx)})" if fx else ""))
+    return "Attacks in the game's data (base damage before armour): " + "; ".join(bits) + "."
+
+
+def _game_drops_line(levels: list[dict], cap: int | None = None) -> str:
+    """'Drops in the game's tables: from power level 1: Raw Rat Meat 1 (always); from power level 3: ...'."""
+    parts, n = [], 0
+    for lv in levels:
+        items = []
+        for d in lv["drops"]:
+            roll = _pct(d.get("chance"))
+            cond = " at " + " and ".join(map(str, d["conditions"])) if d.get("conditions") else ""
+            for it in d.get("items") or []:
+                ch = _pct(it.get("chance"))
+                odds = ch if roll in (None, "always") else (f"{ch} of a {roll} roll" if ch else f"a {roll} roll")
+                items.append(f"{it.get('item')}{_amount(it)}" + (f" ({odds}{cond})" if odds or cond else ""))
+        if cap is not None and n + len(items) > cap:
+            items = items[:max(0, cap - n)] + ["and more"]
+        n += len(items)
+        if items:
+            parts.append((f"from power level {lv['min_power_level']}: " if lv.get("min_power_level") is not None else "") +
+                         ", ".join(items))
+        if cap is not None and n >= cap:
+            break
+    return "Drops in the game's tables: " + "; ".join(parts) + "." if parts else ""
 
 
 def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int = 0) -> str:
@@ -1157,6 +1449,9 @@ def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int
         if e.get("immune"):
             imm = e["immune"]
             fx.append(f"Immune: {imm[0]}." if len(imm) == 1 and len(imm[0].split()) > 3 else f"Immune to {_and(imm)}.")
+        for f, d in (e.get("differs") or {}).items():
+            label = {"weak": "weak to", "resist": "resistant to", "immune": "immune to"}.get(f, f)
+            fx.append(f"(The game's journal says {label} {_and(e[f])}; other sources said {_and(d['values'])}.)")
         if e.get("aggressive"):
             fx.append(f"Aggressive: {e['aggressive']}.")
         if e.get("respawn"):
@@ -1176,17 +1471,21 @@ def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int
             p.append(s)
         for n in (e.get("attack_notes") or [])[: (2 if level < 2 else 1)]:
             p.append(n if level < 1 else n[:240])
-        if not att and not e.get("attack_notes"):
+        if e.get("game_attacks"):
+            p.append(_game_attack_line(e["game_attacks"], short=level >= 1))
+        if not att and not e.get("attack_notes") and not e.get("game_attacks"):
             p.append("Attacks: not in the mirror.")
         if e.get("observed_attacks") and level < 3:
             p.append(_observed_line(e["observed_attacks"], short=level >= 2))
-        dr = e.get("drops") or []
+        if e.get("game_drops"):
+            p.append(_game_drops_line(e["game_drops"], cap=None if level < 2 else 8))
+        dr = [] if e.get("game_drops") and level >= 2 else (e.get("drops") or [])  # short of space: the game's tables stand
         if dr:
             items = [f"{d['item']} {d['amount']} ({d['rate']})".replace("  ", " ") for d in dr]
             if level >= 2 and len(items) > 8:
                 items = items[:8] + [f"and {len(dr) - 8} more on the wiki page"]
             p.append("Drops: " + ", ".join(items) + ".")
-        else:
+        elif not e.get("game_drops"):
             p.append("Drops: not in the mirror.")
         p.append(_sources(e["src"]))
         return p
@@ -1197,6 +1496,29 @@ def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int
         if len(text) <= ENTRY_CHARS:
             return text
     return _fit([text], [])
+
+
+def _chest_line(ci: dict) -> str:
+    """'Chest loot in the game's tables: always Vault Core 1; plus 1-2 rolls among: Skill Tome 1-3 (50 %) [set 10 %].'"""
+    bits = []
+    for r in ci.get("rolls") or []:
+        b = []
+        if r.get("guaranteed"):
+            b.append("always " + ", ".join(f"{i.get('item')}{_amount(i)}" for i in r["guaranteed"]))
+        if r.get("extra_sets"):
+            lo, hi = (r.get("extra_rolls") or [None, None])[:2]
+            n = f"{lo}-{hi} " if lo is not None and hi not in (None, lo) else (f"{hi} " if hi else "")
+            sets = []
+            for st in r["extra_sets"]:
+                items = ", ".join(f"{i.get('item')}{_amount(i)}" +
+                                  (f" ({_pct(i.get('chance'))})" if _pct(i.get("chance")) not in (None, "always") else "")
+                                  for i in st.get("items") or [])
+                sc = _pct(st.get("chance"))
+                sets.append(items + (f" [set {sc}]" if sc not in (None, "always") else ""))
+            b.append(f"plus {n}rolls among: " + "; ".join(sets))
+        if b:
+            bits.append("; ".join(b))
+    return "Chest loot in the game's tables: " + " | ".join(bits) + "." if bits else ""
 
 
 def vault_text(e: dict, creatures: dict[str, dict]) -> str:
@@ -1238,7 +1560,9 @@ def vault_text(e: dict, creatures: dict[str, dict]) -> str:
         p.append("Boss: not in the mirror's boss table.")
     if (e.get("listed_enemies") or {}).get("notable"):
         p.append(f"Notable enemies (Dragonkin Vault list): {', '.join(e['listed_enemies']['notable'])}.")
-    if e["kind"] == "vault":
+    if e.get("chest_items"):
+        p.append(_chest_line(e["chest_items"]))
+    if e["kind"] == "vault" and (e.get("chests") or not e.get("chest_items")):
         p.append(f"Chests: {e['chests']}" if e.get("chests") else "Chests: contents not in the mirror.")
         if e.get("shards"):
             p.append(e["shards"])
@@ -1279,7 +1603,8 @@ def reverse_text(item: str, rows: list[dict]) -> str:
 # ------------------------------------------------------------------------------ build
 
 
-def build(mirror: Mirror | None = None) -> dict:
+def build(mirror: Mirror | None = None, probe: dict | None = None) -> dict:
+    """probe: load_probe() of the live bestiary_tables_probe outputs; merged last, so it outranks every other source."""
     mirror = mirror or Mirror()
     creatures = build_creatures(mirror)
     bosses = boss_rows(mirror)
@@ -1315,6 +1640,7 @@ def build(mirror: Mirror | None = None) -> dict:
                 cr["weak"] = [b["weakness"]]
                 cr["_src"].add("weak", b["page"])
     apply_external(creatures)  # after every wiki source: it fills only what the wiki left empty
+    probe_stats = apply_probe(creatures, vaults, probe) if probe else None  # the game's own data: last, it wins
     for v in dungeons.values():
         for b in v.get("boss") or []:
             if b["creature"] in creatures:
@@ -1323,8 +1649,12 @@ def build(mirror: Mirror | None = None) -> dict:
     doc: dict[str, Any] = {"schema": SCHEMA, "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                            "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids. Named src tags: "
                                      f"'{METABOT}' = {METABOT_URL} (snapshot data/bestiary_external.json), "
-                                     f"'{OWN}' = his client's combat memory (data/skills/*/combat_*.json)",
+                                     f"'{OWN}' = his client's combat memory (data/skills/*/combat_*.json), "
+                                     f"'{GAME}' = the game's own tables read on his client "
+                                     "(client_mod/commands/bestiary_tables_probe.lua, merged with --from-probe)",
                            "creatures": {}, "vaults": {}, "dropped_by": {}}
+    if probe_stats:
+        doc["probe"] = probe_stats
     for title, e in creatures.items():
         if in_vault.get(title):
             e["vaults"] = in_vault[title]
@@ -1353,8 +1683,9 @@ def _item_aliases(item: str, mirror: Mirror) -> list[str]:
 
 
 CREATURE_FIELDS = ("variants", "weak", "resist", "immune", "locations", "attacks_any", "drops",
-                   "weak_wiki", "resist_wiki", "immune_wiki", "attacks_wiki", "observed_attacks")
-VAULT_FIELDS = ("area", "power_level", "opens", "enemies", "boss", "chests", "recipes")
+                   "weak_wiki", "resist_wiki", "immune_wiki", "attacks_wiki", "observed_attacks",
+                   "journal", "game_attacks", "game_drops")
+VAULT_FIELDS = ("area", "power_level", "opens", "enemies", "boss", "chests", "chest_items", "recipes")
 
 
 def counts(doc: dict) -> dict:
@@ -1364,7 +1695,7 @@ def counts(doc: dict) -> dict:
 
     def has(e, f):
         if f == "attacks_any":
-            return bool(e.get("attacks") or e.get("attack_notes") or e.get("observed_attacks"))
+            return bool(e.get("attacks") or e.get("attack_notes") or e.get("observed_attacks") or e.get("game_attacks"))
         if f == "attacks_wiki":
             return bool(e.get("attacks") or e.get("attack_notes"))
         if f in ("weak_wiki", "resist_wiki", "immune_wiki"):
@@ -1516,7 +1847,10 @@ def score(heldout_once: bool = False, db: str | None = None, show_misses: bool =
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("build", help="write data/bestiary.json")
+    bp = sub.add_parser("build", help="write data/bestiary.json")
+    bp.add_argument("--from-probe", type=Path, action="append", default=[], metavar="FILE",
+                    help="merge the game's own tables from a bestiary_tables_probe output "
+                         "(client_io/out/bestiary_tables_probe.json); repeat for several runs (their union)")
     s = sub.add_parser("show", help="the bestiary entries a query matches")
     s.add_argument("query")
     sc = sub.add_parser("score", help="the lookup eval's tuned half with the bestiary first")
@@ -1531,9 +1865,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "build":
         t0 = time.perf_counter()
-        doc = build()
+        doc = build(probe=load_probe(a.from_probe) if a.from_probe else None)
         OUT.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps(doc["counts"], indent=1))
+        if doc.get("probe"):
+            pr = {k: v for k, v in doc["probe"].items() if k not in ("unread", "unmatched")}
+            pr["unmatched"] = {k: len(v) for k, v in doc["probe"]["unmatched"].items()}
+            pr["unread"] = len(doc["probe"]["unread"])
+            print("probe:", json.dumps(pr))
         print(f"wrote {OUT} in {time.perf_counter() - t0:.1f} s")
         return 0
     if a.cmd == "show":
