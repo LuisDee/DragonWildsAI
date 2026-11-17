@@ -46,3 +46,8 @@ Facts about this box, written by the Claude Code session on Luis's Mac that set 
 
 - Never open Remote Desktop, WinRM or SSH to the whole internet.
 - If networking breaks, the way back in is the browser console (VNC) in the Contabo customer panel.
+
+## 2026-11-18: Windows drive optimisation disabled
+- 2026-11-17 23:26:59Z the scheduled "Optimize drives" run (`defragsvc`, task `\Microsoft\Windows\Defrag\ScheduledDefrag`) took 1.7 GB of RAM; client_boot refused to launch (`low_memory`, free RAM under its 1,200 MB bar) and Claude Code's low-memory reaper killed a running course window while the client was on a fork.
+- Stopped `defragsvc` and disabled `ScheduledDefrag` (`Disable-ScheduledTask`). Undo: `Enable-ScheduledTask -TaskPath '\Microsoft\Windows\Defrag\' -TaskName ScheduledDefrag`.
+- After it, Steam (UI restarted at 23:28Z) showed a modal "Unable to Sync" (Steam Cloud) that silently held every `-applaunch` for 20 minutes; "Play anyway" cleared it (saves are local; Steam Cloud is off for this account). client_boot is getting a handler for it.
