@@ -285,9 +285,19 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
     busy: list[tuple[float, float]] = []  # intervals with a tool running, a model call in flight, or reflex work
     prompt_at = None
     acts: dict[str, float] = {}  # the body's own work, open: "combat" from combat_started, "flee" from flee_started
+    # read-only calls (look, recipes, ...) carry no call or task id: their result closes the oldest open call of the same
+    # tool that has none (keyed by its own time, a look's call stayed open for ever and the L2 trial of 2026-11-17 never
+    # ended "quiet": it ran on to its deadline)
+    idless: dict[str, list[str]] = {}
     for r in rows:
         k, ts = r.get("kind"), float(r.get("ts") or 0)
-        key = r.get("call") or r.get("task_id") or f"{r.get('tool')}@{ts}"
+        key = r.get("call") or r.get("task_id")
+        if key is None and k == "tool_call":
+            key = f"{r.get('tool')}@{ts}"
+            idless.setdefault(str(r.get("tool")), []).append(key)
+        elif key is None and k == "tool_result":
+            q_ = idless.get(str(r.get("tool"))) or []
+            key = q_.pop(0) if q_ else f"{r.get('tool')}@{ts}"
         ev = r.get("event") if k == "event" and isinstance(r.get("event"), dict) else None
         if ev and ev.get("type") == "activity" and isinstance(ev.get("kind"), str):
             # live 19:38Z (ClaudeQ3): reflex fights and a flee ran 40 s after his last call; that is work, not a stand,

@@ -21,3 +21,12 @@ def test_a_stale_or_missing_heartbeat_stops_it(tmp_path):
     f.write_text('return {version=2,epoch="e",state="offered",updated=1000.0,nonce="n"}', encoding="utf-8")
     assert "stale" in cl.nav_not_ready(f, now=1100.0)
     assert "no heartbeat" in cl.nav_not_ready(tmp_path / "none.lua", now=1100.0)
+
+
+def test_a_read_only_call_with_no_ids_is_closed_by_its_result():
+    # 2026-11-17 L2 trial: a look's call stayed open, so the run never ended "quiet"
+    from tools import quest_run as q
+    rows = [{"kind": "tool_call", "tool": "look", "ts": 100.0, "args": {}},
+            {"kind": "tool_result", "tool": "look", "ts": 100.4, "result": {"ok": True, "data": {}}}]
+    tl = q.timeline(rows, 99.0)
+    assert [c["dur_s"] for c in tl["calls"]] == [0.4]

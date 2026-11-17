@@ -4,6 +4,9 @@
   .venv\\Scripts\\python.exe -m tools.travel_ladder --label baseline
   .venv\\Scripts\\python.exe -m tools.travel_ladder --only ramp_up,ramp_down --repeat 2
   .venv\\Scripts\\python.exe -m tools.travel_ladder --list
+  .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric --repeat 5 --label jumpcourse
+      the jump course (docs/research/2026-11-17-jump-course.md): dev world only, teleported starts only, and a
+      summary from tools/jump_stats.py of the paths with a jump up, strikes, real falls and jump verdict lines
 
 Each journey: the dev `teleport` fixture puts Claude at a fixed start (server K2_TeleportTo, mod/bench/fixtures.lua),
 he settles, then ONE bridge go_to (debug channel) to the goal, exactly as the brain would send it. A second
@@ -73,9 +76,9 @@ PLACE = {"lodestone": "the temple lodestone", "doorway": "the temple entrance", 
          "water_vent": "the Water Anima Vent"}
 
 
-def _j(name, a, b, note, human_m=None):
+def _j(name, a, b, note, human_m=None, tol_m=ARRIVE_M, tol_dz=ARRIVE_DZ):
     return {"id": name, "from": a, "to": b, "start": P[a], "goal": P[b], "place": PLACE.get(b, ""), "kind": note,
-            "tol_m": ARRIVE_M, "human_m": human_m}
+            "tol_m": tol_m, "tol_dz": tol_dz, "human_m": human_m}
 
 
 # the human standard (data/baselines/luis-2026-11-01.json constants and its travel family)
@@ -125,10 +128,54 @@ OBSTACLES = [
     _j("quest_bramblemead", "wise_old_man", "bramblemead", "obstacle: out of the temple pit, 434 m east, then up the ramps onto his platform (quests 17:20)", human_m=470),
 ]  # kept out of JOURNEYS: tools/chat_ladder.py asks JOURNEYS' goals in chat (Rung 1)
 
+# JUMP COURSE (docs/research/2026-11-17-jump-landings.md "The course (no model)"; docs/research/2026-11-17-jump-course.md):
+# six short go_tos (under about 10 m, so the local planner leads) from where he stood below the worst jump-up places to
+# a point on top, to measure a change to how jumps are judged or planned in paths with a strike. Starts are capsule
+# centres from his own plan lines; goals are the path end points + 0.88 m (`jump_stats course`). Counts are
+# `jump_stats places` (14 Nov to 17 Nov, 5 m clusters of the landing point): jump-up edges tried / judged missed.
+P.update({
+    # windmill hill, the rats: place (138.6, 1721.8), floor -6.8, 54 tried, 33 judged missed, median rise 200 cm
+    "jhr_a": [134.94, 1718.0, -7.82], "jhr_b": [140.0, 1721.0, -3.02],
+    # windmill hill, the 3 m ledge: place (156.5, 1744.9), floor -6.5, 104 tried, 26 judged missed, median rise 290 cm
+    "jhl_a": [154.52, 1747.16, -10.91], "jhl_b": [158.0, 1739.0, -5.32],
+    # windmill hill, middle: place (159.7, 1737.2), floor -4.1, 29 tried, 20 judged missed, median rise 160 cm
+    "jhm_a": [156.64, 1744.61, -8.52], "jhm_b": [159.0, 1737.0, -3.22],
+    # windmill hill, east: place (164.0, 1745.0), floor -8.3, 6 tried, 5 judged missed, median rise 160 cm
+    "jhe_a": [154.38, 1748.35, -11.36], "jhe_b": [164.0, 1745.0, -7.42],
+    # windmill hill, top: place (143.1, 1705.9), floor -5.0, 9 tried, 4 judged missed, median rise 120 cm
+    "jht_a": [143.97, 1703.38, -4.87], "jht_b": [144.0, 1706.0, -2.72],
+    # the ledges by Doric: place (110.2, 1847.5), floor -31.2, 36 tried, 18 judged missed, median rise 80 cm
+    "jd_a": [106.46, 1849.46, -31.36], "jd_b": [109.0, 1847.0, -30.52],
+})
+# Reached = on top: within JUMP_TOL_M (2D; the body's own go_to tolerance is 1.5 m, every start is 2.6 m or more
+# from its goal) and within half the leg's rise in height (at least 0.5 m, at most ARRIVE_DZ): standing at the foot
+# of the ledge near the goal is not reached (the Doric leg rises only 0.84 m, the top leg 2.15 m).
+JUMP_TOL_M = 2.0
 
-def arrived(pos, goal, tol: float = ARRIVE_M) -> bool:
-    """The ladder's success test on a fresh position: within tol (2D) and ARRIVE_DZ (height) of the goal."""
-    return d2(pos, goal) <= tol and abs(pos[2] - goal[2]) <= ARRIVE_DZ
+
+def _jump(name, a, b, note, human_m):
+    rise = P[b][2] - P[a][2]
+    j = _j(name, a, b, note, human_m=human_m, tol_m=JUMP_TOL_M, tol_dz=round(min(ARRIVE_DZ, max(0.5, rise / 2)), 2))
+    j["course"] = "jump"  # dev world only, teleported starts only (place(walk_ok=False)), a jump summary per run
+    return j
+
+
+JUMP_COURSE = [
+    _jump("jump_hill_rats", "jhr_a", "jhr_b", "jump: windmill hill, rat ledge", human_m=8),
+    _jump("jump_hill_ledge3m", "jhl_a", "jhl_b", "jump: windmill hill, the 3 m ledge", human_m=10),
+    _jump("jump_hill_mid", "jhm_a", "jhm_b", "jump: windmill hill, middle", human_m=9),
+    _jump("jump_hill_east", "jhe_a", "jhe_b", "jump: windmill hill, east", human_m=11),
+    _jump("jump_hill_top", "jht_a", "jht_b", "jump: windmill hill, top", human_m=4),
+    _jump("jump_doric", "jd_a", "jd_b", "jump: the ledges by Doric", human_m=5),
+]
+# kept out of OBSTACLES so `--obstacles` runs what it ran before; `--only` picks from JOURNEYS + OBSTACLES + JUMP_COURSE
+JUMP_IDS = {j["id"] for j in JUMP_COURSE}
+AB_NEED_PATHS = 121  # `tools.ab need 0.3 0.15`: paths with a jump up per side to tell 30 % from 15 % with a strike
+
+
+def arrived(pos, goal, tol: float = ARRIVE_M, tol_dz: float = ARRIVE_DZ) -> bool:
+    """The ladder's success test on a fresh position: within tol (2D) and tol_dz (height) of the goal."""
+    return d2(pos, goal) <= tol and abs(pos[2] - goal[2]) <= tol_dz
 
 
 def d2(a, b):
@@ -187,13 +234,15 @@ def trip_for(t0: float, t1: float) -> dict | None:
     return best
 
 
-def place(dev, c, start, tries=3, harness_brain=False):
+def place(dev, c, start, tries=3, harness_brain=False, walk_ok=True):
     """Teleport (dev fixture) to start and wait until he stands still there. harness_brain=True: the caller runs the
-    brain itself (chat_ladder --start-brain), so a running run_live is expected; the dev-server checks still apply."""
+    brain itself (chat_ladder --start-brain), so a running run_live is expected; the dev-server checks still apply.
+    walk_ok=False (the jump course): when the fixture refuses because another player is on, refuse the leg instead of
+    walking there (the walk would cross the other player's world and add its own jumps to the course's counts)."""
     if harness_brain:
         saved, dev.brain_running = dev.brain_running, (lambda: False)
         try:
-            return place(dev, c, start, tries)
+            return place(dev, c, start, tries, walk_ok=walk_ok)
         finally:
             dev.brain_running = saved
     last = None
@@ -203,6 +252,8 @@ def place(dev, c, start, tries=3, harness_brain=False):
         except Exception as x:  # the fixture refuses while another player is on the server: walk there instead
             if "other_players_connected" not in repr(x):
                 raise
+            if not walk_ok:
+                raise RuntimeError(f"another player is on the dev world: this leg is not run ({x!r})") from x
             res = {"ok": False, "walk": repr(x)}
         if not res.get("ok") and res.get("walk"):
             r = c.request("go_to", {"target": start, "tolerance": 1.0}, timeout=GO_TO_WAIT_S)
@@ -254,11 +305,14 @@ def rested(dev, c, below: float = 0.5) -> float | None:
 
 def run_journey(dev, j):
     name, a, b, note, start, goal = j["id"], j["from"], j["to"], j["kind"], j["start"], j["goal"]
+    jump = j.get("course") == "jump"
+    if jump:
+        dev.guard()  # the jump course runs on the local dev server only, with no live brain: checked before every leg
     c, sampler = client(), client()
     c.request("stop", {}, timeout=10)
-    s = place(dev, c, start)
+    s = place(dev, c, start, walk_ok=not jump)
     if reflex_busy(c):  # a fight from the last journey (live 21:20: "busy: combat:reflex"): let it end, start again
-        s = place(dev, c, start)
+        s = place(dev, c, start, walk_ok=not jump)
     rest0 = rested(dev, c)
     samples, stop = [(time.time(), s)], threading.Event()
 
@@ -284,7 +338,7 @@ def run_journey(dev, j):
     closest = min(d2(p, goal) for _, p in samples + [(t1, end)])
     straight = d3(s, goal)
     data = (r or {}).get("data") or {}
-    reached = arrived(end, goal)
+    reached = arrived(end, goal, j.get("tol_m", ARRIVE_M), j.get("tol_dz", ARRIVE_DZ))
     ok = bool(r and r.get("ok")) and reached
     trip = trip_for(t0, t1)
     hs = human_s(j)
@@ -575,6 +629,100 @@ def run_follow(dev, name: str, g: dict, delay_s: float = 2.0, hold_s: float = 10
             "start": [round(x, 2) for x in s], "door_prompt_at_start": g.get("door_open"), "endurance_at_start": rest0, "ts": round(t0, 1), "rows": rows}
 
 
+def pick(only: set, obstacles: bool = False, follow: bool = False) -> list[dict]:
+    """The walking legs a run drives: --only picks from every leg (journeys, obstacles, the jump course) in that order;
+    else --obstacles gives the obstacle legs, --follow none, and no flag the journeys."""
+    if only:
+        return [j for j in JOURNEYS + OBSTACLES + JUMP_COURSE if j["id"] in only]
+    return OBSTACLES if obstacles else ([] if follow else JOURNEYS)
+
+
+# ------------------------------------------------------------------ the jump course's summary (tools/jump_stats.py)
+def read_log(since: str, log: Path | None = None) -> list[str]:
+    """The client log's lines from `since` (ISO Z) on; the stamp is the line's first 20 characters."""
+    from tools import jump_stats as J
+    with open(log or J.CLIENT_LOG, encoding="utf-8", errors="replace") as fh:
+        return [ln for ln in fh if ln[:20] >= since]
+
+
+def jump_course_summary(legs: list[dict], lines: list[str] | None = None, self_edges: list[dict] | None = None) -> dict:
+    """What the jump legs did, from the mover's own lines in the client log during each leg's go_to (row ts .. ts + s,
+    1 s before and 2 s after for the log's whole-second stamps): paths (local plans) with a jump up, those with a landing
+    judged missed (a strike, as judged now), those with a real fall (a strike under jump_stats rule C: he came down no
+    higher than the takeoff + the step), and the `move: jump verdict=` lines once move.lua writes them. Paths outside the
+    legs (the walk to a start, a fight's approach between legs) are left out. Legs are counted too: a strike makes the
+    mover plan again, so a judge with more strikes also makes more paths; a leg is the unit that does not move with it."""
+    from tools import jump_stats as J
+    wins = [(float(r["ts"]) - 1.0, float(r["ts"]) + float(r["s"]) + 2.0, r) for r in legs
+            if isinstance(r.get("ts"), (int, float)) and isinstance(r.get("s"), (int, float))]
+    out = {"legs": len(wins), "legs_with_jump": 0, "legs_with_strike": 0, "legs_with_fall": 0, "paths": 0,
+           "jump_paths": 0, "strike_paths": 0, "fall_paths": 0, "verdicts": {}, "by_leg": {}}
+    if not wins:
+        return out
+    since, until = J.iso(min(w[0] for w in wins)), J.iso(max(w[1] for w in wins))
+    if lines is None:
+        lines = read_log(since)
+    paths = J.parse_lines(lines, since, until)
+    J.attach_self_edges(paths, J.load_self_edges() if self_edges is None else self_edges)
+    verdicts = J.verdict_rows(lines, since, until)
+    for lo, hi, r in wins:
+        ps = [p for p in paths if lo <= p.ts <= hi]
+        jp = [p for p in ps if J.jump_path(p)]
+        strike = [p for p in jp if p.miss]
+        fall = [p for p in jp if any(J.strike_under(o, 3) for o in J.outcomes([p]))]
+        vs = [v for v in verdicts if lo <= J.epoch(v["iso"]) <= hi]
+        out["paths"] += len(ps)
+        out["jump_paths"] += len(jp)
+        out["strike_paths"] += len(strike)
+        out["fall_paths"] += len(fall)
+        out["legs_with_jump"] += bool(jp)
+        out["legs_with_strike"] += bool(strike)
+        out["legs_with_fall"] += bool(fall)
+        for v in vs:
+            out["verdicts"][v["verdict"]] = out["verdicts"].get(v["verdict"], 0) + 1
+        b = out["by_leg"].setdefault(r.get("journey"), {"legs": 0, "reached": 0, "jump_paths": 0, "strike_paths": 0,
+                                                        "fall_paths": 0, "verdicts": 0})
+        b["legs"] += 1
+        b["reached"] += bool(r.get("ok"))
+        b["jump_paths"] += len(jp)
+        b["strike_paths"] += len(strike)
+        b["fall_paths"] += len(fall)
+        b["verdicts"] += len(vs)
+    return out
+
+
+def jump_course_lines(s: dict, title: str) -> list[str]:
+    from tools.jump_stats import pct
+    v = "; ".join(f"{n} {k}" for k, n in sorted(s["verdicts"].items(), key=lambda kv: -kv[1])) or "none (not in move.lua yet?)"
+    out = [f"jump course, {title}: {s['legs']} legs, {s['legs_with_jump']} with a jump up, "
+           f"{pct(s['legs_with_strike'], s['legs_with_jump'])} of those with a strike, {s['legs_with_fall']} with a real fall",
+           f"  paths with a jump up {s['jump_paths']} (of {s['paths']} paths; {AB_NEED_PATHS} a side for 30 % against 15 %); "
+           f"with a strike {pct(s['strike_paths'], s['jump_paths'])}; with a real fall (rule C) {pct(s['fall_paths'], s['jump_paths'])}",
+           f"  jump verdict lines: {v}"]
+    for n, b in s["by_leg"].items():
+        out.append(f"  {n:20s} reached {b['reached']}/{b['legs']}  jump paths {b['jump_paths']:3d}  strike {b['strike_paths']:3d}  "
+                   f"fall {b['fall_paths']:3d}  verdicts {b['verdicts']}")
+    return out
+
+
+def label_rows(label: str, ids: set, path: Path | None = None) -> list[dict]:
+    """Every leg row of `label` with a journey in `ids` in the ladder's jsonl (all runs so far)."""
+    out = []
+    try:
+        fh = open(path or OUT, encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    with fh:
+        for ln in fh:
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            if r.get("label") == label and r.get("journey") in ids and not r.get("summary"):
+                out.append(r)
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", default="", help="comma-separated journey names")
@@ -599,10 +747,7 @@ def main() -> None:
               f"{len(g['track'])} points, Claude starts at {g['claude_start']}")
         return
     only = set(filter(None, a.only.split(",")))
-    pool = (OBSTACLES if a.obstacles else []) + ([] if (a.obstacles or a.follow) else JOURNEYS)
-    if only:
-        pool = [j for j in JOURNEYS + OBSTACLES if j["id"] in only]
-    js = [j for j in pool if not only or j["id"] in only]
+    js = pick(only, a.obstacles, a.follow)
     fs = {n: g for n, g in ghosts().items() if (a.follow and not only) or n in only}
     if a.list:
         for j in js:
@@ -674,11 +819,25 @@ def main() -> None:
                "human_ok": sum(1 for r in walks if r.get("human_ok")), "human_n": sum(1 for r in walks if r.get("human_s")),
                "follow_ok": sum(1 for r in folls if r["ok"]), "follow_n": len(folls),
                "errors": len(rows) - len(walks) - len(folls), "ts": round(time.time(), 1)}
+    jump_text = []
+    if any(r.get("journey") in JUMP_IDS for r in walks):
+        try:  # read only (the client log, traversal.jsonl, this file): a failure here never loses the run's rows
+            js_run = jump_course_summary([r for r in walks if r.get("journey") in JUMP_IDS])
+            summary["jump_course"] = {k: v for k, v in js_run.items() if k != "by_leg"}
+            jump_text = jump_course_lines(js_run, "this run")
+            prior = [r for r in label_rows(a.label, JUMP_IDS) if r.get("ok") is not None and r.get("run") != run_id]
+            if prior:
+                js_all = jump_course_summary(prior + [r for r in walks if r.get("journey") in JUMP_IDS])
+                jump_text += jump_course_lines(js_all, f"every run labelled {a.label!r}")
+        except Exception as x:
+            jump_text = [f"jump course summary failed: {x!r} (run tools.jump_stats report --since the run's start)"]
     with OUT.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(summary) + "\n")
     print(f"\n{a.label}:{n_ok}/{len(walks)} reached ({summary['success_rate']}), SPL {summary['spl']}, "
           f"{summary['s_total']} s, within 1.5x human {summary['human_ok']}/{summary['human_n']}, "
           f"follow {summary['follow_ok']}/{summary['follow_n']}, {summary['errors']} errors")
+    for ln in jump_text:
+        print(ln)
 
 
 if __name__ == "__main__":
