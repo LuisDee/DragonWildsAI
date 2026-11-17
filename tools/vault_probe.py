@@ -1,7 +1,7 @@
 """Vault probe steps P2-P5 at Crasorak Kara on the DEV world: body only (no brain, no model calls, API spend 0).
 
   .venv\\Scripts\\python.exe -m tools.vault_probe door --confirm     # P2: stand outside the door, read its row
-  .venv\\Scripts\\python.exe -m tools.vault_probe enter --confirm    # P3-P5: one press on the door, read inside, leave
+  .venv\\Scripts\\python.exe -m tools.vault_probe enter --confirm    # P3-P5 on a FORK: one press on the door, read inside, leave
   .venv\\Scripts\\python.exe -m tools.vault_probe home --confirm     # back to a named home spot
   .venv\\Scripts\\python.exe -m tools.vault_probe door               # no --confirm: says what it would do, touches nothing
 
@@ -29,11 +29,23 @@ home   Teleport to the home spot (--spot, default standing_trees from evals/benc
 The client loads client_bridge.lua and sense.lua at start only: after a change to either (or to set DW_TELEPORT_HOOKS),
 restart the client (tools\\client_boot.ps1 -Target dev; announce it in text first when Luis may be on).
 
+`enter` never runs on ClaudeDev himself: a vault visit changes the character it is made on (a death, a grave, loot,
+a guardian's kill), and ClaudeDev is the jobs' start (CLAUDE.md section 4, character switches). Inside the lock it forks
+--from (default ClaudeDev's own save, only read: tools.quest_clone.fork, a new name ClaudeV<ddHHMMSS> and a new guid),
+switches the client to the fork (evals.bench.devchar, as tools/job_run.py and tools/travel_ladder.py --fork do), aims
+the dev fixtures at the fork's guid, tops the fork up with tools.supply (food, water, heal: a dev-only harness fixture,
+logged with its purpose), and gives the reflex FED_WAIT_S to make him fit. Whatever happens (an abort, an error,
+Ctrl-C) the client goes back to ClaudeDev (quest_run._on_main, retried every STUCK_S with the lock kept) before the
+lock is released, and the fork's save is parked (quest_clone.park). Rule 8 does not bind here: a probe is a harness
+look, never a scored trial. `door` (read-only at the door) and `home` stay on ClaudeDev.
+
 Guards, before anything moves him (refused = exit 2, a row with `refused`):
   * --confirm given;
   * DevTarget.guard: the client is on the local dev server, never a forbidden target (Shockbyte), no live brain;
-  * the client's own pawn is ClaudeDev (`me` name) and the dev server lists exactly one player, ClaudeDev by GUID
-    (the fixtures' guard refuses any other player too: never with Luis or anyone else on the dev world).
+  * the client's own pawn is the probe's character (`me` name: ClaudeDev for door and home, the fork for enter) and
+    the dev server lists exactly one player, that character by GUID (the fixtures' guard refuses any other player
+    too: never with Luis or anyone else on the dev world);
+  * enter: the probe's character is not ClaudeDev;
   * the live lock (tools/live_lock.py held "vault-probe"), unless the caller already holds it (DW_LIVE_OWNER).
 Abort rules (each read point: after a placement, after a teleport, after each look): a live hostile creature within
 --hostile-m (default 20 m, rat packs stand 25-35 m from the door), his health under --min-health (share, default 0.6),
@@ -65,6 +77,12 @@ DEV_PLACES = ROOT / "evals" / "bench" / "dev_places.json"
 
 MAIN_CHARACTER = "ClaudeDev"
 LOCK_OWNER = "vault-probe"
+# enter plays a throwaway fork (as travel_ladder's ClaudeT and job_run's ClaudeJ forks); NAME_RE allows 16 characters
+FORK_PREFIX = "ClaudeV"
+FORK_FOOD, FORK_WATER = 6, 6  # tools.supply top-up on the fork: a Hulk patrols the entry hallway (route note B.1)
+FED_WAIT_S, FED_POLL_S = 120.0, 10.0  # after the top-up, the reflex has this long to eat and drink him fit
+STUCK_S = 120.0  # not back on ClaudeDev: keep the lock and retry this often (quest_run.clone_window's rule)
+STEPS_ON_FORK = ("enter",)  # steps that change the character they run on
 
 # The outside door: read live by his body 23 times on 2026-11-01/02 (crasorak-route note section 1)
 DOOR_ID = "BP_InteractablePlayerTeleporter_C_UAID_18C04D97CB3D30D401_1397338720"
@@ -263,10 +281,12 @@ class Probe:
     run: str = field(default_factory=lambda: time.strftime("%Y%m%d-%H%M%S"))
     print_fn: Callable[[str], None] = print
     rows: list[dict] = field(default_factory=list)
+    character: str = MAIN_CHARACTER  # the pawn this probe drives: ClaudeDev, or the fork for enter
 
     # -------------------------------------------------------------- rows
     def record(self, step: str, ok: bool | None, **kw) -> dict:
-        row = {"ts": round(time.time(), 1), "run": self.run, "step": step, "ok": ok, "head": head(), **kw}
+        row = {"ts": round(time.time(), 1), "run": self.run, "step": step, "ok": ok, "head": head(),
+               "character": self.character, **kw}
         self.rows.append(row)
         self.out.parent.mkdir(parents=True, exist_ok=True)
         with self.out.open("a", encoding="utf-8") as f:
@@ -299,29 +319,32 @@ class Probe:
         return xyz(self.me().get("position"))
 
     # -------------------------------------------------------------- guard
-    def guard(self) -> dict:
-        """Refused unless on the local dev server, no live brain, the client's pawn is ClaudeDev and the dev server
-        lists ClaudeDev (by GUID) and no one else."""
+    def guard(self, step: str | None = None) -> dict:
+        """Refused unless on the local dev server, no live brain, the client's pawn is the probe's character and the
+        dev server lists that character (by GUID) and no one else; and never a step that changes him on ClaudeDev."""
+        if step in STEPS_ON_FORK and self.character == MAIN_CHARACTER:
+            raise Refused(f"{step} runs on a fork, never on {MAIN_CHARACTER} (a vault visit changes the character: "
+                          "deaths, loot)")
         try:
             self.dev.guard()
         except Exception as exc:  # observer.Abort and anything else: refuse, move nothing
             raise Refused(f"dev guard: {exc}") from exc
         who = self.me().get("name")
-        if who != MAIN_CHARACTER:
-            raise Refused(f"the client is on {who!r}, not {MAIN_CHARACTER}")
+        if who != self.character:
+            raise Refused(f"the client is on {who!r}, not {self.character}")
         r = self.dev.server_debug({"part": "referee", "action": "probe"}) or {}
         players = ((r.get("data") or {}).get("result") or {}).get("players")
         if not isinstance(players, list):
             raise Refused(f"the dev server did not list its players: {str(r)[:200]}")
         guid = str(getattr(self.dev, "character_guid", "") or "")
-        mine = [p for p in players if isinstance(p, dict) and p.get("name") == MAIN_CHARACTER
+        mine = [p for p in players if isinstance(p, dict) and p.get("name") == self.character
                 and str(p.get("character_guid") or "") == guid]
         others = [p.get("name") for p in players if isinstance(p, dict) and p not in mine]
         if not mine:
-            raise Refused(f"the dev server does not list {MAIN_CHARACTER} ({guid}) in the world: {players}")
+            raise Refused(f"the dev server does not list {self.character} ({guid}) in the world: {players}")
         if others:
             raise Refused(f"another player is on the dev world: {others}")
-        return {"character": MAIN_CHARACTER, "guid": guid}
+        return {"character": self.character, "guid": guid}
 
     # -------------------------------------------------------------- moves
     def teleport(self, at: list[float], purpose: str) -> dict:
@@ -485,10 +508,62 @@ class Probe:
 
 
 # ------------------------------------------------------------------ live wiring
-def default_probe(**kw) -> Probe:
+def default_probe(dev=None, **kw) -> Probe:
     from evals.bench.devrun import default_dev
     from tools.chat_ladder import _debug_client
-    return Probe(cli=_debug_client(), dev=default_dev(), **kw)
+    return Probe(cli=_debug_client(), dev=dev if dev is not None else default_dev(), **kw)
+
+
+@contextlib.contextmanager
+def on_fork(dev, info: dict, source: str = MAIN_CHARACTER):
+    """Inside a live lock the caller already holds: fork `source` (a checkpoint label or a save name; ClaudeDev.json
+    is only read) to a new character ClaudeV<ddHHMMSS> (tools.quest_clone.fork: a new name and guid), switch the
+    client to it (evals.bench.devchar, as job_run and travel_ladder do), aim the dev fixtures at its guid, top it up
+    with tools.supply (a dev-only harness fixture, logged with its purpose) and yield its name. Whatever the body does
+    or raises, it ends back on ClaudeDev (quest_run._on_main), retrying every STUCK_S and never returning (so the
+    caller never releases the lock) until he is; then the fork's save is parked (quest_clone.park). `info` gains
+    character, source, switch_s, supply, back, back_s, parked."""
+    from evals.bench.devchar import default_switch
+    from tools import quest_clone, supply
+    from tools import quest_run as q
+    sw, cli = default_switch(dev), q.cl._debug_client()
+    name = FORK_PREFIX + time.strftime("%d%H%M%S", time.gmtime())
+    old = (getattr(dev, "character_guid", None), getattr(dev, "character_name", None))
+    info.update(character=name, source=source)
+    t0 = time.time()
+    try:
+        quest_clone.fork(source, name)
+        info["forked"] = True
+        made = sw.ensure(name, create=False, wait_s=150)
+        info["switch_s"] = round(time.time() - t0, 1)
+        dev.character_guid, dev.character_name = made["guid"], name  # the fixture guard wants the fork's guid
+        print(f"[fork] on {name} (from {source}) after {info['switch_s']} s", flush=True)
+        info["supply"] = supply.top_up(dev, FORK_FOOD, FORK_WATER, heal=True,
+                                       purpose=f"vault_probe enter on fork {name}: harness fixture, food and water "
+                                               "for a look inside Crasorak Kara")
+        yield name
+    finally:
+        t1 = time.time()
+        back = q._on_main(sw, cli)
+        while back is None:  # never release the lock while the client is on another character (CLAUDE.md 4)
+            print(f"STUCK: the client is not back on {MAIN_CHARACTER}; keeping the lock and retrying every "
+                  f"{STUCK_S:.0f} s", flush=True)
+            time.sleep(STUCK_S)
+            back = q._on_main(sw, cli, tries=1)
+        info["back"], info["back_s"] = back, round(time.time() - t1, 1)
+        dev.character_guid, dev.character_name = old
+        if info.get("forked"):
+            info["parked"] = quest_clone.park([name])
+        print(f"[fork] back on {MAIN_CHARACTER} after {info['back_s']} s; parked {info.get('parked')}", flush=True)
+
+
+def fed(cli, wait_s: float | None = None, sleep: Callable[[float], None] = time.sleep) -> str | None:
+    """chat_ladder.body_unfit, given the reflex up to FED_WAIT_S to eat and drink what supply put in his bag."""
+    from tools.chat_ladder import body_unfit
+    end = time.monotonic() + (FED_WAIT_S if wait_s is None else wait_s)
+    while (why := body_unfit(cli)) is not None and time.monotonic() < end:
+        sleep(FED_POLL_S)
+    return why
 
 
 @contextlib.contextmanager
@@ -505,7 +580,7 @@ def lock_window(wait_s: float):
 
 def run_step(probe: Probe, step: str, a) -> int:
     try:
-        probe.guard()
+        probe.guard(step)
     except Refused as exc:
         probe.record(step, False, refused=str(exc))
         return 2
@@ -533,6 +608,8 @@ def main(argv=None) -> int:
     ap.add_argument("--spot", default="door", help=f"the door spot: {', '.join(SPOTS)}")
     ap.add_argument("--home", default=HOME_DEFAULT, help="the named home spot (SPOTS or evals/bench/dev_places.json)")
     ap.add_argument("--leave", choices=("door", "home"), default="door", help="enter: leave by the exit door or teleport")
+    ap.add_argument("--from", dest="source", default=MAIN_CHARACTER,
+                    help="enter: the save or checkpoint the fork is made from (default: ClaudeDev's own save, only read)")
     ap.add_argument("--hostile-m", type=float, default=HOSTILE_M)
     ap.add_argument("--min-health", type=float, default=MIN_HEALTH)
     ap.add_argument("--wait", type=float, default=1800.0, help="seconds to wait for the live lock")
@@ -541,14 +618,48 @@ def main(argv=None) -> int:
     for k in (a.spot, a.home):
         if k not in sp:
             ap.error(f"unknown spot {k!r} (known: {', '.join(sp)})")
+    on_fork_ = a.step in STEPS_ON_FORK
     if not a.confirm:
-        print(f"dry: would {a.step}: spot {a.spot} {sp[a.spot]['at']}, home {a.home} {sp[a.home]['at']}, door {DOOR_ID} at "
-              f"{DOOR_AT}; abort on a hostile within {a.hostile_m:g} m or health under {a.min_health:.0%}. "
-              f"Add --confirm (dev world, ClaudeDev only).")
+        who = (f"on a fork of {a.source} ({FORK_PREFIX}<ddHHMMSS>), switching back to {MAIN_CHARACTER} at the end"
+               if on_fork_ else f"on {MAIN_CHARACTER}")
+        print(f"dry: would {a.step} {who}: spot {a.spot} {sp[a.spot]['at']}, home {a.home} {sp[a.home]['at']}, door "
+              f"{DOOR_ID} at {DOOR_AT}; abort on a hostile within {a.hostile_m:g} m or health under "
+              f"{a.min_health:.0%}. Add --confirm (dev world only).")
         return 0
     with lock_window(a.wait):
-        probe = default_probe(hostile_m=a.hostile_m, min_health=a.min_health)
-        return run_step(probe, a.step, a)
+        if not on_fork_:
+            probe = default_probe(hostile_m=a.hostile_m, min_health=a.min_health)
+            return run_step(probe, a.step, a)
+        return run_on_fork(a)
+
+
+def run_on_fork(a) -> int:
+    """A step that changes the character (enter) on a fork of a.source, inside the caller's lock: refused before any
+    switch when the dev guard says no; a "fork" row records the switch there and back whatever the step did."""
+    from evals.bench.devrun import default_dev
+    dev = default_dev()
+    probe = default_probe(dev=dev, hostile_m=a.hostile_m, min_health=a.min_health)
+    try:
+        dev.guard()  # off the dev server or with a live brain: no fork, no switch
+    except Exception as exc:  # observer.Abort and anything else
+        probe.record(a.step, False, refused=f"dev guard: {exc}")
+        return 2
+    info: dict = {}
+    rc = 1
+    try:
+        with on_fork(dev, info, a.source) as name:
+            probe.character = name
+            unfit = fed(probe.cli)
+            if unfit:
+                probe.record(a.step, False, refused=f"the fork is unfit to start: {unfit}")
+                rc = 2
+            else:
+                rc = run_step(probe, a.step, a)
+    finally:
+        if info.get("back"):
+            probe.character = MAIN_CHARACTER
+        probe.record("fork", bool(info.get("back")), fork=info, step_rc=rc)
+    return rc
 
 
 if __name__ == "__main__":

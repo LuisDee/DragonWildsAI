@@ -1,6 +1,8 @@
-"""tools/vault_probe.py with fakes: the guards, the abort rules, the rows. No live call."""
+"""tools/vault_probe.py with fakes: the guards, the abort rules, the rows, and enter's fork window (fork, switch,
+back to ClaudeDev before the lock goes). No live call."""
 from __future__ import annotations
 
+import contextlib
 import json
 
 import pytest
@@ -8,6 +10,7 @@ import pytest
 from tools import vault_probe as vp
 
 GUID = "E71C5DC146F0A55B69FF52A881255DEF"
+FORK = "ClaudeV17220000"
 DOOR_ROW = {"id": vp.DOOR_ID, "name": "Crasorak Kara", "prompt": "Enter", "category": "interactables",
             "kind": "interactable", "distance": 5.4, "position": [374.58, 1918.74, -0.33],
             "destination": "TP_Crasorak_In", "arrives_at": [-1650.0, 220.0, 10.0], "leads_to": "Crasorak Kara",
@@ -88,8 +91,8 @@ class FakeWorld:
 
 
 def make(tmp_path, world=None, dev=None, **kw):
-    world = world or FakeWorld()
-    dev = dev or FakeDev(world)
+    world = world or FakeWorld(name=kw.get("character", "ClaudeDev"))
+    dev = dev or FakeDev(world, players=[{"name": world.name, "character_guid": GUID}])
     t = {"now": 0.0}
 
     def sleep(s):
@@ -102,6 +105,11 @@ def make(tmp_path, world=None, dev=None, **kw):
 
 def rows(probe):
     return [json.loads(x) for x in probe.out.read_text(encoding="utf-8").splitlines()]
+
+
+def on_fork(tmp_path, **kw):
+    """A probe on a fork (what enter's window hands run_step)."""
+    return make(tmp_path, character=FORK, **kw)
 
 
 class Args:
@@ -120,8 +128,28 @@ def test_guard_refuses_off_dev(tmp_path):
 
 def test_guard_refuses_off_claudedev(tmp_path):
     probe, world, dev = make(tmp_path, world=FakeWorld(name="ClaudeV171900"))
-    assert vp.run_step(probe, "enter", Args) == 2
+    assert vp.run_step(probe, "door", Args) == 2
     assert "not ClaudeDev" in rows(probe)[-1]["refused"]
+    assert dev.calls == []
+
+
+def test_enter_is_refused_on_claudedev_himself(tmp_path):
+    probe, world, dev = make(tmp_path)  # ClaudeDev, as the client and the server say
+    assert vp.run_step(probe, "enter", Args) == 2
+    r = rows(probe)[-1]
+    assert "fork" in r["refused"] and r["character"] == "ClaudeDev"
+    assert dev.calls == [] and not any(c[0] == "interact" for c in world.calls)
+
+
+def test_guard_on_a_fork_wants_the_fork_by_its_guid(tmp_path):
+    probe, world, dev = on_fork(tmp_path)
+    dev.players = [{"name": FORK, "character_guid": "OTHER"}]
+    assert vp.run_step(probe, "enter", Args) == 2
+    assert f"does not list {FORK}" in rows(probe)[-1]["refused"]
+    world.name = "ClaudeDev"  # the client still on ClaudeDev: never drive him as the fork
+    dev.players = [{"name": FORK, "character_guid": GUID}]
+    assert vp.run_step(probe, "enter", Args) == 2
+    assert f"not {FORK}" in rows(probe)[-1]["refused"]
     assert dev.calls == []
 
 
@@ -190,7 +218,7 @@ def test_door_aborts_home_on_low_health(tmp_path):
 
 
 def test_enter_presses_once_reads_inside_and_leaves_by_the_exit(tmp_path):
-    probe, world, dev = make(tmp_path)
+    probe, world, dev = on_fork(tmp_path)
     (tmp_path / "client.log").write_text("old line teleport_begin\n", encoding="utf-8")
 
     def arrive(w):  # the client's own log lines across the teleport
@@ -206,6 +234,7 @@ def test_enter_presses_once_reads_inside_and_leaves_by_the_exit(tmp_path):
     assert steps == ["door", "enter", "leave"]
     e = rs[1]
     assert e["ok"] is True and e["in_vault"] is True and e["vault"] == "Crasorak Kara" and e["jump_m"] > 50
+    assert {r["character"] for r in rs} == {FORK}
     assert len(e["inside"]["levers"]) == 1 and e["inside"]["levers"][0]["switch_highest"] == 1
     assert e["inside"]["chests"][0]["chest_state"] == "unopened"
     assert len(e["inside"]["hazards"]) == 1  # the trap from look and census counted once
@@ -215,7 +244,7 @@ def test_enter_presses_once_reads_inside_and_leaves_by_the_exit(tmp_path):
 
 
 def test_enter_aborts_inside_on_a_guardian(tmp_path):
-    probe, world, dev = make(tmp_path)
+    probe, world, dev = on_fork(tmp_path)
     world.on_inside = lambda w: setattr(w, "entities", [{"id": "Hulk", "name": "Vault Guardian Hulk", "hostile": True,
                                                          "alive": True, "distance": 8.0}])
     assert vp.run_step(probe, "enter", Args) == 1
@@ -226,7 +255,7 @@ def test_enter_aborts_inside_on_a_guardian(tmp_path):
 
 
 def test_enter_no_teleport_goes_home_without_second_press(tmp_path):
-    probe, world, dev = make(tmp_path)
+    probe, world, dev = on_fork(tmp_path)
     world.door_works = False
     assert vp.run_step(probe, "enter", Args) == 1
     assert len([c for c in world.calls if c[0] == "interact"]) == 1
@@ -235,7 +264,7 @@ def test_enter_no_teleport_goes_home_without_second_press(tmp_path):
 
 
 def test_enter_locked_door_is_not_pressed(tmp_path):
-    probe, world, dev = make(tmp_path)
+    probe, world, dev = on_fork(tmp_path)
     world.outside_things = [dict(DOOR_ROW, locked=True)]
     assert vp.run_step(probe, "enter", Args) == 1
     assert not any(c[0] == "interact" for c in world.calls)
@@ -266,3 +295,191 @@ def test_spots():
     sp = vp.spots()
     assert vp.d2(sp["door"]["at"], vp.DOOR_AT) < 6
     assert sp["standing_trees"]["at"] == [100.0, 1892.0, -31.0]
+
+
+# ------------------------------------------------------------------ enter's fork window (main, all side effects faked)
+class Switch:
+    """evals.bench.devchar.CharacterSwitch: which character the client is on; the fake world follows it."""
+
+    def __init__(self, world):
+        self.world, self.on, self.seen = world, "ClaudeDev", []
+
+    def ensure(self, name, create=False, wait_s=0):
+        self.on = self.world.name = name
+        self.world.pos = [0.0, 0.0, 0.0]  # a new guid spawns at the world spawn
+        self.seen.append(name)
+        return {"name": name, "guid": f"G-{name}", "created": False, "relaunched": True}
+
+
+@pytest.fixture
+def window(tmp_path, monkeypatch):
+    from evals.bench import devchar, devrun
+    from tools import chat_ladder, live_lock, quest_clone, supply
+    from tools import quest_run as q
+    world = FakeWorld()
+    sw = Switch(world)
+    w = {"world": world, "sw": sw, "lock": [], "forked": [], "parked": [], "supplied": [], "presses": [], "fixtures_on": []}
+
+    class Dev(FakeDev):
+        character_guid, character_name = "G-ClaudeDev", "ClaudeDev"
+
+        def server_debug(self, args):  # the server lists whoever the client is on, by that one's guid
+            return {"ok": True, "data": {"result": {"ok": True, "players": [
+                {"name": sw.on, "character_guid": f"G-{sw.on}"}]}}}
+
+        def setup(self, verb, purpose="", **a):
+            w["fixtures_on"].append((sw.on, self.character_guid))
+            return super().setup(verb, purpose, **a)
+    dev = the_dev = Dev(world)
+
+    @contextlib.contextmanager
+    def held(owner, wait_s=0, **k):
+        w["lock"].append(("claim", sw.on))
+        try:
+            yield
+        finally:
+            w["lock"].append(("release", sw.on))
+
+    real = world.request
+
+    def request(tool, args=None, timeout=None):
+        if tool == "interact":
+            w["presses"].append((sw.on, args["target"]))
+            if w.get("press_hook"):
+                w["press_hook"]()
+        return real(tool, args, timeout)
+    world.request = request
+    t = {"now": 0.0}
+
+    def sleep(s):
+        t["now"] += s
+    monkeypatch.delenv("DW_LIVE_OWNER", raising=False)
+    monkeypatch.setattr(live_lock, "read", lambda: None)
+    monkeypatch.setattr(live_lock, "held", held)
+    monkeypatch.setattr(devrun, "default_dev", lambda: dev)
+    monkeypatch.setattr(devchar, "default_switch", lambda d: sw)
+    monkeypatch.setattr(q.cl, "_debug_client", lambda: world)
+    monkeypatch.setattr(q, "_on_main", lambda s, c, tries=3: (s.ensure("ClaudeDev"), {"character": "ClaudeDev"})[1])
+    monkeypatch.setattr(quest_clone, "fork", lambda ref, name: (w["forked"].append((ref, name)), tmp_path / name)[1])
+    monkeypatch.setattr(quest_clone, "park", lambda names: (w["parked"].extend(names), list(names))[1])
+    monkeypatch.setattr(supply, "top_up", lambda d, food, water, heal=False, check=False, purpose="": (
+        w["supplied"].append({"on": sw.on, "guid": d.character_guid, "purpose": purpose}), {"ok": True})[1])
+    monkeypatch.setattr(chat_ladder, "body_unfit", lambda cli=None, pct=None: None)
+    monkeypatch.setattr(vp, "STUCK_S", 0.0)
+
+    def fake_probe(dev=None, **kw):
+        return vp.Probe(cli=world, dev=dev if dev is not None else the_dev, out=tmp_path / "vault_probe.jsonl",
+                        replies=tmp_path / "replies", client_log=tmp_path / "client.log", sleep=sleep,
+                        clock=lambda: t["now"], print_fn=lambda s: None, **kw)
+    monkeypatch.setattr(vp, "default_probe", fake_probe)
+    w["out"] = tmp_path / "vault_probe.jsonl"
+    w["dev"] = dev
+    return w
+
+
+def released_on_main(w):
+    assert w["lock"] and w["lock"][-1][0] == "release"
+    assert all(on == "ClaudeDev" for ev, on in w["lock"] if ev == "release"), w["lock"]
+
+
+def window_rows(w):
+    return [json.loads(x) for x in w["out"].read_text(encoding="utf-8").splitlines()]
+
+
+def test_enter_runs_on_a_fork_and_ends_back_on_claudedev(window):
+    assert vp.main(["enter", "--confirm"]) == 0
+    (ref, name), = window["forked"]
+    assert ref == "ClaudeDev" and name.startswith(vp.FORK_PREFIX) and name != "ClaudeDev"
+    assert window["sw"].seen == [name, "ClaudeDev"] and window["sw"].on == "ClaudeDev"
+    assert window["presses"] and {on for on, _ in window["presses"]} == {name}  # no press ever on ClaudeDev
+    assert window["fixtures_on"] and set(window["fixtures_on"]) == {(name, f"G-{name}")}  # every teleport: the fork
+    (s,) = window["supplied"]
+    assert s["on"] == name and s["guid"] == f"G-{name}" and "harness fixture" in s["purpose"]
+    released_on_main(window)
+    assert window["parked"] == [name]
+    rs = window_rows(window)
+    assert [r["step"] for r in rs] == ["door", "enter", "leave", "fork"]
+    assert {r["character"] for r in rs[:3]} == {name}
+    f = rs[-1]
+    assert f["ok"] is True and f["fork"]["character"] == name and f["fork"]["source"] == "ClaudeDev"
+    assert f["fork"]["parked"] == [name] and f["step_rc"] == 0
+    assert window["dev"].character_guid == "G-ClaudeDev"  # the fixtures aim at ClaudeDev again
+
+
+def test_enter_from_a_named_checkpoint_forks_that(window):
+    assert vp.main(["enter", "--confirm", "--from", "vault_ready"]) == 0
+    assert window["forked"][0][0] == "vault_ready"
+
+
+def test_an_interrupt_mid_enter_still_switches_back_before_the_lock_goes(window):
+    def boom():
+        raise KeyboardInterrupt
+    window["press_hook"] = boom
+    with pytest.raises(KeyboardInterrupt):
+        vp.main(["enter", "--confirm"])
+    assert window["sw"].on == "ClaudeDev" and len(window["presses"]) == 1
+    released_on_main(window)
+    assert len(window["parked"]) == 1
+    assert window_rows(window)[-1]["step"] == "fork" and window_rows(window)[-1]["ok"] is True
+
+
+def test_a_failed_switch_ends_on_claudedev_and_never_presses_or_supplies(window):
+    sw = window["sw"]
+    real = sw.ensure
+
+    def bad(name, create=False, wait_s=0):
+        if name != "ClaudeDev":
+            raise RuntimeError("launch_timeout")
+        return real(name)
+    sw.ensure = bad
+    with pytest.raises(RuntimeError):
+        vp.main(["enter", "--confirm"])
+    assert window["presses"] == [] and window["supplied"] == [] and sw.on == "ClaudeDev"
+    released_on_main(window)
+    assert len(window["parked"]) == 1  # the fork's save was written: parked
+
+
+def test_the_lock_is_kept_while_the_client_is_not_back(window, monkeypatch):
+    from tools import quest_run as q
+    tries = []
+
+    def on_main(s, c, tries_=3):
+        tries.append(1)
+        if len(tries) < 3:
+            return None  # the return failed: the lock must not go
+        s.ensure("ClaudeDev")
+        return {"character": "ClaudeDev"}
+    monkeypatch.setattr(q, "_on_main", lambda s, c, tries=3: on_main(s, c))
+    assert vp.main(["enter", "--confirm"]) == 0
+    assert len(tries) == 3 and window["sw"].on == "ClaudeDev"
+    released_on_main(window)
+
+
+def test_enter_off_the_dev_server_makes_no_fork(window):
+    window["dev"].guard_error = "client is on a forbidden server"
+    assert vp.main(["enter", "--confirm"]) == 2
+    assert window["forked"] == [] and window["sw"].seen == [] and window["presses"] == []
+    assert "dev guard" in window_rows(window)[-1]["refused"]
+
+
+def test_an_unfit_fork_is_not_sent_in(window, monkeypatch):
+    from tools import chat_ladder
+    monkeypatch.setattr(chat_ladder, "body_unfit", lambda cli=None, pct=None: "food 10 % under 40 %")
+    monkeypatch.setattr(vp, "FED_WAIT_S", 0.0)
+    assert vp.main(["enter", "--confirm"]) == 2
+    assert window["presses"] == [] and window["sw"].on == "ClaudeDev"
+    rs = window_rows(window)
+    assert "unfit" in rs[-2]["refused"] and rs[-1]["step"] == "fork"
+    released_on_main(window)
+
+
+def test_door_stays_on_claudedev_with_no_fork(window):
+    assert vp.main(["door", "--confirm"]) == 0
+    assert window["forked"] == [] and window["sw"].seen == [] and window["presses"] == []
+    assert window_rows(window)[-1]["character"] == "ClaudeDev"
+
+
+def test_dry_enter_says_it_forks(capsys, monkeypatch):
+    monkeypatch.setattr(vp, "default_probe", lambda **kw: pytest.fail("built a live probe without --confirm"))
+    assert vp.main(["enter"]) == 0
+    assert "fork of ClaudeDev" in capsys.readouterr().out
