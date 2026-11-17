@@ -3462,7 +3462,10 @@ local function steer_typed_jump(f, p)
         -- onto another level: over the cell in the air and down on its level past it has landed (jump course
         -- 2026-11-17 18:33Z: 10 of 15 misses passed within 20 cm of the cell and rested on its level 1.4-1.9 m on;
         -- each was re-planned as a failed jump). A gap on one level still lands only at its point.
+        -- ... and on that level: down within half the rise of it (the Doric ledge, 18:55Z: 55 cm under a 78 cm rise's
+        -- level, inside the step slack, was counted landed while he stood nearer the foot)
         local over = not ok_land and level and dz < step_tol(st) and j.nearest ~= nil and j.nearest < within
+            and (me.Z - st.half_h) - p.Z > -0.5 * math.abs(p.Z - prev.Z)
         ok_land = ok_land or over
         pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", over and "over" or ok_land and "within"
             or ((off >= within and dz >= step_tol(st)) and "far_and_off_height" or (off >= within and "far" or "off_height")), t, log)

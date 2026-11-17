@@ -3356,7 +3356,7 @@ end
 -- approach put him on a 3 m ledge 72 cm from the planned cell, counted as the third miss, and the attack ended
 -- path_blocked 7.3 m from a rat he then walked straight to). A jump across a gap on one level keeps the 45 cm.
 do
-    local function land(rise, dx, dy, nearest)
+    local function land(rise, dx, dy, nearest, below)
         M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
         pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
         M.follow(log, "Zezima", 2, { nav = false })
@@ -3369,7 +3369,7 @@ do
         mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
                             started = T, saw_air = true, nearest = nearest, nearest_dz = nearest and 60 or nil }
         mv.trav_fails, mv.lp_fail = nil, nil
-        pawn.loc = { X = here.X + 100 + dx, Y = here.Y + dy, Z = here.Z + rise }
+        pawn.loc = { X = here.X + 100 + dx, Y = here.Y + dy, Z = here.Z + rise - (below or 0) }
         air = 0
         step(1)
         return mv
@@ -3397,6 +3397,11 @@ do
     vl = verdict_line(n0)
     check("ledge jump: over the cell in the air and down on its level 1.8 m past it is landed", (mv.trav_fails or 0) == 0
         and vl ~= nil and vl:find("verdict=landed why=over", 1, true) ~= nil, "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    -- over the cell but back down most of the way (jump course 2026-11-17 18:55Z, the Doric ledge: a 78 cm rise, down
+    -- 55 cm under its level 1.6 m on, inside the 65 cm step slack, was counted landed)
+    mv = land(100, 180, 0, 10, 55)
+    check("ledge jump: over the cell but down 55 cm under a 1 m rise's level stays a miss", mv.trav_fails == 1,
+        "fails=" .. tostring(mv.trav_fails))
     mv = land(300, 180, 0, 140)
     check("ledge jump: never over the cell and 1.8 m past it stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
     mv = land(0, 180, 0, 10)
