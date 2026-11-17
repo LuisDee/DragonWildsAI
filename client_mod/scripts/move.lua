@@ -3466,8 +3466,12 @@ local function steer_typed_jump(f, p)
         -- level, inside the step slack, was counted landed while he stood nearer the foot)
         local over = not ok_land and level and dz < step_tol(st) and j.nearest ~= nil and j.nearest < within
             and (me.Z - st.half_h) - p.Z > -0.5 * math.abs(p.Z - prev.Z)
-        ok_land = ok_land or over
-        pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", over and "over" or ok_land and "within"
+        -- ... or near it and above its level, on the slope up from it (the Doric ledge, 18:53:59Z: 44 cm from the cell
+        -- and 93 cm over it, at the goal's own height): up to twice the step slack
+        local fdz = (me.Z - st.half_h) - p.Z
+        local above = not ok_land and not over and level and off < within and fdz > 0 and fdz < 2 * step_tol(st)
+        ok_land = ok_land or over or above
+        pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", over and "over" or above and "above" or ok_land and "within"
             or ((off >= within and dz >= step_tol(st)) and "far_and_off_height" or (off >= within and "far" or "off_height")), t, log)
         if not owned(bind) then return true end
         if ok_land then

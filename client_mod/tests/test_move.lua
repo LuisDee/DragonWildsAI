@@ -3402,6 +3402,15 @@ do
     mv = land(100, 180, 0, 10, 55)
     check("ledge jump: over the cell but down 55 cm under a 1 m rise's level stays a miss", mv.trav_fails == 1,
         "fails=" .. tostring(mv.trav_fails))
+    -- near the cell and above its level, on the slope up from it (the Doric ledge, 18:53:59Z: 44 cm from the cell and
+    -- 93 cm over it, at the goal's own height, judged missed six times a window)
+    n0 = #logs
+    mv = land(300, 40, 0, nil, -93)
+    vl = verdict_line(n0)
+    check("ledge jump: 40 cm from the cell and 93 cm above its level is landed", (mv.trav_fails or 0) == 0
+        and vl ~= nil and vl:find("verdict=landed why=above", 1, true) ~= nil, "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    mv = land(300, 40, 0, nil, -200)
+    check("ledge jump: 2 m above the cell's level stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
     mv = land(300, 180, 0, 140)
     check("ledge jump: never over the cell and 1.8 m past it stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
     mv = land(0, 180, 0, 10)
