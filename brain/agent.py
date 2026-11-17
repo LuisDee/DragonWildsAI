@@ -201,6 +201,7 @@ class Agent:
         self.request_calls = 0  # model calls of the last _command_run (a board step's call budget)
         self._asked: dict | None = None  # where he stood when the open request was asked (situation "Asked:")
         self._goal_asked: dict | None = None  # the same for the goal now running (_goal_request)
+        self._pending_asked: dict | None = None  # the same for a goal that waits to start (pending_goal)
         # (player, his words): the last thing a player asked, until the model stops on it (a reply with no call to
         # his line or to a note that names it). Body runs in between (a review that eats and drinks) carry it in
         # their notes. Chain 20261116-114101: runes made, a failed boil ended the goal's run, the review after it
@@ -755,6 +756,7 @@ class Agent:
             self.director.on_player_command(event.player, ran_all + (["run_skill"] if d.skill else []), event.text)
         if d.goal and not d.skill:
             self.pending_goal = d.goal
+            self._pending_asked = self._asked  # a body-only run before the goal starts clears self._asked
         if self.pending_goal:
             self._goal_episode = self.log.episode_id  # the goal's rows stay in the episode that asked for it
 
@@ -1097,6 +1099,7 @@ class Agent:
                 return "run_skill", "; ".join(problems), {"skill": name}
         bits = ", ".join(f"{k}={v}" for k, v in params.items())
         self.pending_goal = f"{name}({bits})" if bits else name
+        self._pending_asked = self._asked
         self.pending_tasks, self.pending_skill = tasks, rec.name
         self.log.log("skill_queued", name=name, params=params, tasks=[t.model_dump() for t in tasks])
         return None
@@ -1188,7 +1191,11 @@ class Agent:
 
     def _run_goal(self, goal: str, given: list[Task] | None = None) -> GoalResult:
         self.store.progress("goal started", goal=goal, from_skill=given is not None)
-        asked = self._asked  # the request this goal came from (a body-only run in between clears self._asked)
+        # the request this goal came from, kept from the run that queued it. Window s18 (2026-11-17), run 054545: a
+        # hunger run came between start_goal and the goal's start and, as a body-only run, cleared self._asked; the
+        # goal's end came with no request, his line "next quest step is rune essence" with no call was not asked
+        # about, and he stood 9.3 s (5 of the 32 goal ends of 15 to 17 Nov that followed a chat run's start_goal)
+        asked, self._pending_asked = self._pending_asked or self._asked, None
         self._goal_asked = asked
         if given is None:
             try:

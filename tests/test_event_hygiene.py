@@ -1562,3 +1562,25 @@ def test_the_model_may_end_the_request_at_that_one_turn(tmp_path):
     assert len(_stop_for_notes(r)) == 1
     assert [c[0] for c in r.body.calls] == ["go_to", "interact"], r.body.calls
     assert len(r.records("request_closed")) == 1
+
+
+def test_a_goal_that_waited_behind_another_run_still_carries_the_players_request(tmp_path):
+    """Window s18 (2026-11-17), run 054545: "go and see Zanik and do her quest" became a goal; a hunger run came
+    before the goal began and, as a body-only run, cleared the request the goal was to carry. The goal's end then came
+    with no request, the run that heard it said "next quest step is rune essence" with no call and was not asked
+    about it, and he stood 9.3 s until a review came (the trial's only failed bar)."""
+    r = Replay(tmp_path, STATES[0])
+
+    def asked(ctx):  # the hunger event comes in while the model answers: the next poll has it
+        r.body.emit({"type": "vitals_low", "stat": "hydration", "value": STATES[0]["hydration"], "max": 75.0})
+        return FakeLLM.say("chopping them now", FakeLLM.call("start_goal", goal="Gather 50 Ash Logs for Zanik"))
+    r.model.replies["do her quest"] = asked
+    r.model.body_reply = lambda ctx: FakeLLM.say("")
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude go and see Zanik and do her quest"})
+    r.agent.planner.llm.push(FakeLLM.plan([{"skill": "go_to", "args": {"target": "Zezima"}}]))
+    r.body.act("go_to", go_to_ok(STATES[0]))
+    r.at(0).step()
+    done = [c["body_event"] for c in r.model.contexts if (c.get("body_event") or {}).get("type") == "goal_done"]
+    assert len(done) == 1, [c.get("body_event") for c in r.model.contexts]
+    assert done[0].get("request") == "claude go and see Zanik and do her quest", done[0]
+    assert done[0].get("from") == "Zezima", done[0]
