@@ -476,6 +476,50 @@ local function describe_resource(a, origin)
     return d
 end
 
+-- A thing with an extent is as far off as its nearest point, not its middle. A pond is one BP_WaterVolume_C: a box
+-- with the actor's origin at its middle, the actor's scale its size in metres (half = scale * 50 cm) and the actor's
+-- yaw its turn (live probe 2026-11-17, build 26574459, 3 of 3 volumes: that box gives the engine's own bounds to the
+-- cm; 30 x 49 m up to 311 x 191 m). Measured to its middle, the pond whose bank lay a few metres from Zanik stood
+-- "84.7 m" off: outside look's 80 m and explore's 40 m of sight, so he was told there was no water with the bank
+-- beside him (window s16, runs 031503 and 033022: six explores for water, no find, both trials lost; in three days
+-- look about water matched 0 of 9).
+M.EXTENT_CLASSES = { "WaterVolume" }
+-- the point of a box (middle mid, half sizes ha, hb, hz in cm, turned yaw_deg about Z) nearest to p; p itself inside it
+function M.box_nearest(p, mid, ha, hb, hz, yaw_deg)
+    local c, s = math.cos(math.rad(yaw_deg or 0)), math.sin(math.rad(yaw_deg or 0))
+    local dx, dy = p.X - mid.X, p.Y - mid.Y
+    local lx = math.max(-ha, math.min(ha, dx * c + dy * s))
+    local ly = math.max(-hb, math.min(hb, dy * c - dx * s))
+    return { X = mid.X + lx * c - ly * s, Y = mid.Y + lx * s + ly * c,
+             Z = math.max(mid.Z - (hz or 0), math.min(mid.Z + (hz or 0), p.Z or mid.Z)) }
+end
+-- -> { mid, ha, hb, hz, yaw, turned } for an actor of an extent class; nil for any other, and when its bounds do not
+-- read (it is then measured to its middle, as before). The engine's bounds (GetActorBounds, as move.lua reads a
+-- door's): as the turned box when the actor's scale and yaw give those same bounds, else the bounds as they are
+-- (axis-aligned: never smaller than the thing).
+function M.extent_of(a, id)
+    id = id or U.short(a)
+    local is = false
+    for _, w in ipairs(M.EXTENT_CLASSES) do if id and tostring(id):find(w, 1, true) then is = true end end
+    if not is then return nil end
+    local ok, o, e = pcall(function() local o2, e2 = {}, {}; a:GetActorBounds(false, o2, e2, false); return o2, e2 end)
+    if not (ok and type(o) == "table" and type(e) == "table" and tonumber(o.X) and tonumber(o.Y) and tonumber(o.Z)
+            and tonumber(e.X) and tonumber(e.Y) and tonumber(e.Z)) then return nil end
+    local ext = { mid = { X = o.X, Y = o.Y, Z = o.Z }, ha = e.X, hb = e.Y, hz = e.Z, yaw = 0, turned = false }
+    local sc = U.try(function() return a:GetActorScale3D() end)
+    local rot = U.try(function() return a:K2_GetActorRotation() end)
+    local okn, sx, sy, yaw = pcall(function() return tonumber(sc.X), tonumber(sc.Y), tonumber(rot.Yaw) end)
+    if okn and sx and sy and yaw then
+        local ha, hb = math.abs(sx) * 50, math.abs(sy) * 50
+        local c, s = math.abs(math.cos(math.rad(yaw))), math.abs(math.sin(math.rad(yaw)))
+        local tol = 0.02 * math.max(e.X, e.Y) + 10
+        if math.abs(ha * c + hb * s - e.X) <= tol and math.abs(ha * s + hb * c - e.Y) <= tol then
+            ext.ha, ext.hb, ext.yaw, ext.turned = ha, hb, yaw, true
+        end
+    end
+    return ext
+end
+
 M.IC_MAX_OFFSET_CM = 1000 -- an interaction point further than this from its actor is not trusted
 local function describe_interactable(a, ic, kind, origin)
     local d = base(a, origin)
@@ -858,11 +902,23 @@ function M.census(log, opts)
         if id and seen[id] and by_id[id] and not by_id[id].prompt then
             -- an already-listed entity that is also interactable (gatherable "Collect", sapling "Uproot")
             by_id[id].prompt = text(U.try(function() return ic.InteractionPrompt end))
-        elseif id and not seen[id] and within(a) then
-            seen[id] = true
-            if on then
-                local ok, d = pcall(describe_interactable, a, ic, kind_of[id], origin)
-                if ok and d then add("interactables", d) end
+        elseif id and not seen[id] then
+            -- a thing with an extent (a pond) is in the radius when its nearest point is, and that far off
+            local ext = M.extent_of(a, id)
+            local edge = ext and M.box_nearest(origin, ext.mid, ext.ha, ext.hb, ext.hz, ext.yaw) or nil
+            local inside
+            if edge then inside = U.dist(origin, edge) <= r_cm else inside = within(a) end
+            if inside then
+                seen[id] = true
+                if on then
+                    local ok, d = pcall(describe_interactable, a, ic, kind_of[id], origin)
+                    if ok and d and edge then
+                        d.distance = U.cm_to_m(U.dist(origin, edge))
+                        d.nearest = U.to_wire(edge) -- its point nearest to him; position stays its middle
+                        d.size_m = { r1(ext.ha / 50), r1(ext.hb / 50) }
+                    end
+                    if ok and d then add("interactables", d) end
+                end
             end
         end
     end
