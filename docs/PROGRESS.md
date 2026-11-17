@@ -1920,3 +1920,62 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Spend** on 2026-11-17 UTC at 12:49Z: $2.62 of $10 by the guard (1,110 calls). Replays not counted by the guard in this stretch: about 130 Haiku calls, about $0.65.
 - **Limits.** The chain is at 0 sittings in a row. Reports were not judged for truth. `gs_chain` has 1 trial. No checkpoint holds the chain's state at Rune Mysteries' start. Still unseen live: d933d0e, c2a9835, e5b851c, 1cffdc4, f1108be beyond one exposure.
 - **Next:** chain sitting 3 (started 12:50Z).
+
+## 2026-11-17 12:50Z-13:56Z: the four quests' chain passed 3 sittings in a row (Rung 5's quest gate); their reports judged true; go_to takes a thing by its name; the local planner reads a slope at its quarters
+
+**Chain sittings 3, 4 and 5: all four quests passed in each, no miss, no stand over 5 s.** Each sitting ran on a fresh quest-cleared clone (ClaudeQ171250, ClaudeQ171309, ClaudeQ171327).
+
+| quest | sitting 3 (window 125042) | sitting 4 (130947) | sitting 5 (132728) |
+|---|---|---|---|
+| First Steps | 30.6 s, 0.42 (run 125248) | 35.7 s, 0.47 (131214) | 36.4 s, 0.49 (133000) |
+| Getting Started | 132.4 s, 0.99 (125354) | 80.3 s, 0.67 (131329) | 147.3 s, 1.10 (133123) |
+| Ratcatcher | 218.2 s, 1.00 (125642) | 152.3 s, 1.02 (131529) | 187.8 s, 0.94 (133441) |
+| Rune Mysteries | 388.8 s, 0.98 (130059) | 376.3 s, 0.99 (131842) | 294.6 s, 0.84 (133834) |
+
+- Times are his active time and the ratio to Luis's bar; a pass is 1.5 or under.
+- Sitting 2 of the same day failed (Ratcatcher, 2 misses; entry above). The streak counts from sitting 3.
+- The Rung 5 row of `docs/GOAL-2026-11-01.md` now reads AT STANDARD for the four quests in one chain, with these limits.
+
+**The reports of the 12 quest runs, judged for truth (new tool, 80bfb5b).**
+- `tools/quest_truth.py` hands a recorded quest run's time window to the judge the build runs use (`truth_check` for the facts, `truth_judge` for the verdicts, Haiku, one call per run). It holds no quest knowledge: the context is the line sent, the game's quest log steps with their times, and the failed tool calls from the record.
+- **Result:** 12 runs truthful, 0 claims flagged. Of 30 claims, 15 were plans ("on it, heading to Doric"), 14 were judged true and 1 unverifiable ("rats from the windmill up the hill": the windmill is in no fact). 12 calls, $0.009.
+- **One "true" I do not accept as checked** (run 130059): "now mining rune essence from the geysers". The essence came from mining rocks (`BP_MiningRock_RuneEssence_Static_A_C`); the Anima Vent was a separate interact that gave the Astral Runes. The judge passed it because nothing in its facts names the source.
+- **Limits of this judging.** The judge sees no bag (the record holds no inventory samples) and only body action results cut to 240 characters; nothing he read with `look`, `quests` or `lookup`. A quest has no single place, so the arrival rules never apply. One pass, variance not measured. It judges what he said, not what he left unsaid: a run ends when the game records the quest complete, so a closing line was often not spoken (125248 has none).
+
+**d933d0e confirmed live** (a route picks up where a local plan was made toward), three times in sittings 3 and 4:
+- 12:53:13Z "the route picks up at its point 23 (it stood at 20)", then "Walked 60 m in 11 s";
+- 12:59:01Z "it picks up at its point 6 (it stood at 3)";
+- 13:01:11Z "the route picks up at its point 8 (it stood at 7)". No run back in any of the three.
+
+**Fix 1, 80bfb5b (bridge): `go_to` takes a thing in sight by its name.**
+- **Failure:** `go_to` knew a thing by its id only. A name ("Campfire", "Rune Altar", or the name written with its id as a situation line shows it) went to the mover as a player's name and came back `unknown_target`: 4 of the 416 `go_to` calls of 14 to 17 Nov, each a miss (run 121459, with the fire 31 m off).
+- **A second cost found in the same logs:** a walk to an NPC or station by its name started only after the body failed and the brain resolved the name: 298 such walks in two days, median 2.3 s each before the first step.
+- **Change:** the bridge takes the id written in the words, else the nearest thing of exactly that name (letter case aside) among items, resources, stations and built pieces, and says in the result which one it took. Creatures and players stay the mover's.
+- **Tests:** the new bridge test failed on the old bridge ("Workbench" went to the player's spot) and passes; bridge 61 of 61, Lua client suites and the Python bridge test 55 passed.
+- **Not seen live yet** (window s31).
+
+**Fix 2, 61412a5 (local planner): a slope up is read at its quarters.**
+- **Measured first** (`logs/client/client.log`, 14 to 17 Nov, every planned local path against the `stuck` lines that name its point):
+
+| edge | rise | planned | ended in a stuck |
+|---|---|---|---|
+| walk, up | under 40 cm | 2,304 | 45 (2 %) |
+| walk, up | 40 to 80 cm | 582 | 93 (16 %) |
+| walk, up | 80 cm or more | 137 | 70 (51 %) |
+| walk, down | 80 cm or more | 40 | 0 |
+| jump, up | 80 to 120 cm | 58 | 0 |
+| jump, up | 120 cm or more | 164 | 15 (9 %) |
+
+- **Mechanism (by the planner's code; the ground itself was not traced):** cells are 1 m apart, so a rise above his 45 cm step is a provisional "walk" and one trace at the midpoint decides slope or step. A rock with a shelf halfway up passes that test. This is the 2-minute reflex fight on rocks in s30 (brain log 134047).
+- **Search (rule 5):** Recast tells a slope from a ledge by the rise between neighbouring cells (`walkableClimb`) and by the floor's angle (`walkableSlopeAngle`), on a grid much finer than 1 m. https://recastnav.com/group__recast.html
+- **Change:** going up, the edge's floor is read at its quarters too. A part that rises more than his step height, or a floor too steep to stand on (the pawn's own WalkableFloorZ), makes the edge a jump. Edges going down are unchanged.
+- **Tests:** two new planner tests failed before the change (a shelf halfway up; a face too steep to stand on) and pass; the 30 degree ramp and an even 40 degree rise are still walked; planner and move suites pass.
+- **Cost:** 2 more traces for each rising slope edge of a plan.
+- **Not seen live yet** (window s31). The measure is the same table for the windows after 13:56Z.
+
+**State at 13:56Z.**
+- **Rates** (last 10 each): First Steps 10; Getting Started 8 chained, 10 from `gs_start`; Ratcatcher 6 chained (last 3 passed), 9 from `rc_chain2`, 10 from `rc_start`; Rune Mysteries 6 chained (last 5 passed), 10 from `rm_part2`, 9 from `rm_start`.
+- **Ledger:** 58 rows, none untagged, 10 void. No new failed run in the three sittings.
+- **Spend** on 2026-11-17 UTC at 13:55Z: $2.92 of $10 by the guard (1,239 calls). The three sittings cost about $0.30 (121 calls).
+- **Limits.** The Rune Altar that earlier runs built still stands in the world, so no sitting had to build one. The second First Steps (Bramblemead) is not part of the chain. `attack` on a name with nothing in reach is still an open question for Luis. Still unseen live: 80bfb5b, 61412a5, c2a9835, e5b851c, 1cffdc4, f1108be beyond one exposure.
+- **Next:** window s31 (Ratcatcher from `rc_chain2`, 5 trials, started 13:56Z) as the live trial of both fixes; then the open table items and the quests after these four.
