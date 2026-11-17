@@ -214,7 +214,16 @@ do
     -- live 18:56Z: part 1 complete and part 2 given in one talk; "is complete" alone read as the whole quest done
     w = K.outcome_words({ { quest = "Rune Mysteries", from = "given", to = "complete" },
                           { quest = "Rune Mysteries", from = "ungiven", to = "given", step = "Mine Rune Essence." } })
-    check("a finished quest followed by its namesake goes on", w == "One part of Rune Mysteries is complete, but Rune Mysteries is not over. It goes on as a new quest of the same name, now given: Mine Rune Essence.", w)
+    -- window s17 (2026-11-17), rollouts of runs 044508 and 045210: "One part ... is complete, but ... is not over. It
+    -- goes on as a new quest of the same name, now given: ..." still read as a job done (went on 4 of 10); worded as
+    -- the one quest a player sees, moving to its next step, 9 of 10
+    check("a finished quest followed by its namesake is one quest moving on", w == "Rune Mysteries is not finished: it moved on to its next step, Mine Rune Essence.", w)
+    w = K.outcome_words({ { quest = "Rune Mysteries", from = "given", to = "complete" },
+                          { quest = "Rune Mysteries", from = "ungiven", to = "given" } })
+    check("... and with no step text it still says the quest is not finished", w == "Rune Mysteries is not finished: it moved on to its next step.", w)
+    w = K.outcome_words({ { quest = "Getting Started", from = "given", to = "complete" },
+                          { quest = "Ratcatcher", from = "ungiven", to = "given", step = "Kill rats." } })
+    check("a finished quest and a new one of another name are said as two", w == "Quest Getting Started is complete. New quest Ratcatcher: Kill rats.", w)
     check("conversation mode word", K.is_conversation_mode("DIM_ConversationUI") and not K.is_conversation_mode("DIM_SpellcastingMode"))
 end
 

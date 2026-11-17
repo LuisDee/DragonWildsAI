@@ -187,11 +187,15 @@ function M.outcome_words(qd, items, names)
         if d.to == "complete" and given[name] then
             -- live 18:56Z (ClaudeQ1) and 20:16Z (ClaudeQ4): "Quest Rune Mysteries is complete" read as the whole quest
             -- done, and he stood with its next part open, even after "... goes on as a new quest of the same name".
-            -- The game names both parts alike; the completion is only one part's, so say that first.
-            w[#w + 1] = string.format("One part of %s is complete, but %s is not over.", name, name)
+            -- "One part of X is complete, but X is not over. It goes on as a new quest of the same name, now
+            -- given: ..." (16 Nov) still opened with a completion: window s17 (2026-11-17), rollouts of runs 044508
+            -- and 045210 with that sentence in view went on 4 of 10. The game names both assets alike and the
+            -- player's journal shows one quest (the wiki lists one Rune Mysteries), so it is said as that one quest
+            -- moving to its next step, in the namesake's row below: 9 of 10 went on.
         elseif d.to == "complete" then w[#w + 1] = string.format("Quest %s is complete.", name)
         elseif d.to == "given" and d.from == "ungiven" and done[name] then
-            w[#w + 1] = string.format("It goes on as a new quest of the same name, now given: %s", tostring(d.step or "started."))
+            w[#w + 1] = string.format("%s is not finished: it moved on to its next step%s", name,
+                d.step and (", " .. tostring(d.step)) or ".")
         elseif d.to == "given" and d.from == "ungiven" then w[#w + 1] = string.format("New quest %s: %s", tostring(d.quest), tostring(d.step or "started."))
         elseif d.step then w[#w + 1] = string.format("%s, next step: %s", tostring(d.quest), d.step) end
     end
