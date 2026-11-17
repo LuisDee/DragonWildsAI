@@ -17,19 +17,44 @@
 -- Allowed calls only: property reads, StaticFindObject (never loads), FindAllOf, UDataTable ForEachRow / GetRowNames /
 -- FindRow, UClass GetCDO, K2_GetActorLocation. No RPC, no hand-built struct, no LoadAsset, nothing written.
 -- Reads on Blueprint-class objects (ATK_*_C defaults, WorldChest actors) go through U.prop (risk register R17).
--- Bounded: rows per table, rows in all, list lengths, and a time budget; each table or source in its own pcall.
--- What it could not read is listed in result.unread and logged. Optional prefix (the runner's ARGS convention):
---   local ARGS = { vault = "Skeklac Kara", max_rows = 4000, max_s = 8 }
--- Run (main session, between windows): . tools\client_lib.ps1; Invoke-ClientCmd -Path
---   client_mod\commands\bestiary_tables_probe.lua -Name bestiary_tables_probe -TimeoutS 60
--- Output: client_io/out/bestiary_tables_probe.json; merge: python -m tools.build_bestiary build --from-probe <file>.
+-- Bounded: rows per table, rows in all, list lengths, and a time budget per call; each table or source in its own pcall.
+-- What it could not read is listed in result.unread (and by group in result.unread_by_group) and logged.
+-- One call blocks the game thread for its whole run (the runner calls it on the game thread; tickguard.lua and the
+-- server's timeouts do not like long stalls). The first live run (2026-11-17 23:32Z, one call, max_s 8) spent 7.9 s in the
+-- attack registry walk and never started enemy loot, attack reads or chests. So: run ONE GROUP PER CALL (ARGS.only), the
+-- default cap is 5 s a call, and the registry walk goes in slices (start, limit) that resume from result.attacks.walk.next.
+-- Optional prefix (the runner's ARGS convention), every key optional:
+--   local ARGS = { only = "enemy_loot",   -- or a list { "journal", "chests" } or "ai_data, attack_damage"; default all
+--                  start = 1, limit = 100, -- registry paths start .. start+limit-1 (sorted, so stable between calls)
+--                  walk_s = 3,             -- the walk's share of max_s (default 0.6 * max_s), so the reads still run
+--                  vault = "Skeklac Kara", max_rows = 4000, max_s = 5 }
+-- Groups: journal, attack_damage, ai_data, attacks, enemy_loot, chests (an unknown one is an error).
+-- Run (main session, between windows, from C:\gameserver, dev client in game; one line each, one group per call; each
+-- result lands in client_io\out\<Name>.json):
+--   journal:
+--     . tools\client_lib.ps1; $src = Get-Content -Raw client_mod\commands\bestiary_tables_probe.lua; $f = "$env:TEMP\bestiary_probe_run.lua"; [IO.File]::WriteAllText($f, 'local ARGS = { only = "journal" }' + "`n" + $src); $r = Invoke-ClientCmd -Path $f -Name bestiary_probe_journal -TimeoutS 30; if ($r) { $r.result.counts; $r.result.unread } else { Clear-ClientCmd bestiary_probe_journal; 'no answer' }
+--   attack_damage:
+--     . tools\client_lib.ps1; $src = Get-Content -Raw client_mod\commands\bestiary_tables_probe.lua; $f = "$env:TEMP\bestiary_probe_run.lua"; [IO.File]::WriteAllText($f, 'local ARGS = { only = "attack_damage" }' + "`n" + $src); $r = Invoke-ClientCmd -Path $f -Name bestiary_probe_attack_damage -TimeoutS 30; if ($r) { $r.result.sections; $r.result.unread } else { Clear-ClientCmd bestiary_probe_attack_damage; 'no answer' }
+--   ai_data:
+--     . tools\client_lib.ps1; $src = Get-Content -Raw client_mod\commands\bestiary_tables_probe.lua; $f = "$env:TEMP\bestiary_probe_run.lua"; [IO.File]::WriteAllText($f, 'local ARGS = { only = "ai_data" }' + "`n" + $src); $r = Invoke-ClientCmd -Path $f -Name bestiary_probe_ai_data -TimeoutS 30; if ($r) { $r.result.sections; $r.result.unread } else { Clear-ClientCmd bestiary_probe_ai_data; 'no answer' }
+--   attacks (slices of 100 registry paths, each resumed from walk.next; stops on no answer or no progress):
+--     . tools\client_lib.ps1; $src = Get-Content -Raw client_mod\commands\bestiary_tables_probe.lua; $f = "$env:TEMP\bestiary_probe_run.lua"; $s = 1; while ($s) { $n = "bestiary_probe_attacks_$s"; [IO.File]::WriteAllText($f, "local ARGS = { only = 'attacks', start = $s, limit = 100 }`n" + $src); $r = Invoke-ClientCmd -Path $f -Name $n -TimeoutS 30; if (-not $r -or -not $r.ok) { Clear-ClientCmd $n; "stopped at start $s (no answer or error)"; break }; $w = $r.result.attacks.walk; "start $s -> next $($w.next): walked $($w.walked) of $($w.n) in $($w.seconds) s, $($r.result.attacks.loaded_n) loaded"; if (-not $w.next -or [int]$w.next -le $s) { break }; $s = [int]$w.next }
+--   enemy_loot:
+--     . tools\client_lib.ps1; $src = Get-Content -Raw client_mod\commands\bestiary_tables_probe.lua; $f = "$env:TEMP\bestiary_probe_run.lua"; [IO.File]::WriteAllText($f, 'local ARGS = { only = "enemy_loot" }' + "`n" + $src); $r = Invoke-ClientCmd -Path $f -Name bestiary_probe_enemy_loot -TimeoutS 30; if ($r) { $r.result.sections; $r.result.unread } else { Clear-ClientCmd bestiary_probe_enemy_loot; 'no answer' }
+--   chests (inside a vault, its name in $vault; only the WorldChest actors loaded near him are read):
+--     $vault = 'Skeklac Kara'; . tools\client_lib.ps1; $src = Get-Content -Raw client_mod\commands\bestiary_tables_probe.lua; $f = "$env:TEMP\bestiary_probe_run.lua"; $n = 'bestiary_probe_chests_' + ($vault -replace '\W', ''); [IO.File]::WriteAllText($f, "local ARGS = { only = 'chests', vault = '$vault' }`n" + $src); $r = Invoke-ClientCmd -Path $f -Name $n -TimeoutS 30; if ($r) { $r.result.counts; $r.result.unread } else { Clear-ClientCmd $n; 'no answer' }
+-- Merge (the earlier full run first: a later file's group replaces that group only, attack slices add up):
+--   $p = @('data\bestiary_probe_20261117.json') + (Get-ChildItem client_io\out\bestiary_probe_*.json | ForEach-Object FullName); .venv\Scripts\python.exe -m tools.build_bestiary build ($p | ForEach-Object { '--from-probe', $_ })
 return function(log)
     local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
     local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
     local A = (type(ARGS) == "table" and ARGS) or {}
     local MAX_ROWS = tonumber(A.max_rows) or 4000     -- rows per table
     local MAX_TOTAL = tonumber(A.max_total) or 40000  -- FindRow calls in all
-    local MAX_S = tonumber(A.max_s) or 8              -- seconds for the whole probe
+    local MAX_S = tonumber(A.max_s) or 5              -- seconds for this call (one group per call: ARGS.only)
+    local WALK_S = math.min(tonumber(A.walk_s) or MAX_S * 0.6, MAX_S)  -- the registry walk stops here, so its reads run
+    local START = math.max(1, math.floor(tonumber(A.start) or 1))     -- registry paths START .. START+LIMIT-1
+    local LIMIT = math.max(1, math.floor(tonumber(A.limit) or 100))
     local MAX_ARR = 64                                -- elements per inner array
     local MAX_JOURNAL, MAX_ATTACKS, MAX_CHESTS, MAX_PATHS = 800, 1500, 64, 4000
     local try, valid = U.try, U.valid
@@ -40,16 +65,44 @@ return function(log)
     end
     local function n(v) return type(v) == "number" and v or nil end
     local function b(v) return v == true or nil end
+    -- the groups this call runs (ARGS.only: a name, a list, or "a, b"); the rest are not touched and not reported
+    local GROUPS = { "journal", "attack_damage", "ai_data", "attacks", "enemy_loot", "chests" }
+    local wanted
+    if A.only ~= nil then
+        local known, list = {}, {}
+        for _, g in ipairs(GROUPS) do known[g] = true end
+        if type(A.only) == "table" then for _, g in ipairs(A.only) do list[#list + 1] = tostring(g) end
+        else for g in tostring(A.only):gmatch("[^,%s]+") do list[#list + 1] = g end end
+        wanted = {}
+        for _, g in ipairs(list) do
+            if not known[g] then error("bestiary_tables_probe: unknown group '" .. g .. "' in ARGS.only (groups: " .. table.concat(GROUPS, ", ") .. ")") end
+            wanted[g] = true
+        end
+        if not next(wanted) then error("bestiary_tables_probe: ARGS.only names no group (groups: " .. table.concat(GROUPS, ", ") .. ")") end
+    end
+    local function want(g) return wanted == nil or wanted[g] == true end
     local t0 = os.clock()
     local function over() return os.clock() - t0 > MAX_S end
     local total = 0
-    local out = { probe = "bestiary_tables_probe", version = 1, vault = A.vault,
-                  caps = { max_rows = MAX_ROWS, max_total = MAX_TOTAL, max_s = MAX_S, max_array = MAX_ARR },
-                  sections = {}, unread = {}, truncated = {} }
+    local out = { probe = "bestiary_tables_probe", version = 2, vault = A.vault, groups = {},
+                  caps = { max_rows = MAX_ROWS, max_total = MAX_TOTAL, max_s = MAX_S, max_array = MAX_ARR, walk_s = WALK_S,
+                           start = START, limit = LIMIT },
+                  sections = {}, unread = {}, unread_by_group = {}, truncated = {} }
+    for _, g in ipairs(GROUPS) do if want(g) then out.groups[#out.groups + 1] = g end end
+    out.only = wanted and out.groups or nil
+    local group = "other"  -- the group of the running section: unread lines are filed under it
     local function say(msg) pcall(log, "[bestiary_probe] " .. msg) end
-    local function unread(what, why) out.unread[#out.unread + 1] = what .. ": " .. why; say("could not read " .. what .. ": " .. why) end
+    local function unread(what, why)
+        local line = what .. ": " .. why
+        out.unread[#out.unread + 1] = line
+        local l = out.unread_by_group[group]
+        if not l then l = {}; out.unread_by_group[group] = l end
+        l[#l + 1] = line
+        say("could not read " .. line)
+    end
     local function truncated(what) out.truncated[#out.truncated + 1] = what; say("truncated " .. what) end
     local function section(name, fn)
+        group = name:match("^[^:]+")
         if over() then out.sections[name] = { ok = false, skipped = true }; unread(name, "time cap reached before it started"); return end
         local ts = os.clock()
         local ok, err = pcall(fn)
@@ -135,7 +188,7 @@ return function(log)
     end
 
     -- 1. the journal (lowest risk: the reads combat.lua _journal_weaknesses makes live)
-    section("journal", function()
+    if want("journal") then section("journal", function()
         local list = U.find_all("JournalEntryWorldData", { skip_defaults = true })
         local j = { found = #list, with_weaknesses = 0, entries = {} }
         for i, e in ipairs(list) do
@@ -158,16 +211,16 @@ return function(log)
             j.entries[#j.entries + 1] = r
         end
         out.journal = j
-    end)
+    end) end
 
     -- 2. attack damage and AI health tables, each in its own pcall
-    out.attack_damage, out.ai_data = {}, {}
     local DMG = {
         DT_AIAttackDamage_BG = "/Game/Gameplay/AI/DT_AIAttackDamage_BG.DT_AIAttackDamage_BG",
         DT_AIAttackDamage_Fellhollow = "/FutureMajorVersion/Gameplay/AI/DT_AIAttackDamage_Fellhollow.DT_AIAttackDamage_Fellhollow",
         DT_AIAttackDamage_DowdunReach = "/DowdunReach/Gameplay/AI/DT_AIAttackDamage_DowdunReach.DT_AIAttackDamage_DowdunReach",
     }
-    for key, path in pairs(DMG) do
+    if want("attack_damage") then out.attack_damage = {} end
+    for key, path in pairs(want("attack_damage") and DMG or {}) do
         section("attack_damage:" .. key, function()
             out.attack_damage[key] = read_table(key, path, function(row) return n(row.Damage) end)
         end)
@@ -176,15 +229,19 @@ return function(log)
         DT_AIData_BG = "/Game/Gameplay/AI/DT_AIData_BG.DT_AIData_BG",
         DT_AIData_UmbralSands = "/UmbralSands/Gameplay/AI/DT_AIData_UmbralSands.DT_AIData_UmbralSands",
     }
-    for key, path in pairs(AID) do
+    if want("ai_data") then out.ai_data = {} end
+    for key, path in pairs(want("ai_data") and AID or {}) do
         section("ai_data:" .. key, function()
             out.ai_data[key] = read_table(key, path, function(row) return n(row.MaxHealth) end)
         end)
     end
 
-    -- 3. attack definitions: the registry's class list, then each LOADED class's default object
-    out.attacks = { registry = {}, loaded = {} }
+    -- 3. attack definitions: the registry's class list, then each LOADED class's default object. The walk over the
+    -- registry (one StaticFindObject per path, about 520 paths: 7.9 s live and unfinished) takes the slice START ..
+    -- START+LIMIT-1 of the sorted list and at most WALK_S of the call; result.attacks.walk.next is where the next call starts.
     local classes, cdos = {}, {}  -- path -> true; asset -> cdo
+    if want("attacks") then
+    out.attacks = { registry = {}, loaded = {} }
     section("attacks:registry", function()
         local regs = U.find_all("AIActionAttackRegistry", { skip_defaults = true })
         if #regs == 0 then unread("attacks:registry", "no AIActionAttackRegistry instance loaded"); return end
@@ -199,8 +256,21 @@ return function(log)
     end)
     section("attacks:find", function()
         local nl = 0
-        for _, p in ipairs(out.attacks.registry.paths or {}) do
-            if over() then unread("attacks:find", "time cap in the registry walk"); break end
+        local paths = out.attacks.registry.paths or {}
+        local np = #paths
+        local w = { start = START, limit = LIMIT, n = np, walked = 0 }
+        out.attacks.walk = w
+        if START > np and np > 0 then unread("attacks:find", "start " .. START .. " is past the registry's " .. np .. " paths") end
+        local last = math.min(np, START + LIMIT - 1)
+        local tw = os.clock()
+        for i = START, last do
+            if os.clock() - t0 > WALK_S then
+                w.capped, w.next = true, i
+                unread("attacks:find", "time cap in the registry walk at path " .. i .. " of " .. np .. " (resume with start = " .. i .. ")")
+                break
+            end
+            local p = paths[i]
+            w.walked, w.stop = w.walked + 1, i
             local cls = U.find_object(p)  -- loaded only; StaticFindObject never loads
             local cdo = cls and try(function() return cls:GetCDO() end)
             if valid(cdo) then
@@ -208,14 +278,22 @@ return function(log)
                 if asset ~= "" and not cdos[asset] then cdos[asset] = { cdo = cdo, path = p }; nl = nl + 1 end
             end
         end
-        -- attack defaults that FindAllOf lists (it may include loaded classes the registry does not name)
-        for _, o in ipairs(U.find_all("AiAttackData")) do
-            local full = U.fullname(o) or ""
-            local asset = full:match("Default__(ATK_[%w_]-)_C$")
-            if asset and not cdos[asset] then cdos[asset] = { cdo = o, path = U.path_of(o) }; nl = nl + 1 end
+        if not w.capped and last < np then w.next = last + 1 end
+        w.seconds = math.floor((os.clock() - tw) * 1000) / 1000
+        if w.walked > 0 then w.ms_per_path = math.floor(w.seconds * 1000 / w.walked * 10) / 10 end
+        -- attack defaults that FindAllOf lists (it may include loaded classes the registry does not name): first slice only
+        if START == 1 then
+            for _, o in ipairs(U.find_all("AiAttackData")) do
+                local full = U.fullname(o) or ""
+                local asset = full:match("Default__(ATK_[%w_]-)_C$")
+                if asset and not cdos[asset] then cdos[asset] = { cdo = o, path = U.path_of(o) }; nl = nl + 1 end
+            end
         end
         out.attacks.loaded_n = nl
-        if nl == 0 then unread("attacks", "no ATK_* class loaded (no creature spawned near him yet)") end
+        if nl == 0 then
+            unread("attacks", "no ATK_* class loaded" .. (w.walked > 0 and (" in registry paths " .. START .. ".." .. w.stop) or "")
+                .. " (no creature of theirs spawned near him yet)")
+        end
     end)
     section("attacks:read", function()
         local names = {}
@@ -265,9 +343,10 @@ return function(log)
             if ok then out.attacks.loaded[asset] = rec else unread("attack " .. asset, tostring(rec)) end
         end
     end)
+    end
 
     -- 4. creature drop tables, each table in its own pcall; drop rows FindRow'd through each handle's own table
-    out.enemy_loot, out.loot_rows = {}, {}
+    if want("enemy_loot") then out.enemy_loot, out.loot_rows = {}, {} end
     local LOOT = {
         DT_EnemyLootDropTable = "/Game/Gameplay/Items/LootDropTables/DT_EnemyLootDropTable.DT_EnemyLootDropTable",
         DT_EnemyLootDropTable_DowdunReach = "/DowdunReach/Gameplay/Items/LootDropTables/DT_EnemyLootDropTable_DowdunReach.DT_EnemyLootDropTable_DowdunReach",
@@ -295,7 +374,7 @@ return function(log)
         out.loot_rows[key] = r
         return key
     end
-    for key, path in pairs(LOOT) do
+    for key, path in pairs(want("enemy_loot") and LOOT or {}) do
         section("enemy_loot:" .. key, function()
             out.enemy_loot[key] = read_table(key, path, function(row)
                 local levels = {}
@@ -313,7 +392,7 @@ return function(log)
     end
 
     -- 5. vault chests: only the WorldChest actors loaded near him
-    section("chests", function()
+    if want("chests") then section("chests", function()
         local list = U.find_all("WorldChest", { skip_defaults = true })
         local res = { found = #list, actors = {} }
         if #list == 0 then unread("chests", "no WorldChest actor loaded near him (run it inside a vault)") end
@@ -365,18 +444,18 @@ return function(log)
             if ok and rec.unread then unread("chest " .. tostring(rec.id), rec.unread) end
         end
         out.chests = res
-    end)
+    end) end
 
     out.rows_read = total
     out.seconds = math.floor((os.clock() - t0) * 1000) / 1000
     local na = 0
-    for _ in pairs(out.attacks.loaded) do na = na + 1 end
+    for _ in pairs(out.attacks and out.attacks.loaded or {}) do na = na + 1 end
     out.counts = { journal = out.journal and #out.journal.entries or 0,
                    journal_with_weaknesses = out.journal and out.journal.with_weaknesses or 0,
-                   attacks_listed = out.attacks.registry.n or 0, attacks_loaded = na,
+                   attacks_listed = out.attacks and out.attacks.registry.n or 0, attacks_loaded = na,
                    chests = out.chests and #out.chests.actors or 0, unread = #out.unread }
-    say(string.format("done in %.2f s: %d journal entries (%d with weaknesses), %d attacks loaded of %d listed, %d chests, %d rows, %d unread",
-        out.seconds, out.counts.journal, out.counts.journal_with_weaknesses, na, out.counts.attacks_listed, out.counts.chests,
+    say(string.format("done in %.2f s (%s): %d journal entries (%d with weaknesses), %d attacks loaded of %d listed, %d chests, %d rows, %d unread",
+        out.seconds, table.concat(out.groups, ","), out.counts.journal, out.counts.journal_with_weaknesses, na, out.counts.attacks_listed, out.counts.chests,
         total, #out.unread))
     return out
 end

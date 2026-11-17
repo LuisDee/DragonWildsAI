@@ -687,40 +687,118 @@ JOURNAL_LINE = re.compile(r"^\s*(weak(?:ness(?:es)?)?|resist(?:ance|ances|s)?|im
 DAMAGE_CLASS = {1: "melee", 2: "magic", 3: "ranged"}
 
 
+PROBE_GROUPS = ("journal", "attack_damage", "ai_data", "attacks", "enemy_loot", "chests")
+# a version-1 result has no unread_by_group: its lines are filed by their label (first match wins)
+_UNREAD_LABELS = (("journal", "journal"), ("attack_damage", "attack_damage"), ("DT_AIAttackDamage", "attack_damage"),
+                  ("ai_data", "ai_data"), ("DT_AIData", "ai_data"), ("attack", "attacks"), ("enemy_loot", "enemy_loot"),
+                  ("DT_EnemyLoot", "enemy_loot"), ("DT_CompositeEnemyLoot", "enemy_loot"), ("loot row", "enemy_loot"),
+                  ("chest", "chests"), ("item set", "chests"))
+
+
+def _probe_groups(res: dict) -> set[str]:
+    """The groups one probe call ran: its `groups` (version 2), else the groups of its sections that were not skipped,
+    else (an old result with no sections) all of them."""
+    if isinstance(res.get("groups"), list):
+        return {g for g in res["groups"] if g in PROBE_GROUPS}
+    secs = res.get("sections")
+    if isinstance(secs, dict) and secs:
+        return {k.split(":")[0] for k, v in secs.items() if not (isinstance(v, dict) and v.get("skipped"))} & set(PROBE_GROUPS)
+    return set(PROBE_GROUPS)
+
+
+def _probe_unread(res: dict) -> dict[str, list[str]]:
+    """group -> unread lines of one call (its unread_by_group, else its flat list filed by label)."""
+    ubg = res.get("unread_by_group")
+    if ubg is not None:
+        return {g: list(v) for g, v in ubg.items() if isinstance(v, list)} if isinstance(ubg, dict) else {}
+    out: dict[str, list[str]] = {}
+    for x in res.get("unread") or []:
+        g = next((grp for pre, grp in _UNREAD_LABELS if str(x).startswith(pre)), "other")
+        out.setdefault(g, []).append(x)
+    return out
+
+
+def _ranges(idx: list[int]) -> str:
+    parts, i = [], 0
+    while i < len(idx):
+        j = i
+        while j + 1 < len(idx) and idx[j + 1] == idx[j] + 1:
+            j += 1
+        parts.append(str(idx[i]) if i == j else f"{idx[i]}-{idx[j]}")
+        i = j + 1
+    return ", ".join(parts)
+
+
 def load_probe(paths: Iterable[Path | str]) -> dict:
     """One or more outputs of client_mod/commands/bestiary_tables_probe.lua (the runner's {ok, result} or the bare
     result), as their union: attacks by asset, journal entries by asset, table rows by table, chests by actor id.
-    A run near other creatures loads other attack classes, so several runs add up."""
+    A run near other creatures loads other attack classes, so several runs add up.
+
+    The probe runs one group per call (ARGS.only): journal, attack_damage, ai_data, attacks, enemy_loot, chests. A file
+    contributes only the groups it ran, so partial files combine. A later file's group replaces that group only: its
+    entries replace the same entries, and its unread lines replace the earlier lines of that group (a group a file did
+    not run keeps the lines of the file that did). Attack registry slices (ARGS.start) add up: their unread lines are
+    kept per slice start, and the paths no slice walked are listed as unread."""
     u: dict[str, Any] = {"files": [], "journal": {}, "attack_damage": {}, "attacks": {}, "registry": set(),
-                         "enemy_loot": {}, "loot_rows": {}, "chests": {}, "unread": []}
+                         "enemy_loot": {}, "loot_rows": {}, "chests": {}, "unread": [], "groups": {}}
+    unread: dict[str, tuple[bool, list[str]]] = {}  # group (attacks: per slice start) -> (ran, lines)
+    walked: dict[int, set[int]] = {}                 # registry size -> path indices walked
     for p in paths:
         raw = json.loads(Path(p).read_text(encoding="utf-8"))
         res = raw.get("result", raw) if isinstance(raw, dict) else {}
         if not isinstance(res, dict) or res.get("probe") != "bestiary_tables_probe":
             raise ValueError(f"{p}: not a bestiary_tables_probe result (ok={raw.get('ok') if isinstance(raw, dict) else None}, "
                              f"error={raw.get('error') if isinstance(raw, dict) else None})")
+        name = Path(p).name
         u["files"].append(str(p))
-        u["unread"] += [f"{Path(p).name}: {x}" for x in res.get("unread") or []]
-        for e in (res.get("journal") or {}).get("entries") or []:
-            if e.get("asset"):
-                u["journal"][e["asset"]] = e
-        for t, tab in (res.get("attack_damage") or {}).items():
-            if isinstance(tab, dict) and isinstance(tab.get("rows"), dict):
-                u["attack_damage"].setdefault(t, {}).update(tab["rows"])
-        att = res.get("attacks") or {}
+        ran = _probe_groups(res)
+        att = res.get("attacks") if isinstance(res.get("attacks"), dict) else {}
+        walk = att.get("walk") if isinstance(att.get("walk"), dict) else {}
+        per = _probe_unread(res)
+
+        def key(g: str) -> str:
+            return f"attacks@{walk.get('start') or 1}" if g == "attacks" else f"other@{name}" if g == "other" else g
+        for g in ran:  # a group this file ran: its lines (maybe none) replace the earlier ones
+            unread[key(g)] = (True, [f"{name}: {x}" for x in per.get(g, [])])
+            u["groups"][g] = name
+        for g, lines in per.items():  # lines of a group it did not run (skipped): kept unless a file did run it
+            if g not in ran and not unread.get(key(g), (False, []))[0]:
+                unread[key(g)] = (False, [f"{name}: {x}" for x in lines])
+        if "journal" in ran:
+            for e in (res.get("journal") or {}).get("entries") or []:
+                if e.get("asset"):
+                    u["journal"][e["asset"]] = e
+        if "attack_damage" in ran:
+            for t, tab in (res.get("attack_damage") or {}).items():
+                if isinstance(tab, dict) and isinstance(tab.get("rows"), dict):
+                    u["attack_damage"].setdefault(t, {}).update(tab["rows"])
         u["registry"] |= set((att.get("registry") or {}).get("paths") or [])
-        if isinstance(att.get("loaded"), dict):
-            u["attacks"].update(att["loaded"])
-        for t, tab in (res.get("enemy_loot") or {}).items():
-            if isinstance(tab, dict) and isinstance(tab.get("rows"), dict):
-                u["enemy_loot"].setdefault(t, {}).update(tab["rows"])
-        for k, r in (res.get("loot_rows") or {}).items():
-            if r or k not in u["loot_rows"]:
-                u["loot_rows"][k] = r
-        for c in (res.get("chests") or {}).get("actors") or []:
-            c = dict(c)
-            c.setdefault("vault", res.get("vault"))
-            u["chests"][(c.get("vault"), c.get("id"))] = c
+        if "attacks" in ran:
+            if isinstance(att.get("loaded"), dict):
+                u["attacks"].update(att["loaded"])
+            if isinstance(walk.get("n"), int) and isinstance(walk.get("start"), int) and isinstance(walk.get("stop"), int):
+                walked.setdefault(walk["n"], set()).update(range(walk["start"], walk["stop"] + 1))
+        if "enemy_loot" in ran:
+            for t, tab in (res.get("enemy_loot") or {}).items():
+                if isinstance(tab, dict) and isinstance(tab.get("rows"), dict):
+                    u["enemy_loot"].setdefault(t, {}).update(tab["rows"])
+            for k, r in (res.get("loot_rows") or {}).items():
+                if r or k not in u["loot_rows"]:
+                    u["loot_rows"][k] = r
+        if "chests" in ran:
+            for c in (res.get("chests") or {}).get("actors") or []:
+                c = dict(c)
+                c.setdefault("vault", res.get("vault"))
+                u["chests"][(c.get("vault"), c.get("id"))] = c
+    for _, lines in unread.values():
+        u["unread"] += lines
+    if walked:
+        n = max(walked)
+        got = {i for i in walked[n] if 1 <= i <= n}
+        u["registry_walk"] = {"n": n, "covered": len(got)}
+        if len(got) < n:
+            u["unread"].append(f"attacks: the registry walk covered {len(got)} of {n} paths; not walked: "
+                               f"{_ranges(sorted(set(range(1, n + 1)) - got))}")
     return u
 
 
@@ -1850,7 +1928,7 @@ def main(argv: list[str] | None = None) -> int:
     bp = sub.add_parser("build", help="write data/bestiary.json")
     bp.add_argument("--from-probe", type=Path, action="append", default=[], metavar="FILE",
                     help="merge the game's own tables from a bestiary_tables_probe output "
-                         "(client_io/out/bestiary_tables_probe.json); repeat for several runs (their union)")
+                         "(client_io/out/bestiary_tables_probe.json); repeat for several runs or one-group calls (ARGS.only; a later file's group replaces that group only, attack slices add up)")
     s = sub.add_parser("show", help="the bestiary entries a query matches")
     s.add_argument("query")
     sc = sub.add_parser("score", help="the lookup eval's tuned half with the bestiary first")

@@ -1,7 +1,9 @@
 -- Offline test for client_mod/commands/bestiary_tables_probe.lua over a fake engine: every source read, the joins
 -- (attack hit -> damage row, enemy loot -> drop row -> items, chest -> profile -> roll -> item sets), one table that
 -- will not enumerate and one whose rows fail (the rest still read, both listed as unread), the row and time caps, an
--- empty world, and that the result encodes as JSON (the runner's dkjson).
+-- empty world, that the result encodes as JSON (the runner's dkjson), the `only` groups (each group in its own call,
+-- unread lines filed by group) and the registry walk in slices (start/limit, its own share of the time cap, resumable
+-- from walk.next).
 -- Usage: lua test_bestiary_probe.lua [out_dir]   (out_dir: also write the full result there as bestiary_probe_fake.json)
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 local root = (here .. "/../.."):gsub("\\", "/")
@@ -45,8 +47,8 @@ local function handle(t, row) return { DataTable = t, RowName = row } end
 local function item(id, name) return obj("ItemData /Game/Items/" .. id .. "." .. id, { Name = name }) end
 local function res(it, mn, mx, ch) return { SpawnedItemData = it, MinimumDropAmount = mn, MaximumDropAmount = mx, DropChance = ch } end
 
-local function world(empty)
-    local W = { objects = {}, all = {} }
+local function world(empty, extra)
+    local W = { objects = {}, all = {}, cost = 0 }
     if empty then return W end
     local P = "/Game/Gameplay/AI/"
     local bg = dt(P .. "DT_AIAttackDamage_BG.DT_AIAttackDamage_BG",
@@ -72,8 +74,10 @@ local function world(empty)
     local zog = obj("ATK_Zogre_Flop_C /Game/Gameplay/AI/Zogre/ATK_Zogre_Flop.Default__ATK_Zogre_Flop_C", {
         AttackPropertyFlags = 16, Damage = arr({ { Time = 1.2, DamageClass = 1, Types = { GameplayTags = arr({}) },
                                                   DamageDataTableRowHandle = { RowName = "Zogre_Flop" } } }) })
+    local listed = { soft(rat_path), soft(P .. "Kebbit/ATK_Kebbit_Attack_01.ATK_Kebbit_Attack_01_C") }
+    for i = 1, extra or 0 do listed[#listed + 1] = soft(string.format("%sZz/ATK_Zz_%02d.ATK_Zz_%02d_C", P, i, i)) end  -- not loaded
     local reg = obj("AIActionAttackRegistry /Game/Maps/World/L_World.L_World:DominionAISubsystem_1.AIActionAttackRegistry_1",
-        { Attacks = arr({ soft(rat_path), soft(P .. "Kebbit/ATK_Kebbit_Attack_01.ATK_Kebbit_Attack_01_C") }) })
+        { Attacks = arr(listed) })
     -- loot: the enemy table, its drop rows, a composite table whose rows fault
     local L = "/Game/Gameplay/Items/LootDropTables/"
     local drops = dt(L .. "DT_LootDropTable.DT_LootDropTable", {
@@ -120,7 +124,10 @@ local function world(empty)
 end
 
 local W
-function StaticFindObject(p) return W.objects[p] end
+-- a fake clock: each StaticFindObject costs W.cost seconds (the registry walk's real cost on his client)
+local fake_t = 0
+os.clock = function() return fake_t end
+function StaticFindObject(p) fake_t = fake_t + (W.cost or 0); return W.objects[p] end
 function FindAllOf(c) return W.all[c] end
 
 local src = assert(io.open(root .. "/client_mod/commands/bestiary_tables_probe.lua", "rb")):read("a")
@@ -131,6 +138,11 @@ local function probe(args)
     local r = fn(function(m) logs[#logs + 1] = m end)
     return r, table.concat(logs, "\n")
 end
+local function errs(args)
+    local ok, err = pcall(probe, args)
+    return not ok and tostring(err) or nil
+end
+local function keys(t) local l = {}; for k in pairs(t or {}) do l[#l + 1] = k end; table.sort(l); return table.concat(l, ",") end
 local function has(list, pat) for _, x in ipairs(list or {}) do if tostring(x):find(pat, 1, true) then return true end end return false end
 
 -- 1. a loaded world
@@ -177,6 +189,14 @@ check("chest with a server-only profile table is unread", r.chests.actors[2].unr
 check("counts", r.counts.journal == 2 and r.counts.attacks_loaded == 2 and r.counts.chests == 2 and r.counts.unread == #r.unread)
 check("prints what it could not read", logs:find("could not read DT_AIAttackDamage_DowdunReach", 1, true) and logs:find("done in", 1, true))
 local ok_enc, txt = pcall(json.encode, { ok = true, result = r })
+check("all groups ran, in order", r.groups and table.concat(r.groups, ",") == "journal,attack_damage,ai_data,attacks,enemy_loot,chests",
+    r.groups and table.concat(r.groups, ","))
+check("unread filed by group", r.unread_by_group and has(r.unread_by_group.attack_damage, "DT_AIAttackDamage_DowdunReach: table not loaded")
+    and has(r.unread_by_group.enemy_loot, "Missing_Row") and has(r.unread_by_group.chests, "BP_WorldChest_Vault_C_8")
+    and r.unread_by_group.journal == nil)
+local wk = r.attacks.walk or {}
+check("registry walked whole in one slice", wk.start == 1 and wk.stop == 2 and wk.n == 2 and wk.next == nil and wk.walked == 2,
+    json.encode(wk))
 check("result encodes as JSON", ok_enc and type(txt) == "string" and txt:find('"GiantRat_Bite"', 1, true), txt)
 if arg and arg[1] and ok_enc then
     local f = io.open(arg[1]:gsub("\\", "/") .. "/bestiary_probe_fake.json", "wb"); if f then f:write(txt); f:close() end
@@ -190,7 +210,55 @@ r = probe("{ max_s = -1 }")
 check("time cap: sections skipped, each listed as unread", r.sections.journal.skipped and has(r.unread, "journal: time cap")
     and has(r.unread, "chests: time cap") and r.journal == nil)
 
--- 3. an empty world (menu, nothing loaded): no error, everything listed as unread
+-- 3. `only`: one group per call, its own cap; the other groups are not run, not read and not listed as unread
+local function run(name, f) local ok, err = pcall(f); if not ok then check(name .. " (raised)", false, err) end end
+run("only", function()
+    W = world()
+    r = probe('{ only = "enemy_loot" }')
+    check("only enemy_loot: that group alone", table.concat(r.groups, ",") == "enemy_loot" and r.journal == nil and r.attacks == nil
+        and r.chests == nil and r.enemy_loot.DT_EnemyLootDropTable.rows.GiantRat ~= nil, keys(r))
+    check("only enemy_loot: its sections alone", keys(r.sections) ==
+        "enemy_loot:DT_CompositeEnemyLootDropTable,enemy_loot:DT_EnemyLootDropTable,enemy_loot:DT_EnemyLootDropTable_DowdunReach",
+        keys(r.sections))
+    check("only enemy_loot: unread is that group's alone", keys(r.unread_by_group) == "enemy_loot"
+        and not has(r.unread, "time cap") and r.counts.journal == 0 and r.counts.attacks_loaded == 0, json.encode(r.unread))
+    r = probe('{ only = { "journal", "chests" }, vault = "Skeklac Kara" }')
+    check("only as a list", table.concat(r.groups, ",") == "journal,chests" and #r.journal.entries == 2 and #r.chests.actors == 2
+        and r.enemy_loot == nil and r.attack_damage == nil)
+    r = probe('{ only = "ai_data, attack_damage" }')
+    check("only as a comma list, run in the probe's order", table.concat(r.groups, ",") == "attack_damage,ai_data"
+        and r.ai_data.DT_AIData_BG.rows.GiantRat_1 == 50 and r.attack_damage.DT_AIAttackDamage_BG.rows.GiantRat_Bite == 12)
+    local e = errs('{ only = "loot" }')
+    check("an unknown group is an error naming the groups", e and e:find("unknown group 'loot'", 1, true) and e:find("enemy_loot", 1, true), e)
+end)
+
+-- 4. the registry walk in slices: start/limit, a share of the time cap, resumable from walk.next
+run("walk", function()
+    W = world(false, 7)   -- 9 registry paths: GiantRat (loaded), Kebbit, Zz_01..07 (not loaded)
+    r = probe('{ only = "attacks", start = 1, limit = 1 }')
+    check("slice 1 of 1 path: next is 2", r.attacks.walk.start == 1 and r.attacks.walk.stop == 1 and r.attacks.walk.next == 2
+        and r.attacks.walk.n == 9 and r.attacks.loaded.ATK_GiantRat_Bite ~= nil, json.encode(r.attacks.walk))
+    check("slice 1 also adds FindAllOf defaults", r.attacks.loaded.ATK_Zogre_Flop ~= nil and r.attacks.registry.n == 9)
+    r = probe('{ only = "attacks", start = 2, limit = 3 }')
+    check("slice 2..4: next is 5, no FindAllOf again", r.attacks.walk.stop == 4 and r.attacks.walk.next == 5 and r.attacks.walk.walked == 3
+        and r.attacks.loaded.ATK_Zogre_Flop == nil and r.attacks.loaded.ATK_GiantRat_Bite == nil, json.encode(r.attacks))
+    check("a slice with no class loaded says which paths", has(r.unread, "no ATK_* class loaded in registry paths 2..4"), json.encode(r.unread))
+    r = probe('{ only = "attacks", start = 8, limit = 100 }')
+    check("last slice: next is nil", r.attacks.walk.stop == 9 and r.attacks.walk.next == nil, json.encode(r.attacks.walk))
+    r = probe('{ only = "attacks", start = 40 }')
+    check("start past the end: nothing walked, said", r.attacks.walk.walked == 0 and r.attacks.walk.next == nil
+        and has(r.unread, "start 40 is past the registry's 9 paths"), json.encode(r.unread))
+    W.cost = 1            -- 1 s per StaticFindObject; max_s 5 gives the walk 3 s, so it stops after 4 paths and the read still runs
+    r = probe('{ only = "attacks", max_s = 5 }')
+    check("time cap in the walk: stops, next resumes there", r.attacks.walk.walked == 4 and r.attacks.walk.next == 5
+        and r.attacks.walk.capped == true and has(r.unread, "time cap in the registry walk at path 5 of 9 (resume with start = 5)"),
+        json.encode(r.attacks.walk))
+    check("time cap in the walk: the read still runs", r.sections["attacks:read"].ok == true and r.attacks.loaded.ATK_GiantRat_Bite ~= nil)
+    W.cost = 0
+    check("default per-call cap is 5 s", probe().caps.max_s == 5)
+end)
+
+-- 5. an empty world (menu, nothing loaded): no error, everything listed as unread
 W = world(true)
 r = probe()
 check("empty world: no section error", (function() for _, v in pairs(r.sections) do if v.ok ~= true then return false end end return true end)())

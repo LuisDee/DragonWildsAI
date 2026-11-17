@@ -439,10 +439,81 @@ def test_load_probe_takes_the_union_of_runs_and_refuses_a_failed_run(tmp_path):
     u = bb.load_probe([write_probe(tmp_path, PROBE), bare])
     assert set(u["attacks"]) == {"ATK_GiantRat_Bite", "ATK_Mystery_Swing", "ATK_GiantRat_Lunge"}
     assert u["loot_rows"]["DT_LootDropTable:GiantRat_Night"]["drop_chance"] == 0.1
-    assert len(u["files"]) == 2 and len(u["unread"]) == 2
+    # both ran every group: the later run's unread lines replace the earlier run's, group by group
+    assert len(u["files"]) == 2 and u["unread"] == ["bare.json: DT_AIAttackDamage_DowdunReach: table not loaded (/DowdunReach/...)"]
     bad = write_probe(tmp_path, {"ok": False, "error": "load: syntax"}, "bad.json")
     with pytest.raises(ValueError, match="not a bestiary_tables_probe result"):
         bb.load_probe([bad])
+
+
+# The first live run (one call, 8 s cap): journal and tables read, the registry walk cut, the rest skipped (version 1,
+# no groups key: what ran comes from its sections; its unread lines are filed by their label).
+LIVE_V1 = {"ok": True, "result": {
+    "probe": "bestiary_tables_probe", "version": 1,
+    "sections": {"journal": {"ok": True}, "attack_damage:DT_AIAttackDamage_BG": {"ok": True},
+                 "attacks:registry": {"ok": True}, "attacks:find": {"ok": True}, "attacks:read": {"ok": False, "skipped": True},
+                 "enemy_loot:DT_EnemyLootDropTable": {"ok": False, "skipped": True}, "chests": {"ok": False, "skipped": True}},
+    "unread": ["attacks:find: time cap in the registry walk", "attacks:read: time cap reached before it started",
+               "enemy_loot:DT_EnemyLootDropTable: time cap reached before it started", "chests: time cap reached before it started"],
+    "journal": {"entries": [{"asset": "JOURNAL_World_Fauna_GiantRat", "name": "Giant Rat", "weaknesses": ["Weakness: Slash"]}]},
+    "attack_damage": {"DT_AIAttackDamage_BG": {"rows": {"GiantRat_Bite": 12}}},
+    "attacks": {"registry": {"n": 4, "paths": ["/a/ATK_A.ATK_A_C", "/b/ATK_B.ATK_B_C", "/c/ATK_C.ATK_C_C", "/d/ATK_D.ATK_D_C"]},
+                "loaded": []},
+    "enemy_loot": [], "loot_rows": []}}
+
+
+def partial(groups, **res):
+    """A version-2 result of one `only` call (dkjson writes an empty table as [])."""
+    r = {"probe": "bestiary_tables_probe", "version": 2, "groups": groups, "only": groups, "unread": [], "unread_by_group": []}
+    r.update(res)
+    for g, lines in (res.get("unread_by_group") or {}).items():
+        r["unread"] = r["unread"] + lines
+    return {"ok": True, "result": r}
+
+
+def test_load_probe_combines_partial_files_group_by_group(tmp_path):
+    loot = partial(["enemy_loot"], unread_by_group={"enemy_loot": ["DT_LootDropTable:Missing_Row: FindRow found nothing"]},
+                   enemy_loot={"DT_EnemyLootDropTable": {"rows": {"GiantRat": [{"min_power_level": 1, "drops": ["DT_LootDropTable:Rat"]}]}}},
+                   loot_rows={"DT_LootDropTable:Rat": {"drop_chance": 1, "items": []}})
+    journal = partial(["journal"], journal={"entries": [{"asset": "JOURNAL_World_Fauna_GiantRat", "name": "Giant Rat",
+                                                          "weaknesses": ["Weakness: Stab"]}]})
+    u = bb.load_probe([write_probe(tmp_path, LIVE_V1, "live.json"), write_probe(tmp_path, loot, "loot.json"),
+                       write_probe(tmp_path, journal, "journal.json")])
+    # each group from its own file; a group a later file did not run is left as it was
+    assert u["enemy_loot"]["DT_EnemyLootDropTable"]["GiantRat"][0]["drops"] == ["DT_LootDropTable:Rat"]
+    assert u["journal"]["JOURNAL_World_Fauna_GiantRat"]["weaknesses"] == ["Weakness: Stab"]  # the later journal replaced it
+    assert u["attack_damage"]["DT_AIAttackDamage_BG"] == {"GiantRat_Bite": 12}               # nobody re-read it: kept
+    assert u["registry"] == set(LIVE_V1["result"]["attacks"]["registry"]["paths"])
+    # the later loot call replaced the live run's 'enemy_loot skipped' line; the groups it did not run keep theirs
+    assert "live.json: enemy_loot:DT_EnemyLootDropTable: time cap reached before it started" not in u["unread"]
+    assert "loot.json: DT_LootDropTable:Missing_Row: FindRow found nothing" in u["unread"]
+    assert "live.json: chests: time cap reached before it started" in u["unread"]
+    assert "live.json: attacks:find: time cap in the registry walk" in u["unread"]
+    assert u["groups"] == {"journal": "journal.json", "attack_damage": "live.json", "attacks": "live.json", "enemy_loot": "loot.json"}
+    # order matters only within a group: a later file that skipped a group does not undo an earlier read of it
+    u2 = bb.load_probe([write_probe(tmp_path, loot, "loot.json"), write_probe(tmp_path, LIVE_V1, "live.json")])
+    assert u2["enemy_loot"]["DT_EnemyLootDropTable"]["GiantRat"][0]["drops"] == ["DT_LootDropTable:Rat"]
+    assert not any("enemy_loot:DT_EnemyLootDropTable: time cap" in x for x in u2["unread"])
+
+
+def test_load_probe_adds_up_attack_slices_and_names_the_paths_not_walked(tmp_path):
+    def sl(start, stop, n, loaded, nxt=None, lines=()):
+        walk = {"start": start, "stop": stop, "n": n, "walked": stop - start + 1, **({"next": nxt} if nxt else {})}
+        return partial(["attacks"], unread_by_group={"attacks": list(lines)} if lines else [],
+                       attacks={"registry": {"n": n, "paths": [f"/p/{i}" for i in range(1, n + 1)]}, "walk": walk,
+                                "loaded": loaded, "loaded_n": len(loaded)})
+    a = sl(1, 2, 6, {"ATK_A": {"hits": []}}, 3, ["attack ATK_X: read fault"])
+    b = sl(3, 4, 6, {"ATK_B": {"hits": []}}, 5)
+    u = bb.load_probe([write_probe(tmp_path, LIVE_V1, "live.json"), write_probe(tmp_path, a, "a1.json"),
+                       write_probe(tmp_path, b, "a3.json")])
+    assert set(u["attacks"]) == {"ATK_A", "ATK_B"}
+    assert "a1.json: attack ATK_X: read fault" in u["unread"]                         # slices add up, each keeps its lines
+    assert not any(x.startswith("live.json: attacks") for x in u["unread"])           # the new slice 1 replaced the live run's
+    assert u["registry_walk"] == {"n": 6, "covered": 4}
+    assert "attacks: the registry walk covered 4 of 6 paths; not walked: 5-6" in u["unread"]
+    u = bb.load_probe([write_probe(tmp_path, a, "a1.json"), write_probe(tmp_path, b, "a3.json"),
+                       write_probe(tmp_path, sl(5, 6, 6, []), "a5.json")])
+    assert u["registry_walk"] == {"n": 6, "covered": 6} and not any("registry walk covered" in x for x in u["unread"])
 
 
 def test_game_journal_outranks_the_wiki_and_keeps_what_it_replaced(game_doc):
