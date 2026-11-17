@@ -3302,6 +3302,40 @@ local function steer_superjump(f, p)
 end
 
 -- a typed jump edge (jump / djump) advances only after owned airborne evidence and a landing at its endpoint
+-- one line per typed jump: what was intended and what happened (docs/research/2026-11-17-jump-landings.md). cm;
+-- heights are floor heights (feet = capsule centre - half height); apex and nearest are taken in flight. Read only:
+-- one trace (as _crumb_floats makes) and fields already kept; it changes no decision.
+-- a field, not a local: the main chunk is at Lua's 200-local limit
+function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
+    if not log or not j or not p then return end
+    local hh = st.half_h or 88
+    local a = j.previous or p
+    local feet = me.Z - hh
+    local fz, fnz
+    local okf, hit, out = pcall(raw_trace, pawn, { X = me.X, Y = me.Y, Z = me.Z }, { X = me.X, Y = me.Y, Z = feet - 300 })
+    if okf and hit and type(out) == "table" and out.ImpactPoint then
+        fz = tonumber(out.ImpactPoint.Z)
+        fnz = out.ImpactNormal and tonumber(out.ImpactNormal.Z)
+    end
+    local tk, vv = j.takeoff or {}, j.v0 or {}
+    local ex, ey = p.X - a.X, p.Y - a.Y
+    local el = math.sqrt(ex * ex + ey * ey)
+    local vh = vv.X and math.sqrt(vv.X * vv.X + vv.Y * vv.Y) or nil
+    local toward = (vh and vh > 1 and el > 1) and (vv.X * ex + vv.Y * ey) / (vh * el) or nil
+    local function f0(x) return x and string.format("%.0f", x) or "-" end
+    local function p3(q, dz) return q and q.X and string.format("(%.0f,%.0f,%.0f)", q.X, q.Y, q.Z - (dz or 0)) or "-" end
+    log(string.format("move: jump verdict=%s why=%s act=%s rise=%.0f run=%.0f k=%s/%s from=%s to=%s takeoff=%s"
+        .. " takeoff_off=%s v0=%s v0h=%s toward=%s air=%.2f apex=%s nearest=%s at=%s feet_dz=%.0f"
+        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s",
+        verdict, why, p.leap and "leap" or tostring(p.act), p.Z - a.Z, el, tostring(st.lwp), tostring(st.lpath and #st.lpath),
+        p3(a), p3(p), p3(tk, hh), tk.X and f0(math.sqrt((tk.X - a.X) ^ 2 + (tk.Y - a.Y) ^ 2)) or "-",
+        p3(vv), f0(vh), toward and string.format("%.2f", toward) or "-", t - (j.started or t),
+        j.apex and string.format("%+.0f", j.apex - hh - p.Z) or "-",
+        j.nearest and string.format("%.0f@%+.0f", j.nearest, j.nearest_dz) or "-",
+        p3(me, hh), feet - p.Z, tk.Z and string.format("%+.0f", me.Z - tk.Z) or "-",
+        math.sqrt((me.X - p.X) ^ 2 + (me.Y - p.Y) ^ 2), f0(fz), fnz and string.format("%.2f", fnz) or "-"))
+end
+
 local function steer_typed_jump(f, p)
     local st, gen, pc, pawn, t, me, goal, log = f.st, f.gen, f.pc, f.pawn, f.t, f.me, f.goal, f.log
     local function traversal_failure(detail)
@@ -3367,20 +3401,30 @@ local function steer_typed_jump(f, p)
         local grounded = ground_check(pawn)
         if not owned(bind) then return true end
         if grounded ~= true then return traversal_failure("jump takeoff not confirmed grounded") end
+        -- his run-up as the press is made (pawn:Jump() only sets the press), for the landing line
+        local okv, vx, vy, vz = pcall(function() local u = pawn.CharacterMovement.Velocity; return u.X, u.Y, u.Z end)
+        if not owned(bind) then return true end
         local jr = start_jump(st, t, pawn, p.act == "djump" and st.env and st.env.double_jump, log)
         if st.local_authority and not local_route_owned(st, gen, pawn, pc, goal) then return true end
         if jr == "accepted" then
-            st.lp_jump_exec = { path = st.lpath, index = st.lwp, endpoint = p, previous = prev, token = st.owner_token, started = t, saw_air = false }
+            st.lp_jump_exec = { path = st.lpath, index = st.lwp, endpoint = p, previous = prev, token = st.owner_token, started = t, saw_air = false,
+                takeoff = v(me), v0 = (okv and type(vx) == "number") and { X = vx, Y = vy, Z = vz } or nil }
             st.lp_jumped[st.lwp] = t; j = st.lp_jump_exec
         elseif jr ~= "busy" then return true end
     elseif near then f.aim = prev end
     if not j then return end
     if j.path ~= st.lpath or j.index ~= st.lwp or j.endpoint ~= p or j.token ~= st.owner_token then
+        pcall(M.jump_landing_line, st, pawn, me, j.endpoint or p, j, "route_changed", "plan_changed", t, log)
         return traversal_failure("jump route changed")
     end
     local grounded = ground_check(pawn)
     if not owned(bind) or (st.local_authority and not local_route_owned(st, gen, pawn, pc, goal)) then return true end
-    if grounded == false then j.saw_air = true end
+    if grounded == false then
+        j.saw_air = true
+        if me.Z > (j.apex or -math.huge) then j.apex = me.Z end
+        local dn = d2(me, p)
+        if not j.nearest or dn < j.nearest then j.nearest, j.nearest_dz = dn, (me.Z - (st.half_h or 88)) - p.Z end
+    end
     if j.saw_air and grounded == true then
         local dz = math.abs((me.Z - st.half_h) - p.Z)
         -- a jump onto another level (a ledge) has landed when he stands on that level near its point; a jump across
@@ -3393,13 +3437,20 @@ local function steer_typed_jump(f, p)
             if log then log(string.format("move: landed %.0f cm from the jump's point (allowed %d) and %.0f cm off its height (allowed %.0f)",
                 off, within, dz, step_tol(st))) end
         end
-        if off < within and dz < step_tol(st) then
+        local ok_land = off < within and dz < step_tol(st)
+        pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", ok_land and "within"
+            or ((off >= within and dz >= step_tol(st)) and "far_and_off_height" or (off >= within and "far" or "off_height")), t, log)
+        if not owned(bind) then return true end
+        if ok_land then
             pcall(emit_self_edge, st, prev, p, p.act)
             if not owned(bind) then return true end
             if st.local_authority and st.lwp == #st.lpath then p.act = "walk" end
             st.lwp, st.lp_jump_exec = st.lwp + 1, nil; f.idxp = true
         else return traversal_failure("jump landing missed") end
-    elseif t - j.started > 8 then return traversal_failure("jump landing unconfirmed") end
+    elseif t - j.started > 8 then
+        pcall(M.jump_landing_line, st, pawn, me, p, j, "unconfirmed", "no_ground_8s", t, log)
+        return traversal_failure("jump landing unconfirmed")
+    end
 end
 
 -- the local plan: next cell point (successful jump/drop edges are reported as traversal self_edges)

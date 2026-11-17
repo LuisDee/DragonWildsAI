@@ -3374,10 +3374,21 @@ do
         step(1)
         return mv
     end
+    local n0 = #logs
     local mv = land(300, 54, 48)
+    local function verdict_line(from)
+        for i = from + 1, #logs do if tostring(logs[i]):find("move: jump verdict=", 1, true) then return logs[i] end end
+    end
+    local vl = verdict_line(n0)
+    check("every typed jump writes its landing line: a landed one", vl ~= nil and vl:find("verdict=landed why=within", 1, true) ~= nil
+        and vl:find("rise=300", 1, true) ~= nil, tostring(vl))
     check("ledge jump: on the ledge 72 cm from the cell is landed", (mv.trav_fails or 0) == 0 and mv.lp_fail ~= "jump landing missed" and mv.unreach == nil,
         "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(mv.lp_fail))
+    n0 = #logs
     mv = land(300, 200, 0)
+    vl = verdict_line(n0)
+    check("every typed jump writes its landing line: a missed one", vl ~= nil and vl:find("verdict=missed why=far", 1, true) ~= nil
+        and vl:find("off=200", 1, true) ~= nil, tostring(vl))
     check("ledge jump: 2 m past the cell is still a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
     mv = land(0, 54, 48)
     check("gap jump on one level: 72 cm from the cell stays a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
