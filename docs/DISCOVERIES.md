@@ -3580,3 +3580,23 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 ## A replay's model calls are not in the spend guard (2026-11-17)
 - `tools/replay_episode.py` and scripts built on `replay_first_call.live_controller` log to a temporary directory, and `tools.spend.spend_today()` reads `logs/` only. A replay spends real money that the $10 guard does not see.
 - Their rows carry no `model`, so `tools.spend.price` prices them at the dearest tier (56 calls: $1.03). The true figure is the sum of `usage.cost_usd` in the replay's `replay.jsonl`: 56 Controller calls cost $0.0585, 25 cost $0.0293, 60 cost $0.0771.
+
+## A water volume is a turned box, and its census point was its middle (2026-11-17 04:30Z, build 26574459, dev client, ClaudeDev; scratch probes `water_bounds_probe.lua`, `water_root_probe.lua`)
+- A pond, lake or river stretch is one `BP_WaterVolume_C` actor. Its root is a plain `SceneComponent`; its interaction component (`SingleSourceContainerInteractionComponent`, prompt "Collect Water") sits at the actor's origin, which is the middle of the volume, about 3.2 m under the surface.
+- The actor is a unit cube of 1 m scaled and turned: half size = scale x 50 cm, turned by the actor's yaw (pitch and roll 0). Checked on the 3 volumes loaded at the dev base: the box from scale and yaw gives `GetActorBounds` (both with and without `bOnlyCollidingComponents`) to the centimetre.
+
+| volume (middle, m) | scale x, y (m) | yaw | bounds half x, y (m) |
+|---|---|---|---|
+| [46.8, 1791.4, -34.9] | 30.0, 49.0 | 38.0 | 26.9, 28.6 |
+| [156.6, 1929.0, -35.4] | 111.3, 40.3 | 44.4 | 53.9, 53.3 |
+| [508.8, 1377.9, -15.9] | 311.4, 191.4 | 19.9 | 179.0, 142.9 |
+
+- Every volume has the same height: scale z 6.485, half 3.24 m.
+- **What it cost.** The census measured every thing to its origin. From Zanik the pond at [324.3, 1763.2] read 84.7 m: outside `look`'s 80 m cap and explore's 40 m of sight, with its bank close by (in the two passing trials of window s16 `collect_water` for 2 and 3 took 15 s from there). `look about water` matched 0 of 9 in three days, explore for water found it 1 time of 7, and two trials of s16 ran out at the deadline searching.
+- Since 0746bd0 a thing of an extent class (`sense.lua` `M.EXTENT_CLASSES`, so far "WaterVolume") is in the census radius when its nearest point is, `distance` is to that point, and the row carries `nearest` (the point) and `size_m`. `position` stays the middle. At the dev base `look about water` (80 m) went from no match (middles at 99.9 m and 116.3 m) to both ponds (71.4 m and 57.7 m).
+- **Limit: the box is larger than the water.** At the 111 x 40 m pond the bank spot he remembers and uses ([149.9, 1913.8]) lies 47 m inside the box's near edge as seen from the base. The base itself (Z -35.4) lies lower than that pond's surface (-32.1). So `distance` is a lower bound to the water, not the walk to it. The real bank is found by `move.shore_point` with traces when he goes to collect.
+- `ActorGetDistanceToCollision` (the engine's own nearest-surface call) was not tried: it needs a component that blocks a trace channel, and a water volume is an overlap.
+
+## A look row took the name of any landmark within 4 m (2026-11-17, brain logs of 15 to 17 Nov)
+- `brain/controller.py` `_map_names` renamed a look row to `places.name_at(position)`: the game map's landmark within 4 m, whatever it was. 121 of 123 renamed rows in three days carried another thing's name: ash-log piles and a lore item by Vannaka's map spot as "Vannaka" (105), a Rune Altar he had built beside a vent as "Astral Anima Vent" (8), a Campfire as "Doric". The 2 right ones were vents given their full name.
+- Since eb68bfb the map's name is taken only when it holds every word of the thing's own name (`Places.name_for`): "Anima Vent" becomes "Law Anima Vent", a log pile stays a log pile. `name_at` stays for naming a place by what stands there (a lodestone "by X", 40 m).
