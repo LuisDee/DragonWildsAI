@@ -258,6 +258,7 @@ test("go_to pre-empts follow silently, replies when move.status says arrived (ve
     assert(first == nil, "async: no reply at start")
     assert(#events(msgs, "task_failed") == 0, "pre-empted follow ends silently")
     assert(FAKE.move.calls[1] == "stop" and FAKE.move.calls[2] == "go_to", table.concat(FAKE.move.calls, ","))
+    assert(FAKE.move.opts.stand == true, "[x,y,z] is a spot to stand on (move: reached on its floor)")
     step(); step()
     assert(#results(drain(), id) == 0, "still moving")
     FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.4 }, { 9, 1, 0 }
@@ -332,6 +333,7 @@ end)
 
 test("go_to a player: verifies current target position, module reasons mapped", function()
     local _, _, id = rpc("go_to", { target = "Luis" })
+    assert(not FAKE.move.opts.stand, "a player or thing is not a spot to stand on")
     FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.0 }, { 3, 4, 3 }
     step()
     local r = results(drain(), id)[1]

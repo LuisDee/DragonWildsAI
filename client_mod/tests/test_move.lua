@@ -3214,6 +3214,44 @@ do
     M.stop(log); raised = {}
 end
 
+-- A spot on a ledge (jump course 2026-11-17 18:53:45Z: go_to said "arrived" at the foot of the windmill-hill top
+-- ledge, 1.4 m short of (144.00,1706.00,-2.72) with his feet 1.6 m under its floor; the Doric ledge the same at 0.84 m:
+-- the arrival allowed 2 x half_h of height inside the circle). A spot to stand on (opts.stand: the brain's [x,y,z])
+-- is reached on its floor: he climbs on, or the go_to fails saying the floor is above him. A thing's position (no
+-- stand) keeps the old rule (a chest on a table is reached from the floor).
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false; oracle = nil; pump_oracle()
+    GEAR = false
+    local function go(goal, opts, n)
+        M.stop(log); air = 0; pawn.loc = { X = 0, Y = 0, Z = 0 }
+        local l0 = #logs
+        M.go_to(log, goal, opts)
+        run(n)
+        local said = nil
+        for i = l0 + 1, #logs do if logs[i]:find("move: not arrived:", 1, true) then said = said or logs[i] end end        return M.status().result or {}, said
+    end
+    raised = { { 100, 900, -400, 400, 84, 84 } } -- a 0.84 m ledge from x = 1 m
+    local r, said = go({ 1.3, 0, 0.84 }, { tolerance_m = 1.5, nav = false, stand = true }, 400)
+    local va = M.verify_arrival()
+    check("spot on a 0.84 m ledge 1.3 m away: he climbs onto it before arrived", r.status == "arrived" and pawn.loc.Z > 60 and va.ok,
+        tostring(r.status) .. " " .. tostring(r.reason) .. " z=" .. tostring(pawn.loc.Z))
+    check("spot on a ledge: the refused arrival is logged", said ~= nil and said:find("below the goal's floor", 1, true) ~= nil, tostring(said))
+    r = go({ 1.3, 0, 0.84 }, { tolerance_m = 1.5, nav = false }, 60)
+    check("a thing's position on a ledge (no stand): the old rule, arrived from the foot", r.status == "arrived" and pawn.loc.Z < 20,
+        tostring(r.status) .. " z=" .. tostring(pawn.loc.Z))
+    raised = { { 100, 900, -400, 400, 170, 170 } } -- 1.7 m: over his jump (no double jump), inside the old 1.76 m
+    r = go({ 1.3, 0, 1.7 }, { tolerance_m = 1.5, nav = false, stand = true }, 600)
+    check("spot on a 1.7 m ledge he can't jump: not arrived, fails naming the floor above him",
+        r.status == "failed" and pawn.loc.Z < 20 and tostring(r.detail or r.why):find("above me", 1, true) ~= nil,
+        tostring(r.status) .. " " .. tostring(r.reason) .. " " .. tostring(r.detail or r.why))
+    raised = {}
+    r = go({ 1.3, 0, -0.9 }, { tolerance_m = 1.5, nav = false, stand = true }, 60)
+    check("spot given as a floor point on his own level: arrived", r.status == "arrived", tostring(r.status) .. " " .. tostring(r.reason))
+    r = go({ 1.3, 0, 0 }, { tolerance_m = 1.5, nav = false, stand = true }, 60)
+    check("spot given as a capsule centre on his own level: arrived", r.status == "arrived", tostring(r.status) .. " " .. tostring(r.reason))
+    M.stop(log)
+end
+
 -- The camera is shared (coordinator 2026-11-01: the build's ceiling and roof aims read pitch 0 and move's yaw,
 -- ~16:30Z): another skill's aim mid-walk is left alone, renewed while it keeps aiming, and he walks on; then move
 -- takes the camera back. A go_to that is the aiming skill's own child walk ends, stopped camera_taken.

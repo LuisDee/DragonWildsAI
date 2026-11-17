@@ -11,6 +11,7 @@ function M.go_to(log, goal, opts)
     S.move.mode, S.move.status, S.move.result = "go_to", "moving", nil
     S.move.target = type(goal) == "table" and goal or LUIS
     S.move.tolerance = opts.tolerance_m or 1.5
+    S.move.opts = opts
     return { ok = true, mode = "go_to", gen = 1 }
 end
 function M.verify_arrival()

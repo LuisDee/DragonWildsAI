@@ -1990,6 +1990,7 @@ function M.verify_arrival()
         return st.goal
     end)
     local near = okp and okg and reached(st, here, goal)
+    if near and not st.target_name and M._under_ledge(st, pawn, here, goal) then near = false end -- (the walk's own rule)
     -- right under a spot that hangs in the air over his floor (overhead()): that is the arrival
     local bo = st.below_ok
     local below = near == false and type(bo) == "table" and d2(here, goal) <= st.tol_cm and here.Z < goal.Z
@@ -2113,6 +2114,29 @@ end
 local function stop(st, result, log) finish(st, result, log); return true end
 local function step_tol(st) return math.max((st.env and st.env.step or 45) + 20, 60) end -- a reached point's height slack
 local function jump_cm(st) return (st.env and st.env.jump) or 165 end
+-- A go_to to a spot to stand on (opts.stand: the brain's [x,y,z]) is reached on the spot's floor. reached() allows
+-- 2 x half_h of height (an actor origin or a floor point against his capsule centre; it came in 2026-10-27 against
+-- 2D-only arrivals, BUGS R19), so at the foot of a ledge up to ~1.8 m high he was "there" (jump course 2026-11-17
+-- 18:53:45Z: 1.4 m short of a spot on the windmill-hill top, his feet 1.6 m under its floor). One downward trace at
+-- the spot (cached per goal) reads its floor; feet more than a step under it -> not arrived (returns cm under, or
+-- nil). Unreadable floor, a tracked actor, a thing's position (no stand) or right at the spot: the old rule.
+function M._under_ledge(st, pawn, me, goal)
+    if not st.stand or st.target_name or not (me and goal) then return nil end
+    local hh = st.half_h or 88
+    local feet = me.Z - hh
+    if goal.Z + 30 <= feet + step_tol(st) then return nil end -- nothing up there can be over a step above his feet
+    local c = st.gfloor
+    if not (c and c.X == goal.X and c.Y == goal.Y and c.Z == goal.Z) then
+        -- read once he is in the circle; right at the spot the trace would cross his own gear (overhead(), GEAR 40 cm)
+        if d2(me, goal) < 45 then return nil end
+        local ok, hit, out = pcall(raw_trace, pawn, { X = goal.X, Y = goal.Y, Z = goal.Z + 30 }, { X = goal.X, Y = goal.Y, Z = goal.Z - 2 * hh - 60 })
+        c = { X = goal.X, Y = goal.Y, Z = goal.Z,
+              floor = ok and hit and type(out) == "table" and out.ImpactPoint and tonumber(out.ImpactPoint.Z) or nil }
+        st.gfloor = c
+    end
+    if not c.floor or c.floor <= feet + step_tol(st) then return nil end
+    return c.floor - feet
+end
 local function face(pc, from, to, st, t)
     local rot = { Pitch = 0, Yaw = math.deg(math.atan(to.Y - from.Y, to.X - from.X)), Roll = 0 }
     if st and t then return cam_write(st, pc, rot, t) end
@@ -2698,7 +2722,8 @@ end
 local function overhead(f, early)
     local st, pawn, t, me, goal, log = f.st, f.pawn, f.t, f.me, f.goal, f.log
     local hh = st.half_h or 88
-    if goal.Z - me.Z <= 2 * hh or standing_check(pawn) ~= true then st.ovh = nil; return nil end
+    -- (f.ledge: inside the arrival's height, but the spot's floor is over a step above his feet: M._under_ledge)
+    if (goal.Z - me.Z <= 2 * hh and not f.ledge) or standing_check(pawn) ~= true then st.ovh = nil; return nil end
     local feet = me.Z - hh
     local o = st.ovh
     if not (o and d2(o.at, me) < 50 and math.abs(o.at.Z - me.Z) < 30 and d2(o.goal, goal) < 30) then
@@ -2760,6 +2785,16 @@ local function arrival(f)
         end
         local at_goal = reached(st, me, goal)
         if at_goal == nil then return stop(st, { status = "failed", reason = "verification_failed", detail = "position or destination unavailable" }, log) end
+        if at_goal then -- a spot on a ledge he has not climbed: not there (overhead() below takes it from here)
+            local under = M._under_ledge(st, pawn, me, goal)
+            if under then
+                at_goal, f.ledge = false, under
+                if log and not st.gfloor.said then
+                    st.gfloor.said = true
+                    log(string.format("move: not arrived: my feet are %.1f m below the goal's floor, %.1f m from it", under / 100, dist / 100))
+                end
+            end
+        end
         if not at_goal then st.settle_t = nil end
         -- a jump/windstep plan holds arrival off only while it is in flight (its landing advances the plan) or just
         -- pressed; one that never left the ground is stale (it kept him "stuck" on the goal, travel uphill_plateau 02:15Z)
@@ -4790,7 +4825,7 @@ local function give_up(f)
     end
     -- no progress because he is already there (a local-plan jump kept the arrival check off: chat run 8,
     -- on top of the Water Anima Vent, 0 m left, 1.2 m up of 1.76 allowed -> "no_route")
-    if st.mode == "go_to" and reached(st, me, goal) and standing_check(pawn) == true then
+    if st.mode == "go_to" and reached(st, me, goal) and not M._under_ledge(st, pawn, me, goal) and standing_check(pawn) == true then
         st.lp_jump_exec, st.ws_exec = nil, nil
         return stop(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log)
     end
@@ -5129,6 +5164,7 @@ local function start(log, mode, opts)
     st.face_when_near = opts.face_when_near
     st.sprint_force = opts.sprint_force == true
     st.wade = opts.wade == true -- the goal is IN water on purpose (a pond to use): water avoidance off for this move
+    st.stand, st.gfloor = opts.stand == true, nil -- a spot to stand on: reached on its floor (M._under_ledge)
     -- an optional trip (explore legs) takes no planned drop deeper than this (live 2026-11-01 11:18: a planned 4.8 m
     -- drop landed on a mis-sampled floor and he fell 29 m into a KillZ)
     st.max_drop_cm = tonumber(opts.max_drop_m) and tonumber(opts.max_drop_m) * 100 or nil
