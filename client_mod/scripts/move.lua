@@ -1616,6 +1616,12 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
     local planner = LP.new({ trace = trace, center = v(me), feet_z = me.Z - hh,
         radius_m = up_near and M.cfg.lp_grid_up_m or M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = penv,
         cache = not observe and lp_cache() or nil, now = function() return now(pawn) end, self_pos = v(me), avoid = st.jump_fail,
+        -- a jump's landing cell must hold his capsule (localplan LP:footing): its radius, and the log for a refused cell
+        foot_r = (function()
+            local okr, rad = pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleRadius() end)
+            rad = okr and tonumber(rad) or nil
+            return (rad and rad > 10 and rad < 100) and rad or nil
+        end)(), log = log,
         cell_cost = not observe and function(x, y, fz)
             local mem, NMm = nav_mem()
             local c = (mem and not st.wade and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0 -- opts.wade: water is no detour
@@ -1701,7 +1707,7 @@ local function lp_work(st, t, log)
             if not current() then return false end
             if not pts then
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, "verify_exhausted"
-                if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ") hops=" .. tostring(P.hops) .. " steeps=" .. tostring(P.steeps) .. " firstseg=" .. tostring(P.first_blocks)) end
+                if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ") hops=" .. tostring(P.hops) .. " steeps=" .. tostring(P.steeps) .. " firstseg=" .. tostring(P.first_blocks) .. " refused=" .. tostring(P.refusals)) end
                 if not st.lp_observe then st.want_trail = true; door_begin(st, t, log) end
                 return false
             end

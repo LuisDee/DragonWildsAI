@@ -3928,6 +3928,55 @@ end
     FindAllOf = base_find
 end)()
 
+-- A JUMP LANDING CELL ON A FLANK (jump_doric 2026-11-17, docs/research/2026-11-17-jump-doric.md): the cell's one centre
+-- trace reads a notch on a rock's flank, and inside his capsule's footprint (34 cm from the centre) the rock stands far
+-- over it. He cannot stand there: he passes over it and lands on the bench past it (14 of 14 west jumps). A jump's
+-- landing cell is taken only when no ground under his capsule's footprint is more than a step above the cell; otherwise
+-- the planner leaves that cell out, takes another, and says which it refused. Here, walking +X along y = 0: notch x 0.6
+-- to 1.25 m, y +-0.25 m, 1.0 m up (cell (1,0)), from x = -2 m; a 6 m rock from x = 1.25 m (y < 0.4 m), 25 cm from the cell's centre;
+-- a wide real ledge 1.0 m up at y > 0.4 m (cell (1,1)). The goal is the notch cell (like Doric's goal on its cell).
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false; oracle = nil; pump_oracle()
+    GEAR = false; HAS_DJ = false
+    local function trip(world)
+        M.stop(log); air = 0; pawn.loc = { X = -200, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil; raised = world
+        local l0 = #logs
+        M.go_to(log, { 1.0, 0, 1.0 }, { tolerance_m = 0.3, nav = false, stand = true, timeout_s = 20 })
+        run(250)
+        local onto, refused, paths = {}, {}, 0
+        for i = l0 + 1, #logs do
+            local acts, pts = logs[i]:match("move: local path %d+ pts %[(%a+)%].- pts=(.*)$")
+            if acts then
+                paths = paths + 1
+                local k = 0
+                for p in pts:gmatch("%S+") do
+                    k = k + 1
+                    local a = acts:sub(k, k)
+                    if a == "j" or a == "d" then onto[p] = (onto[p] or 0) + 1 end
+                end
+            end
+            if logs[i]:find("move: jump cell refused: not standable", 1, true) then refused[#refused + 1] = logs[i] end
+        end
+        if os.getenv("FLANK_DEBUG") then for i = l0 + 1, #logs do print("  | " .. logs[i]) end end
+        M.stop(log)
+        return onto, refused, paths
+    end
+    local ledge = { 60, 600, 40, 300, 100, 100 }
+    local onto, refused, paths = trip({ { 60, 125, -25, 25, 100, 100 }, { 125, 600, -300, 40, 600, 600 }, ledge })
+    check("flank cell: no jump lands on the notch whose footprint is inside the rock", paths > 0 and not onto["1,0,0.1"],
+        string.format("paths=%d jumps onto the notch=%s", paths, tostring(onto["1,0,0.1"])))
+    check("flank cell: the refused cell is logged with the ground above it", #refused > 0 and refused[1]:find("1,0,0.1", 1, true) ~= nil
+        and refused[1]:find("above the cell", 1, true) ~= nil, tostring(refused[1]))
+    check("flank cell: the plan takes the ledge cell beside it instead", onto["1,1,0.1"] ~= nil,
+        string.format("paths=%d jumps onto the ledge cell=%s", paths, tostring(onto["1,1,0.1"])))
+    -- the control: the same notch with the rock 40 cm from its centre (outside the footprint): a narrow top like any
+    -- other, the jump onto it stays
+    onto, refused, paths = trip({ { 60, 140, -25, 25, 100, 100 }, { 140, 600, -300, 40, 600, 600 }, ledge })
+    check("notch with the rock outside his footprint: the jump onto it stays, nothing refused", onto["1,0,0.1"] ~= nil and #refused == 0,
+        string.format("paths=%d jumps onto the notch=%s refused=%s", paths, tostring(onto["1,0,0.1"]), tostring(refused[1])))
+    raised = {}; _G.DW_LP_CACHE = nil
+end
+
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

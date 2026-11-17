@@ -78,6 +78,12 @@ function LP.new(o)
     self.lip_cost = o.lip_cost or 6
     self.lips = {}
     self.forbid = o.forbid                     -- optional fn(x, y) -> true: no walking there (a drop the mover refused)
+    -- a jump's landing cell must hold his capsule (LP:footing): its radius, the nodes found not to (left out of every
+    -- later plan), and a log for each refusal
+    self.foot_r = o.foot_r or 34
+    self.footing_of = {}
+    self.unstandable = {}
+    self.log = o.log
     self.queue = {}
     -- spiral order from the centre outwards, so a partial grid is still useful
     for ring = 0, self.r do
@@ -374,7 +380,7 @@ function LP:plan(goal)
                 for dj = -1, 1 do
                     if di ~= 0 or dj ~= 0 then
                         for _, nb in ipairs(self.nodes[key(cur.i + di, cur.j + dj)] or {}) do
-                            if not closed[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) and not self:avoided(cur, nb)
+                            if not closed[nb] and not self.unstandable[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) and not self:avoided(cur, nb)
                                 and not (self.forbid and self.forbid(self:pos(nb.i, nb.j))) then
                                 local kind, extra = self:edge(cur, nb)
                                 if kind and self.cell_cost then
@@ -397,7 +403,7 @@ function LP:plan(goal)
             end
             for _, lp in ipairs(self:leaps(cur)) do
                 local nb = lp.to
-                if not closed[nb] then
+                if not closed[nb] and not self.unstandable[nb] then
                     local ng = g[cur] + (lp.cells + 1 + LEAP_EXTRA) * cell
                     if not g[nb] or ng < g[nb] then
                         g[nb], came[nb], act[nb], via[nb] = ng, cur, "jump", lp.takeoff
@@ -428,6 +434,34 @@ function LP:plan(goal)
     for k = #rev, 1, -1 do pts[#pts + 1] = rev[k] end
     self.expanded = expanded
     return pts
+end
+
+-- FOOTING of a jump's landing cell: can his capsule stand at the cell's floor height? The cell's floor is ONE centre
+-- trace, which can fall on a notch in a rock's steep flank. Live jump_doric 2026-11-17 (docs/research/
+-- 2026-11-17-jump-doric.md): the cell read -31.38 m, the rock 41-49 cm south of it stood 88-96 cm higher, and his 34 cm
+-- capsule centred on the cell would sit inside the rock. Every west jump at it passed over it and came down on the bench
+-- past it (14 of 14). Recast's rule, at the capsule's size: a floor is where the agent's whole footprint fits
+-- (walkableRadius). Four downward traces at his capsule radius round the centre: ground more than a step (MaxStepHeight)
+-- above the cell inside the footprint, or a trace that starts inside solid (FOOT_UP above the cell), means the capsule
+-- cannot be there. Ground lower than the cell is no refusal (a narrow top or a lip: he perches, as the engine lets him).
+-- Returns true, or {over = cm (nil: solid from the trace's start), dx, dy}, and the traces it used.
+local FOOT_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+local FOOT_UP, FOOT_DOWN = 120, 60
+function LP:footing(b)
+    local r, step, sp, used, worst = self.foot_r, self.env.step, self.self_pos, 0, nil
+    for _, d in ipairs(FOOT_DIRS) do
+        local x, y = b.X + d[1] * r, b.Y + d[2] * r
+        -- (within self_r of him his own gear answers the trace; he stands there anyway)
+        if not (sp and math.sqrt((x - sp.X) ^ 2 + (y - sp.Y) ^ 2) < self.self_r) then
+            local z, pen = self.trace({ X = x, Y = y, Z = b.Z + FOOT_UP }, { X = x, Y = y, Z = b.Z - FOOT_DOWN })
+            used = used + 1
+            local over = (z and pen) and FOOT_UP or (z and z - b.Z) or nil
+            if over and over > step and (not worst or over > worst.rank) then
+                worst = { over = not pen and over or nil, rank = over, dx = d[1] * r, dy = d[2] * r }
+            end
+        end
+    end
+    return worst or true, used
 end
 
 -- Lazy wall check of a planned path: a horizontal trace between consecutive points at knee
@@ -494,6 +528,31 @@ function LP:verify(pts, budget)
                     self.steep[ek] = true
                     self.steeps = (self.steeps or 0) + 1
                     return "blocked" -- re-plan: edge() now treats it as a jump/drop
+                end
+            end
+            -- a jump UP lands on its cell only when his capsule's footprint fits there (LP:footing); a refused cell is left
+            -- out of every later plan of this planner, which then takes another cell or no jump
+            if (b.act == "jump" or b.act == "djump" or b.act == "superjump") and b.node and b.Z - a.Z > self.env.step then
+                local f = self.footing_of[b.node]
+                if f == nil then
+                    if used > 0 and used + #FOOT_DIRS > budget then return "verifying" end
+                    local n
+                    f, n = self:footing(b)
+                    used, self.traces = used + n, self.traces + n
+                    self.footing_of[b.node] = f
+                end
+                if f ~= true then
+                    self.unstandable[b.node] = true
+                    self.blocked[ek] = true
+                    self.refusals = (self.refusals or 0) + 1
+                    if self.log then
+                        self.log(string.format("move: jump cell refused: not standable (%s to %.0f,%.0f,%.1f from %.0f,%.0f,%.1f: "
+                            .. "ground %s the cell %.0f cm from its centre at %+.0f,%+.0f, over a step of %.0f; capsule radius %.0f)",
+                            b.act, b.X / 100, b.Y / 100, b.Z / 100, a.X / 100, a.Y / 100, a.Z / 100,
+                            f.over and string.format("%.0f cm above", f.over) or string.format("solid from %d cm above", FOOT_UP),
+                            self.foot_r, f.dx, f.dy, self.env.step, self.foot_r))
+                    end
+                    return "blocked"
                 end
             end
             local z = (b.act == "jump" or b.act == "djump" or b.act == "superjump") and (math.max(a.Z, b.Z) + 60) or (math.max(a.Z, b.Z) + 50)
