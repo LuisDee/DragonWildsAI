@@ -3198,6 +3198,7 @@ do
     Cm.memory(nil, pawn)
     check("knowledge: an attack never met, 6.5 m off, is taken to be out of reach", lunge().why == "out_of_reach", lunge().why)
     local r = Dm.rec(key); r.n, r.impact_s, r.hit_from_cm = 3, 1.08, 575 -- (he was hit by it from 5.75 m)
+    r.arms = { dodge = { s = 18, f = 4, n = 22 } } -- (and without a shield the roll was his only answer)
     Cm.memory_save(nil)
     -- another character of his in the same world
     restart(); as("ClaudeFork")
@@ -3209,6 +3210,14 @@ do
     check("knowledge: and the log says so", table.concat(lines, " | "):find("1 attacks added from what his characters learned in this world", 1, true) ~= nil,
         table.concat(lines, " | "))
     check("knowledge: so that lunge from 6.5 m is answered", lunge().action ~= "none", tostring(lunge().action) .. " " .. tostring(lunge().why))
+    -- which answer works is the character's own (what he holds, how he fights): window s11's forks took over "dodge
+    -- 18 of 22" from characters without a shield, rolled 18 of 28 attacks and ran out of stamina
+    check("knowledge: which answer worked for another character does not come with it", a and (a.arms == nil or a.arms.dodge == nil or a.arms.dodge.n == 0), a and a.arms and a.arms.dodge and a.arms.dodge.n)
+    do
+        local f = io.open(kpath, "rb"); local txt = f and f:read("a") or ""; if f then f:close() end
+        check("knowledge: the file holds the creature's facts only", txt:find('"hit_from_cm"', 1, true) ~= nil and txt:find('"arms"', 1, true) == nil, txt:sub(1, 200))
+    end
+    Dm.rec(key).arms = { parry = { s = 2, f = 0, n = 2 } }
     -- what the second character learns reaches the first
     Dm.rec(key).n, Dm.rec(key).hit_from_cm = 5, 600
     Cm.memory_save(nil)
@@ -3216,6 +3225,9 @@ do
     local m1 = Cm.memory(nil, pawn)
     check("knowledge: what the second learned reaches the first", m1.status == "loaded" and Dm.status().attacks[key].hit_from_cm == 600,
         tostring(m1.status) .. " " .. tostring(Dm.status().attacks[key].hit_from_cm))
+    local own = Dm.status().attacks[key].arms or {}
+    check("knowledge: and the first keeps his own record of which answer works", own.dodge and own.dodge.s == 18 and own.parry == nil,
+        tostring(own.dodge and own.dodge.s) .. " " .. tostring(own.parry and own.parry.s))
     -- another build's timings are not trusted; a file that does not read is tolerated
     local f = io.open(kpath, "rb"); local txt = f:read("a"); f:close()
     f = io.open(kpath, "wb"); f:write((txt:gsub("TESTBUILD", "OLD1"))); f:close()

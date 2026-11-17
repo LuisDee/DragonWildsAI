@@ -1312,6 +1312,21 @@ end
 -- player's, not one character's: kept beside the characters' memories as combat_knowledge.json, read by every
 -- character of his in that world and written with each memory save. (Step trials run on a new fork each: in windows
 -- s6 to s9 every trial began with "none yet" and left the first Giant Rat lunge unanswered as out of reach.)
+-- Which answer works (a record's arms) is not in it: that hangs on what the character holds and how he fights.
+-- (Window s11: forks took over "dodge 18 of 22" from characters without a shield, rolled 18 of 28 attacks against
+-- 2 of 28 in s9, ran out of stamina and took 2 hits with no answer left.)
+local function creature_facts(defense, arms_of)
+    local out = { cadence = type(defense) == "table" and defense.cadence or nil, attacks = {} }
+    for k, r in pairs(type(defense) == "table" and type(defense.attacks) == "table" and defense.attacks or {}) do
+        if type(r) == "table" then
+            local copy = {}
+            for f, v in pairs(r) do copy[f] = v end
+            copy.arms = arms_of and arms_of[k] and arms_of[k].arms or nil
+            out.attacks[k] = copy
+        end
+    end
+    return out
+end
 function M.knowledge_path(world) return (M.cfg.memory_root or ROOT) .. "/data/skills/" .. world .. "/combat_knowledge.json" end
 function M.knowledge_load(log, m)
     local path = M.knowledge_path(m.world)
@@ -1325,7 +1340,8 @@ function M.knowledge_load(log, m)
         return nil
     end
     local D, R = mod("defense"), mod("ranged")
-    m.known = { attacks = D and D.import and D.import(doc.defense) or 0, ranged = R and R.import and R.import(doc.ranged) or 0 }
+    local own = D and D.status and D.status().attacks or {} -- (his own records, loaded before this: their arms stay)
+    m.known = { attacks = D and D.import and D.import(creature_facts(doc.defense, own)) or 0, ranged = R and R.import and R.import(doc.ranged) or 0 }
     if log then
         pcall(log, string.format("combat: %d attacks added from what his characters learned in this world (%s, last written by %s)",
             m.known.attacks, path, tostring(doc.by)))
@@ -1336,7 +1352,7 @@ function M.knowledge_save(m, doc)
     local J = json()
     if not J then return false end
     local ok, txt = pcall(J.encode, { v = 1, build = m.build, world = m.world, saved_at = doc.saved_at, by = m.char,
-                                      defense = doc.defense, ranged = doc.ranged })
+                                      defense = creature_facts(doc.defense), ranged = doc.ranged })
     if not ok or type(txt) ~= "string" then return false end
     local path = M.knowledge_path(m.world)
     local tmp = path .. ".tmp"
