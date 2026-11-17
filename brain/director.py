@@ -50,7 +50,7 @@ from .interface import Reason
 from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown
 from .llm import model_view, request_log_fields
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
-from .situation import quest_rows
+from .situation import quest_rows, vault_fields, vault_row_fields
 from .tool_registry import BODY_READ_FALLBACK, BodyProxy, Research, planner_research  # noqa: F401 (re-exported)
 
 GAP_KINDS = ("action", "perception", "knowledge")
@@ -446,8 +446,9 @@ def _compact_state(state: dict) -> dict:
     if state.get("stations_nearby"):
         out["stations_nearby"] = state["stations_nearby"]
     if isinstance(state.get("interactables"), list) and state["interactables"]:  # usable things in sight
-        out["usable_near"] = [{k: r.get(k) for k in ("id", "name", "prompt", "used", "distance") if r.get(k) is not None}
-                              for r in state["interactables"][:12] if isinstance(r, dict)]
+        # with what the body read of a vault's door, lever or chest (situation.vault_row_fields; nothing when unread)
+        out["usable_near"] = [{**{k: r.get(k) for k in ("id", "name", "prompt", "used", "distance") if r.get(k) is not None},
+                               **vault_row_fields(r)} for r in state["interactables"][:12] if isinstance(r, dict)]
     if isinstance(state.get("structures"), list) and state["structures"]:  # building pieces near him
         out["structures"] = [{k: r.get(k) for k in ("id", "name", "distance") if r.get(k) is not None}
                              for r in state["structures"][:15] if isinstance(r, dict)]
@@ -457,6 +458,7 @@ def _compact_state(state: dict) -> dict:
                          "complete": list(q.get("complete") or [])[:30]}
     if state.get("following"):
         out["following"] = state["following"]
+    out.update(vault_fields(state))  # in a vault and which (the game's flag); nothing when not in one or unread
     return out
 
 

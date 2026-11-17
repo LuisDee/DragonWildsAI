@@ -294,7 +294,8 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
             s = pieces.get(str(r.get("id")))
             row = {**r, "name": s["name"]} if s and s.get("name") else r
             t = _look_thing({"verb": "interact", **row}, state)
-            t.note, t.group = (str(r["prompt"]) if r.get("prompt") else None), "usable"
+            note = [str(r["prompt"])] if r.get("prompt") else []
+            t.note, t.group = ", ".join(note + vault_words(r)) or None, "usable"
             if s:
                 t.note = ", ".join(b for b in ("ghost piece" if s.get("ghosted") else "", _owner_words(s), t.note) if b) or None
             usable_ids.add(str(r.get("id")))
@@ -692,6 +693,94 @@ def station_state(st: dict) -> list[str]:
     return bits
 
 
+# Vault reads (client sense.lua, commit 6d78811; docs/research/2026-11-17-vault-reads.md): each field the body read, in
+# words. A field it did not read says nothing: no "not in a vault", no "lock unknown". Perception only.
+CHEST_STATES = ("unopened", "opened", "emptied")  # AWorldChest.ChestState, EChestState 0-2
+USABLE_VAULT_LINE_CHARS = 2 * LINE_CHARS  # the Usable line when a row has vault words (240 cut the third row)
+
+
+def _text(v) -> str | None:
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+def vault_fields(d: dict) -> dict:
+    """get_state's / look's in_vault and vault as the model is given them: in_vault only when the game's own flag is
+    true (with the vault's name when its box holds him); the name alone when the flag was not read; nothing when the
+    flag is false or neither was read."""
+    if not isinstance(d, dict):
+        return {}
+    name = _text(d.get("vault"))
+    if d.get("in_vault") is True:
+        return {"in_vault": True, **({"vault": name} if name else {})}
+    return {"vault": name} if name and d.get("in_vault") is None else {}
+
+
+def vault_here(state: dict) -> str | None:
+    """'in vault Vertentis Kara' / 'in a vault' (flag true), 'in the area of vault X' (flag unread, its box holds him)."""
+    f = vault_fields(state)
+    if f.get("in_vault"):
+        return f"in vault {f['vault']}" if f.get("vault") else "in a vault"
+    return f"in the area of vault {f['vault']}" if f.get("vault") else None
+
+
+def vault_row_fields(r: dict) -> dict:
+    """The vault fields of one interactable row that the body read: where a door leads (its vault's name or
+    "outside"; the game's destination name only when no vault box placed it), locked, a switch's position, what it
+    drives, a chest's state. arrives_at (a position) is left to look."""
+    if not isinstance(r, dict):
+        return {}
+    out: dict = {}
+    if lt := _text(r.get("leads_to")):
+        out["leads_to"] = lt
+    elif dest := _text(r.get("destination")):
+        out["destination"] = dest
+    if isinstance(r.get("locked"), bool):
+        out["locked"] = r["locked"]
+    if _num(r.get("switch_position")) is not None:
+        out["switch_position"] = r["switch_position"]
+        if _num(r.get("switch_highest")) is not None:
+            out["switch_highest"] = r["switch_highest"]
+    if isinstance(r.get("drives"), list) and (ids := [str(x) for x in r["drives"] if x]):
+        out["drives"] = ids
+    if r.get("chest_state") in CHEST_STATES:
+        out["chest_state"] = r["chest_state"]
+    return out
+
+
+def vault_words(r: dict) -> list[str]:
+    """'leads outside', 'leads to Vertentis Kara', 'teleports to <the game's destination name>', 'locked' /
+    'unlocked', 'switch position 0 of 0-1' (the raw number: which one is pulled is not known yet), 'drives <ids>',
+    'chest unopened'."""
+    f, bits = vault_row_fields(r), []
+    if lt := f.get("leads_to"):
+        bits.append("leads outside" if lt == "outside" else f"leads to {lt}")
+    elif f.get("destination"):
+        bits.append(f"teleports to {f['destination']}")
+    if "locked" in f:
+        bits.append("locked" if f["locked"] else "unlocked")
+    if "switch_position" in f:
+        hi = f.get("switch_highest")
+        bits.append(f"switch position {f['switch_position']:g}" + (f" of 0-{hi:g}" if hi is not None else ""))
+    if ids := f.get("drives"):
+        bits.append("drives " + ", ".join(ids[:3]) + (f" +{len(ids) - 3} more" if len(ids) > 3 else ""))
+    if cs := f.get("chest_state"):
+        bits.append(f"chest {cs}")
+    return bits
+
+
+def hazards(state: dict) -> list[str]:
+    """Traps in range (a census hazards row: kind trap, name, parts, active_parts): 'Fire Trap (8 m, id .., 1 of 2
+    parts active)'. Nothing to do to them: perceived, so a route or a fight can take them into account."""
+    out = []
+    rows = [r for r in state.get("hazards") or [] if isinstance(r, dict) and r.get("name")]
+    for r in sorted(rows, key=lambda r: _num(r.get("distance")) if _num(r.get("distance")) is not None else 1e9):
+        d, n, on = _num(r.get("distance")), _num(r.get("parts")), _num(r.get("active_parts"))
+        bits = [f"{d:.0f} m" if d is not None else "", f"id {r['id']}" if r.get("id") else "",
+                f"{on:g} of {n:g} parts active" if n is not None and on is not None else ""]
+        out.append(f"{r['name']} ({', '.join(b for b in bits if b)})" if any(bits) else str(r["name"]))
+    return out
+
+
 def stations(state: dict) -> list[str]:
     """Crafting/processing stations nearby with what they are doing (crafting.lua stations_nearby)."""
     out = []
@@ -841,7 +930,7 @@ COVERED_KEYS = frozenset({
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
-    "containers_remembered", "my_bases", "burn_odds", "further_off", "nearby_m",
+    "containers_remembered", "my_bases", "burn_odds", "further_off", "nearby_m", "in_vault", "vault", "hazards",
 })
 
 
@@ -1163,6 +1252,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append(f"doing {state['action']}")
     if state.get("sleeping"):
         me.append("asleep")
+    if where := vault_here(state):  # the game's own in-vault flag and the vault whose box holds him (client sense.lua)
+        me.append(where)
     # words first; the [n%] are for decisions (persona: never read numbers out)
     lines.append("You: " + (", ".join(me) or "ok"))
     from . import needs  # lazy: needs imports helpers from this module
@@ -1211,7 +1302,10 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     around = _group([t for t in things if t.kind not in ("player", "creature", "item") and t.group not in ("usable", "built")])
     lines.append(_line("Around", [g.label() for g in around]))
     usable = _group([t for t in things if t.group == "usable"])
-    lines.append(_line("Usable", [g.label() for g in usable]))
+    # a vault's doors, levers and chests say their state, and their ids are long: room for six of them
+    vault_rows = any(vault_words(r) for r in state.get("interactables") or [] if isinstance(r, dict))
+    lines.append(_line("Usable", [g.label() for g in usable], USABLE_VAULT_LINE_CHARS if vault_rows else LINE_CHARS))
+    lines.append(_line("Hazards", hazards(state)))
     if far:  # chain 20261116-184351: essence rocks 41 m off, behind 20 rows of logs and stones, were in no line
         lines.append(("Further off, also in sight (nearer things filled the lists above): "
                       + "; ".join(g.label() for g in _group(far)[:FAR_SHOWN]))[:FAR_LINE_CHARS])
@@ -1245,7 +1339,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     optional = ("Places:", "Reflex policy:", "Skills ", "Quests:", "Stations:",
                 "Spare gear:", "Food/drink:", "Players:", "Wearing:", "World:",
                 "On the ground:", "Around:", "Usable:", "Built pieces:", "Gear vs this area:", "Further off")
-    for prefix in ("Creatures", "Job:", "Job queued", "Asked:", "Your bases", "Your farm"):
+    for prefix in ("Creatures", "Hazards", "Job:", "Job queued", "Asked:", "Your bases", "Your farm"):
         required = next((line for line in available if line.startswith(prefix)), None)
         if required and required not in chosen:
             index = next((i for i in range(len(chosen)-1, -1, -1)

@@ -314,7 +314,15 @@ def _look_row(t):
     says nothing (the full row stays in the log and in the situation's looks)."""
     if not isinstance(t, dict):
         return t
-    return {k: v for k, v in t.items() if k not in ("class", "category") and not (k == "match" and not v)}
+    return {k: v for k, v in t.items() if (k not in ("class", "category") or (k == "category" and v == "hazards"))
+            and not (k == "match" and not v)}  # a trap row says it is a hazard (client sense.describe_trap)
+
+
+def look_view(data: dict) -> dict:
+    """A body look result as the model sees it: its rows through _look_row, and in_vault / vault only as
+    sit.vault_fields gives them (in_vault only when the game's flag is true; nothing when it was not read)."""
+    out = {k: v for k, v in data.items() if k not in ("in_vault", "vault")}
+    return {**out, "things": [_look_row(t) for t in data.get("things") or []], **sit.vault_fields(data)}
 
 
 def _on_the_map(places, about: str, here) -> str | None:
@@ -1034,9 +1042,9 @@ class Controller:
         if call.name == "look" and res.get("ok"):
             look = {**res["data"], "_about": args.get("about")}
             d.looks.append(look)
-            rows = [_look_row(t) for t in res["data"].get("things") or []]
+            data = look_view(res["data"])
+            rows = data["things"]
             named = _map_names(rows, getattr(self, "places", None), args.get("about"))
-            data = {**res["data"], "things": rows}
             if args.get("about"):  # say it plainly to the model too (the body only ranks by match score)
                 data["matched"] = bool(sit.look_matched(look)) if named is None else named
                 if (not data["matched"] or not _full_match(rows, args["about"])) and (
