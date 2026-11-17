@@ -128,7 +128,7 @@ local api = {
     module = function(n)
         if n == "skills" then return SK elseif n == "move" then return MOVE elseif n == "inventory" then return INV
         elseif n == "sense" then return SENSE elseif n == "arbiter" then return ARB elseif n == "gather_profiles" then return GP
-        elseif n == "input" then return INPUTF end
+        elseif n == "input" then return INPUTF elseif n == "build" then return BUILD_STUB end
     end,
     call = function(mod, fn, ...)
         local m = ({ move = MOVE, inventory = INV })[mod]
@@ -370,10 +370,46 @@ do -- cycle + depth guards on a synthetic catalog
                  recipes = { R_A = { inputs = { { B, 1 } }, outputs = { { A, 1 } }, stations = { "Bench" } },
                              R_B = { inputs = { { A, 1 } }, outputs = { { B, 1 } }, stations = { "Bench" } } } })
     local t = C.plan_tree({ item = "ITEM_A" }, 1, { have = {}, unlocked = U({ "R_A", "R_B" }), near = near("Bench") })
-    local leaf = t.root.inputs[1].inputs[1]
-    check("cycle guard", leaf.status == "cycle", leaf and leaf.status)
+    -- A's one recipe takes B, which is only made from A: no path, so A is to be obtained and the loop is shown as such
+    local alt = (t.root.alternatives or {})[1] or {}
+    check("cycle guard: a loop is no path", t.root.status == "obtain" and t.root.recipe == nil and #t.steps == 1
+          and t.steps[1]["do"] == "obtain", t.root.status)
+    check("cycle guard: the loop listed as cycle", alt.recipe == "R_A" and alt.status == "cycle"
+          and tostring(alt.detail):find("only made from A", 1, true) ~= nil, tostring(alt.status) .. " " .. tostring(alt.detail))
     check("cycle reported missing", #t.missing == 1)
+    -- a recipe that takes its own output
+    C.set_data({ stations = { Bench = { kind = "crafting", name = "Bench", classes = { "BP_Bench_C" } } },
+                 items = { [A] = { id = "ITEM_A", name = "A" } },
+                 recipes = { R_A = { inputs = { { A, 2 } }, outputs = { { A, 3 } }, stations = { "Bench" } } } })
+    t = C.plan_tree({ item = "ITEM_A" }, 1, { have = {}, unlocked = U({ "R_A" }), near = near("Bench") })
+    alt = (t.root.alternatives or {})[1] or {}
+    check("cycle guard: takes itself", t.root.status == "obtain" and alt.status == "cycle"
+          and tostring(alt.detail):find("takes A itself", 1, true) ~= nil, tostring(alt.detail))
+    -- carried, the input is no loop: the recipe is a path
+    t = C.plan_tree({ item = "ITEM_A" }, 1, { have = { ITEM_A = 2 }, unlocked = U({ "R_A" }), near = near("Bench") })
+    check("cycle guard: carried input is a path", t.root.recipe == "R_A", t.root.status)
     C.set_data(REAL)
+end
+do -- the logged Bronze Pickaxe plan (logs/brain-live-20261117-231925-27552, 23:19Z, nothing bronze unlocked): Bronze
+   -- Bar's main path was Bronze Leaf, which is only made from Bronze Bar, and the steps crafted 50 Bronze Leaf first
+    local ctx = { have = {}, unlocked = {}, near = near("CraftingTable"), gather_for = C.W.gather_for(api) }
+    local t = C.plan_tree({ item = "ITEM_Pickaxe_Bronze" }, 1, ctx)
+    local bar
+    for _, c in ipairs(t.root.inputs or {}) do if c.item == "ITEM_Resources_BronzeBar" then bar = c end end
+    check("loop: Bronze Bar is not made from Bronze Leaf", bar and bar.recipe ~= "RECIPE_Process_Bar_Bronze_From_Leaf", bar and bar.recipe)
+    check("loop: Bronze Bar from ore (gatherable inputs before salvage piles)", bar and bar.recipe == "RECIPE_Process_BronzeBar", bar and bar.recipe)
+    check("loop: no step crafts Bronze Leaf", has_step(t.steps, "craft", "recipe", "RECIPE_Process_Bronze_Leaf_From_Bar") == nil)
+    local leaf
+    for _, a in ipairs(bar and bar.alternatives or {}) do if a.recipe == "RECIPE_Process_Bar_Bronze_From_Leaf" then leaf = a end end
+    check("loop: the leaf recipe is listed as a cycle", leaf and leaf.status == "cycle"
+          and tostring(leaf.detail):find("Bronze Leaf, which is only made from Bronze Bar", 1, true) ~= nil, leaf and leaf.detail)
+    local gathers = 0
+    for _, st in ipairs(t.steps) do if st["do"] == "gather" and tostring(st.name):find("Ore", 1, true) then gathers = gathers + 1 end end
+    check("loop: copper and tin ore gathered", gathers == 2, gathers)
+    -- Bronze Leaf itself is still planned (its bar from ore, not from leaf)
+    t = C.plan_tree({ item = "ITEM_Resources_Agility_Bronze_Leaf" }, 1, ctx)
+    check("loop: Bronze Leaf goal: its bar from ore", t.root.recipe == "RECIPE_Process_Bronze_Leaf_From_Bar"
+          and (t.root.inputs[1] or {}).recipe == "RECIPE_Process_BronzeBar", (t.root.inputs[1] or {}).recipe)
 end
 do -- fuel choice (pure)
     local p = C.plan("RECIPE_Process_IronBar", 1, "Furnace")
@@ -1099,7 +1135,7 @@ do -- quantity_mode: additional_output (default) ignores the carried goal item; 
     check("mode: root stock left for a descendant", t.root.have == 0 and t.root.inputs[1].inputs[1].status == "have")
     ctx.have = {}
     t = C.plan_tree({ item = "P" }, 1, ctx)
-    check("mode: cycle detection kept", t.root.inputs[1].inputs[1].status == "cycle")
+    check("mode: cycle detection kept (a loop is no path)", t.root.status == "obtain" and ((t.root.alternatives or {})[1] or {}).status == "cycle")
     C.set_data(REAL)
 end
 
@@ -1192,6 +1228,32 @@ do -- no wheel near: the plan names the Spinning Wheel (a real station in this b
           fs and (tostring(fs.station) .. " / " .. tostring(fs.name)))
 end
 
+do -- no Tannery near: the find_station step says whether a Tannery is a piece he has unlocked and can build, with
+   -- what (offline check 2026-11-17 23:4xZ of craft_plan Bone Pickaxe: "find_station Tannery" only)
+    local function plan_bone()
+        reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Pickaxe_Bone", "RECIPE_Process_Leather_From_Hide" }),
+                have = { ITEM_Resources_AnimalBone = 8, ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Animal_Hide = 4 } })
+        local r = C.HANDLERS.craft_plan(nil, { item = "Bone Pickaxe" }, { api = api })
+        for _, st in ipairs((r.data or {}).steps or {}) do if st["do"] == "find_station" and st.station == "Tannery" then return st end end
+    end
+    BUILD_STUB = { HANDLERS = { buildables = function()
+        return { ok = true, data = { pieces = { { name = "Tannery", cost = { { count = 12, name = "Ash Logs" }, { count = 4, name = "Animal Bone" },
+            { count = 2, name = "Coarse Thread" } }, missing = { { item = "ITEM_Resources_Wood_Ash", name = "Ash Logs", need = 12, have = 6 },
+            { item = "ITEM_Resources_Thread_Coarse", name = "Coarse Thread", need = 2, have = 0 } }, can_build_now = false } } } }
+    end } }
+    local fs = plan_bone()
+    check("plan: find Tannery says it is his to build, with the cost", fs and fs.build and fs.build.piece == "Tannery"
+          and fs.build.cost == "12 Ash Logs + 4 Animal Bone + 2 Coarse Thread" and fs.build.can_build_now == false
+          and tostring(fs.build.short):find("6 Ash Logs", 1, true) ~= nil, fs and fs.build and fs.build.text)
+    BUILD_STUB = { HANDLERS = { buildables = function() return { ok = true, data = { pieces = { { name = "Campfire", cost = {} } } } } end } }
+    fs = plan_bone()
+    check("plan: a station not among his pieces is marked so", fs and fs.build == nil and fs.build_unlocked == false, fs and tostring(fs.build_unlocked))
+    BUILD_STUB = { HANDLERS = { buildables = function() return { ok = false, reason = "state_unavailable" } end } }
+    fs = plan_bone()
+    check("plan: pieces unread -> nothing claimed", fs and fs.build == nil and fs.build_unlocked == nil)
+    BUILD_STUB = nil
+end
+
 do -- a step or a craft short of a raw material says where he has gathered it before (navmem's gather spots)
     local old = C.W.gather_memory
     local asked = {}
@@ -1212,20 +1274,25 @@ do -- a step or a craft short of a raw material says where he has gathered it be
     local m = ((c.data or {}).missing or {})[1] or {}
     check("craft short: the missing row and the sentence say where he gathered it", c.ok == false and m.gathered_before ~= nil
           and tostring(c.data.detail):find("you've gathered before: 3 about 50 m E", 1, true) ~= nil, tostring(c.data and c.data.detail))
-    -- the flax alternative of thread-from-fur (2 fur carried, 1 short) says where he picked flax
+    -- thread from fur (2 carried, 1 short) or from flax: an alternative short of a thing he has gathered before says where
     C.W.gather_memory = function() return { known_text = function(item)
         if item == "ITEM_Resources_Flax" then return "Flax you've gathered before: 10 about 301 m NE at (394, 1713), last 02:25Z (5.0 h ago)." end
+        if item == "ITEM_Resources_Coarse_Animal_Fur" then return "Fur you've picked up before: 2 about 120 m W at (-90, 10), last 02:00Z (5.4 h ago)." end
     end } end
-    reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", "RECIPE_Process_Thread_Linen_From_Flax",
-                                                   "RECIPE_Tool_T1_Spade_Wood" }),
-            have = { ITEM_Resources_Coarse_Animal_Fur = 2, ITEM_Resources_Wood_Ash = 10 } })
+    local spade_unl = U({ "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", "RECIPE_Process_Thread_Linen_From_Flax", "RECIPE_Tool_T1_Spade_Wood" })
+    reset({ stations = { TABLE() }, unlocked = spade_unl, have = { ITEM_Resources_Coarse_Animal_Fur = 2, ITEM_Resources_Wood_Ash = 10 } })
     local ra = C.HANDLERS.craft_plan(nil, { item = "Wooden Spade" }, { api = api })
     local found
     local function walk(n) for _, a in ipairs(n.alternatives or {}) do if a.gathered_before then found = a end end
         for _, c in ipairs(n.inputs or {}) do walk(c) end end
     walk((ra.data or {}).root or {})
-    check("plan: an alternative short of flax says where he picked flax", found and tostring(found.detail):find("301 m NE", 1, true) ~= nil,
+    check("plan: an alternative short of fur says where he had fur", found and tostring(found.detail):find("120 m W", 1, true) ~= nil,
           found and found.detail)
+    -- 1 fur short (no recipe or gather profile yields fur), flax gatherable: the flax is the path, its gather step says
+    -- where (farm chain 11: 1 fur short sent him 300 m after a deer while the flax he had picked went unsaid)
+    local gf = has_step((ra.data or {}).steps or {}, "gather", "item", "ITEM_Resources_Flax")
+    check("plan: 1 fur short -> the gatherable flax is the path, with where", gf and tostring(gf.gathered_before):find("301 m NE", 1, true) ~= nil,
+          gf and gf.gathered_before)
     C.W.gather_memory = function() return nil end
     local r2 = C.HANDLERS.craft_plan(nil, { item = "Wooden Spade" }, { api = api })
     local any

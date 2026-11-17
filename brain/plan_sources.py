@@ -1,0 +1,391 @@
+"""Where the things a craft plan cannot make come from, and whether a station he lacks is a piece he can build: facts
+from the game's own data and the wiki mirror, added to a ``craft_plan`` result (CLAUDE.md section 3: the plan tool
+shows facts about the game; he decides).
+
+Live 2026-11-17 (offline check of ``craft_plan Bone Pickaxe`` from a fresh fork, and the Bronze Pickaxe plan of
+logs/brain-live-20261117-231925-27552): Animal Bone was a bare ``obtain`` though Bark to Bones was his to cast; Animal
+Hide came only from a trader for Garou Chits he did not have (the one recipe for it), never from the cows, deer and
+wolves that drop it; the Tannery was a bare ``find_station``, never the build-menu piece it is. He parked the ask.
+
+What is added (bounded: MAX_ITEMS items, MAX_PER_ITEM sources each, every line at most LINE_CHARS):
+
+* ``sources`` (on the thing's obtain step; else in a top-level {item name: [lines]}) for each thing in the tree the
+  plan cannot craft from what he carries (a leaf marked obtain / cycle / depth, or a thing whose recipe is a
+  trader's), from
+  - spells that make it (data/spell_mechanics.json ``makes``, wiki-sourced), with whether it is among his spells now;
+  - creatures that drop it (data/bestiary.json ``dropped_by``), with power level and where they live;
+  - the wiki's resource node for it (``Knowledge.node_facts``);
+  - traders that sell it (recipe data), with the price against what he carries.
+  Ordered by what he can do now (a spell of his castable now, a creature in sight; then one in his region or a price
+  he carries; then the rest), never by name. A thing the plan buys from a trader he can't pay, while the game has
+  other ways to it, becomes an obtain step with its sources (the trader one of them), not "obtain the currency first".
+* ``build`` on a ``find_station`` step the client could not answer from his unlocked pieces: the wiki's build-menu
+  cost and unlock line for that station, and what of the cost he carries.
+"""
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+MAX_ITEMS = 6
+MAX_PER_ITEM = 5
+MAX_DROPS = 3
+LINE_CHARS = 170
+LEAF = ("obtain", "cycle", "depth")
+NOW, NEAR, LATER = 0, 1, 2
+
+
+def _data_dir() -> Path:
+    from .knowledge import data_dir
+    return data_dir()
+
+
+@lru_cache(maxsize=2)
+def bestiary(path: str | None = None) -> dict:
+    try:
+        return json.loads(Path(path or _data_dir() / "bestiary.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+@lru_cache(maxsize=2)
+def spell_makes(path: str | None = None) -> dict[str, list[str]]:
+    """item name (lower) -> [spell ids] from data/spell_mechanics.json ``makes``."""
+    try:
+        doc = json.loads(Path(path or _data_dir() / "spell_mechanics.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, list[str]] = {}
+    for sid, m in (doc.get("spells") or {}).items():
+        for name in (m or {}).get("makes") or []:
+            out.setdefault(str(name).lower(), []).append(sid)
+    return out
+
+
+def _catalog() -> dict:
+    from . import needs
+    return needs.catalog()
+
+
+def _clip(s: str) -> str:
+    return s if len(s) <= LINE_CHARS else s[: LINE_CHARS - 1].rsplit(" ", 1)[0] + "…"
+
+
+def counts(state: dict | None) -> dict[str, int]:
+    """item id -> count carried (bag, hotbar), from get_state."""
+    out: dict[str, int] = {}
+    if not isinstance(state, dict):
+        return out
+    inv = state.get("inventory")
+    if isinstance(inv, dict):
+        for k, v in inv.items():
+            if isinstance(k, str) and isinstance(v, (int, float)):
+                out[k] = out.get(k, 0) + int(v)
+    if not out:
+        for r in state.get("inventory_items") or []:
+            if isinstance(r, dict) and isinstance(r.get("item"), str):
+                out[r["item"]] = out.get(r["item"], 0) + int(r.get("count") or 1)
+    return out
+
+
+def _in_sight(state: dict | None) -> set[str]:
+    names: set[str] = set()
+    if not isinstance(state, dict):
+        return names
+    for e in state.get("nearby_entities") or []:
+        if isinstance(e, dict) and e.get("name") and e.get("alive", True):
+            names.add(str(e["name"]).lower())
+    for r in state.get("further_off") or []:
+        if isinstance(r, dict) and r.get("name") and str(r.get("category")) == "creatures":
+            names.add(str(r["name"]).lower())
+    return names
+
+
+def _region(state: dict | None, places) -> str | None:
+    if places is None or not isinstance(state, dict) or state.get("position") is None:
+        return None
+    try:
+        return places.region_name(state.get("position"))
+    except Exception:  # map data is best effort
+        return None
+
+
+# ------------------------------------------------------------------------------ the sources of one item
+
+
+def _spells(name: str, spells: list[dict] | None) -> list[tuple[int, int, str]]:
+    from .spells import effects
+    out = []
+    mine = {str(r.get("name") or "").lower(): r for r in spells or [] if isinstance(r, dict)}
+    for sid in spell_makes().get(name.lower(), []):
+        e = effects().get(sid) or {}
+        sname = e.get("name") or sid
+        cost = " + ".join(f"{n} {r}" for r, n in (e.get("cost") or {}).items())
+        req = ((e.get("requirement") or {}).get("text") or "").strip()
+        row = mine.get(sname.lower())
+        if spells is None:
+            tier, status = NEAR, None
+        elif row is not None and not row.get("note") and row.get("castable", True) is not False:
+            tier, status = NOW, "yours, castable now"
+        elif row is not None:
+            tier, status = NEAR, f"yours, {row.get('note') or row.get('reason') or 'not castable right now'}"
+        else:
+            u = e.get("unlock") or {}
+            need = f"{u.get('skill')} {u.get('level')}" if u.get("skill") and u.get("level") else "its unlock"
+            tier, status = LATER, f"not among your spells now; needs {need}"
+        bits = [b for b in (cost and f"{cost} runes", status) if b]
+        out.append((tier, 0, _clip(f"spell {sname}: {req[:1].lower() + req[1:] if req else 'cast it'}"
+                                   + (f" ({'; '.join(bits)})" if bits else ""))))
+    return out
+
+
+def _creature(name: str) -> dict:
+    c = (bestiary().get("creatures") or {})
+    if name in c:
+        return c[name]
+    low = name.lower()
+    return next((v for k, v in c.items() if k.lower() == low), {})
+
+
+def _pl(cr: dict) -> tuple[float, str]:
+    pls = sorted({int(v["power_level"]) for v in cr.get("variants") or []
+                  if isinstance(v, dict) and str(v.get("power_level", "")).lstrip("-").isdigit()
+                  and int(v["power_level"]) >= 0})
+    if not pls:
+        return 99.0, ""
+    return float(pls[0]), (f"PL {pls[0]}" if len(pls) == 1 else f"PL {pls[0]}-{pls[-1]}")
+
+
+def _drops(name: str, sight: set[str], region: str | None) -> list[tuple[int, int, str]]:
+    db = bestiary().get("dropped_by") or {}
+    rec = db.get(name) or next((v for v in db.values() if name.lower() in
+                                {a.lower() for a in [v.get("item") or "", *(v.get("aliases") or [])]}), None)
+    rows = []
+    for r in (rec or {}).get("rows") or []:
+        who = str(r.get("from") or "")
+        if not who:
+            continue
+        cr = _creature(who)
+        pl, pl_s = _pl(cr)
+        locs = [x for x in cr.get("locations") or [] if isinstance(x, str)]
+        if who.lower() in sight:
+            tier, where = NOW, "one in sight"
+        elif region and region in locs:
+            tier, where = NEAR, f"lives in {region}, your region"
+        else:
+            tier, where = LATER, (f"lives in {', '.join(locs[:2])}" if locs else "")
+        how = str(r.get("how") or "drop")
+        amt = ", ".join(x for x in (str(r.get("amount") or ""), str(r.get("rate") or "")) if x)
+        line = f"{'drop' if how == 'drop' else how}: {who}" + (f" ({amt})" if amt else "") + \
+            "".join(f"; {x}" for x in (pl_s, where) if x)
+        always = 0 if str(r.get("rate")) == "always" else 1
+        rows.append((tier, always, pl, _clip(line)))
+    rows.sort(key=lambda x: x[:3])
+    return [(t, 1, line) for t, _, _, line in rows[:MAX_DROPS]]
+
+
+def _node(name: str, knowledge, region: str | None) -> list[tuple[int, int, str]]:
+    if knowledge is None or not hasattr(knowledge, "node_facts"):
+        return []
+    try:
+        f = knowledge.node_facts(name)
+    except Exception:  # knowledge is best effort
+        return []
+    if not f:
+        return []
+    loc = f.get("location") or ""
+    tier = NEAR if region and region in [x.strip() for x in loc.split(",")] else LATER
+    bits = [b for b in (loc and f"found in {loc}", f.get("tool") and f"tool: {f['tool']}") if b]
+    return [(tier, 2, _clip(f"node: {f['title']}" + (f" ({'; '.join(bits)})" if bits else "")))]
+
+
+def _traders(item: str, have: dict[str, int]) -> list[tuple[int, int, str]]:
+    from .knowledge import vendor_station
+    cat = _catalog()
+    stations = cat.get("stations") or {}
+    out = []
+    for rid, r in (cat.get("recipes") or {}).items():
+        sids = r.get("stations") or []
+        outs = [o for o in r.get("outputs") or [] if o.get("item") == item]
+        if not outs or not sids or not all(vendor_station(s, stations) for s in sids) or r.get("test"):
+            continue
+        who = " or ".join(dict.fromkeys((stations.get(s) or {}).get("display_name") or s for s in sids))
+        price = [(i.get("item"), i.get("name") or i.get("item"), int(i.get("count") or 1)) for i in r.get("inputs") or []]
+        enough = all(have.get(i, 0) >= n for i, _, n in price)
+        carry = ", ".join(f"{have.get(i, 0)} {nm}" for i, nm, _ in price)
+        line = (f"trader {who}: {int(outs[0].get('count') or 1)} for "
+                + " + ".join(f"{n} {nm}" for _, nm, n in price) + (f" (you carry {carry})" if carry else ""))
+        out.append((NEAR if enough else LATER, 3, _clip(line)))
+    return out
+
+
+TRADER = 3
+
+
+def _rows(item: str, name: str, *, state=None, spells=None, knowledge=None, places=None) -> list[tuple[int, int, str]]:
+    """(tier, kind, line) for every non-crafting way to get ``item`` (id) / ``name``, can-do-now first (MAX_PER_ITEM)."""
+    sight, region, have = _in_sight(state), _region(state, places), counts(state)
+    rows = _spells(name, spells) + _drops(name, sight, region) + _node(name, knowledge, region) + _traders(item, have)
+    rows.sort(key=lambda r: (r[0], r[1]))  # by what he can do now, then spell / drop / node / trader
+    return rows[:MAX_PER_ITEM]
+
+
+def sources_of(item: str, name: str, **kw) -> list[str]:
+    """Every non-crafting way to get ``item`` (id) / ``name`` the data knows, can-do-now first (MAX_PER_ITEM)."""
+    return [line for _, _, line in _rows(item, name, **kw)]
+
+
+# ------------------------------------------------------------------------------ the plan
+
+
+def _nodes(n: Any, depth: int = 0):
+    if not isinstance(n, dict) or depth > 12:
+        return
+    yield n
+    for c in n.get("inputs") or []:
+        yield from _nodes(c, depth + 1)
+
+
+def _trader_recipe(rid: str | None) -> bool:
+    from .knowledge import vendor_station
+    if not rid:
+        return False
+    cat = _catalog()
+    r = (cat.get("recipes") or {}).get(rid) or {}
+    sids = r.get("stations") or []
+    return bool(sids) and all(vendor_station(s, cat.get("stations") or {}) for s in sids)
+
+
+def _wants_sources(n: dict) -> bool:
+    if n.get("status") == "have" or not n.get("item"):
+        return False
+    return n.get("status") in LEAF or _trader_recipe(n.get("recipe"))
+
+
+def _build_fact(step: dict, knowledge, have: dict[str, int]) -> dict | None:
+    name = step.get("name") or step.get("station")
+    if not name or knowledge is None or not hasattr(knowledge, "build_facts"):
+        return None
+    try:
+        f = knowledge.build_facts(str(name))
+    except Exception:  # knowledge is best effort
+        return None
+    if not f:
+        return None
+    by_name = {}
+    for iid, it in (_catalog().get("items") or {}).items():
+        if isinstance(it, dict) and it.get("name"):
+            by_name.setdefault(it["name"].lower(), iid)
+    carry = []
+    for nm, n in f["cost"]:
+        iid = by_name.get(nm.lower())
+        if iid is not None:
+            carry.append(f"{have.get(iid, 0)} of {n} {nm}")
+    out = {"piece": f["title"], "wiki": _clip(f"built from the build menu ({f['skill'] or 'Construction'}): "
+                                              + " + ".join(f"{n} {nm}" for nm, n in f["cost"]))}
+    if f.get("unlock"):
+        out["unlock"] = _clip(f"wiki: {f['unlock']}")
+    if step.get("build_unlocked") is False:
+        out["unlocked"] = False
+    if carry:
+        out["you_carry"] = ", ".join(carry)
+    return out
+
+
+def _to_obtain(data: dict, n: dict, lines: list[str]) -> None:
+    """A thing whose plan path is a trader he can't pay, while the game has other ways to it: the thing is to be
+    obtained (its sources, the trader one of them), not the trader's currency first. The trader's recipe stays listed
+    as an alternative; its steps (the currency to obtain, finding the trader, buying) and missing rows go."""
+    sub_items: dict[str, int] = {}
+    sub_recipes = set()
+    for c in _nodes(n):
+        if c is not n and c.get("item"):
+            sub_items[c["item"]] = sub_items.get(c["item"], 0) + 1
+        if c.get("recipe"):
+            sub_recipes.add(c["recipe"])
+    every: dict[str, int] = {}
+    for c in _nodes(data["root"]):
+        if c.get("item"):
+            every[c["item"]] = every.get(c["item"], 0) + 1
+    only = {i for i, k in sub_items.items() if every.get(i, 0) == k}
+    steps, at, kept = data.get("steps") or [], None, []
+    for i, st in enumerate(steps):
+        gone = isinstance(st, dict) and (st.get("recipe") in sub_recipes
+                                         or (st.get("do") in ("obtain", "gather") and st.get("item") in only))
+        if gone and at is None:
+            at = len(kept)
+        if not gone:
+            kept.append(st)
+    count = n.get("short") or n.get("need") or 1
+    step = {"do": "obtain", "item": n["item"], "name": n.get("name"), "count": count, "sources": lines}
+    kept.insert(len(kept) if at is None else at, step)
+    data["steps"] = kept
+    data["missing"] = [m for m in data.get("missing") or [] if not (isinstance(m, dict) and m.get("item") in only)]
+    data["missing"].append({"item": n["item"], "name": n.get("name"), "count": count})
+    alt = {"recipe": n.get("recipe"), "status": "trader", "station": n.get("station_name") or n.get("station"),
+           "detail": n.get("detail")}
+    for k in ("recipe", "inputs", "station", "station_name", "station_id", "kind", "crafts", "detail", "unlock"):
+        n.pop(k, None)
+    n["status"] = "obtain"
+    n["alternatives"] = [alt, *(n.get("alternatives") or [])]
+
+
+def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, log=None) -> dict:
+    """Add the sources of what the plan can't craft (on its obtain steps; ``sources`` for the rest) and find_station
+    ``build`` facts to a craft_plan result's data (in place; returned). ``log``: a JsonlLogger for the plan_sources
+    line (what was added), when anything was."""
+    if not isinstance(data, dict) or not isinstance(data.get("root"), dict):
+        return data
+    have = counts(state)
+    converted: list[str] = []
+    found: dict[str, list[str]] = {}
+    for n in _nodes(data["root"]):
+        name = str(n.get("name") or n.get("item"))
+        if name in found or len(found) >= MAX_ITEMS or not _wants_sources(n):
+            continue
+        try:
+            rows = _rows(n["item"], name, state=state, spells=spells, knowledge=knowledge, places=places)
+        except Exception:  # data is best effort: the plan stands without it
+            rows = []
+        if not rows:
+            continue
+        found[name] = [line for _, _, line in rows]
+        payable = any(k == TRADER and t < LATER for t, k, _ in rows)
+        if _trader_recipe(n.get("recipe")) and not payable and any(k != TRADER for _, k, _ in rows):
+            _to_obtain(data, n, found[name])
+            converted.append(name)
+    on_steps = set()
+    for st in data.get("steps") or []:
+        if isinstance(st, dict) and st.get("do") == "obtain" and st.get("name") in found:
+            st["sources"] = found[st["name"]]
+            on_steps.add(st["name"])
+    rest = {k: v for k, v in found.items() if k not in on_steps}
+    if rest:
+        data["sources"] = rest
+    for st in data.get("steps") or []:
+        if not isinstance(st, dict) or st.get("do") != "find_station":
+            continue
+        if not st.get("build"):
+            b = _build_fact(st, knowledge, have)
+            if b:
+                st["build"] = b
+        st.pop("build_unlocked", None)
+    builds = [st.get("name") for st in data.get("steps") or [] if isinstance(st, dict) and st.get("do") == "find_station"
+              and isinstance(st.get("build"), dict) and "wiki" in st["build"]]
+    if log is not None and (found or builds):
+        log.log("plan_sources", sources=sorted(found), trader_to_obtain=converted, wiki_builds=builds)
+    return data
+
+
+def enrich_result(res: dict, **kw) -> dict:
+    """``enrich`` on an ok craft_plan tool result; any other result unchanged."""
+    if isinstance(res, dict) and res.get("ok") and isinstance(res.get("data"), dict):
+        try:
+            enrich(res["data"], **kw)
+        except Exception:  # never break a read on the facts it adds
+            pass
+    return res
+
+

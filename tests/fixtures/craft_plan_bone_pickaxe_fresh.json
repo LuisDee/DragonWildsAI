@@ -1,0 +1,177 @@
+{
+ "about": "craft_plan Bone Pickaxe from the real planner (client_mod/scripts/crafting.lua plan_tree over mod/body/recipe_data.lua), bag empty, Bone Pickaxe and Leather-from-hide unlocked, a Crafting Table and a Campfire near; the find_station step as the client sends it when Tannery is not among his unlocked pieces (offline check 2026-11-17 23:4xZ).",
+ "result": {
+  "ok": true,
+  "reason": null,
+  "data": {
+   "root": {
+    "name": "Bone Pickaxe",
+    "station": "CraftingTable",
+    "short": 1,
+    "recipe": "RECIPE_Pickaxe_Bone",
+    "kind": "crafting",
+    "station_id": "BP_Crafting_StartingBench_C_1",
+    "have": 0,
+    "station_name": "Crafting Table",
+    "inputs": [
+     {
+      "name": "Animal Bone",
+      "status": "obtain",
+      "short": 8,
+      "item": "ITEM_Resources_AnimalBone",
+      "need": 8,
+      "have": 0
+     },
+     {
+      "name": "Ash Logs",
+      "need": 6,
+      "status": "gather",
+      "gather": "ash",
+      "short": 6,
+      "item": "ITEM_Resources_Wood_Ash",
+      "alternatives": [
+       {
+        "status": "not_unlocked",
+        "station": "Beartach",
+        "recipe": "DA_Recipe_Vendor_UmS_Buy_Wood_Ash",
+        "detail": "I haven't unlocked Ash Logs yet (it unlocks with: ALL ITEMS[ Stone ])"
+       }
+      ],
+      "have": 0
+     },
+     {
+      "name": "Leather",
+      "station": "Tannery",
+      "short": 4,
+      "alternatives": [
+       {
+        "status": "not_unlocked",
+        "station": "Tannery",
+        "recipe": "RECIPE_Process_Leather_From_scraps",
+        "detail": "I haven't unlocked Leather yet (it unlocks with: ALL ITEMS[ Animal Hide Scraps ] AND ALL ACTORS[ Tannery ])"
+       }
+      ],
+      "recipe": "RECIPE_Process_Leather_From_Hide",
+      "detail": "I need 4 Animal Hide for that and I have 0",
+      "have": 0,
+      "inputs": [
+       {
+        "name": "Animal Hide",
+        "station": "UmS_Merchant_Hunter",
+        "station_name": "Iasadair",
+        "kind": "crafting",
+        "recipe": "DA_Recipe_Vendor_UmS_Buy_Hide_Animal",
+        "detail": "I haven't unlocked Animal Hide yet (it unlocks with: ALL ITEMS[ Stone ])",
+        "have": 0,
+        "status": "not_unlocked",
+        "unlock": "ALL ITEMS[ Stone ]",
+        "inputs": [
+         {
+          "name": "Garou Chit",
+          "status": "obtain",
+          "short": 24,
+          "item": "ITEM_Resources_Currency_Chit_Garou",
+          "need": 24,
+          "have": 0
+         }
+        ],
+        "need": 4,
+        "item": "ITEM_Resources_Animal_Hide",
+        "short": 4,
+        "crafts": 4
+       }
+      ],
+      "station_name": "Tannery",
+      "kind": "processing",
+      "need": 4,
+      "item": "ITEM_Resources_Leather",
+      "status": "no_station",
+      "crafts": 4
+     }
+    ],
+    "need": 1,
+    "item": "ITEM_Pickaxe_Bone",
+    "crafts": 1,
+    "status": "craft_after"
+   },
+   "ready": false,
+   "missing": [
+    {
+     "name": "Animal Bone",
+     "item": "ITEM_Resources_AnimalBone",
+     "count": 8
+    },
+    {
+     "name": "Garou Chit",
+     "item": "ITEM_Resources_Currency_Chit_Garou",
+     "count": 24
+    }
+   ],
+   "steps": [
+    {
+     "name": "Animal Bone",
+     "item": "ITEM_Resources_AnimalBone",
+     "do": "obtain",
+     "count": 8
+    },
+    {
+     "resource": "ash",
+     "do": "gather",
+     "item": "ITEM_Resources_Wood_Ash",
+     "count": 6,
+     "name": "Ash Logs"
+    },
+    {
+     "name": "Garou Chit",
+     "item": "ITEM_Resources_Currency_Chit_Garou",
+     "do": "obtain",
+     "count": 24
+    },
+    {
+     "name": "Animal Hide",
+     "how": "ALL ITEMS[ Stone ]",
+     "do": "unlock",
+     "recipe": "DA_Recipe_Vendor_UmS_Buy_Hide_Animal"
+    },
+    {
+     "name": "Animal Hide",
+     "do": "craft",
+     "station": "UmS_Merchant_Hunter",
+     "station_name": "Iasadair",
+     "recipe": "DA_Recipe_Vendor_UmS_Buy_Hide_Animal",
+     "count": 4,
+     "item": "ITEM_Resources_Animal_Hide",
+     "crafts": 4
+    },
+    {
+     "name": "Tannery",
+     "recipe": "RECIPE_Process_Leather_From_Hide",
+     "do": "find_station",
+     "station": "Tannery",
+     "build_unlocked": false
+    },
+    {
+     "name": "Leather",
+     "do": "craft",
+     "station": "Tannery",
+     "station_name": "Tannery",
+     "recipe": "RECIPE_Process_Leather_From_Hide",
+     "count": 4,
+     "item": "ITEM_Resources_Leather",
+     "crafts": 4
+    },
+    {
+     "name": "Bone Pickaxe",
+     "do": "craft",
+     "station": "CraftingTable",
+     "station_name": "Crafting Table",
+     "recipe": "RECIPE_Pickaxe_Bone",
+     "count": 1,
+     "item": "ITEM_Pickaxe_Bone",
+     "crafts": 1
+    }
+   ],
+   "quantity_mode": "additional_output"
+  }
+ }
+}

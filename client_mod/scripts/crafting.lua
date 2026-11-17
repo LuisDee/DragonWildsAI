@@ -528,6 +528,52 @@ function M.card(a)
 end
 
 -- ------------------------------------------------------------------ the crafting tree (pure, read-only)
+-- The recipes a station can make that take inputs (what plan_tree expands; a cost-free cape is no way to make a thing).
+local function makers(item)
+    local out = {}
+    for _, rid in ipairs(idx().by_output[item] or {}) do
+        local r = recipe_of(rid)
+        if r and #(r.stations or {}) > 0 and #(r.inputs or {}) > 0 then out[#out + 1] = rid end
+    end
+    return out
+end
+M.cfg.loop_depth = 4
+-- Does recipe rid need, through an input of it, one of `banned` back (every way to make that input takes one of them,
+-- within M.cfg.loop_depth steps)? A carried, gatherable or uncraftable input is no loop (it is had some other way).
+-- carried(item) -> bool, gather_for(item) -> resource | nil. -> {via = the input's id, back = the banned id} | nil
+function M.loops_back(rid, banned, gather_for, carried)
+    local function back_of(item, depth, seen)
+        if carried and carried(item) then return nil end
+        if banned[item] then return item end
+        if depth > M.cfg.loop_depth or seen[item] then return nil end
+        if gather_for and gather_for(item) then return nil end
+        local rids = makers(item)
+        if #rids == 0 then return nil end
+        seen[item] = true
+        local back
+        for _, r2 in ipairs(rids) do
+            local hit
+            for _, c in ipairs(recipe_of(r2).inputs or {}) do
+                hit = back_of(item_id(c[1]), depth + 1, seen)
+                if hit then break end
+            end
+            if not hit then back = nil; break end -- one way round the loop: it is a path
+            back = back or hit
+        end
+        seen[item] = nil
+        return back
+    end
+    for _, c in ipairs((recipe_of(rid) or {}).inputs or {}) do
+        local id = item_id(c[1])
+        local back = back_of(id, 1, {})
+        if back then return { via = id, back = back } end
+    end
+    return nil
+end
+-- An input nothing makes at a station and no gather profile yields (a trader's buy counts as a recipe).
+function M.dead_end(item, gather_for)
+    return not (gather_for and gather_for(item)) and #makers(item) == 0
+end
 -- plan_tree(goal = {item | recipe}, count, ctx + {gather_for = fn(item_id) -> resource name | nil,
 --           quantity_mode = "additional_output" (default: count MORE, carried ones don't count) | "inventory_target"
 --           (reach count in total)})
@@ -597,15 +643,28 @@ function M.plan_tree(goal, count, ctx)
         if stack[item] then n.status = "cycle"; missing[#missing + 1] = { item = item, name = n.name, count = short }; return n end
         if depth > M.cfg.plan_depth then n.status = "depth"; missing[#missing + 1] = { item = item, name = n.name, count = short }; return n end
         local cands = {}
+        -- a recipe whose input can only be had from this item (or from one he is making it for) is no path (live
+        -- 2026-11-17, logs brain-live-20261117-231925-27552: Bronze Bar's main path was Bronze Leaf, which is made
+        -- only from Bronze Bar); an input nothing makes and nothing gathers is a dead end the plan can't show the way to
+        local banned = { [item] = true }
+        for k in pairs(stack) do banned[k] = true end
+        local function carried(i) return (pool[i] or 0) > 0 or (ctx.native ~= nil and not seeded[i] and (ctx.native(i) or 0) > 0) end
         for _, rid in ipairs(idx().by_output[item] or {}) do
             local r = recipe_of(rid)
             if r and #(r.stations or {}) > 0 and #(r.inputs or {}) > 0 then
                 local a = M.assess(rid, math.ceil(short / math.max(1, per_craft(r, item))), { have = pool, unlocked = ctx.unlocked, near = ctx.near })
+                a.loops = M.loops_back(rid, banned, ctx.gather_for, carried)
+                a.dead_ends = 0
+                for _, m in ipairs(a.missing) do
+                    if M.dead_end(m.item, ctx.gather_for) then a.dead_ends = a.dead_ends + 1 end
+                end
                 cands[#cands + 1] = a
             end
         end
         table.sort(cands, function(x, y)
+            if (x.loops == nil) ~= (y.loops == nil) then return x.loops == nil end
             if x.rank ~= y.rank then return x.rank > y.rank end
+            if x.dead_ends ~= y.dead_ends then return x.dead_ends < y.dead_ends end
             if #x.missing ~= #y.missing then return #x.missing < #y.missing end
             return x.recipe < y.recipe
         end)
@@ -616,7 +675,7 @@ function M.plan_tree(goal, count, ctx)
         if res and not (cands[1] and cands[1].status == "ready") then
             n.status, n.gather = "gather", res
             steps[#steps + 1] = { ["do"] = "gather", resource = res, item = item, name = n.name, count = short }
-        elseif #cands == 0 then
+        elseif #cands == 0 or cands[1].loops then -- nothing makes it, or every recipe for it loops back
             n.status = "obtain"
             steps[#steps + 1] = { ["do"] = "obtain", item = item, name = n.name, count = short }
             missing[#missing + 1] = { item = item, name = n.name, count = short }
@@ -625,12 +684,19 @@ function M.plan_tree(goal, count, ctx)
             for k, v in pairs(sub) do n[k] = v end
             if res then n.gather_instead = res end
         end
-        if #cands > 1 or (res and #cands > 0) then
+        if #cands > (n.recipe and 1 or 0) then
             n.alternatives = {}
             for i = (n.recipe and 2 or 1), #cands do
                 local c = cands[i]
-                n.alternatives[#n.alternatives + 1] = { recipe = c.recipe, status = c.status, station = c.station_name, detail = c.detail,
-                                                        short_of = (c.status == "missing_input" and #(c.missing or {}) > 0) and c.missing or nil }
+                local alt = { recipe = c.recipe, status = c.status, station = c.station_name, detail = c.detail,
+                              short_of = (c.status == "missing_input" and #(c.missing or {}) > 0) and c.missing or nil }
+                if c.loops then
+                    local via, back = name_of_id(c.loops.via), name_of_id(c.loops.back)
+                    alt.status, alt.short_of = "cycle", nil
+                    alt.detail = c.loops.via == c.loops.back and ("not a path: it takes " .. tostring(via) .. " itself")
+                        or ("not a path: it takes " .. tostring(via) .. ", which is only made from " .. tostring(back))
+                end
+                n.alternatives[#n.alternatives + 1] = alt
             end
         end
         return n
@@ -833,13 +899,16 @@ end
 -- A station a recipe needs and none is near: is it a piece he has unlocked and can build himself? From buildables
 -- (the game's own unlocks and costs), by the station's name. Rune Mysteries part 2, 2026-11-16: craft answered
 -- "there's no Air Altar or Rune Altar near here" and he explored 370 m for one; a Rune Altar is his to build.
--- -> {name, cost = "4 Stone + 2 Rune Essence", can_build_now, short = "3 Stone" | nil, text} | nil
+-- -> {name, cost = "4 Stone + 2 Rune Essence", can_build_now, short = "3 Stone" | nil, text} | nil, read
+-- (read = his unlocked pieces were read: nil, true is "none of his unlocked pieces is that station")
 function W.buildable_station(api, rid)
     local b = api.module("build")
-    if not (b and b.HANDLERS and type(b.HANDLERS.buildables) == "function") then return nil end
+    if not (b and b.HANDLERS and type(b.HANDLERS.buildables) == "function") then return nil, false end
+    local read = false
     for _, s in ipairs((recipe_of(rid) or {}).stations or {}) do
         local name = station_name(s)
         local ok, r = pcall(b.HANDLERS.buildables, nil, { about = name, max = 5 }, { api = api })
+        if ok and type(r) == "table" and r.ok then read = true end
         for _, p in ipairs(ok and type(r) == "table" and r.ok and (r.data or {}).pieces or {}) do
             if lower(p.name) == lower(name) then
                 local cost, short, stored = {}, {}, {}
@@ -856,11 +925,11 @@ function W.buildable_station(api, rid)
                 if out.in_storage then have = (have and (have .. ", and ") or "") .. out.in_storage .. " of it is in my storage, not on me" end
                 out.text = "a " .. p.name .. " is a piece I have unlocked and can build (" .. out.cost .. "; "
                     .. (have or (out.can_build_now and "I have that" or "I can't place it right now")) .. ")"
-                return out
+                return out, true
             end
         end
     end
-    return nil
+    return nil, read
 end
 
 -- What his unlock rules count (UProgressComponent, dump 26161880): ItemsPickedUp (TSet<UItemData*>, "ITEMS[...]")
@@ -2392,6 +2461,17 @@ local function plan_tool(api, args)
     if not tree then return api.fail(why, { recipe = args.recipe, detail = "I don't know that recipe." }) end
     for _, st in ipairs(tree.steps or {}) do
         if st["do"] == "gather" or st["do"] == "obtain" then st.gathered_before = known_spots(api, st.item) end
+        -- a station he lacks may be a piece he can build: his own unlocked pieces and their cost (offline check
+        -- 2026-11-17 23:4xZ, craft_plan Bone Pickaxe: "find_station Tannery" only, never that he can build one)
+        if st["do"] == "find_station" and st.recipe then
+            local ok, b, read = pcall(W.buildable_station, api, st.recipe)
+            if ok and b then
+                st.build = { piece = b.name, cost = b.cost, can_build_now = b.can_build_now, short = b.short,
+                             in_storage = b.in_storage, blocked_by = b.blocked_by, text = b.text }
+            elseif ok and read then
+                st.build_unlocked = false -- not among his unlocked pieces (the brain adds the wiki's cost, if it is one)
+            end
+        end
     end
     -- an alternative short of something he has gathered before says where (farm chain 11: thread from fur, 1 fur short,
     -- sent him 300 m after a deer; the flax alternative's "I need 1 Flax" said nothing of the flax he had picked)

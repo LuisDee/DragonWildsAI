@@ -830,6 +830,38 @@ class Knowledge:
         return {"title": title, "location": loc_s, "tool": tool_s, "url": lead[3] if lead else None}
 
 
+    def build_facts(self, name: str) -> dict | None:
+        """The wiki's build-menu recipe for a piece called ``name`` (a station a craft needs: "Tannery"), or None:
+        {title, skill, cost: [(item name, count)], unlock: sentence | None, url}. Live 2026-11-17: craft_plan said
+        only "find_station Tannery", never that the Tannery is a build-menu piece (12 Ash Logs, 4 Animal Bone, 2
+        Coarse Thread)."""
+        if not name or not name.strip():
+            return None
+        with self._lock:
+            rows = self.db.execute("SELECT title, heading, body, url FROM docs WHERE tier = 1 AND title = ? COLLATE NOCASE "
+                                   "ORDER BY rowid", (name.strip(),)).fetchall()
+        recipe = next((r for r in rows if re.search(r"\bfacility=Build Menu\b", r[2] or "", re.I)), None)
+        if recipe is None:
+            return None
+        body = recipe[2]
+        cost = []
+        for n, item in re.findall(r"\bmat(\d+)=([^;\n]+)", body):
+            qty = re.search(rf"\bmat{n}qty=(\d+)", body)
+            cost.append((item.strip(), int(qty.group(1)) if qty else 1))
+        if not cost:
+            return None
+        skill = re.search(r"\bskill=([^;\n]+)", body)
+        unlock = next((r[2] for r in rows if (r[1] or "").lower() == "unlock"), None)
+        if unlock:
+            unlock = re.sub(r"^Unlock:\s*", "", unlock).strip() or None
+        else:
+            lead = next((r[2] for r in rows if not r[1]), "") or ""
+            m = _SENTENCE.search(lead)
+            unlock = m.group(0).strip() if m else None
+        return {"title": recipe[0], "skill": skill.group(1).strip() if skill else None, "cost": cost,
+                "unlock": unlock, "url": recipe[3]}
+
+
 NODE_GENERIC = frozenset({"ore", "node", "tree", "plant", "bush", "rock", "deposit"})
 
 

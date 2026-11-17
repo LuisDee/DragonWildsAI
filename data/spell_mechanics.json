@@ -1,5 +1,5 @@
 {
- "about": "Spell mechanics that change HOW a spell is used (steps, what to cast it on, what must be prepared). Non-judge DATA read by client_mod/scripts/spells.lua (state.spells / spells `how`, shown to the model per castable spell). Ids from data/spells_26161880.json.",
+ "about": "Spell mechanics that change HOW a spell is used (steps, what to cast it on, what must be prepared), and `makes`: the items a spell gives (wiki-sourced; brain/plan_sources.py names them as a source in craft_plan). Non-judge DATA read by client_mod/scripts/spells.lua (state.spells / spells `how`, shown to the model per castable spell). Ids from data/spells_26161880.json.",
  "build": "26161880",
  "spells": {
   "USD_Recall": {
@@ -41,6 +41,9 @@
   },
   "USD_RunesToRuneEssence": {
    "how": "Two parts: drop the runes you want to convert on the ground first, then cast on them: gives back about 40% as rune essence.",
+   "makes": [
+    "Rune Essence"
+   ],
    "sources": [
     "wiki https://dragonwilds.runescape.wiki/w/Runes_To_Rune_Essence (snapshot data/wiki/pages, 2026-10-26)"
    ],
@@ -55,6 +58,9 @@
   },
   "USD_BonesToPeaches": {
    "how": "Cast on animal bones lying on the ground (up to 10): turns them into peaches.",
+   "makes": [
+    "Peach"
+   ],
    "sources": [
     "wiki https://dragonwilds.runescape.wiki/w/Bones_to_Peaches (snapshot data/wiki/pages, 2026-10-26)"
    ],
@@ -62,8 +68,12 @@
   },
   "USD_Treequipment": {
    "how": "Cast on one standing tree: turns it into a stack of bones (pairs with Bones to Peaches).",
+   "makes": [
+    "Animal Bone"
+   ],
    "sources": [
-    "wiki https://dragonwilds.runescape.wiki/w/Bark_To_Bones (snapshot data/wiki/pages, 2026-10-26)"
+    "wiki https://dragonwilds.runescape.wiki/w/Bark_To_Bones (snapshot data/wiki/pages, 2026-10-26)",
+    "makes: wiki https://dragonwilds.runescape.wiki/w/Animal_Bone, Item sources (snapshot data/wiki/pages)"
    ]
   },
   "USD_MagicalMending": {
