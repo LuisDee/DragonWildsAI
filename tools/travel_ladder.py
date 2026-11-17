@@ -153,9 +153,11 @@ P.update({
 JUMP_TOL_M = 2.0
 
 
-def _jump(name, a, b, note, human_m):
+def _jump(name, a, b, note, human_m, go_tol=None):
     rise = P[b][2] - P[a][2]
     j = _j(name, a, b, note, human_m=human_m, tol_m=JUMP_TOL_M, tol_dz=round(min(ARRIVE_DZ, max(0.5, rise / 2)), 2))
+    if go_tol is not None:  # the go_to's own circle, when the body's 1.5 m one reaches the ledge's foot
+        j["go_tol"] = go_tol
     j["course"] = "jump"  # dev world only, teleported starts only (place(walk_ok=False)), a jump summary per run
     return j
 
@@ -166,7 +168,9 @@ JUMP_COURSE = [
     _jump("jump_hill_mid", "jhm_a", "jhm_b", "jump: windmill hill, middle", human_m=9),
     _jump("jump_hill_east", "jhe_a", "jhe_b", "jump: windmill hill, east", human_m=11),
     _jump("jump_hill_top", "jht_a", "jht_b", "jump: windmill hill, top", human_m=4),
-    _jump("jump_doric", "jd_a", "jd_b", "jump: the ledges by Doric", human_m=5),
+    # the body's 1.5 m circle (and 1.76 m of height) reached the foot of this 0.84 m ledge: go_to said arrived 1.3 m
+    # short and 0.7 m below in all 10 runs of 2026-11-17 and no jump was tried; 0.5 m puts the circle on the ledge
+    _jump("jump_doric", "jd_a", "jd_b", "jump: the ledges by Doric", human_m=5, go_tol=0.5),
 ]
 # kept out of OBSTACLES so `--obstacles` runs what it ran before; `--only` picks from JOURNEYS + OBSTACLES + JUMP_COURSE
 JUMP_IDS = {j["id"] for j in JUMP_COURSE}
@@ -326,7 +330,7 @@ def run_journey(dev, j):
     th = threading.Thread(target=sample, daemon=True)
     t0 = time.time()
     th.start()
-    r = c.request("go_to", {"target": goal}, timeout=GO_TO_WAIT_S)
+    r = c.request("go_to", {"target": goal, **({"tolerance": j["go_tol"]} if j.get("go_tol") else {})}, timeout=GO_TO_WAIT_S)
     t1 = time.time()
     stop.set()
     th.join(5)
