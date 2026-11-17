@@ -1595,3 +1595,59 @@ s15's first pass was kept as the checkpoint `rm_start` (Ratcatcher complete), so
 - **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 8 from `gs_start`; Ratcatcher 7 chained, 9 from `rc_start`; Rune Mysteries 3 chained, 10 from `rm_part2`.
 - **Spend** on 2026-11-17 UTC at 03:02Z: $0.41 of $10 by the guard (279 calls). On top of it about $0.36 of replays (about 365 Controller calls) that the guard does not count (DISCOVERIES).
 - **Limits.** 13959e8 and 82a9824 have passed tests and replays only. No chain was run. Rune Mysteries has not been tried alone from its start. Reports were not judged for truth. The two wording questions (craft, give) are open as low-rate model slips, not solved.
+
+## 2026-11-17 03:05Z-05:45Z: Rune Mysteries alone from its start, 3 of 5 then 2 of 5; water he could not see (fixed, confirmed live); he stopped after the hand-in with the quest open (four fixes, tests and rollouts only)
+
+**Window s16, Rune Mysteries from `rm_start`, 3 of 5.** The first trials of this quest alone from its start.
+
+| run | result | time, x Luis | misses |
+|---|---|---|---|
+| 030535 | pass | 431.2 s, 0.99 | 0 |
+| 031503 | **fail** (deadline) | 780.0 s, 2.35 | 3 (explore for water) |
+| 033022 | **fail** (deadline) | 782.4 s, 1.98 | killed by a goblin archer while parched |
+| 034544 | pass | 369.6 s, 0.84 | 0 |
+| 035417 | pass | 450.5 s, 0.94 | 1 (consume, not in inventory) |
+
+- **13959e8 confirmed live** (the state after an action holds nothing kept from before it): after a quest-changing talk the next observation showed the new step 3 times of 3, the old one 0 times (it was 18 of 20 stale in s14 and s15).
+- **Both failures: thirsty beside Zanik, told there was no water.** The census measured a pond to its middle (84.7 m from Zanik), outside `look`'s 80 m and explore's 40 m; its bank was a few metres off. In three days `look about water` matched 0 of 9 and explore for water found it 1 time of 7. **Fixed, 0746bd0:** a pond is as far off as its nearest point (DISCOVERIES, "A water volume is a turned box"). At the dev base `look about water` went from no match to both ponds (71.4 m and 57.7 m). **Confirmed live in s17:** no trial ran out looking for water. **Limit:** the box is larger than the water, so the distance is a lower bound; `go_to` and `interact` on a pond still aim at its middle.
+- **Look rows carried another thing's map name** (seen in s15): 121 of 123 renamed rows in three days were wrong (ash-log piles as "Vannaka" 105 times). **Fixed, eb68bfb** (the map's name only when it is a fuller name of the same thing). **Not seen live:** s17 made no `look` call.
+- **A limit on these passes:** a Rune Altar that earlier runs built is still in the world, so the passes did not have to build one.
+
+**Window s17, Rune Mysteries from `rm_start`, 2 of 5.**
+
+| run | result | time, x Luis | longest stand | misses |
+|---|---|---|---|---|
+| 041914 | **fail** (quiet) | 382.1 s, 0.89 | 42.6 s | 1 |
+| 042752 | pass | 376.9 s, 0.86 | | 0 |
+| 043623 | pass | 395.1 s, 0.89 | | 1 (go_to, goal above) |
+| 044508 | **fail** (quiet) | 292.2 s, 0.71 | 41.5 s | |
+| 045210 | **fail** (quiet) | 255.6 s, 0.66 | 42.7 s | |
+
+All three failures ended the same way: he stopped with the quest's next step open and stood until the trial ended. The first wrong thing differed.
+
+- **041914 (skill).** He called `start_goal`; a hunger run came before the goal started and was not told a job was waiting. It replanned the old goal, whose gather was retried 7 times in 3 s ("interrupted too often"). **Fix, 64dd510:** the situation of such a run says "Job queued (it starts by itself when this turn ends): <goal>".
+- **044508 (skill).** He boiled 3 Clean Water, the stay-fed reflex drank 1 as they came out, and the bag check failed the craft: "+2, wanted +3". The failure note took the place of the note that names the open request, and he stopped. 7 of the 23 craft verification failures of 14 to 17 Nov were this (all Clean Water). **Fix, 7ce77d1:** what the reflex used of the output (the body's own `reflex_used` count) counts as made.
+- **045210 (model, by the ledger's precedent).** The hand-in talk was a step of the plan. Its report ("New quest Rune Mysteries: Mine Rune Essence ... Given to you: 1 Stone Pickaxe") stayed on the task; the run that heard the goal end saw only the goal and "steps: 3", ate, drank and stopped. Since 15 Nov a hand-in made by the model's own call ended in a finished quest 7 times of 11; as a plan step, 2 of 12. **Fixes:** the goal's end carries what each step reported (64dd510); the talk report says the quest "is not finished: it moved on to its next step" in place of "is complete. New quest ..." (c3a0319); and a run that stops with nothing while a request a goal came from is open is asked once whether it is finished (64dd510, `STOP_FOR_NOTE`, logged as `stop_for_check`). The model decides at that turn; nothing tells it what the next step is.
+
+**Offline evidence for the fixes** (each failed run rolled forward from its first Controller call after the goal's end, 10 times per variant, Haiku; the model's own replies kept). How often he went on with the quest:
+
+| variant | 045210 | 044508 (craft counted as made) |
+|---|---|---|
+| as logged | 0 | 0 |
+| step reports, old talk wording | 4 | not run |
+| step reports, new talk wording | 9 | 3 |
+| the same, with the one check turn | 10 (needed once) | 10 (needed 4 times) |
+| step reports, finished "Job:" line removed | 6 | 9 |
+| step reports and a closing tool `request_done` (old wording) | 5 went on, 5 closed as done | not run |
+
+- **Binned:** the closing tool (it closed an open quest as done 5 of 10 times).
+- **Left, queued:** the run that hears a goal end still sees "Job: <finished goal>" (removing it helped one run and hurt the other).
+- **How often it happens:** on 16 and 17 Nov, 26 runs heard the end of a goal that came from a player's request; 5 ended with an empty reply, all 5 with the quest open (4 at "Mine Rune Essence", 1 at "Bring 50 Ash Logs to Zanik"). No run in the data ended silently with its request rightly finished, so the cost of the check turn there is covered by a unit test only.
+- **Search (rule 5) and decision:** `docs/research/2026-11-17-stop-with-request-open.md`.
+
+**State at 05:45Z.**
+- **Tests:** brain set 387 passed; Lua and places set 85 passed. The full suite was not run.
+- **Ledger:** 51 failed runs, none untagged, 10 void. The three s17 runs are tagged (041914 and 044508 skill, 045210 model). "Stopped with the quest's next part open" now holds 7 Rune Mysteries runs.
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 8 from `gs_start`; Ratcatcher 7 chained, 9 from `rc_start`; Rune Mysteries 3 chained, 10 from `rm_part2`, 5 of 10 from `rm_start`. Chain: not yet.
+- **Spend** on 2026-11-17 UTC at 05:40Z: $1.04 of $10 by the guard (458 calls). On top of it about $1.0 of replays and rollouts (about 1,500 Haiku calls) that the guard does not count.
+- **Limits.** c3a0319, 7ce77d1 and 64dd510 have passed tests and rollouts only; window s18 (Rune Mysteries from `rm_start`, 5 trials) is their live trial. No chain was run. Reports were not judged for truth. The failure note still does not name the open request. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7.
