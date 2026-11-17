@@ -3425,6 +3425,48 @@ do
     M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
+-- His run-up at a jump's takeoff points at the landing (jump course 2026-11-17 18:2xZ: 10 of 16 missed landings took
+-- off at 450 cm/s at right angles to the landing, still running along the leg before it, and came down 1.3 m short or
+-- back on the lower level). Fast and sideways, he steers at the landing first and presses once his run-up turns; still
+-- sideways after run_up_wait_s, he jumps anyway and says so; slow or straight, he jumps at once.
+do
+    local cm = pawn.CharacterMovement
+    local function runup(vel, frames)
+        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(5)
+        local mv = _G.DW_MOVE
+        local here = pawn.loc
+        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X, Y = here.Y + 150, Z = FLOOR, act = "jump" } }
+        mv.lwp = 2; mv.lp_jump_exec = nil; mv.lp_jumped = {}; mv.lp_runup = nil
+        mv.trav_fails, mv.lp_fail = nil, nil
+        mv.win_t, mv.win_pos = T, { X = here.X, Y = here.Y, Z = here.Z }
+        local j0, n0 = pawn.jumps, #logs
+        frame_hook = function() cm.Velocity = type(vel) == "function" and vel() or vel end
+        step(frames)
+        frame_hook = nil
+        local said = {}
+        for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump run-up", 1, true) then said[#said + 1] = logs[i] end end
+        return pawn.jumps - j0, said
+    end
+    local jumps, said = runup({ X = 450, Y = 0, Z = 0 }, 1)
+    check("run-up: fast and sideways at the takeoff, he does not press yet", jumps == 0 and said[1] ~= nil
+        and said[1]:find("turning to the landing", 1, true) ~= nil, "jumps=" .. jumps .. " " .. tostring(said[1]))
+    local f = 0
+    jumps, said = runup(function() f = f + 1; return f < 4 and { X = 450, Y = 0, Z = 0 } or { X = 40, Y = 450, Z = 0 } end, 6)
+    check("run-up: once it turns toward the landing, he jumps", jumps == 1, "jumps=" .. jumps)
+    jumps, said = runup({ X = 450, Y = 0, Z = 0 }, 30)
+    check("run-up: still sideways after the wait, he jumps anyway and says so", jumps == 1
+        and tostring(said[#said]):find("jumping anyway", 1, true) ~= nil, "jumps=" .. jumps .. " " .. tostring(said[#said]))
+    jumps, said = runup({ X = 100, Y = 0, Z = 0 }, 1)
+    check("run-up: slow at the takeoff, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
+    jumps, said = runup({ X = 0, Y = 450, Z = 0 }, 1)
+    check("run-up: fast and straight at the landing, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
+    cm.Velocity = nil
+    M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
 -- A walk to a creature that is gone before he gets there says so (live 2026-11-17 07:36:55Z, run 073510: his reflex
 -- killed the rat he was walking to and the walk ended with the bare code target_not_visible)
 do

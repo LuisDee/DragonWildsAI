@@ -124,6 +124,10 @@ M.cfg = {
     jump_land_cm = 130,        -- a jump onto another level has landed within this of its point, at the point's height
     takeoff_blocked_cm = 75,   -- within this of a jump's start (inside its 1 m cell) and no nearer for
     takeoff_blocked_s = 0.6,   -- ... this long, on the ground: he takes off from where he stands
+    run_up_fast_cms = 150,     -- faster than this at a jump's takeoff and moving under run_up_cos toward the landing:
+    run_up_cos = 0.7,          -- ... he steers at the landing before he presses (jump course 2026-11-17: 10 of 16
+    run_up_wait_s = 0.6,       -- ... misses took off sideways at 450 cm/s), at most this long, then jumps anyway
+    run_up_keep_cm = 150,      -- ... and while he turns, the takeoff holds within this of the jump's start
     below_max_cm = 500,        -- a go_to spot hanging over his floor up to this above his feet: arrived right under it        -- a leap's landing counts within this of the planned cell (he leaves the edge at speed)
     cam_taken_deg = 1.0,       -- the control rotation moved this far from move's own last write: another skill aims
     cam_yield_s = 0.6,         -- ... and move leaves the camera alone this long (renewed while it keeps aiming)
@@ -3386,7 +3390,9 @@ local function steer_typed_jump(f, p)
     -- 073510: on the ground 51 cm from the start he pushed at it for 8 s and moved 0 to 3 cm; two re-plans gave the
     -- same path, and the attack ended path_blocked 7 m from the rat (139 stuck checks like it in the client log).
     local near = (not j and prev) and d2(me, prev) or nil
-    local take = near ~= nil and near < 50
+    local ru = st.lp_runup
+    local turning = ru ~= nil and ru.path == st.lpath and ru.index == st.lwp
+    local take = near ~= nil and (near < 50 or (turning and near < M.cfg.run_up_keep_cm))
     if near and not take then
         local w = st.lp_take
         if not (w and w.path == st.lpath and w.index == st.lwp) then w = { path = st.lpath, index = st.lwp, best = near, t = t }; st.lp_take = w end
@@ -3404,6 +3410,21 @@ local function steer_typed_jump(f, p)
         -- his run-up as the press is made (pawn:Jump() only sets the press), for the landing line
         local okv, vx, vy, vz = pcall(function() local u = pawn.CharacterMovement.Velocity; return u.X, u.Y, u.Z end)
         if not owned(bind) then return true end
+        -- the run-up points at the landing before the press: running on along the leg before it, he flew past the
+        -- landing's side (jump course 2026-11-17 18:2xZ). f.aim stays the landing, so he turns toward it meanwhile.
+        local vh = (okv and type(vx) == "number" and type(vy) == "number") and math.sqrt(vx * vx + vy * vy) or 0
+        local ex, ey = p.X - me.X, p.Y - me.Y
+        local el = math.sqrt(ex * ex + ey * ey)
+        local cosr = (vh > 1 and el > 1) and (vx * ex + vy * ey) / (vh * el) or 1
+        if vh > M.cfg.run_up_fast_cms and cosr < M.cfg.run_up_cos then
+            if not turning then
+                ru = { path = st.lpath, index = st.lwp, t = t }; st.lp_runup = ru
+                if log then log(string.format("move: jump run-up: turning to the landing first (toward=%.2f at %.0f cm/s)", cosr, vh)) end
+            end
+            if t - ru.t < M.cfg.run_up_wait_s then return end
+            if log then log(string.format("move: jump run-up still sideways after %.1f s (toward=%.2f at %.0f cm/s); jumping anyway",
+                t - ru.t, cosr, vh)) end
+        end
         local jr = start_jump(st, t, pawn, p.act == "djump" and st.env and st.env.double_jump, log)
         if st.local_authority and not local_route_owned(st, gen, pawn, pc, goal) then return true end
         if jr == "accepted" then
