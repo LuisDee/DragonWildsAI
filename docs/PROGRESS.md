@@ -1651,3 +1651,51 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 8 from `gs_start`; Ratcatcher 7 chained, 9 from `rc_start`; Rune Mysteries 3 chained, 10 from `rm_part2`, 5 of 10 from `rm_start`. Chain: not yet.
 - **Spend** on 2026-11-17 UTC at 05:40Z: $1.04 of $10 by the guard (458 calls). On top of it about $1.0 of replays and rollouts (about 1,500 Haiku calls) that the guard does not count.
 - **Limits.** c3a0319, 7ce77d1 and 64dd510 have passed tests and rollouts only; window s18 (Rune Mysteries from `rm_start`, 5 trials) is their live trial. No chain was run. Reports were not judged for truth. The failure note still does not name the open request. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7.
+
+## 2026-11-17 05:45Z-07:15Z: Rune Mysteries alone from its start, 4 of 5 then 5 of 5 (9 of the last 10); the four stop fixes confirmed live; a queued goal lost its request (fixed, its exact order not seen again)
+
+**Window s18, Rune Mysteries from `rm_start`, 4 of 5.**
+
+| run | result | time, x Luis | misses | note |
+|---|---|---|---|---|
+| 054814 | **fail** (quest completed) | 493.7 s, 1.27 | 0 | stood 9.3 s |
+| 055843 | pass | 307.9 s, 0.78 | 0 | |
+| 060553 | pass | 287.9 s, 0.70 | 0 | |
+| 061251 | pass | 338.1 s, 0.82 | 0 | |
+| 062049 | pass | 324.4 s, 0.80 | 1 (go_to, goal above) | |
+
+**Window s19, Rune Mysteries from `rm_start`, 5 of 5.** No failed tool result in any of the five trials, no stand.
+
+| run | result | time, x Luis | misses |
+|---|---|---|---|
+| 063313 | pass | 347.1 s, 0.85 | 0 |
+| 064122 | pass | 407.6 s, 0.95 | 0 |
+| 065018 | pass | 353.5 s, 0.88 | 0 |
+| 065825 | pass | 340.1 s, 0.83 | 0 |
+| 070620 | pass | 435.3 s, 1.00 | 0 |
+
+**Confirmed live in these ten trials** (they had passed tests and rollouts only):
+- **c3a0319** (talk wording): the hand-in report read "Rune Mysteries is not finished: it moved on to its next step, Mine Rune Essence ... Given to you in this conversation: 1 Stone Pickaxe."
+- **64dd510, step reports:** every goal end the Controller heard carried `results` (the plan's step rows with the talk report).
+- **64dd510, "Job queued":** s18 trial 1, the hunger run ate, boiled water, said "I'm fed and watered now, so I'll carry on with the Ash Logs for Zanik." and did not replan the goal.
+- **64dd510, the one check turn on a silent stop (`stop_for_check`):** fired twice (s18 trial 1 at 440.7 s, s19 trial 2 at 354.0 s). Both times he then read `quests`, mined the essence, made the runes and finished the quest. It did not fire in the other eight trials. `request_closed` was logged in 5 trials.
+- **7ce77d1** (what the reflex drank counts as made): craft results carried `reflex_used` in s18 trials 2 and 3; no `verification_failed` in any of the ten logs.
+- **No trial stopped with the quest open** (it was 3 of 5 in s17).
+
+**s18's one failure, 054814 (skill).** The quest was completed inside the time bar, but he stood 9.3 s.
+- Cause: a hunger run came between `start_goal` and the goal's start. As a body-only run it cleared the request the goal should carry. The goal's end then came with no `request`, his line "next quest step is rune essence" with no call was not asked about, and he stood until the next situation review, where the check turn sent him on.
+- How often: of the 32 goal ends of 15 to 17 Nov that followed a chat run's `start_goal`, 5 came without the request.
+- **Fix, c96dc9e:** a goal that waits keeps the request of the run that queued it. A test that failed before the change passes.
+- **Live:** the 3 goal ends the Controller heard in s19 all carried `request` and `from`, but in none of them did a body-only run come before the goal's start. So the exact order is covered by the test only.
+
+**Seen, not a failure:**
+- `go_to` with the raw coordinates of the quest marker "Essence Area" answered "the spot is on a floor 6.0 m above me ... I see no way up from here" in 2 of the 15 `rm_start` trials since s17 (both passes, 1 miss each). The report is true for a walk to a point; he was inside the marker's 25 m area and mined there next. A `go_to` by the marker's name knows it is an area; one by coordinates does not. Queued, no change.
+- s19 trial 2: hungry and thirsty, he dropped 99 Oak Logs "to lighten up" before eating. Not examined.
+- s19 used no `look` call, so eb68bfb (map names on look rows) is still unseen live.
+
+**State at 07:15Z.**
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 8 from `gs_start`; Ratcatcher 7 chained, 9 from `rc_start`; Rune Mysteries 3 chained, 10 from `rm_part2`, **9 from `rm_start`** (9 in a row). The guard prints "chain: ready".
+- **Ledger:** 52 failed runs, none untagged, 10 void. Largest open cause: "craft tried before the materials, then a give to an NPC" (Getting Started, 5 runs, 3 open). 054814 is tagged skill with c96dc9e.
+- **Spend** on 2026-11-17 UTC at 07:12Z: $1.64 of $10 by the guard (626 calls). s18 cost about $0.33 (83 calls), s19 about $0.27 (85 calls). About $1.0 of replays and rollouts earlier today is not counted by the guard.
+- **Limits.** No chain was run. Reports were not judged for truth. The Rune Altar that earlier runs built is still in the world, so no `rm_start` pass had to build one. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7.
+- **Next:** the largest open cause (Getting Started: a give to an NPC after a craft tried too early), then Getting Started from `gs_start` toward 9 of 10, then the chain gate.
