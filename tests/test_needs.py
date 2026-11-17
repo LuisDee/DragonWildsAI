@@ -206,3 +206,43 @@ def test_a_summon_shelter_he_knows_is_a_rest_option():
           "spells": [{"id": "USD_SummonShelter", "name": "Summon Shelter", "castable": True}]}
     rest = next(line for line in needs.lines(st, cat={}) if line.startswith("Need rest"))
     assert "Summon Shelter (your spell, castable now)" in rest and "at 0 you" not in rest
+
+
+# ---- the recipes of things his quests and job name (chain sitting of 2026-11-17, run 090028: craft Stone Club tried
+# with 4 of 6 Ash Logs and 4 of 8 Stone; 21 of the 46 logs of 16 and 17 Nov with a Stone Club craft held such a try)
+GS_STEP = "Build a Crafting Table and craft a Stone Club. Then bring it to Doric."
+
+
+def test_named_recipes_show_what_the_recipe_takes_and_what_he_has():
+    st = {"inventory": {"ITEM_Resources_Stone": 4, "ITEM_Resources_Wood_Ash": 4}}
+    assert needs.named_recipes(st, [GS_STEP]) == [
+        "Stone Club at a Crafting Table takes 8 Stone (you have 4) and 6 Ash Logs (you have 4)"]
+    line = needs.named_recipes_line(st, [None, GS_STEP, "craft a stone club and bring it to Doric"])
+    assert line.startswith("Recipes of things your quests and job name: Stone Club at a Crafting Table")
+    assert line.count("Stone Club") == 1  # named twice, shown once
+
+
+def test_named_recipes_only_for_things_a_station_makes_and_the_text_names():
+    st = {"inventory": {}}
+    assert needs.named_recipes(st, ["Speak to the Wise Old Man, in Bramblemead", None, ""]) == []
+    assert needs.named_recipes_line(st, ["Bring 50 Ash Logs to Zanik"]) is None  # only a vendor sells Ash Logs
+    assert needs.named_recipes(st, ["a stoneclub, a clubstone"]) == []  # whole names only
+
+
+def test_named_recipes_say_when_the_recipe_is_not_unlocked_and_what_he_carries():
+    st = {"inventory": {"ITEM_Club_Stone": 1}, "recipes_unlocked": ["RECIPE_Consumable_Rat_Roast_From_Rat"]}
+    rows = needs.named_recipes(st, ["Cook a Rat Roast, then craft a Stone Club"])
+    assert rows[0] == "Rat Roast at a Campfire or Grill takes 1 Raw Rat Meat (you have 0)"
+    assert rows[1].startswith("Stone Club (you carry 1) at a Crafting Table takes 8 Stone (you have 0)")
+    assert rows[1].endswith("not among your unlocked recipes yet")
+
+
+def test_summary_shows_the_recipe_a_quest_step_names():
+    st = state()
+    st["quests"] = {"active": [{"quest": "Getting Started", "step": GS_STEP}], "complete": []}
+    lines = summary(st)
+    i = next(n for n, line in enumerate(lines) if line.startswith("Quests: "))
+    assert lines[i + 1].startswith("Recipes of things your quests and job name: Stone Club at a Crafting Table takes 8 Stone")
+    st["quests"] = {"active": [{"quest": "Growing Pains", "step": "Speak to the Wise Old Man"}], "complete": []}
+    assert not any(line.startswith("Recipes of things") for line in summary(st))
+    assert any("Stone Club at a Crafting Table" in line for line in summary(st, active_goal="craft a Stone Club"))

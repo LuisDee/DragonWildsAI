@@ -57,6 +57,17 @@ def test_remember_and_start_goal(rig):
     assert "place:build_site" in rig.planner_llm.calls[0]["messages"][-1]["content"]
 
 
+def test_planner_is_given_the_recipe_of_a_thing_the_goal_names(rig):
+    """Chain sitting of 2026-11-17, run 090028: the Planner wrote "The exact recipe amounts are a guess" and planned
+    4 Ash Logs and 4 Stone for a Stone Club (it takes 6 and 8); its input held no recipe and it cannot look one up."""
+    rig.game.player_say("make a stone club")
+    rig.controller_llm.push(FakeLLM.say("On it.", FakeLLM.call("start_goal", goal="craft a Stone Club and bring it to Luis")))
+    rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 2}}]))
+    rig.agent.step()
+    sent = rig.planner_llm.calls[0]["messages"][-1]["content"]
+    assert "Stone Club at a Crafting Table takes 8 Stone (you have 0) and 6 Ash Logs (you have 0)" in sent
+
+
 def test_invalid_controller_calls_are_never_spoken_as_done(rig):
     """Review H4: a call that can't be dispatched (no such tool, bad args) must not leave the model's
     "On my way!"-style reply standing while nothing happens: a truthful refusal is said instead."""

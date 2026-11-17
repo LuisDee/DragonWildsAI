@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from typing import Literal
 
+from . import needs
 from . import situation as sit
 from .consume_order import interleave
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
@@ -1158,8 +1159,11 @@ class Agent:
         # goal's end means
         return {"request": a["request"], "from": a.get("player"), "asked_at": a}
 
-    def _planner_notes(self) -> dict:
+    def _planner_notes(self, goal: str | None = None, state: dict | None = None) -> dict:
         notes = dict(self.store.prompt_notes())
+        # the Planner cannot look a recipe up: what the recipe of a thing the goal or a quest step names takes
+        if isinstance(state, dict) and (rows := needs.named_recipes(state, [goal, *sit.quest_texts(state)])):
+            notes["recipes"] = rows
         for name, rec in self.store.places().items():
             if isinstance(rec, dict) and rec.get("position"):
                 notes[f"place:{name}"] = f"go_to target [x, y, z] = {rec['position']}" + (
@@ -1199,7 +1203,8 @@ class Agent:
         self._goal_asked = asked
         if given is None:
             try:
-                plan = self.planner.plan(goal, sit.with_asked(self.executor.state(), asked), self._planner_notes())
+                state = self.executor.state()
+                plan = self.planner.plan(goal, sit.with_asked(state, asked), self._planner_notes(goal, state))
             except PlanError as exc:
                 return self._stuck(goal, None, str(exc))
             if not plan.tasks:
@@ -1231,8 +1236,9 @@ class Agent:
                 return self._stuck(goal, task, outcome.reason)
             tree.replans += 1
             try:
-                new = self.planner.replan(tree, task, outcome.reason, sit.with_asked(self.executor.state(), asked),
-                                          self._planner_notes())
+                state = self.executor.state()
+                new = self.planner.replan(tree, task, outcome.reason, sit.with_asked(state, asked),
+                                          self._planner_notes(goal, state))
             except PlanError as exc:
                 return self._stuck(goal, task, str(exc))
             self.store.progress("replanned", goal=goal, explanation=new.explanation, ask_help=new.ask_help)

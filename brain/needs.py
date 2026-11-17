@@ -18,6 +18,7 @@ the Redberry Bush 9 m away, cooking or crafting from his menu, or asking Zezima.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -174,6 +175,84 @@ def _station_near(sids: list[str], state: dict, cat: dict) -> dict | None:
         if isinstance(t, dict) and t.get("class") in classes:
             return {"id": t.get("id"), "name": t.get("name"), "distance": t.get("distance")}
     return None
+
+
+_NAMED: dict[int, tuple] = {}
+NAMED_LIMIT = 3
+
+
+def _named_index(cat: dict) -> tuple:
+    """Per catalog, built once: a pattern over the names of everything a station recipe makes, and
+    name -> [(recipe id, recipe, output)]. Vendor and test recipes are left out (he cannot trade yet)."""
+    hit = _NAMED.get(id(cat))
+    if hit is not None and hit[0] is cat:
+        return hit[1], hit[2]
+    stations = cat.get("stations") or {}
+    by: dict[str, list] = {}
+    for rid, r in (cat.get("recipes") or {}).items():
+        sids = r.get("stations") or []
+        if (r.get("test") or r.get("vendor_reputation") or not sids
+                or any((stations.get(s) or {}).get("vendor") for s in sids)):
+            continue
+        for o in r.get("outputs") or []:
+            name = str(o.get("name") or "").strip().lower()
+            if len(name) >= 3 and not name.startswith("<"):
+                by.setdefault(name, []).append((rid, r, o))
+    rx = (re.compile(r"\b(" + "|".join(re.escape(n) for n in sorted(by, key=len, reverse=True)) + r")s?\b", re.I)
+          if by else None)
+    if len(_NAMED) > 4:
+        _NAMED.clear()
+    _NAMED[id(cat)] = (cat, rx, by)
+    return rx, by
+
+
+def named_recipes(state: dict, texts, cat: dict | None = None, limit: int = NAMED_LIMIT) -> list[str]:
+    """What the crafting menu shows a player for each thing these texts name: 'Stone Club at a Crafting Table takes
+    8 Stone (you have 4) and 6 Ash Logs (you have 4)'. The texts are his quest steps and his job; a thing is matched
+    by its whole in-game name, and only things a station makes are shown. It says what a recipe takes, never what
+    to do.
+
+    Chain sitting of 2026-11-17, run 090028: he tried the Stone Club with 4 of 6 Ash Logs and 4 of 8 Stone, and the
+    Planner had written "The exact recipe amounts are a guess". 21 of the 46 logs of 16 and 17 Nov with a Stone
+    Club craft held such a try; none read the recipe first. The turn replayed 10 times each way: a craft first 6 of
+    10 as logged, 0 of 10 with this line (docs/research/2026-11-17-recipe-of-a-named-thing.md)."""
+    cat = cat if cat is not None else catalog()
+    rx, by = _named_index(cat)
+    if rx is None or not isinstance(state, dict):
+        return []
+    named: list[str] = []
+    for text in texts:
+        for m in rx.finditer(str(text or "")):
+            if m.group(1).lower() not in named:
+                named.append(m.group(1).lower())
+    if not named:
+        return []
+    inv = state.get("inventory") if isinstance(state.get("inventory"), dict) else {}
+    have = {k: int(v) for k, v in inv.items() if isinstance(v, (int, float))}
+    unlocked = set(state["recipes_unlocked"]) if isinstance(state.get("recipes_unlocked"), list) else None
+    stations = cat.get("stations") or {}
+
+    def short(entry) -> tuple:  # an unlocked recipe first, then the one he is least short for
+        rid, r, _ = entry
+        miss = [max(0, int(i.get("count") or 1) - have.get(i.get("item"), 0)) for i in r.get("inputs") or []]
+        return (unlocked is not None and rid not in unlocked, sum(1 for n in miss if n), sum(miss))
+
+    out = []
+    for name in named[:limit]:
+        rid, r, o = min(by[name], key=short)
+        at = " or ".join(dict.fromkeys(str((stations.get(s) or {}).get("display_name") or (stations.get(s) or {}).get("name")
+                                           or s) for s in r.get("stations") or []))
+        takes = " and ".join(f"{int(i.get('count') or 1)} {i.get('name') or i.get('item')} "
+                             f"(you have {have.get(i.get('item'), 0)})" for i in r.get("inputs") or [])
+        carried = have.get(o.get("item"), 0)
+        out.append(f"{o.get('name')}" + (f" (you carry {carried})" if carried else "") + f" at a {at} takes {takes}"
+                   + (", not among your unlocked recipes yet" if unlocked is not None and rid not in unlocked else ""))
+    return out
+
+
+def named_recipes_line(state: dict, texts, cat: dict | None = None) -> str | None:
+    rows = named_recipes(state, texts, cat)
+    return ("Recipes of things your quests and job name: " + "; ".join(rows))[:LINE_CHARS] if rows else None
 
 
 def _craft(state: dict, kinds: list[str], cat: dict, heal: bool = False) -> list[str]:

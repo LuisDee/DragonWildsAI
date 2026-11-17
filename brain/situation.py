@@ -777,6 +777,11 @@ def quests_line(state: dict, limit: int = 3) -> str | None:
     return ("Quests: " + ("; ".join(parts) or "none active") + (f"; {', '.join(tail)}" if tail else ""))[:LINE_CHARS]
 
 
+def quest_texts(state: dict, limit: int = 3) -> list[str]:
+    """The words of the active quest steps the digest shows (step, detail, hint), for needs.named_recipes."""
+    return [str(a[k]) for a in quest_rows(state, limit) for k in ("step", "detail", "hint") if a.get(k)]
+
+
 def skills_line(state: dict) -> str | None:
     """'Skills (lowest first): Artisan 1, Cooking 1 (40 xp to next), ..., Attack 3' from get_state.skills
     (a list of {skill, level, xp, xp_to_next?} or a {name: {level, xp}} dict). Lowest first, so "level up
@@ -1151,6 +1156,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(gear_line(state))
     lines.append(skills_line(state))
     lines.append(quests_line(state))
+    # what the recipe of a thing his quests or job name takes, with what he carries (brain/needs.py named_recipes)
+    lines.append(needs.named_recipes_line(state, [*quest_texts(state), active_goal, queued_goal]))
     lines.append(hands(state))
     lines.append(world_line(state))
     lines.append(vitals_policy(state))
