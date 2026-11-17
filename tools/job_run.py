@@ -72,6 +72,28 @@ def count_of(counts: dict, pattern: str) -> int:
 
 
 # ------------------------------------------------------------------ what the game says (get_state, tool results)
+FIT_PCT = 40.0  # a fork starts a trial with health, food and water at least this share of their maximum (the stay-fed
+#                reflex's own eat/drink line): 2026-11-17 19:36-19:41Z ClaudeDev had starved at home between windows
+#                (food 0, water 0, health 1 of 100), both forks of him started so, and each died to the first rat on
+#                the walk to the job's start
+
+
+def unfit(data: dict | None, pct: float = FIT_PCT) -> str | None:
+    """Why a start state is not fit for a trial (a harness fault, never his), or None."""
+    d = data or {}
+    if isinstance(d.get("data"), dict) and ("ok" in d):
+        d = d["data"]
+    low = []
+    for what, cur, mx in (("health", "health", "max_health"), ("food", "sustenance", "sustenance_max"),
+                          ("water", "hydration", "hydration_max")):
+        c, m = d.get(cur), d.get(mx)
+        if isinstance(c, (int, float)) and isinstance(m, (int, float)) and m > 0 and c < m * pct / 100:
+            low.append(f"{what} {c:.0f} of {m:.0f}")
+    if d.get("dead"):
+        low.append("dead")
+    return ("start unfit: " + ", ".join(low)) if low else None
+
+
 def snapshot(data: dict | None) -> dict:
     """A get_state (or raw `inventory`) read in one shape: carried {item: n} over hotbar, bag and loadout; worn {slot:
     item} (Head, Body, Legs, HeldRight, held_right ...); consumables {food, drink}; position; dead; own_containers
@@ -885,6 +907,14 @@ def cmd_window(a, step: str | None) -> int:
                     raise RuntimeError(f"fork: {exc}") from None
                 used.append(name)
                 made = sw.ensure(name, create=False, wait_s=150)
+                try:
+                    bad_start = unfit(cli.request("get_state", {}, timeout=20))
+                except Exception as exc:
+                    bad_start = f"start unread: {exc!r}"[:200]
+                if bad_start:
+                    out["trials"].append({"character": name, "skipped": bad_start})
+                    print(f"{name}: {bad_start}")
+                    break  # every fork of this save starts the same
                 start = q.to_start(cli, place)
                 if start is not None and not start["ok"]:
                     out["trials"].append({"character": name, "start": start, "skipped": "not at the start's place"})

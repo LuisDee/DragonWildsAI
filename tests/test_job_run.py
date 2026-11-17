@@ -514,3 +514,12 @@ def test_gear_target_judges_on_the_games_own_power_level():
     end["power_level"] = None
     assert j.p_gear_target({}, start, end, cat)[0]  # no game figure: the catalog's, as before
     assert j.snapshot({"power_level": 0.0, "position": [0, 0, 0]})["power_level"] == 0.0
+
+
+def test_a_starving_start_is_unfit():
+    st = {"health": 1.0, "max_health": 100.0, "sustenance": 0.0, "sustenance_max": 100.0, "hydration": 90.0,
+          "hydration_max": 100.0}
+    why = j.unfit({"ok": True, "data": st})
+    assert why and "health 1 of 100" in why and "food 0 of 100" in why and "water" not in why
+    st.update(health=100.0, sustenance=90.0)
+    assert j.unfit(st) is None
