@@ -500,7 +500,8 @@ class Agent:
             # path: a Planner step's result is what the replan and the stuck message show (live 2026-11-17 22:24Z, run
             # 20261117-212448-L2: explore and gather ran as plan steps and only the turn's own calls carried it)
             got = result_knowledge.note(getattr(self.controller, "knowledge", None), task.skill, task.args,
-                                        {"ok": False, "reason": outcome.reason, "data": outcome.data})
+                                        {"ok": False, "reason": outcome.reason, "data": outcome.data},
+                                        lambda: self.executor.state(max_age=POST_ACTION_REUSE_S))  # where he is, his tools
             if got is not None:
                 self.log.log("result_knowledge", tool=task.skill, query=got[0], added=got[1])
                 if isinstance(outcome.data, dict):

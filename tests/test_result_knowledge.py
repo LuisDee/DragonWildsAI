@@ -116,7 +116,8 @@ def test_the_agent_shows_it_to_the_model_and_logs_it(rig):
     second = rig.controller_llm.calls[1]["messages"]
     tool_msg = json.loads(next(m for m in second if m["role"] == "tool")["content"])
     assert tool_msg["reason"] == "nothing_in_range"
-    assert tool_msg["knowledge"] == "wiki, Gold Ore Node: found in Bloodblight Swamp; tool: Iron pickaxe or better"
+    # the rig's state is read too: with no pickaxe carried, the fact says so after the wiki line
+    assert tool_msg["knowledge"].startswith("wiki, Gold Ore Node: found in Bloodblight Swamp; tool: Iron pickaxe or better")
     rows = [r for r in rig.log.read_all() if r["kind"] == "result_knowledge"]
     assert [(r["tool"], r["query"]) for r in rows] == [("gather", "gold")] and rows[0]["added"] == tool_msg["knowledge"]
 
@@ -147,3 +148,80 @@ def test_a_planned_step_that_finds_nothing_carries_it_too(tmp_path):
     assert [(r["tool"], r["query"]) for r in rows] == [("gather", "gold")]
     shown = json.dumps([m for c in rig.controller_llm.calls for m in c["messages"]])
     assert "Bloodblight Swamp" in shown
+# ---- distances and the tool against what he carries (live 2026-11-17 22:2xZ, logs brain-live-20261117-221939-19116:
+# shown only the region names, he asked the player where copper is and stopped; docs/research/2026-11-17-region-travel.md)
+
+HOME = [100.0, 1892.0, -31.0]  # his base on the dev world, in Temple Woods (Brynmoor)
+AT_HOME = {"position": HOME, "gear": {"HeldRight": "ITEM_Pickaxe_Stone", "HeldLeft": "ITEM_Pickaxe_Stone"},
+           "inventory": {"ITEM_Pickaxe_Stone": 1, "ITEM_Resources_Stone": 12, "ITEM_Rune_Earth": 40},
+           "inventory_items": [{"item": "ITEM_Pickaxe_Stone", "name": "Stone Pickaxe", "equipped": True}]}
+COPPER = {"copper": {"title": "Copper Ore Node", "location": REGIONS, "tool": "Bone pickaxe or better", "url": "u"}}
+TODAY = f"wiki, Copper Ore Node: found in {REGIONS}; tool: Bone pickaxe or better"
+
+
+@pytest.fixture(scope="module")
+def places():
+    from brain.places import Places
+    return Places()
+
+
+def _gather(kb, state=None, places=None):
+    return rk.note(kb, "gather", {"resource": "copper", "count": 30}, _copy(GATHER_COPPER), state, places=places)
+
+
+def test_copper_at_home_gets_distance_and_direction_of_each_region_and_his_pickaxe(places):
+    from brain.geom import direction
+    q, text = _gather(_KB(COPPER), AT_HOME, places)
+    assert q == "copper" and len(text) <= rk.MAX_CHARS <= 300, (len(text), text)
+    assert text.startswith(TODAY)  # the wiki fact as before, then the map and the tool
+    assert "Bone pickaxe or better (tier 2)" in text and "you in Temple Woods" in text
+    # the same resolver go_to walks to for a region name, so go_to <name> goes where the numbers say
+    for name in REGIONS.split(", "):
+        best = places.where(name, HOME)["data"]["results"][0]
+        assert best["name"] == name and best["match"] == "exact"
+        assert f"{name} {best['distance_m']} m {direction(HOME, best['position'])}" in text, (name, text)
+    assert "Fractured Plains 759 m NE, Stormtouched Highlands 826 m N, Dowdun Reach 2158 m NE" in text  # nearest first
+    assert text.endswith("your best pickaxe: Stone Pickaxe (tier 1), below it")
+
+
+def test_the_pickaxe_he_carries_is_read_from_bag_and_gear(places):
+    bronze = {**AT_HOME, "inventory": {**AT_HOME["inventory"], "ITEM_Pickaxe_Bronze": 1}}
+    assert _gather(_KB(COPPER), bronze, places)[1].endswith("your best pickaxe: Bronze Pickaxe (tier 3), meets it")
+    held_only = {"position": HOME, "gear": {"HeldRight": "ITEM_Pickaxe_Iron"}, "inventory": {}}
+    assert _gather(_KB(COPPER), held_only, places)[1].endswith("your best pickaxe: Iron Pickaxe (tier 4), meets it")
+    none = {"position": HOME, "gear": {}, "inventory": {"ITEM_Resources_Stone": 3}}
+    assert _gather(_KB(COPPER), none, places)[1].endswith("you carry no pickaxe")
+
+
+def test_he_is_told_when_he_is_in_a_named_region(places):
+    kb = _KB({"copper": {"title": "Copper Ore Node", "location": "Temple Woods, Fractured Plains", "tool": None}})
+    text = _gather(kb, AT_HOME, places)[1]
+    assert "Temple Woods (you are in it), Fractured Plains 759 m NE" in text
+
+
+def test_a_region_less_fact_is_unchanged(places):
+    for loc in ("Gielinor", "the deep caves of nowhere"):  # no map region or province among them
+        kb = _KB({"copper": {"title": "Copper Ore Node", "location": loc, "tool": None, "url": "u"}})
+        before = rk.note(kb, "gather", {"resource": "copper"}, _copy(GATHER_COPPER))
+        assert before is not None and _gather(kb, AT_HOME, places) == before
+
+
+def test_no_state_no_distances(places):
+    assert _gather(_KB(COPPER), None, places) == ("copper", TODAY)
+
+    def boom():  # an unreadable state is the same as none
+        raise RuntimeError("get_state failed")
+    assert _gather(_KB(COPPER), boom, places) == ("copper", TODAY)
+    no_pos = _gather(_KB(COPPER), {"inventory": {}}, places)[1]
+    assert no_pos.startswith(TODAY) and " m NE" not in no_pos and "you in" not in no_pos
+
+
+def test_state_may_be_a_reader_called_only_when_there_is_a_fact(places):
+    calls = []
+
+    def read():
+        calls.append(1)
+        return AT_HOME
+    assert rk.note(_KB({}), "gather", {"resource": "copper"}, _copy(GATHER_COPPER), read, places=places) is None
+    assert not calls
+    assert "Fractured Plains 759 m NE" in _gather(_KB(COPPER), read, places)[1] and calls == [1]
