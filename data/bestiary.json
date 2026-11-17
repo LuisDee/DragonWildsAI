@@ -1,7 +1,7 @@
 {
  "schema": "dw_bestiary/1",
- "built_at": "2026-11-17T18:13:59Z",
- "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids",
+ "built_at": "2026-11-17T20:30:35Z",
+ "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids. Named src tags: 'metabot.gg' = https://metabot.gg/en/dragonwilds/bestiary (snapshot data/bestiary_external.json), 'own fights' = his client's combat memory (data/skills/*/combat_*.json)",
  "creatures": {
   "Abyssal Demon": {
    "kind": "creature",
@@ -350,6 +350,9 @@
      "group": "Drops"
     }
    ],
+   "resist": [
+    "Fire"
+   ],
    "src": {
     "variants": [
      15185
@@ -380,9 +383,12 @@
     ],
     "drops": [
      15185
+    ],
+    "resist": [
+     "metabot.gg"
     ]
    },
-   "text": "Black Dragon: creature.\nBlack dragons, also known as lesser black dragons, are power level 8 dragons that can be found in the Scorned Wilderness raid.\nPower level 8, health 6,000.\nRace: Dragon. Weak to Water. Immune to Fire. Aggressive: Yes. Respawn: Every Raid Reset or Re-Runs.\nLives in: Scorned Wilderness.\nAttacks: Lunge. Tail sweep (if behind them). Fire Claw Slash. Poison Blast: The black dragon launches a poison projectile to build up around the three-quarters point. Fire Breath: The black dragon sweeps the area in front of them with their fire breath. Wing Attack: The black dragon flaps its wings, blowing wind at the player, with the second such blast doing damage. Fly: The black dragon can fly into the sky and do a few moves:.\nDrops: Black Dragon Hide 10-12 (always), Dragon Blood 6-12 (always), Dragon Tooth 6-12 (always), Discordant Residue 12-15 (always), Ascension Shard (Power Level 8) 8-12 (always).\nSources: wiki pages 15185."
+   "text": "Black Dragon: creature.\nBlack dragons, also known as lesser black dragons, are power level 8 dragons that can be found in the Scorned Wilderness raid.\nPower level 8, health 6,000.\nRace: Dragon. Weak to Water. Resistant to Fire. Immune to Fire. Aggressive: Yes. Respawn: Every Raid Reset or Re-Runs.\nLives in: Scorned Wilderness.\nAttacks: Lunge. Tail sweep (if behind them). Fire Claw Slash. Poison Blast: The black dragon launches a poison projectile to build up around the three-quarters point. Fire Breath: The black dragon sweeps the area in front of them with their fire breath. Wing Attack: The black dragon flaps its wings, blowing wind at the player, with the second such blast doing damage. Fly: The black dragon can fly into the sky and do a few moves:.\nDrops: Black Dragon Hide 10-12 (always), Dragon Blood 6-12 (always), Dragon Tooth 6-12 (always), Discordant Residue 12-15 (always), Ascension Shard (Power Level 8) 8-12 (always).\nSources: wiki pages 15185; metabot.gg datamined bestiary (resistant to)."
   },
   "Black Knight Crusader": {
    "kind": "creature",
@@ -1593,6 +1599,18 @@
    "class_names": [
     "Cow"
    ],
+   "observed_attacks": [
+    {
+     "name": "Attack 01",
+     "asset": "ATK_Cow_Attack_01",
+     "seen": 8,
+     "hits_on_him": 2,
+     "impact_s": 0.78,
+     "lunge_m": 2.1,
+     "damage_to_him": 36.0,
+     "build": "26162923"
+    }
+   ],
    "src": {
     "variants": [
      472
@@ -1617,9 +1635,12 @@
     ],
     "drops": [
      472
+    ],
+    "observed_attacks": [
+     "own fights"
     ]
    },
-   "text": "Cow: creature.\nCows are power level 2 creatures that roam around Bramblemead Valley and Dowdun Reach.\nPower level 2, health 120. Power level 4, health 270.\nRace: Cow. Weak to None. Resistant to None. Aggressive: no.\nLives in: Bramblemead Valley, The Pastures.\nAttacks: not in the mirror.\nDrops: Raw Farm Meat 2 (always), Animal Hide 2 (always), Animal Bone 2 (always), Raw Farm Meat 1 (75/100), Animal Hide 1 (75/100), Animal Bone 2 (50/100), Weeds 2 (15/100).\nSources: wiki pages 472."
+   "text": "Cow: creature.\nCows are power level 2 creatures that roam around Bramblemead Valley and Dowdun Reach.\nPower level 2, health 120. Power level 4, health 270.\nRace: Cow. Weak to None. Resistant to None. Aggressive: no.\nLives in: Bramblemead Valley, The Pastures.\nAttacks: not in the mirror.\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01 (seen 8, impact 0.78 s after the wind-up, lunge 2.1 m, about 36 damage to him per hit).\nDrops: Raw Farm Meat 2 (always), Animal Hide 2 (always), Animal Bone 2 (always), Raw Farm Meat 1 (75/100), Animal Hide 1 (75/100), Animal Bone 2 (50/100), Weeds 2 (15/100).\nSources: wiki pages 472; his own fights (attacks seen)."
   },
   "Curly": {
    "kind": "creature",
@@ -3197,6 +3218,38 @@
    "class_names": [
     "GiantRat"
    ],
+   "observed_attacks": [
+    {
+     "name": "Attack 01",
+     "asset": "ATK_GiantRat_Attack_01",
+     "seen": 137,
+     "hits_on_him": 24,
+     "impact_s": 1.07,
+     "lunge_m": 2.4,
+     "damage_to_him": 13.0,
+     "build": "26574764"
+    },
+    {
+     "name": "Attack 02",
+     "asset": "ATK_GiantRat_Attack_02",
+     "seen": 105,
+     "hits_on_him": 16,
+     "impact_s": 2.11,
+     "lunge_m": 1.6,
+     "damage_to_him": 18.0,
+     "build": "26574764"
+    },
+    {
+     "name": "Attack 03",
+     "asset": "ATK_GiantRat_Attack_03",
+     "seen": 108,
+     "hits_on_him": 25,
+     "impact_s": 1.14,
+     "lunge_m": 0.9,
+     "damage_to_him": 7.0,
+     "build": "26574764"
+    }
+   ],
    "vaults": [
     "Chaktan Kara (7, power level 4)",
     "Crasorak Kara (9, power level 2)",
@@ -3233,6 +3286,9 @@
     "drops": [
      169
     ],
+    "observed_attacks": [
+     "own fights"
+    ],
     "vaults": [
      3521,
      3515,
@@ -3243,7 +3299,7 @@
      3517
     ]
    },
-   "text": "Giant Rat: creature.\nGiant rats are power level 1-5 creatures found in a variety of areas within Temple Woods, Bramblemead Valley, Fractured Plains and certain dragonkin vaults.\nPower level 1, health 50. Power level 2, health 100. Power level 3, health 162. Power level 4, health 225. Power level 5, health 288.\nRace: Rat. Weak to Stab. Resistant to Crush. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Fractured Plains, Some Dragonkin Vaults.\nIn vaults or dungeons: Chaktan Kara (7, power level 4); Crasorak Kara (9, power level 2); Kalistrakthen Kara (9, power level 5); Kalistrakthen Kara (3, power level 4); Skekven Kara (4, power level 5); Takla Kara (5, power level 3); Thishepen Kara (16, power level 2); Thishepen Kara (5, power level 1); Vertentis Kara (12, power level 2).\nAttacks: not in the mirror.\nDrops: Raw Rat Meat 1 (always), Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (always), Small Animal Fang 1 (always).\nSources: wiki pages 169, 3515, 3516, 3517, 3518, 3521, 9234, 9412."
+   "text": "Giant Rat: creature.\nGiant rats are power level 1-5 creatures found in a variety of areas within Temple Woods, Bramblemead Valley, Fractured Plains and certain dragonkin vaults.\nPower level 1, health 50. Power level 2, health 100. Power level 3, health 162. Power level 4, health 225. Power level 5, health 288.\nRace: Rat. Weak to Stab. Resistant to Crush. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Fractured Plains, Some Dragonkin Vaults.\nIn vaults or dungeons: Chaktan Kara (7, power level 4); Crasorak Kara (9, power level 2); Kalistrakthen Kara (9, power level 5); Kalistrakthen Kara (3, power level 4); Skekven Kara (4, power level 5); Takla Kara (5, power level 3); Thishepen Kara (16, power level 2); Thishepen Kara (5, power level 1); Vertentis Kara (12, power level 2).\nAttacks: not in the mirror.\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01 (seen 137, impact 1.07 s after the wind-up, lunge 2.4 m, about 13 damage to him per hit); Attack 02 (seen 105, impact 2.11 s after the wind-up, lunge 1.6 m, about 18 damage to him per hit); Attack 03 (seen 108, impact 1.14 s after the wind-up, lunge 0.9 m, about 7 damage to him per hit).\nDrops: Raw Rat Meat 1 (always), Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (always), Small Animal Fang 1 (always).\nSources: wiki pages 169, 3515, 3516, 3517, 3518, 3521, 9234, 9412; his own fights (attacks seen)."
   },
   "Gnasher": {
    "kind": "creature",
@@ -3348,6 +3404,12 @@
      "group": "Other"
     }
    ],
+   "weak": [
+    "Slash"
+   ],
+   "resist": [
+    "Fire"
+   ],
    "src": {
     "variants": [
      14588
@@ -3369,9 +3431,15 @@
     ],
     "drops": [
      14588
+    ],
+    "weak": [
+     "metabot.gg"
+    ],
+    "resist": [
+     "metabot.gg"
     ]
    },
-   "text": "Goat: creature.\nGoat are power level 7 creatures found in Umbral Sands.\nPower level 7.\nRace: Goat. Weak to: not in the mirror. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops: Fleece 1-2 (always), Animal Hide 1-2 (always), Ram Horn 1 (always), Raw Farm Meat 2-3 (75/100).\nSources: wiki pages 14588."
+   "text": "Goat: creature.\nGoat are power level 7 creatures found in Umbral Sands.\nPower level 7.\nRace: Goat. Weak to Slash. Resistant to Fire. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops: Fleece 1-2 (always), Animal Hide 1-2 (always), Ram Horn 1 (always), Raw Farm Meat 2-3 (75/100).\nSources: wiki pages 14588; metabot.gg datamined bestiary (weak to, resistant to)."
   },
   "Goblin Archer": {
    "kind": "creature",
@@ -3656,6 +3724,38 @@
    "class_names": [
     "RuntGoblin"
    ],
+   "observed_attacks": [
+    {
+     "name": "Attack1",
+     "asset": "ATK_RuntGoblin_Attack1",
+     "seen": 78,
+     "hits_on_him": 26,
+     "impact_s": 0.95,
+     "lunge_m": 1.0,
+     "damage_to_him": 18.0,
+     "build": "26162923"
+    },
+    {
+     "name": "Attack2",
+     "asset": "ATK_RuntGoblin_Attack2",
+     "seen": 80,
+     "hits_on_him": 25,
+     "impact_s": 0.87,
+     "lunge_m": 1.1,
+     "damage_to_him": 18.0,
+     "build": "26162923"
+    },
+    {
+     "name": "SlowAttack",
+     "asset": "ATK_RuntGoblin_SlowAttack",
+     "seen": 43,
+     "hits_on_him": 15,
+     "impact_s": 1.28,
+     "lunge_m": 0.6,
+     "damage_to_him": 16.0,
+     "build": "26162923"
+    }
+   ],
    "vaults": [
     "Crasorak Kara (2, power level 2)"
    ],
@@ -3684,11 +3784,14 @@
     "drops": [
      1323
     ],
+    "observed_attacks": [
+     "own fights"
+    ],
     "vaults": [
      3515
     ]
    },
-   "text": "Goblin Runt: creature.\nGoblin runts areare power level 1, 3 and 6 monsters located in Brynmoor, Bloodblight Swamp and Dowdun Reach.\nPower level 1, health 60. Power level 3, health 195. Power level 6, health 420.\nRace: Goblin. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Bloodblight Swamp, Dowdun Reach.\nIn vaults or dungeons: Crasorak Kara (2, power level 2).\nAttacks: not in the mirror.\nDrops: Goblin Pack 1 (always).\nSources: wiki pages 1323, 3515."
+   "text": "Goblin Runt: creature.\nGoblin runts areare power level 1, 3 and 6 monsters located in Brynmoor, Bloodblight Swamp and Dowdun Reach.\nPower level 1, health 60. Power level 3, health 195. Power level 6, health 420.\nRace: Goblin. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Bloodblight Swamp, Dowdun Reach.\nIn vaults or dungeons: Crasorak Kara (2, power level 2).\nAttacks: not in the mirror.\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack1 (seen 78, impact 0.95 s after the wind-up, lunge 1.0 m, about 18 damage to him per hit); Attack2 (seen 80, impact 0.87 s after the wind-up, lunge 1.1 m, about 18 damage to him per hit); SlowAttack (seen 43, impact 1.28 s after the wind-up, lunge 0.6 m, about 16 damage to him per hit).\nDrops: Goblin Pack 1 (always).\nSources: wiki pages 1323, 3515; his own fights (attacks seen)."
   },
   "Goblin Thug": {
    "kind": "creature",
@@ -3796,6 +3899,45 @@
      "group": "Other"
     }
    ],
+   "observed_attacks": [
+    {
+     "name": "Attack1",
+     "asset": "ATK_MeleeGoblin_Attack1",
+     "seen": 5,
+     "hits_on_him": 1,
+     "impact_s": 0.7,
+     "lunge_m": 1.6,
+     "damage_to_him": 44.0,
+     "build": "26162923"
+    },
+    {
+     "name": "Combo1",
+     "asset": "ATK_MeleeGoblin_Combo1",
+     "seen": 4,
+     "hits_on_him": 0,
+     "impact_s": 0.87,
+     "lunge_m": 0.7,
+     "build": "26162923"
+    },
+    {
+     "name": "Combo2",
+     "asset": "ATK_MeleeGoblin_Combo2",
+     "seen": 6,
+     "hits_on_him": 0,
+     "impact_s": 0.95,
+     "lunge_m": 2.1,
+     "build": "26162923"
+    },
+    {
+     "name": "SlowAttack1",
+     "asset": "ATK_MeleeGoblin_SlowAttack1",
+     "seen": 3,
+     "hits_on_him": 0,
+     "impact_s": 1.22,
+     "lunge_m": 1.2,
+     "build": "26162923"
+    }
+   ],
    "src": {
     "variants": [
      174
@@ -3820,9 +3962,12 @@
     ],
     "drops": [
      174
+    ],
+    "observed_attacks": [
+     "own fights"
     ]
    },
-   "text": "Goblin Warrior: creature.\nGoblin warriors are power level 2, 6 and 8 monsters located in Brynmoor, Dowdun Reach and Scorned Wilderness.\nPower level 2, health 140. Power level 6, health 490. Power level 8, health 665.\nRace: Goblin. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Bramblemead Valley, Whispering Swamp, Dowdun Reach, Scorned Wildernessed.\nAttacks: not in the mirror.\nDrops: Goblin Pack 1 (always), A Cruel Goblin Blade 1 (2/100).\nSources: wiki pages 174."
+   "text": "Goblin Warrior: creature.\nGoblin warriors are power level 2, 6 and 8 monsters located in Brynmoor, Dowdun Reach and Scorned Wilderness.\nPower level 2, health 140. Power level 6, health 490. Power level 8, health 665.\nRace: Goblin. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Bramblemead Valley, Whispering Swamp, Dowdun Reach, Scorned Wildernessed.\nAttacks: not in the mirror.\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack1 (seen 5, impact 0.7 s after the wind-up, lunge 1.6 m, about 44 damage to him per hit); Combo1 (seen 4, impact 0.87 s after the wind-up, lunge 0.7 m); Combo2 (seen 6, impact 0.95 s after the wind-up, lunge 2.1 m); SlowAttack1 (seen 3, impact 1.22 s after the wind-up, lunge 1.2 m).\nDrops: Goblin Pack 1 (always), A Cruel Goblin Blade 1 (2/100).\nSources: wiki pages 174; his own fights (attacks seen)."
   },
   "Green Dragon": {
    "kind": "creature",
@@ -4970,6 +5115,18 @@
    "class_names": [
     "Kebbit"
    ],
+   "observed_attacks": [
+    {
+     "name": "Attack 01",
+     "asset": "ATK_Kebbit_Attack_01",
+     "seen": 156,
+     "hits_on_him": 27,
+     "impact_s": 1.31,
+     "lunge_m": 1.8,
+     "damage_to_him": 13.0,
+     "build": "26162923"
+    }
+   ],
    "src": {
     "variants": [
      465
@@ -4997,9 +5154,12 @@
     ],
     "drops": [
      465
+    ],
+    "observed_attacks": [
+     "own fights"
     ]
    },
-   "text": "Kebbit: creature.\nKebbits are a power level 1 animal that resides near kebbit burrows throughout Ashenfall, and are passive creatures unless attacked.\nPower level 1, health 30.\nRace: Kebbit. Weak to None. Resistant to None. Aggressive: no. Respawn: 1 Day.\nLives in: Kebbit burrows around Ashenfall.\nAttacks: not in the mirror.\nDrops: Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (1/2).\nSources: wiki pages 465."
+   "text": "Kebbit: creature.\nKebbits are a power level 1 animal that resides near kebbit burrows throughout Ashenfall, and are passive creatures unless attacked.\nPower level 1, health 30.\nRace: Kebbit. Weak to None. Resistant to None. Aggressive: no. Respawn: 1 Day.\nLives in: Kebbit burrows around Ashenfall.\nAttacks: not in the mirror.\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01 (seen 156, impact 1.31 s after the wind-up, lunge 1.8 m, about 13 damage to him per hit).\nDrops: Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (1/2).\nSources: wiki pages 465; his own fights (attacks seen)."
   },
   "KotHaar-Hur": {
    "kind": "creature",
@@ -9505,6 +9665,17 @@
      "group": "Other"
     }
    ],
+   "weak": [
+    "Crush"
+   ],
+   "resist": [
+    "None"
+   ],
+   "immune": [
+    "Poison",
+    "Bleed",
+    "Burning"
+   ],
    "vaults": [
     "Thishepen Kara (1, power level 2)"
    ],
@@ -9535,9 +9706,18 @@
     ],
     "role": [
      2128
+    ],
+    "weak": [
+     "metabot.gg"
+    ],
+    "resist": [
+     "metabot.gg"
+    ],
+    "immune": [
+     "metabot.gg"
     ]
    },
-   "text": "Vault Archon: creature, vault boss in Thishepen Kara.\nVault archons are vault mini boss monsters that attack with Ranged styles.\nPower level 2, health 3100.\nRace: Vault Guardian. Weak to: not in the mirror. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Thishepen Kara (1, power level 2).\nAttacks: not in the mirror.\nDrops: Stone 5 (always), Stone 5 (25/100), Rune Essence 3 (75/100), Rune Essence 3 (46/100), Vault Shard 2 (25/100), Vault Shard 3 (15/100).\nSources: wiki pages 1328, 2128, 3516."
+   "text": "Vault Archon: creature, vault boss in Thishepen Kara.\nVault archons are vault mini boss monsters that attack with Ranged styles.\nPower level 2, health 3100.\nRace: Vault Guardian. Weak to Crush. Resistant to None. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Thishepen Kara (1, power level 2).\nAttacks: not in the mirror.\nDrops: Stone 5 (always), Stone 5 (25/100), Rune Essence 3 (75/100), Rune Essence 3 (46/100), Vault Shard 2 (25/100), Vault Shard 3 (15/100).\nSources: wiki pages 1328, 2128, 3516; metabot.gg datamined bestiary (weak to, resistant to, immune to)."
   },
   "Vault Corruptor": {
    "kind": "creature",
@@ -17190,11 +17370,17 @@
   "reverse_rows": 418,
   "creatures_missing": {
    "variants": 0,
-   "weak": 21,
-   "resist": 14,
+   "weak": 19,
+   "resist": 11,
+   "immune": 79,
    "locations": 2,
-   "attacks_any": 93,
-   "drops": 17
+   "attacks_any": 88,
+   "drops": 17,
+   "weak_wiki": 21,
+   "resist_wiki": 14,
+   "immune_wiki": 80,
+   "attacks_wiki": 93,
+   "observed_attacks": 124
   },
   "vaults_missing": {
    "area": 0,
@@ -17205,6 +17391,6 @@
    "chests": 3,
    "recipes": 2
   },
-  "max_text": 1313
+  "max_text": 1446
  }
 }

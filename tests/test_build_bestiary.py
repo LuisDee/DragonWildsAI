@@ -162,19 +162,30 @@ def page(pid, title, wt):
     return {"pageid": pid, "title": title, "wikitext": wt, "sections": []}
 
 
+RAT_SEEN = [{"name": "Attack 01", "asset": "ATK_GiantRat_Attack_01", "seen": 9, "hits_on_him": 2, "impact_s": 1.07,
+             "lunge_m": 2.4, "damage_to_him": 13.0}]
+# metabot.gg snapshot: it may fill Zogre's empty immune field, never the rat's wiki weakness
+EXTERNAL = {"creatures": {"Giant Rat": {"journal": {"weak": ["Fire"]}},
+                          "Ogre": {"affinity": {"immune": ["Poison"]}}}}
+
+
 @pytest.fixture(scope="module")
-def doc():
+def doc(tmp_path_factory):
     mirror = bb.Mirror.from_pages({
         "Giant Rat": page(1, "Giant Rat", RAT), "Zogre": page(2, "Zogre", OGRE), "Test Kara": page(3, "Test Kara", VAULT),
         "Chest (Test Kara)": page(4, "Chest (Test Kara)", CHEST), "Boss": page(5, "Boss", BOSS),
         "Dragonkin Vault": page(6, "Dragonkin Vault", DV), "Vault Shard": page(7, "Vault Shard", "x"),
     }, {"Giant rat": "Giant Rat", "Ogre": "Zogre", "Dungeon": "Dragonkin Vault"})
-    orig = bb.class_aliases
+    ext = tmp_path_factory.mktemp("ext") / "bestiary_external.json"
+    ext.write_text(json.dumps(EXTERNAL), encoding="utf-8")
+    orig = bb.class_aliases, bb.observed_attacks, bb.apply_external
     bb.class_aliases = lambda names, dump=None, combat=None: {"Giant Rat": ["GiantRat"]}
+    bb.observed_attacks = lambda names, skills=None: {"Giant Rat": RAT_SEEN}
+    bb.apply_external = lambda creatures, path=None: orig[2](creatures, ext)
     try:
         return bb.build(mirror)
     finally:
-        bb.class_aliases = orig
+        bb.class_aliases, bb.observed_attacks, bb.apply_external = orig
 
 
 # ---------------------------------------------------------------- wikitext
@@ -264,6 +275,73 @@ def test_missing_fields_say_so(doc):
     assert "Weak to: not in the mirror." in t and "Drops: not in the mirror." in t and "Attacks: not in the mirror." in t
 
 
+# ---------------------------------------------------------------- sources beyond the mirror
+
+
+def test_external_fills_only_empty_fields_with_a_named_source(doc):
+    rat, z = doc["creatures"]["Giant Rat"], doc["creatures"]["Zogre"]
+    assert rat["weak"] == ["Stab"] and rat["src"]["weak"] == [1]  # the wiki value is never replaced
+    assert z["immune"] == ["Poison"] and z["src"]["immune"] == [bb.METABOT]  # matched through the alias "Ogre"
+    assert "Immune to Poison." in z["text"] and "metabot.gg datamined bestiary (immune to)" in z["text"]
+
+
+def test_observed_attacks_in_entry_and_text(doc):
+    rat = doc["creatures"]["Giant Rat"]
+    assert rat["observed_attacks"] == RAT_SEEN and rat["src"]["observed_attacks"] == [bb.OWN]
+    assert "Attacks seen in his own fights" in rat["text"] and "Attack 01 (seen 9, impact 1.07 s" in rat["text"]
+    assert "about 13 damage to him per hit" in rat["text"] and "his own fights (attacks seen)" in rat["text"]
+    assert doc["counts"]["creatures_missing"]["attacks_wiki"] == 0  # the rat and the ogre both have wiki attacks
+
+
+def test_observed_attacks_keep_the_most_seen_record_and_skip_dodges(tmp_path):
+    a = {"defense": {"attacks": {
+        "Giant Rat:ATK_GiantRat_Attack_01": {"n": 5, "hit": 1, "impact_s": 1.0, "damage": 12.4},
+        "Goblin Archer:ATK_RangedGoblin_Dodge_Right": {"n": 3, "avoided": 1},
+        "Goblin Archer:class23": {"n": 4},
+        "Kebbit:ATK_Kebbit_Attack_01": {"n": 0, "hit": 0},
+        "Nobody:ATK_Nobody_Attack": {"n": 9}}}, "build": "1"}
+    b = {"defense": {"attacks": {"Giant Rat:ATK_GiantRat_Attack_01": {"n": 50, "hit": 7, "impact_s": 1.1, "lunge_cm": 240,
+                                                                        "damage": 13.2}}}, "build": "2"}
+    (tmp_path / "dev").mkdir()
+    (tmp_path / "dev" / "combat_knowledge.json").write_text(json.dumps(a), encoding="utf-8")
+    (tmp_path / "dev" / "combat_memory_X.json").write_text(json.dumps(b), encoding="utf-8")
+    got = bb.observed_attacks({"Giant Rat", "Goblin Archer", "Kebbit"}, tmp_path)
+    assert list(got) == ["Giant Rat"]
+    assert got["Giant Rat"] == [{"name": "Attack 01", "asset": "ATK_GiantRat_Attack_01", "seen": 50, "hits_on_him": 7,
+                                 "impact_s": 1.1, "lunge_m": 2.4, "damage_to_him": 13.0, "build": "2"}]
+    assert bb.observed_attacks({"Giant Rat"}, tmp_path / "missing") == {}
+
+
+METABOT_HTML = """<ul><li id="giantrat" class="x_card "><div class="x_cardTop"><span class="x_name">Giant Rat</span>
+<span class="x_faction">AI</span></div><div class="x_affinities"><span class="x_weak">Weak: Stab</span>
+<span class="x_resist">Resists: Crush</span></div><p class="x_lore">Weakness: Stab
+Resistance: Crush</p></li><li id="archon" class="x_card "><div class="x_cardTop"><span class="x_name">Vault Archon</span>
+<span class="x_faction">Vault Guardians</span></div><div class="x_affinities"><span class="x_noaff">No notable affinities</span>
+</div><p class="x_lore">Weakness: Crush
+Resistance: None
+Immune: Poison, Bleed, Burning</p></li><li id="b" class="x_card "><div class="x_cardTop"><span class="x_name">BOSS</span>
+</div></li><li id="m" class="x_card "><div class="x_cardTop"><span class="x_name">Magpie</span></div>
+<div class="x_affinities"><span class="x_noaff">No notable affinities</span></div></li></ul>"""
+
+
+def test_parse_metabot_and_its_snapshot(tmp_path):
+    cards = bb.parse_metabot(METABOT_HTML)
+    assert set(cards) == {"Giant Rat", "Vault Archon", "Magpie"}  # the unnamed BOSS card is skipped
+    assert cards["Giant Rat"]["affinity"] == {"weak": ["Stab"], "resist": ["Crush"]}
+    assert cards["Vault Archon"]["journal"] == {"weak": ["Crush"], "resist": ["None"], "immune": ["Poison", "Bleed", "Burning"]}
+    assert "affinity" not in cards["Magpie"]  # "No notable affinities" is not read as a fact
+    html_file = tmp_path / "page.html"
+    html_file.write_text(METABOT_HTML, encoding="utf-8")
+    out = tmp_path / "ext.json"
+    snap = bb.fetch_metabot(out, html_file)
+    assert snap["url"] == bb.METABOT_URL and "credit" in snap["terms"]
+    cr = {"Vault Archon": {"name": "Vault Archon", "aliases": [], "_src": bb.Src()},
+          "Magpie": {"name": "Magpie", "aliases": [], "weak": ["None"], "_src": bb.Src()}}
+    assert bb.apply_external(cr, out) == 3
+    assert cr["Vault Archon"]["weak"] == ["Crush"] and cr["Vault Archon"]["_src"].out()["immune"] == [bb.METABOT]
+    assert cr["Magpie"]["weak"] == ["None"] and not cr["Magpie"]["_src"].out()
+
+
 # ---------------------------------------------------------------- matching and the lookup merge
 
 
@@ -318,6 +396,10 @@ def test_built_file_counts_and_contract():
             for f in e:
                 if f not in ("kind", "name", "title", "page", "aliases", "text", "src", "class_names", "role", "vaults"):
                     assert e["src"].get(f), (k, f)
+            for f, ids in e["src"].items():
+                assert all(isinstance(i, int) or i in (bb.METABOT, bb.OWN) for i in ids), (k, f, ids)
+                if f == "observed_attacks":
+                    assert ids == [bb.OWN], k
     assert d["vaults"]["Crasorak Kara"]["boss"][0]["creature"] == "Vault Overlord"
     assert "Zogre" in {r["from"] for r in d["dropped_by"]["Hard Leather"]["rows"]}
 

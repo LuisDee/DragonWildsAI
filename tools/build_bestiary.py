@@ -8,6 +8,16 @@ Sources (all in the repo, read only):
 * data/wiki/manifest.json  the wiki's redirects, used as aliases.
 * dumps/<build>/UE4SS_ObjectDump.txt and data/skills/dev/combat_knowledge.json (optional): the game's class and
   asset names for a creature (BP_AI_GiantRat_..., ATK_GiantRat_...), used as aliases. Names only.
+* data/skills/*/combat_knowledge.json and combat_memory_*.json (optional, gitignored, written by his own client): the
+  enemy attacks he has met in his own fights, by the game's attack asset name (ATK_GiantRat_Attack_01), with the
+  measured wind-up, lunge and the damage he took. Field ``observed_attacks``, src tag "own fights".
+* data/bestiary_external.json (committed snapshot; refresh with ``fetch-metabot``): the weakness, resistance and
+  immunity lines of metabot.gg's datamined Dragonwilds bestiary (https://metabot.gg/en/dragonwilds/bestiary; its terms:
+  free to use with a credit link to that page). Used only to fill a weak/resist/immune field the wiki lacks; src tag
+  "metabot.gg". Its "No notable affinities" is not used: on 11 creatures its own journal line contradicts it.
+
+Neither the game dump nor the mirror holds attack damage, affinities or vault chest items: the dump has only the
+data-table names (docs/research/2026-11-17-bestiary-gaps.md has the read-only live probe plan).
 
 Each entry carries ``text``: what a player reads (facts only, no advice, no order of actions), under 1,500 characters,
 and ``src``: for every field, the wiki page ids it came from.
@@ -16,6 +26,7 @@ and ``src``: for every field, the wiki page ids it came from.
     .venv\\Scripts\\python.exe -m tools.build_bestiary show "giant rat"  # what the lookup would return first
     .venv\\Scripts\\python.exe -m tools.build_bestiary score            # tuned half of evals/lookup_enemies_eval.py
     .venv\\Scripts\\python.exe -m tools.build_bestiary score --heldout-once   # adds the held-out half's one number
+    .venv\\Scripts\\python.exe -m tools.build_bestiary fetch-metabot [--html saved.html]  # refresh the snapshot (network)
 
 ``score`` runs the existing eval's own functions with a lookup that consults data/bestiary.json first and falls back
 to brain.knowledge.Knowledge.lookup. No brain file is changed.
@@ -38,6 +49,11 @@ WIKI = ROOT / "data" / "wiki"
 OUT = ROOT / "data" / "bestiary.json"
 DUMP = ROOT / "dumps" / "26574459" / "UE4SS_ObjectDump.txt"
 COMBAT_KNOWLEDGE = ROOT / "data" / "skills" / "dev" / "combat_knowledge.json"
+SKILLS = ROOT / "data" / "skills"  # <world>/combat_knowledge.json, <world>/combat_memory_<character>.json
+EXTERNAL = ROOT / "data" / "bestiary_external.json"
+METABOT_URL = "https://metabot.gg/en/dragonwilds/bestiary"
+OWN = "own fights"  # src tag: observed by his own client
+METABOT = "metabot.gg"  # src tag: metabot.gg's datamined bestiary
 SCHEMA = "dw_bestiary/1"
 ENTRY_CHARS = 1500  # an entry's text, at most
 TEXT_BUDGET = 3000  # all result texts of one lookup with the bestiary (entries first, then the old lookup's results)
@@ -344,7 +360,7 @@ class Src:
     def __init__(self):
         self.d: dict[str, list[int]] = defaultdict(list)
 
-    def add(self, field: str, pid: int | None) -> None:
+    def add(self, field: str, pid: int | str | None) -> None:  # a wiki page id, or a named source (OWN, METABOT)
         if pid is not None and pid not in self.d[field]:
             self.d[field].append(pid)
 
@@ -542,6 +558,121 @@ def class_aliases(names: Iterable[str], dump: Path | None = DUMP, combat: Path |
     return {k: sorted(v) for k, v in found.items()}
 
 
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def observed_attacks(names: Iterable[str], skills: Path | None = SKILLS) -> dict[str, list[dict]]:
+    """The enemy attacks his own client met, per creature name: every 'Creature:ATK_<Stem>_<Attack>' record of
+    <world>/combat_knowledge.json and <world>/combat_memory_*.json (client_mod/scripts/defense.lua). Copies of one
+    memory are not summed: per attack the record seen most often is kept. Dodges and non-ATK keys are left out."""
+    want = set(names)
+    best: dict[tuple[str, str], tuple[dict, str | None]] = {}
+    if not skills or not Path(skills).exists():
+        return {}
+    files = sorted(Path(skills).glob("*/combat_knowledge.json")) + sorted(Path(skills).glob("*/combat_memory_*.json"))
+    for f in files:
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        attacks = ((doc.get("defense") or {}).get("attacks") or {}) if isinstance(doc, dict) else {}
+        for key, r in attacks.items():
+            m = re.fullmatch(r"(.+?):(ATK_[A-Za-z0-9]+?_([A-Za-z0-9_]+))", key)
+            if not m or m.group(1) not in want or re.search(r"dodge", m.group(3), re.I) or not isinstance(r, dict):
+                continue
+            seen = int(r.get("n") or 0) + int(r.get("hit") or 0)
+            if seen <= 0:
+                continue
+            k = (m.group(1), m.group(2))
+            if k not in best or seen > int(best[k][0].get("n") or 0) + int(best[k][0].get("hit") or 0):
+                best[k] = (r, doc.get("build"))
+    out: dict[str, list[dict]] = defaultdict(list)
+    for (creature, asset), (r, build) in sorted(best.items()):
+        def num(x, scale=1.0, nd=1):
+            return round(float(x) * scale, nd) if isinstance(x, (int, float)) and x > 0 else None
+        item = {"name": re.sub(r"^ATK_[A-Za-z0-9]+?_", "", asset).replace("_", " "), "asset": asset,
+                "seen": int(r.get("n") or 0), "hits_on_him": int(r.get("hit") or 0),
+                "impact_s": num(r.get("impact_s"), 1, 2), "lunge_m": num(r.get("lunge_cm"), 0.01),
+                "damage_to_him": num(r.get("damage"), 1, 0), "build": str(build) if build else None}
+        out[creature].append({k: v for k, v in item.items() if v is not None})
+    return dict(out)
+
+
+def parse_metabot(page: str) -> dict[str, dict]:
+    """metabot.gg/en/dragonwilds/bestiary (server-rendered list items): per card its name, faction, the affinity line
+    ("Weak: Stab" / "Resists: Crush" / "Immune: ...") and the journal-style lines in its lore ("Weakness: Stab",
+    "Resistance: Crush", "Immune: Poison"). Cards named "BOSS" (unnamed) are skipped."""
+    out: dict[str, dict] = {}
+    for body in re.findall(r'<li id="[^"]+" class="[^"]*_card[^"]*">(.*?)</li>', page, re.S):
+        nm = re.search(r'_name">(.*?)</span>', body, re.S)
+        name = html.unescape(re.sub(r"<.*?>", "", nm.group(1))).strip() if nm else ""
+        if not name or name.upper() == "BOSS":
+            continue
+        fac = re.search(r'_faction">(.*?)</span>', body, re.S)
+        rec: dict[str, Any] = {"faction": html.unescape(fac.group(1)).strip() if fac else None, "affinity": {}, "journal": {}}
+        aff = re.search(r'_affinities">(.*?)</div>', body, re.S)
+        for label, val in re.findall(r"(Weak|Resists|Immune): ([^<]+)", aff.group(1) if aff else ""):
+            rec["affinity"][{"Weak": "weak", "Resists": "resist", "Immune": "immune"}[label]] = \
+                [x.strip() for x in html.unescape(val).split(",") if x.strip()]
+        lore = re.search(r'_lore">(.*?)</p>', body, re.S)
+        for label, val in re.findall(r"^(Weakness|Resistance|Immune): (.+)$", html.unescape(lore.group(1)) if lore else "", re.M):
+            rec["journal"][{"Weakness": "weak", "Resistance": "resist", "Immune": "immune"}[label]] = \
+                [x.strip() for x in val.split(",") if x.strip()]
+        rec = {k: v for k, v in rec.items() if v}
+        if name not in out:
+            out[name] = rec
+    return out
+
+
+def fetch_metabot(path: Path = EXTERNAL, html_file: Path | None = None) -> dict:
+    """Write the metabot.gg bestiary snapshot (network unless html_file is given)."""
+    if html_file:
+        page = Path(html_file).read_text(encoding="utf-8")
+    else:
+        import urllib.request
+        req = urllib.request.Request(METABOT_URL, headers={"User-Agent": "dragonwilds-companion-bestiary/1"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            page = r.read().decode("utf-8")
+    cards = parse_metabot(page)
+    doc = {"schema": "dw_bestiary_external/1", "source": METABOT, "url": METABOT_URL,
+           "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "terms": "MetaBot.GG data is free to use with a credit link to the page it came from (metabot.gg/llms.txt).",
+           "note": "'affinity' is the card's Weak/Resists/Immune line; 'journal' its Weakness/Resistance/Immune lore lines.",
+           "creatures": cards}
+    Path(path).write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+    return doc
+
+
+def apply_external(creatures: dict[str, dict], path: Path | None = EXTERNAL) -> int:
+    """Fill weak / resist / immune that the wiki lacks from the metabot.gg snapshot: its journal line first, else its
+    affinity line. A wiki value is never replaced. Returns the number of fields filled."""
+    if not path or not Path(path).exists():
+        return 0
+    try:
+        ext = json.loads(Path(path).read_text(encoding="utf-8")).get("creatures") or {}
+    except (OSError, ValueError):
+        return 0
+    index: dict[str, list[str]] = defaultdict(list)
+    for title, e in creatures.items():
+        for n in {title, e["name"], *(e.get("aliases") or [])}:
+            if title not in index[_norm(n)]:
+                index[_norm(n)].append(title)
+    filled = 0
+    for name, rec in ext.items():
+        hits = index.get(_norm(name)) or []
+        if len(hits) != 1:
+            continue
+        e = creatures[hits[0]]
+        for field in ("weak", "resist", "immune"):
+            val = (rec.get("journal") or {}).get(field) or (rec.get("affinity") or {}).get(field)
+            if val and not e.get(field):
+                e[field] = list(val)
+                e["_src"].add(field, METABOT)
+                filled += 1
+    return filled
+
+
 def build_creatures(mirror: Mirror) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for title, page in sorted(mirror.pages.items()):
@@ -608,6 +739,12 @@ def build_creatures(mirror: Mirror) -> dict[str, dict]:
         stems = sorted(set(cls.get(title, [])) | set(cls.get(e["name"], [])))
         if stems:
             e["class_names"] = stems
+    seen = observed_attacks(names)
+    for title, e in out.items():
+        obs = seen.get(e["name"]) or seen.get(title)
+        if obs:
+            e["observed_attacks"] = obs
+            e["_src"].add("observed_attacks", OWN)
     return out
 
 
@@ -960,9 +1097,36 @@ def _fit(parts: list[str], shrinkers: list) -> str:
     return text
 
 
-def _sources(src: dict[str, list[int]]) -> str:
-    ids = sorted({i for v in src.values() for i in v})
-    return "Sources: wiki pages " + ", ".join(str(i) for i in ids) + "." if ids else ""
+NAMED_SOURCES = {METABOT: "metabot.gg datamined bestiary", OWN: "his own fights"}
+
+
+def _sources(src: dict[str, list]) -> str:
+    ids = sorted({i for v in src.values() for i in v if isinstance(i, int)})
+    named: dict[str, list[str]] = defaultdict(list)
+    for field, v in src.items():
+        for i in v:
+            if isinstance(i, str):
+                named[i].append(field.replace("observed_attacks", "attacks seen").replace("weak", "weak to")
+                                .replace("resist", "resistant to").replace("immune", "immune to"))
+    bits = (["wiki pages " + ", ".join(str(i) for i in ids)] if ids else []) + \
+        [f"{NAMED_SOURCES.get(k, k)} ({', '.join(fs)})" for k, fs in named.items()]
+    return "Sources: " + "; ".join(bits) + "." if bits else ""
+
+
+def _observed_line(obs: list[dict], short: bool = False) -> str:
+    """'Seen in his own fights: Attack 01 (seen 137, impact 1.07 s after the wind-up, lunge 2.4 m, 13 damage to him)'."""
+    bits = []
+    for a in obs:
+        if short:
+            bits.append(a["name"])
+            continue
+        fx = [f"seen {a['seen']}" if a.get("seen") else None,
+              f"impact {a['impact_s']} s after the wind-up" if a.get("impact_s") else None,
+              f"lunge {a['lunge_m']} m" if a.get("lunge_m") else None,
+              f"about {a['damage_to_him']:.0f} damage to him per hit" if a.get("damage_to_him") else None]
+        bits.append(f"{a['name']} ({', '.join(x for x in fx if x)})")
+    return "Attacks seen in his own fights (the game's attack names; damage is what he took through his armour): " + \
+        "; ".join(bits) + "."
 
 
 def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int = 0) -> str:
@@ -1014,6 +1178,8 @@ def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int
             p.append(n if level < 1 else n[:240])
         if not att and not e.get("attack_notes"):
             p.append("Attacks: not in the mirror.")
+        if e.get("observed_attacks") and level < 3:
+            p.append(_observed_line(e["observed_attacks"], short=level >= 2))
         dr = e.get("drops") or []
         if dr:
             items = [f"{d['item']} {d['amount']} ({d['rate']})".replace("  ", " ") for d in dr]
@@ -1148,13 +1314,16 @@ def build(mirror: Mirror | None = None) -> dict:
             if not cr.get("weak") and b.get("weakness"):  # the infobox has none; the Boss table names one
                 cr["weak"] = [b["weakness"]]
                 cr["_src"].add("weak", b["page"])
+    apply_external(creatures)  # after every wiki source: it fills only what the wiki left empty
     for v in dungeons.values():
         for b in v.get("boss") or []:
             if b["creature"] in creatures:
                 roles[b["creature"]].append(f"boss of {v['name']}")
                 creatures[b["creature"]]["_src"].add("role", v["page"])
     doc: dict[str, Any] = {"schema": SCHEMA, "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                           "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids",
+                           "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids. Named src tags: "
+                                     f"'{METABOT}' = {METABOT_URL} (snapshot data/bestiary_external.json), "
+                                     f"'{OWN}' = his client's combat memory (data/skills/*/combat_*.json)",
                            "creatures": {}, "vaults": {}, "dropped_by": {}}
     for title, e in creatures.items():
         if in_vault.get(title):
@@ -1183,7 +1352,8 @@ def _item_aliases(item: str, mirror: Mirror) -> list[str]:
     return sorted(al)
 
 
-CREATURE_FIELDS = ("variants", "weak", "resist", "locations", "attacks_any", "drops")
+CREATURE_FIELDS = ("variants", "weak", "resist", "immune", "locations", "attacks_any", "drops",
+                   "weak_wiki", "resist_wiki", "immune_wiki", "attacks_wiki", "observed_attacks")
 VAULT_FIELDS = ("area", "power_level", "opens", "enemies", "boss", "chests", "recipes")
 
 
@@ -1194,7 +1364,11 @@ def counts(doc: dict) -> dict:
 
     def has(e, f):
         if f == "attacks_any":
+            return bool(e.get("attacks") or e.get("attack_notes") or e.get("observed_attacks"))
+        if f == "attacks_wiki":
             return bool(e.get("attacks") or e.get("attack_notes"))
+        if f in ("weak_wiki", "resist_wiki", "immune_wiki"):
+            return any(isinstance(i, int) for i in e["src"].get(f[:-5], []))
         return bool(e.get(f))
     return {"creatures": len(doc["creatures"]), "vaults": len(va), "dungeons": len(du),
             "reverse_items": len(doc["dropped_by"]),
@@ -1348,7 +1522,13 @@ def main(argv: list[str] | None = None) -> int:
     sc = sub.add_parser("score", help="the lookup eval's tuned half with the bestiary first")
     sc.add_argument("--heldout-once", action="store_true", help="also print the held-out half's one number")
     sc.add_argument("--db", help="a knowledge.sqlite to use instead of the live index")
+    fm = sub.add_parser("fetch-metabot", help=f"refresh {EXTERNAL.name} from {METABOT_URL} (network)")
+    fm.add_argument("--html", type=Path, help="parse this saved copy of the page instead of fetching it")
     a = ap.parse_args(argv)
+    if a.cmd == "fetch-metabot":
+        doc = fetch_metabot(EXTERNAL, a.html)
+        print(f"wrote {EXTERNAL}: {len(doc['creatures'])} creatures")
+        return 0
     if a.cmd == "build":
         t0 = time.perf_counter()
         doc = build()

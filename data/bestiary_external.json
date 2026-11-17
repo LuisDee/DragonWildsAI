@@ -1,0 +1,1081 @@
+{
+ "schema": "dw_bestiary_external/1",
+ "source": "metabot.gg",
+ "url": "https://metabot.gg/en/dragonwilds/bestiary",
+ "fetched_at": "2026-11-17T20:30:24Z",
+ "terms": "MetaBot.GG data is free to use with a credit link to the page it came from (metabot.gg/llms.txt).",
+ "note": "'affinity' is the card's Weak/Resists/Immune line; 'journal' its Weakness/Resistance/Immune lore lines.",
+ "creatures": {
+  "Magpie": {
+   "faction": "Wildlife",
+   "journal": {
+    "weak": [
+     "None"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Kalphite Worker": {
+   "faction": "Kalphite",
+   "affinity": {
+    "resist": [
+     "Physical",
+     "Ranged",
+     "Air",
+     "Axtral Projection",
+     "Earth",
+     "Rocksplosion",
+     "Water"
+    ]
+   }
+  },
+  "Vulture": {
+   "faction": "Wildlife"
+  },
+  "Zombie": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Fire",
+     "Slash"
+    ],
+    "resist": [
+     "Earth",
+     "Ranged"
+    ]
+   }
+  },
+  "Kebbit": {
+   "faction": "Wildlife",
+   "journal": {
+    "weak": [
+     "None"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Kalphite Soldier": {
+   "faction": "Kalphite",
+   "affinity": {
+    "resist": [
+     "Physical",
+     "Ranged",
+     "Air",
+     "Axtral Projection",
+     "Earth",
+     "Rocksplosion",
+     "Water"
+    ]
+   }
+  },
+  "Raven": {
+   "faction": "Wildlife"
+  },
+  "Goat": {
+   "faction": "Wildlife",
+   "affinity": {
+    "weak": [
+     "Slash"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Giant Rat": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Stab"
+    ],
+    "resist": [
+     "Crush"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Stab"
+    ],
+    "resist": [
+     "Crush"
+    ]
+   }
+  },
+  "Chicken": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "Air"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "Air"
+    ]
+   }
+  },
+  "Wild Jade Vine": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "None"
+    ],
+    "immune": [
+     "Poison"
+    ]
+   }
+  },
+  "Hellrat": {
+   "faction": "Wildlife",
+   "affinity": {
+    "weak": [
+     "Water"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Melee Black Knight": {
+   "faction": "Black Knight",
+   "affinity": {
+    "weak": [
+     "Crush",
+     "Earth"
+    ],
+    "resist": [
+     "Slash",
+     "Stab"
+    ]
+   }
+  },
+  "Sheep": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Slash"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Slash"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Wolf": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Ranged Beast": {
+   "faction": "AI",
+   "affinity": {
+    "resist": [
+     "Crush"
+    ]
+   }
+  },
+  "Melee Goblin": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ]
+   }
+  },
+  "Zamorakian Acolyte": {
+   "faction": "Zamorakian Mage",
+   "affinity": {
+    "weak": [
+     "Slash",
+     "Ranged"
+    ],
+    "resist": [
+     "Fire",
+     "Air",
+     "Earth"
+    ]
+   }
+  },
+  "Gyrfalcon": {
+   "faction": "Wildlife",
+   "journal": {
+    "weak": [
+     "None"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Deer": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Ranged"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Ranged"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Medium Beast": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Ranged"
+    ],
+    "resist": [
+     "Air"
+    ]
+   }
+  },
+  "Carnivorous Chinchompa": {
+   "faction": "Wildlife"
+  },
+  "Hellhound": {
+   "faction": "Wildlife",
+   "affinity": {
+    "weak": [
+     "Water"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Medium Beast Runt": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Slash"
+    ]
+   }
+  },
+  "Spectral Chinchompa": {
+   "faction": "Undead"
+  },
+  "Magic Beast": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "Crush"
+    ]
+   }
+  },
+  "Cow": {
+   "faction": "Wildlife",
+   "journal": {
+    "weak": [
+     "None"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Black Knight Sniper": {
+   "faction": "Black Knight",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "Ranged"
+    ]
+   }
+  },
+  "Kalphite Guardian": {
+   "faction": "Kalphite",
+   "affinity": {
+    "resist": [
+     "Physical",
+     "Ranged",
+     "Air",
+     "Axtral Projection",
+     "Earth",
+     "Rocksplosion",
+     "Water"
+    ]
+   }
+  },
+  "Terrorbird": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Stab"
+    ],
+    "resist": [
+     "Air"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Stab"
+    ],
+    "resist": [
+     "Air"
+    ]
+   }
+  },
+  "Goblin Archer": {
+   "faction": "AI",
+   "journal": {
+    "weak": [
+     "Stab"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Ram": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Slash"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Slash"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Spectral Bird": {
+   "faction": "Undead"
+  },
+  "Chinchompa": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Ranged"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Ranged"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Thane Beast": {
+   "faction": "AI"
+  },
+  "Mage of Zamorak": {
+   "faction": "Zamorakian Mage",
+   "affinity": {
+    "weak": [
+     "Slash",
+     "Ranged"
+    ],
+    "resist": [
+     "Air",
+     "Fire"
+    ]
+   }
+  },
+  "Tok-Xil": {
+   "faction": "Kot Haar",
+   "affinity": {
+    "weak": [
+     "Water"
+    ],
+    "resist": [
+     "Fire",
+     "Arrows"
+    ]
+   }
+  },
+  "Skeletal Archer": {
+   "faction": "Undead",
+   "affinity": {
+    "resist": [
+     "Ranged",
+     "Fire"
+    ]
+   }
+  },
+  "Sergeant Blister": {
+   "faction": "AI"
+  },
+  "The Radiant": {
+   "faction": "AI"
+  },
+  "1HMelee Black Knight": {
+   "faction": "Black Knight",
+   "affinity": {
+    "weak": [
+     "Crush",
+     "Earth"
+    ],
+    "resist": [
+     "Slash",
+     "Stab"
+    ]
+   }
+  },
+  "Aggressive Terrorbird": {
+   "faction": "Wildlife"
+  },
+  "Black Chinchompa": {
+   "faction": "Wildlife"
+  },
+  "Black Dragon": {
+   "faction": "Dragonkin",
+   "affinity": {
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Black Dragon Hatchling": {
+   "faction": "Dragonkin"
+  },
+  "Black Knight Crusader": {
+   "faction": "Black Knight"
+  },
+  "Blazing Black Knight": {
+   "faction": "Black Knight",
+   "affinity": {
+    "weak": [
+     "Crush",
+     "Earth"
+    ],
+    "resist": [
+     "Slash",
+     "Stab"
+    ]
+   }
+  },
+  "Blue Dragon Hatchling": {
+   "faction": "Dragonkin"
+  },
+  "Boggs": {
+   "faction": "AI"
+  },
+  "Buddy": {
+   "faction": "AI"
+  },
+  "Curly": {
+   "faction": "AI"
+  },
+  "Cursed Raven": {
+   "faction": "Wildlife"
+  },
+  "Dark Kebbit": {
+   "faction": "Wildlife"
+  },
+  "Delrom": {
+   "faction": "AI"
+  },
+  "Desert Devil Kebbit": {
+   "faction": "Wildlife"
+  },
+  "Dire Wolf": {
+   "faction": "Wildlife",
+   "journal": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Diseased Kebbit": {
+   "faction": "Wildlife"
+  },
+  "Dragon Fuzan Night Patrol": {
+   "faction": "Dragon Fuzan",
+   "affinity": {
+    "weak": [
+     "Water"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Fido": {
+   "faction": "AI"
+  },
+  "Fire Skeleton Warrior": {
+   "faction": "Undead"
+  },
+  "Fungal Rat": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "Stab"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "Stab"
+    ],
+    "immune": [
+     "Poison"
+    ]
+   }
+  },
+  "Fuzan": {
+   "faction": "Dragon Fuzan",
+   "affinity": {
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Garou Berserker": {
+   "faction": "Garou",
+   "journal": {
+    "weak": [
+     "Ranged"
+    ],
+    "resist": [
+     "Air"
+    ]
+   }
+  },
+  "Garou Druid": {
+   "faction": "Garou",
+   "journal": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "Crush"
+    ],
+    "immune": [
+     "Poison"
+    ]
+   }
+  },
+  "Garou Exile": {
+   "faction": "Garou"
+  },
+  "Garou Hunter": {
+   "faction": "Garou",
+   "journal": {
+    "weak": [
+     "Air"
+    ],
+    "resist": [
+     "Crush"
+    ]
+   }
+  },
+  "Garou King": {
+   "faction": "Garou"
+  },
+  "Garou Lightning Berserker": {
+   "faction": "Garou"
+  },
+  "GarouRunt": {
+   "faction": "Garou"
+  },
+  "Garou Thane": {
+   "faction": "Garou",
+   "journal": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "Stab"
+    ]
+   }
+  },
+  "General Velgar": {
+   "faction": "Dragonkin",
+   "journal": {
+    "weak": [
+     "None"
+    ],
+    "resist": [
+     "None"
+    ],
+    "immune": [
+     "Poison",
+     "Burning"
+    ]
+   }
+  },
+  "Ghost Terrorbird": {
+   "faction": "Undead"
+  },
+  "Ghost Wolf": {
+   "faction": "Undead"
+  },
+  "Gnasher": {
+   "faction": "AI"
+  },
+  "Goblin Poisonshot Archer": {
+   "faction": "Goblin"
+  },
+  "Goblin Runt": {
+   "faction": "Goblin",
+   "journal": {
+    "weak": [
+     "Fire"
+    ],
+    "resist": [
+     "None"
+    ]
+   }
+  },
+  "Goblin Thug": {
+   "faction": "Goblin"
+  },
+  "Green Dragon Hatchling": {
+   "faction": "Dragonkin"
+  },
+  "Heartworm": {
+   "faction": "Wildlife"
+  },
+  "Imaru": {
+   "faction": "AI",
+   "affinity": {
+    "resist": [
+     "Dragon World Event",
+     "Dragon Fire"
+    ]
+   }
+  },
+  "Kalphite Guardian Hatchling": {
+   "faction": "Kalphite"
+  },
+  "Kalphite Queen": {
+   "faction": "Kalphite"
+  },
+  "Kalphite Soldier Hatchling": {
+   "faction": "Kalphite"
+  },
+  "Kalphite Worker Hatchling": {
+   "faction": "Kalphite"
+  },
+  "Kot Haar Hur": {
+   "faction": "Kot Haar",
+   "affinity": {
+    "weak": [
+     "Water"
+    ],
+    "resist": [
+     "Fire",
+     "Arrows"
+    ]
+   }
+  },
+  "KotHaar-Kal": {
+   "faction": "Kot Haar"
+  },
+  "Kot Haar Ket": {
+   "faction": "Kot Haar",
+   "affinity": {
+    "weak": [
+     "Water"
+    ],
+    "resist": [
+     "Fire",
+     "Arrows"
+    ]
+   }
+  },
+  "KotHaar-Mej": {
+   "faction": "Kot Haar",
+   "affinity": {
+    "weak": [
+     "Ranged"
+    ],
+    "resist": [
+     "Air"
+    ]
+   }
+  },
+  "KotHaar Thrall": {
+   "faction": "Kot Haar"
+  },
+  "Kot Haar Xil": {
+   "faction": "Kot Haar",
+   "affinity": {
+    "weak": [
+     "Water"
+    ],
+    "resist": [
+     "Fire",
+     "Arrows"
+    ]
+   }
+  },
+  "Liverwort": {
+   "faction": "Flora"
+  },
+  "Lost Soul": {
+   "faction": "Undead"
+  },
+  "Loyal Hellhound": {
+   "faction": "Wildlife"
+  },
+  "Lurch": {
+   "faction": "AI"
+  },
+  "Melee2HBlack Knight": {
+   "faction": "Black Knight",
+   "affinity": {
+    "weak": [
+     "Air"
+    ],
+    "resist": [
+     "Slash",
+     "Stab"
+    ]
+   }
+  },
+  "Melee Vault Guardian": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Crush"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "None"
+    ],
+    "immune": [
+     "Poison",
+     "Bleed",
+     "Burning"
+    ]
+   }
+  },
+  "Nature Spirit": {
+   "faction": "Flora"
+  },
+  "Nibbles": {
+   "faction": "AI"
+  },
+  "Nosey": {
+   "faction": "AI"
+  },
+  "Patch": {
+   "faction": "AI"
+  },
+  "Pip": {
+   "faction": "AI"
+  },
+  "Plague King": {
+   "faction": "AI",
+   "journal": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "Stab"
+    ],
+    "immune": [
+     "Poison"
+    ]
+   }
+  },
+  "Putrid Rat": {
+   "faction": "Wildlife"
+  },
+  "Ranged Vault Guardian": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Crush"
+    ]
+   },
+   "journal": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "None"
+    ],
+    "immune": [
+     "Poison",
+     "Bleed",
+     "Burning"
+    ]
+   }
+  },
+  "Rat King": {
+   "faction": "Wildlife",
+   "journal": {
+    "weak": [
+     "Stab"
+    ],
+    "resist": [
+     "Crush"
+    ]
+   }
+  },
+  "Red Dragon": {
+   "faction": "Dragonkin"
+  },
+  "Red Dragon Hatchling": {
+   "faction": "Dragonkin"
+  },
+  "Reek": {
+   "faction": "AI"
+  },
+  "Revenant Knight": {
+   "faction": "Undead"
+  },
+  "Rotridden Cow": {
+   "faction": "Undead"
+  },
+  "Rotridden Rat": {
+   "faction": "Undead"
+  },
+  "Rotsworn Marauder": {
+   "faction": "Undead"
+  },
+  "Rotsworn Necromancer": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "Air",
+     "Fire",
+     "Water"
+    ]
+   }
+  },
+  "Rotsworn Reanimator": {
+   "faction": "Undead"
+  },
+  "Rotsworn Thrall": {
+   "faction": "Undead"
+  },
+  "Rotsworn Warrior": {
+   "faction": "Undead"
+  },
+  "Rotsworn Zombie": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Fire",
+     "Slash"
+    ],
+    "resist": [
+     "Earth",
+     "Ranged"
+    ]
+   }
+  },
+  "Rufus": {
+   "faction": "AI"
+  },
+  "Shield Goblin": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ]
+   }
+  },
+  "Shock Skeleton Warrior": {
+   "faction": "Undead"
+  },
+  "Skeletal Blightshot": {
+   "faction": "Undead"
+  },
+  "Skeletal Hoplite": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "Fire",
+     "Slash",
+     "Stab"
+    ]
+   }
+  },
+  "Skeletal Marauder": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Earth",
+     "Crush"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Skeletal Necromancer": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "Air",
+     "Fire",
+     "Water"
+    ]
+   }
+  },
+  "Skeletal Warrior": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Air",
+     "Stab"
+    ],
+    "resist": [
+     "Fire"
+    ]
+   }
+  },
+  "Skeleton Fire Mage": {
+   "faction": "Undead"
+  },
+  "Skeleton Shock Mage": {
+   "faction": "Undead"
+  },
+  "Soulstone Sentinel": {
+   "faction": "Undead"
+  },
+  "Stormpact Demon": {
+   "faction": "Demons"
+  },
+  "Terrorbird Witherbeast": {
+   "faction": "AI",
+   "affinity": {
+    "weak": [
+     "Slash"
+    ]
+   }
+  },
+  "Thammarith": {
+   "faction": "AI"
+  },
+  "Tiny": {
+   "faction": "AI"
+  },
+  "Vault Archon": {
+   "faction": "Vault Guardians",
+   "journal": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "None"
+    ],
+    "immune": [
+     "Poison",
+     "Bleed",
+     "Burning"
+    ]
+   }
+  },
+  "Vault Overlord": {
+   "faction": "Vault Guardians",
+   "journal": {
+    "weak": [
+     "Crush"
+    ],
+    "resist": [
+     "None"
+    ],
+    "immune": [
+     "Poison",
+     "Bleed",
+     "Burning"
+    ]
+   }
+  },
+  "Wildcaller Druid": {
+   "faction": "AI"
+  },
+  "Wild Lapulis Vine": {
+   "faction": "Flora"
+  },
+  "Wild Ruby Vine": {
+   "faction": "Flora"
+  },
+  "Winterwold Sheep": {
+   "faction": "Wildlife"
+  },
+  "Zombie Cow": {
+   "faction": "Undead",
+   "affinity": {
+    "weak": [
+     "Fire"
+    ]
+   }
+  },
+  "Zombie Rat": {
+   "faction": "Undead"
+  }
+ }
+}
