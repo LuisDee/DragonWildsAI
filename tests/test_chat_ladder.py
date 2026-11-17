@@ -349,3 +349,55 @@ def test_clearance_measures_from_positions_and_skips_people_and_lodestones():
                 {"name": "Lodestone", "kind": "lodestone", "distance": 0.4, "position": [87, 1842.2, -30.7]}]}}
     c = cl.clearance(Cli())
     assert c["ok"] and c["nearest"] == "Wall" and c["nearest_m"] > 10
+
+
+# ------------------------------------------------------------------ the body's fitness, before any window starts
+STARVED = {"health": 1.0, "max_health": 100.0, "sustenance": 0.0, "sustenance_max": 100.0, "hydration": 0.0,
+           "hydration_max": 100.0, "position": [0.0, 0.0, 0.0]}
+FIT = {**STARVED, "health": 100.0, "sustenance": 90.0, "hydration": 90.0}
+
+
+class StateCli:
+    """A debug bridge client that answers get_state with a fixed state (or raises)."""
+
+    def __init__(self, data=None, exc=None):
+        self.data, self.exc, self.sent = data, exc, []
+
+    def request(self, tool, args, timeout=None):
+        self.sent.append(tool)
+        if self.exc:
+            raise self.exc
+        return {"ok": True, "data": dict(self.data)}
+
+
+def _preflight_fakes(monkeypatch, cli):
+    from evals.bench import devtarget
+    monkeypatch.setattr(cl, "HOLD_FILES", [])
+    monkeypatch.setattr(cl, "nav_not_ready", lambda: None)
+    monkeypatch.setattr(cl, "recent_bridge_driver", lambda: None)
+    monkeypatch.setattr(cl, "_debug_client", lambda: cli)
+    monkeypatch.setattr(devtarget, "joined_from_game_log", lambda *a, **k: "127.0.0.1:7777")
+    monkeypatch.setattr(devtarget, "forbidden_addresses", lambda *a, **k: set())
+    return types.SimpleNamespace(start_brain=False, use_running_brain=True)
+
+
+def test_preflight_refuses_a_starved_body_and_names_the_remedy(monkeypatch):
+    # 2026-11-17 19:36Z: ClaudeDev starved at home between windows (food 0, water 0, health 1 of 100)
+    cli = StateCli(STARVED)
+    bad = cl.preflight(_preflight_fakes(monkeypatch, cli))
+    assert cli.sent == ["get_state"] and len(bad) == 1
+    assert bad[0].startswith("body unfit: health 1 of 100, food 0 of 100, water 0 of 100")
+    assert "eats and drinks in play" in bad[0] and "set_stat" in bad[0] and "set_health" in bad[0]
+
+
+def test_preflight_lets_a_fed_body_start_and_refuses_an_unread_one(monkeypatch):
+    assert cl.preflight(_preflight_fakes(monkeypatch, StateCli(FIT))) == []
+    bad = cl.preflight(_preflight_fakes(monkeypatch, StateCli(exc=TimeoutError("no answer"))))
+    assert len(bad) == 1 and bad[0].startswith("body unread")
+
+
+def test_body_unfit_reads_the_survival_table_and_death():
+    st = {"health": 80.0, "max_health": 100.0, "survival": {"sustenance": [10.0, 75.0], "hydration": [70.0, 75.0]}}
+    assert cl.body_unfit(st).startswith("body unfit: food 10 of 75 (")
+    assert "dead" in cl.body_unfit({**FIT, "dead": True})
+    assert cl.body_unfit({"ok": False, "reason": "no pawn"}).startswith("body unread")

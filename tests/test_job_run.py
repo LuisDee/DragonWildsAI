@@ -520,6 +520,47 @@ def test_a_starving_start_is_unfit():
     st = {"health": 1.0, "max_health": 100.0, "sustenance": 0.0, "sustenance_max": 100.0, "hydration": 90.0,
           "hydration_max": 100.0}
     why = j.unfit({"ok": True, "data": st})
-    assert why and "health 1 of 100" in why and "food 0 of 100" in why and "water" not in why
+    assert why.startswith("body unfit: health 1 of 100, food 0 of 100 (") and "water" not in why
     st.update(health=100.0, sustenance=90.0)
     assert j.unfit(st) is None
+
+
+def test_the_window_skips_a_fork_that_starts_starved(tmp_path, monkeypatch):
+    # the per-fork check is chat_ladder's body_unfit, read through the window's debug client before the walk to the start
+    import contextlib
+    import time
+    from tools import quest_clone
+    starved = {"health": 1.0, "max_health": 100.0, "sustenance": 0.0, "sustenance_max": 100.0, "hydration": 0.0,
+               "hydration_max": 100.0}
+    forked, out = [], {}
+
+    class Cli:
+        def request(self, tool, args, timeout=None):
+            assert tool == "get_state"
+            return {"ok": True, "data": dict(starved)}
+
+    class Sw:
+        def ensure(self, name, create=False, wait_s=0):
+            return {"guid": "g", "name": name}
+
+    @contextlib.contextmanager
+    def window(wait_s, o, out_file):
+        yield Sw(), Cli(), time.time()
+        out.update(o)
+
+    def walked(*a):
+        raise AssertionError("walked to the job's start")
+
+    monkeypatch.setattr(q, "refuse_dirty", lambda a: False)
+    monkeypatch.setattr(q, "clone_window", window)
+    monkeypatch.setattr(q, "to_start", walked)
+    monkeypatch.setattr(j, "load_jobs", lambda: {"jobs": {"L9": {"start": "cp"}}})
+    monkeypatch.setattr(j, "start_ref", lambda job, step, override: ("cp", "the job's start"))
+    monkeypatch.setattr(j, "STOP_FILE", tmp_path / "none.stop")
+    monkeypatch.setattr(quest_clone, "source_of", lambda ref: tmp_path / "cp.json")
+    monkeypatch.setattr(quest_clone, "place_of", lambda ref: [0.0, 0.0, 0.0])
+    monkeypatch.setattr(quest_clone, "fork", lambda ref, name: forked.append(name))
+    assert j.main(["trial", "--confirm", "--job", "L9", "-k", "2"]) == 1
+    assert len(forked) == 1  # every fork of this save starts the same: the window stops at the first
+    (t,) = out["trials"]
+    assert t["skipped"].startswith("body unfit: health 1 of 100, food 0 of 100, water 0 of 100")

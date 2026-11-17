@@ -16,7 +16,8 @@ al. 2018, arXiv 1807.06757): success rate, SPL (success x straight / max(straigh
 at the end, plus seconds and metres walked. If the body wrote a trip record (client_io/events/trips.jsonl) for the
 command, its sentence is printed too.
 
-Refuses unless the client is on the local dev server and the live brain is not running (DevTarget.guard).
+Refuses unless the client is on the local dev server and the live brain is not running (DevTarget.guard), and while
+the body is unfit to start (health, food or water under 40 %, dead or unread: chat_ladder.body_unfit).
 Rows are appended to logs/evals/travel_ladder.jsonl (one per journey, then one summary row per run).
 Starts/goals are capsule-centre positions where Claude has stood (logs 2026-10-31) or landmark spots
 (data/places_26161880.json).
@@ -770,6 +771,10 @@ def main() -> None:
         lock.enter_context(live_lock.held("movement", wait_s=3000))
     dev = default_dev()
     dev.guard()
+    from tools.chat_ladder import body_unfit  # the check every window makes before it starts (this one has no preflight)
+    if (why := body_unfit(client())) is not None:
+        print("not running:", why, flush=True)
+        raise SystemExit(3)
     run_id = time.strftime("%Y%m%d-%H%M%S")
     OUT.parent.mkdir(parents=True, exist_ok=True)
     rows = []

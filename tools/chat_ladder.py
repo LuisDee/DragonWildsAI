@@ -68,6 +68,52 @@ def nav_not_ready(path: Path | None = None, now: float | None = None, max_age_s:
                 f"{' (' + why.group(1) + ')' if why and why.group(1) else ''}: after a server restart run "
                 "`python -m tools.nav_oracle policy <server pid>` and stop the helper (the client watchdog restarts it)")
     return None
+
+
+FIT_PCT = 40.0  # a window starts with health, food and water at least this share of their maximum (the stay-fed
+#                reflex's own eat/drink line): 2026-11-17 19:36-19:41Z ClaudeDev had starved at home between windows
+#                (food 0, water 0, health 1 of 100), windows started from that body, and forks of him died to the
+#                first rat on the walk to the job's start
+UNFIT_REMEDY = ("remedy: he eats and drinks in play; on the dev world only, a harness rescue logged as one: the vitals "
+                "fixtures set_stat (sustenance, hydration) and set_health (evals.bench dev fixtures, a purpose each)")
+
+
+def _vitals_low(d: dict, pct: float) -> list[str]:
+    """The bars under pct % of their max in a get_state (flat health/max_health, sustenance/sustenance_max, ... or the
+    survival table's {key: [cur, max]})."""
+    surv = d.get("survival") if isinstance(d.get("survival"), dict) else {}
+    low = []
+    for what, cur, mx in (("health", "health", "max_health"), ("food", "sustenance", "sustenance_max"),
+                          ("water", "hydration", "hydration_max")):
+        c, m = d.get(cur), d.get(mx)
+        if not isinstance(c, (int, float)) and isinstance(surv.get(cur), list) and len(surv[cur]) >= 2:
+            c, m = surv[cur][0], surv[cur][1]
+        if isinstance(c, (int, float)) and isinstance(m, (int, float)) and m > 0 and c < m * pct / 100:
+            low.append(f"{what} {c:.0f} of {m:.0f}")
+    if d.get("dead"):
+        low.append("dead")
+    return low
+
+
+def body_unfit(source=None, pct: float = FIT_PCT) -> str | None:
+    """Why the body is not fit to start a window (a harness fault, never his), or None. `source`: a bridge client
+    (its get_state is read), a get_state reply or its data, or None (the debug client). An unreadable state refuses
+    too: a window cannot judge a body it cannot read."""
+    d = source
+    if source is None or hasattr(source, "request"):
+        try:
+            d = (source or _debug_client()).request("get_state", {}, timeout=20)
+        except Exception as exc:  # noqa: BLE001
+            return f"body unread: get_state failed ({exc!r})"[:240]
+    d = d if isinstance(d, dict) else {}
+    if "ok" in d:  # a bridge reply rather than its data
+        if not (d.get("ok") and isinstance(d.get("data"), dict)):
+            return f"body unread: get_state answered {obs.short(d, 160)}"
+        d = d["data"]
+    if not d or d.get("unavailable"):
+        return f"body unread: no game state ({d.get('unavailable') or 'no answer'})"
+    low = _vitals_low(d, pct)
+    return f"body unfit: {', '.join(low)} (under {pct:.0f} % is unfit); {UNFIT_REMEDY}" if low else None
 TESTER = "Tester"
 WORLD = "dev_ladder"   # a clean brain world store for the ladder (no parked boards or week-old notes)
 TOL_M, DZ_M = 3.0, 3.0
@@ -548,6 +594,8 @@ def preflight(a) -> list[str]:
     bad = [f"hold file {p.name} present" for p in HOLD_FILES if p.exists()]
     if (nav := nav_not_ready()) is not None:
         bad.append(nav)
+    if (body := body_unfit()) is not None:
+        bad.append(body)
     joined = joined_from_game_log()
     if not joined or not joined.startswith("127.0.0.1"):
         bad.append(f"client not on the dev server (joined {joined})")

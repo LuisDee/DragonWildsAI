@@ -16,3 +16,32 @@ def test_house_exit_ghost_and_door_pause(tmp_path, monkeypatch):
     s_plain = T.score_follow(plain, 2.0, g["duration_s"], 10.0)
     s_door = T.score_follow(door, 2.0, g["duration_s"], 10.0)
     assert s_door["within_6m"] <= s_plain["within_6m"] and s_door["end_gap_m"] <= 3.5
+
+
+def test_a_starved_body_stops_the_ladder_before_any_leg(tmp_path, monkeypatch, capsys):
+    import sys
+    import pytest
+    from evals.bench import devrun
+    from tools import live_lock
+    starved = {"health": 1.0, "max_health": 100.0, "sustenance": 0.0, "sustenance_max": 100.0, "hydration": 0.0,
+               "hydration_max": 100.0}
+
+    class Cli:
+        def request(self, tool, args, timeout=None):
+            assert tool == "get_state"
+            return {"ok": True, "data": dict(starved)}
+
+    legs = []
+    monkeypatch.setattr(sys, "argv", ["travel_ladder", "--only", "leg"])
+    monkeypatch.setenv("DW_LIVE_OWNER", "test")
+    monkeypatch.setattr(live_lock, "read", lambda: {"stale": False, "owner": "test"})
+    monkeypatch.setattr(devrun, "default_dev", lambda: type("Dev", (), {"guard": lambda self: None})())
+    monkeypatch.setattr(T, "client", lambda: Cli())
+    monkeypatch.setattr(T, "pick", lambda *a: [{"id": "leg"}])
+    monkeypatch.setattr(T, "ghosts", lambda: {})
+    monkeypatch.setattr(T, "run_journey", lambda dev, j: legs.append(j))
+    monkeypatch.setattr(T, "OUT", tmp_path / "travel_ladder.jsonl")
+    with pytest.raises(SystemExit) as e:
+        T.main()
+    assert e.value.code == 3 and legs == [] and not (tmp_path / "travel_ladder.jsonl").exists()
+    assert "not running: body unfit: health 1 of 100, food 0 of 100, water 0 of 100" in capsys.readouterr().out
