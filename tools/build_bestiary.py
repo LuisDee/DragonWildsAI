@@ -1,0 +1,1370 @@
+"""A structured entry per creature and per vault (or dungeon), built from the wiki mirror's own structure, plus the
+reverse index "what gives item X". Output: data/bestiary.json. Offline: no model, no game, no network.
+
+Sources (all in the repo, read only):
+* data/wiki/pages/*.json  the wiki mirror (CC BY-NC-SA, see data/wiki/manifest.json): monster infoboxes, DropsLine
+  rows, Attacks / Combat mechanics sections, "<Name>/Strategies" pages, vault pages (Enemies tables, Resources),
+  "Chest (<vault>)" pages, the "Boss" page tables and the "Dragonkin Vault" page tables.
+* data/wiki/manifest.json  the wiki's redirects, used as aliases.
+* dumps/<build>/UE4SS_ObjectDump.txt and data/skills/dev/combat_knowledge.json (optional): the game's class and
+  asset names for a creature (BP_AI_GiantRat_..., ATK_GiantRat_...), used as aliases. Names only.
+
+Each entry carries ``text``: what a player reads (facts only, no advice, no order of actions), under 1,500 characters,
+and ``src``: for every field, the wiki page ids it came from.
+
+    .venv\\Scripts\\python.exe -m tools.build_bestiary build            # writes data/bestiary.json
+    .venv\\Scripts\\python.exe -m tools.build_bestiary show "giant rat"  # what the lookup would return first
+    .venv\\Scripts\\python.exe -m tools.build_bestiary score            # tuned half of evals/lookup_enemies_eval.py
+    .venv\\Scripts\\python.exe -m tools.build_bestiary score --heldout-once   # adds the held-out half's one number
+
+``score`` runs the existing eval's own functions with a lookup that consults data/bestiary.json first and falls back
+to brain.knowledge.Knowledge.lookup. No brain file is changed.
+"""
+from __future__ import annotations
+
+import argparse
+import html
+import importlib.util
+import json
+import re
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+from typing import Any, Iterable
+
+ROOT = Path(__file__).resolve().parents[1]
+WIKI = ROOT / "data" / "wiki"
+OUT = ROOT / "data" / "bestiary.json"
+DUMP = ROOT / "dumps" / "26574459" / "UE4SS_ObjectDump.txt"
+COMBAT_KNOWLEDGE = ROOT / "data" / "skills" / "dev" / "combat_knowledge.json"
+SCHEMA = "dw_bestiary/1"
+ENTRY_CHARS = 1500  # an entry's text, at most
+TEXT_BUDGET = 3000  # all result texts of one lookup with the bestiary (entries first, then the old lookup's results)
+MAX_ENTRIES = 2  # entries per lookup
+
+# A sentence that tells the reader what to do is advice, not a fact: such sentences are left out of every entry.
+ADVICE = re.compile(r"\b(recommend\w*|should|advis\w*|suggest\w*|it is (?:best|better|easier|wise)|much easier|"
+                    r"make sure|be careful|beware|watch (?:out|for)|you can|you will need|you'll want|"
+                    r"players? (?:will )?(?:need|want) to|try to|don't|do not)\b", re.I)
+ATTACK_HEAD = re.compile(r"attack|mechanic|moveset|abilit|combat|phase", re.I)
+ATTACK_SENT = re.compile(r"\battacks? (?:are|is|include|includes|consist)\b", re.I)
+LEAD_ATTACK = re.compile(r"\b(attack\w*|breath|strikes?|charges?|slams?|spits?|throws?|barrages?)\b", re.I)
+OPENS = re.compile(r"\b(locked|unlock\w*|open(?:ed|s)?|keys?|requires?|must be|effig\w*|statues?|levers?|blocked|"
+                   r"cleared|mined|cut through|soul rift\w*)\b", re.I)
+
+
+# ------------------------------------------------------------------------------ wikitext
+
+
+def find_templates(text: str) -> list[tuple[int, int, str, str]]:
+    """Top-level templates: (start, end, name, inner) with nested {{ }} balanced."""
+    out, i, n = [], 0, len(text)
+    while True:
+        i = text.find("{{", i)
+        if i < 0:
+            return out
+        depth, j = 0, i
+        while j < n - 1:
+            two = text[j:j + 2]
+            if two == "{{":
+                depth += 1
+                j += 2
+            elif two == "}}":
+                depth -= 1
+                j += 2
+                if depth == 0:
+                    break
+            else:
+                j += 1
+        inner = text[i + 2:j - 2] if depth == 0 else text[i + 2:]
+        name = re.split(r"[|\n]", inner, 1)[0].strip()
+        out.append((i, j, name, inner))
+        if depth != 0:
+            return out
+        i = j
+
+
+def split_top(inner: str) -> list[str]:
+    """Split on '|' outside nested {{ }} and [[ ]]."""
+    parts, buf, depth, i = [], [], 0, 0
+    while i < len(inner):
+        two = inner[i:i + 2]
+        if two in ("{{", "[["):
+            depth += 1
+            buf.append(two)
+            i += 2
+            continue
+        if two in ("}}", "]]") and depth:
+            depth -= 1
+            buf.append(two)
+            i += 2
+            continue
+        if inner[i] == "|" and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(inner[i])
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def params(inner: str) -> tuple[list[str], dict[str, str]]:
+    """A template's positional and named params (names lower case, spaces and underscores folded)."""
+    pos, named = [], {}
+    for p in split_top(inner)[1:]:
+        m = re.match(r"\s*([A-Za-z0-9_ \-]+?)\s*=(.*)$", p, re.S)
+        if m:
+            named.setdefault(re.sub(r"[\s_]+", "_", m.group(1).strip().lower()), m.group(2).strip())
+        else:
+            pos.append(p.strip())
+    return pos, named
+
+
+def _link(m: re.Match) -> str:
+    inner = m.group(1)
+    if re.match(r"\s*(file|image|category|media):", inner, re.I):
+        return ""
+    parts = inner.split("|")
+    return (parts[-1] if len(parts) > 1 else parts[0].split("#")[0]).strip()
+
+
+def _template_text(m: re.Match) -> str:
+    inner = m.group(1)
+    parts = [p.strip() for p in inner.split("|")]
+    name = parts[0].lower()
+    named = {k.strip().lower(): v.strip() for k, v in (p.split("=", 1) for p in parts[1:] if "=" in p)}
+    pos = [p for p in parts[1:] if "=" not in p]
+    if name in ("plink", "plinkt"):
+        return named.get("txt") or (pos[0] if pos else "")
+    if name == "rsl":
+        return pos[1] if len(pos) > 1 else (pos[0] if pos else "")
+    if name == "na":
+        return "none"
+    if name in ("dropnote", "nowrap", "small"):
+        return pos[0] if pos else ""
+    return ""
+
+
+def plain(text: str) -> str:
+    """Wikitext to the words a reader sees: links to their label, known inline templates to text, the rest dropped."""
+    s = text or ""
+    s = re.sub(r"<!--.*?-->", "", s, flags=re.S)
+    s = re.sub(r"<ref[^>]*/>", "", s)
+    s = re.sub(r"<ref[^>]*>.*?</ref>", "", s, flags=re.S)
+    s = re.sub(r"<gallery.*?</gallery>", "", s, flags=re.S | re.I)
+    for _ in range(6):  # innermost first
+        s2 = re.sub(r"\[\[([^\[\]]*)\]\]", _link, s)
+        s2 = re.sub(r"\{\{([^{}]*)\}\}", _template_text, s2)
+        if s2 == s:
+            break
+        s = s2
+    s = re.sub(r"\{\|.*?\|\}", "", s, flags=re.S)  # tables are read by table_rows, never as prose
+    s = re.sub(r"'{2,}", "", s)
+    s = re.sub(r"<br\s*/?>", ", ", s, flags=re.I)
+    s = re.sub(r"<[^>]+>", "", s)
+    s = html.unescape(s).replace(" ", " ")
+    s = re.sub(r"[ \t]+", " ", s)
+    return s.strip()
+
+
+def one_line(text: str) -> str:
+    t = plain(text)
+    t = re.sub(r"\n\s*\*+\s*", "; ", t)  # a bullet list inside one value
+    t = re.sub(r"^\s*\*+\s*", "", t)
+    return re.sub(r"\s+", " ", t).strip(" ,;")
+
+
+def bullets(text: str, level: int = 1) -> list[str]:
+    """The plain text of each bullet of exactly ``level`` stars."""
+    rx = re.compile(r"^\*{%d}(?!\*)\s*(.+)$" % level, re.M)
+    return [b for b in (one_line(m.group(1)) for m in rx.finditer(text or "")) if b]
+
+
+def sentences(text: str) -> list[str]:
+    """Sentences, never across a line break (a heading or a bullet ends a sentence)."""
+    out = []
+    for line in re.split(r"\n+", text or ""):
+        t = re.sub(r"\s+", " ", line).strip()
+        if not t or re.fullmatch(r"=+.*=+", t):
+            continue
+        out += [s.strip() for s in re.split(r"(?<=[.!?])\s+(?=[A-Z\"'(])", t) if s.strip()]
+    return out
+
+
+# A clause that starts with an order ("dodge the attack", "Simply dodge out of the way") is advice too.
+IMPERATIVE = re.compile(r"^\s*(?:simply |just |then |so )?(?:dodge|block|use|stay|avoid|keep|run|step|move|parry|wait|"
+                        r"retaliate|roll|stand|bring|equip|go|hide|focus|kill|lure|stack|cast|drink|eat|pray|position|"
+                        r"remember|note that|consider)\b", re.I)
+
+
+def fact_clauses(sentence: str) -> str:
+    """The sentence without its advice clauses ('X; dodge it, then hit back' -> 'X.'); '' when nothing is left."""
+    keep = []
+    for clause in re.split(r";\s*|,\s*(?=then\b)", sentence):
+        if clause.strip() and not ADVICE.search(clause) and not IMPERATIVE.search(clause):
+            keep.append(clause.strip().rstrip("."))
+    out = "; ".join(keep)
+    return out[:1].upper() + out[1:] + "." if keep else ""
+
+
+def facts_only(sents: Iterable[str]) -> list[str]:
+    return [f for f in (fact_clauses(s) for s in sents) if f]
+
+
+def sections(wikitext: str) -> list[dict]:
+    """[{level, heading, path, body}], the lead first (level 1, heading None). ``path`` holds parent headings."""
+    out = [{"level": 1, "heading": None, "path": [], "body": ""}]
+    stack: list[tuple[int, str]] = []
+    for line in (wikitext or "").split("\n"):
+        m = re.match(r"^(={2,6})\s*(.*?)\s*\1\s*$", line)
+        if m:
+            lvl, head = len(m.group(1)), one_line(m.group(2))
+            while stack and stack[-1][0] >= lvl:
+                stack.pop()
+            out.append({"level": lvl, "heading": head, "path": [h for _, h in stack], "body": ""})
+            stack.append((lvl, head))
+        else:
+            out[-1]["body"] += line + "\n"
+    return out
+
+
+def link_targets(text: str) -> list[str]:
+    return [m.group(1).split("#")[0].strip() for m in re.finditer(r"\[\[([^\]|#]+(?:#[^\]|]*)?)(?:\|[^\]]*)?\]\]", text or "")
+            if not re.match(r"\s*(file|image|category|media):", m.group(1), re.I)]
+
+
+def _cell_attr_strip(cell: str) -> tuple[str, int]:
+    """'colspan="2" |Boss' -> ('Boss', 2). Only when the part before the bar is attributes."""
+    m = re.match(r'^\s*((?:[a-z\-]+\s*=\s*(?:"[^"]*"|\S+)\s*)+)\|(?!\|)(.*)$', cell, re.S | re.I)
+    if m and "[[" not in m.group(1) and "{{" not in m.group(1):
+        span = re.search(r'colspan\s*=\s*"?(\d+)', m.group(1), re.I)
+        return m.group(2), int(span.group(1)) if span else 1
+    return cell, 1
+
+
+def table_rows(text: str) -> list[tuple[list[str], list[list[str]]]]:
+    """Every wikitable in ``text``: (header names, rows of raw cells). Header colspans are expanded."""
+    out = []
+    for tm in re.finditer(r"^\{\|.*?^\|\}", text or "", re.S | re.M):
+        header: list[str] = []
+        rows: list[list[str]] = []
+        for chunk in re.split(r"^\|-.*$", tm.group(0), flags=re.M):
+            cells: list[str] = []
+            is_head = False
+            for line in chunk.split("\n"):
+                if line.startswith("{|") or line.startswith("|}") or line.startswith("|+"):
+                    continue
+                if line.startswith("!"):
+                    is_head = True
+                    for c in re.split(r"!!|\|\|", line[1:]):
+                        c, span = _cell_attr_strip(c)
+                        cells += [one_line(c)] * span
+                elif line.startswith("|"):
+                    for c in line[1:].split("||"):
+                        cells.append(_cell_attr_strip(c)[0])
+                elif cells:
+                    cells[-1] += "\n" + line
+            if not cells:
+                continue
+            if is_head and not rows:
+                header = [one_line(c) for c in cells]  # the last header row before the data names the columns
+            elif is_head and all(not re.search(r"\w", c) for c in cells):
+                continue
+            elif not is_head:
+                rows.append(cells)
+        out.append((header, rows))
+    return out
+
+
+def cell_items(cell: str) -> list[str]:
+    """A table cell as a list: its bullet lines or lines, plain, without 'none' and set headings ('...set:')."""
+    lines = [one_line(re.sub(r"^\*+\s*", "", ln)) for ln in re.split(r"\n|<br\s*/?>", cell or "", flags=re.I)]
+    return [x for x in lines if x and x.lower() not in ("none", "n/a", "-") and not x.endswith(":")]
+
+
+# ------------------------------------------------------------------------------ the mirror
+
+
+class Mirror:
+    """The wiki mirror on disk, with title resolution through the wiki's own redirects."""
+
+    def __init__(self, root: Path = WIKI):
+        man = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+        self.redirects: dict[str, str] = man.get("redirects") or {}
+        self.pages: dict[str, dict] = {}
+        for title, meta in (man.get("pages") or {}).items():
+            p = root / meta["file"]
+            if p.exists():
+                d = json.loads(p.read_text(encoding="utf-8"))
+                self.pages[d.get("title") or title] = d
+        self._lower = {t.lower(): t for t in self.pages}
+        self._redir_lower = {k.lower(): v for k, v in self.redirects.items()}
+
+    @classmethod
+    def from_pages(cls, pages: dict[str, dict], redirects: dict[str, str] | None = None) -> "Mirror":
+        m = cls.__new__(cls)
+        m.pages, m.redirects = dict(pages), dict(redirects or {})
+        m._lower = {t.lower(): t for t in m.pages}
+        m._redir_lower = {k.lower(): v for k, v in m.redirects.items()}
+        return m
+
+    def resolve(self, name: str) -> str | None:
+        n = (name or "").strip().replace("_", " ")
+        if not n:
+            return None
+        for cand in (n, n[:1].upper() + n[1:]):
+            if cand in self.pages:
+                return cand
+        hit = self._lower.get(n.lower())
+        if hit:
+            return hit
+        tgt = self._redir_lower.get(n.lower())
+        if tgt:
+            return self._lower.get(tgt.lower(), tgt)
+        if n.lower().endswith("s"):  # [[Vault core|Vault cores]] style plurals in plain names
+            return self._lower.get(n.lower()[:-1])
+        return None
+
+    def pid(self, title: str) -> int | None:
+        d = self.pages.get(title)
+        return int(d["pageid"]) if d and d.get("pageid") is not None else None
+
+    def wikitext(self, title: str) -> str:
+        return (self.pages.get(title) or {}).get("wikitext") or ""
+
+    def aliases_of(self, title: str) -> list[str]:
+        return [k for k, v in self.redirects.items() if v == title]
+
+
+class Src:
+    """Per-field page ids for one entry."""
+
+    def __init__(self):
+        self.d: dict[str, list[int]] = defaultdict(list)
+
+    def add(self, field: str, pid: int | None) -> None:
+        if pid is not None and pid not in self.d[field]:
+            self.d[field].append(pid)
+
+    def out(self) -> dict[str, list[int]]:
+        return {k: v for k, v in self.d.items() if v}
+
+
+# ------------------------------------------------------------------------------ creatures
+
+
+def monster_infoboxes(wikitext: str) -> list[tuple[str | None, dict[str, str]]]:
+    """(label, named params) per Infobox Monster, inside a Multi Infobox or not. Label from the Multi Infobox textN."""
+    out = []
+    for s, e, name, inner in find_templates(wikitext):
+        low = name.lower()
+        if low == "infobox monster":
+            out.append((None, params(inner)[1]))
+        elif low == "multi infobox":
+            _, named = params(inner)
+            for key, val in named.items():
+                m = re.match(r"item(\d+)$", key)
+                if not m:
+                    continue
+                for _, _, nm, inn in find_templates(val):
+                    if nm.lower() == "infobox monster":
+                        out.append((one_line(named.get(f"text{m.group(1)}", "")) or None, params(inn)[1]))
+    return out
+
+
+def _list_values(raw: str | None) -> list[str]:
+    """'* 5\\n* 6' or '[[A]]<br>[[B]]' or 'A, B' -> items, plain."""
+    if not raw:
+        return []
+    raw = re.sub(r"<br\s*/?>", "\n", raw, flags=re.I)
+    if re.search(r"^\s*\*", raw, re.M):
+        items = [one_line(x) for x in re.split(r"^\s*\*+", raw, flags=re.M)]
+    else:
+        items = [one_line(x) for x in raw.split("\n")]
+    return [x for x in items if x]
+
+
+def _split_names(v: str) -> list[str]:
+    out = []
+    for part in re.split(r",|\band\b|/", v or ""):
+        part = part.strip(" .")
+        if part:
+            out.append(part)
+    return out
+
+
+def variants_of(label: str | None, box: dict[str, str]) -> list[dict]:
+    """Versions of one monster infobox: [{label, power_level, health, location}]."""
+    nums = sorted({int(m.group(1)) for k in box for m in [re.match(r"(?:version|power_level|health|location)(\d+)$", k)] if m})
+    out = []
+    if nums:
+        for n in nums:
+            pl = one_line(box.get(f"power_level{n}") or box.get("power_level") or "")
+            hp = one_line(box.get(f"health{n}") or box.get("health") or "")
+            loc = _list_values(box.get(f"location{n}") or box.get("location") or "")
+            ver = one_line(box.get(f"version{n}") or "")
+            if re.fullmatch(r"(?:power level|pl|level) ?\d+", ver, re.I):
+                ver = ""
+            out.append({"label": " ".join(x for x in (label, ver) if x) or None, "power_level": pl, "health": hp,
+                        "location": loc})
+        return out
+    pls, hps = _list_values(box.get("power_level")), _list_values(box.get("health"))
+    loc = _list_values(box.get("location"))
+    if len(pls) > 1 or len(hps) > 1:
+        for i in range(max(len(pls), len(hps))):
+            pl = pls[i] if i < len(pls) else ""
+            hp = hps[i] if i < len(hps) else ""
+            m = re.match(r"(.*?)\s*\((.+)\)\s*$", pl)
+            sub = None
+            if m:
+                pl, sub = m.group(1), m.group(2)
+            hp = re.sub(r"\s*\(.+\)\s*$", "", hp)
+            out.append({"label": " ".join(x for x in (label, sub) if x) or None, "power_level": pl, "health": hp,
+                        "location": loc if len(pls) <= 1 else []})
+        return out
+    return [{"label": label, "power_level": pls[0] if pls else "", "health": hps[0] if hps else "", "location": loc}]
+
+
+def drops_of(wikitext: str) -> list[dict]:
+    """DropsLine rows: item, amount, rate, note, group (the heading above them)."""
+    out = []
+    for sec in sections(wikitext):
+        for _, _, name, inner in find_templates(sec["body"]):
+            if name.lower() != "dropsline":
+                continue
+            _, p = params(inner)
+            item = one_line(p.get("name", ""))
+            if not item:
+                continue
+            rate = one_line(p.get("rarity", ""))
+            row = {"item": item, "amount": one_line(p.get("quantity", "")), "rate": "always" if rate.lower() == "always" else rate,
+                   "group": sec["heading"] or ""}
+            note = one_line(p.get("raritynotes", ""))
+            if note:
+                row["note"] = note
+            out.append(row)
+    return out
+
+
+def _attack_item(b: str) -> dict | None:
+    """One attack bullet: {name, does} with advice clauses removed; None when only advice is left."""
+    m = re.match(r"^([^:.]{2,40}?)\s*(?::| - | – | — |, where )\s*(.+)$", b)
+    if m and not IMPERATIVE.search(m.group(1)):
+        does = " ".join(facts_only(sentences(m.group(2))))
+        return {"name": m.group(1).strip(), "does": does}
+    does = " ".join(facts_only(sentences(b)))
+    return {"name": "", "does": does} if does else None
+
+
+def _attack_items(body: str) -> list[dict]:
+    out = [x for x in (_attack_item(b) for b in bullets(body, 1)) if x]
+    if not out:  # prose only
+        for s in facts_only(sentences(plain(body)))[:3]:
+            out.append({"name": "", "does": s})
+    return out
+
+
+def attacks_of(mirror: Mirror, title: str, src: Src) -> tuple[list[dict], list[str]]:
+    """Attack list from the page's attack-like sections and from a Strategies page's "main attacks are:" list, and
+    statement sentences ("His main attacks are ...") from the Strategies page and from the lead (after its first
+    sentence, which is the entry's lead)."""
+    items: list[dict] = []
+    said: list[str] = []
+    secs = sections(mirror.wikitext(title))
+    for sec in secs[1:]:
+        if sec["heading"] and ATTACK_HEAD.search(sec["heading"]) and "drop" not in sec["heading"].lower():
+            got = _attack_items(sec["body"])
+            if got:
+                items += got
+                src.add("attacks", mirror.pid(title))
+    lead = facts_only(sentences(plain(secs[0]["body"]))) if secs else []
+    lead_att = [s for s in lead[1:] if LEAD_ATTACK.search(s)]
+    if lead_att:
+        said += lead_att[:2]
+        src.add("attack_notes", mirror.pid(title))
+    for sub in (f"{title}/Strategies", f"{title}/Strategy"):
+        if sub not in mirror.pages:
+            continue
+        lines = mirror.wikitext(sub).split("\n")
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("*"):
+                continue
+            text = one_line(line)
+            if not ATTACK_SENT.search(text):
+                continue
+            if text.rstrip().endswith(":"):  # "Fuzan's main attacks are:" then a bullet list
+                for nxt in lines[i + 1:]:
+                    if not nxt.lstrip().startswith("*"):
+                        if nxt.strip():
+                            break
+                        continue
+                    it = _attack_item(one_line(nxt))
+                    if it:
+                        items.append(it)
+                src.add("attacks", mirror.pid(sub))
+            else:
+                hits = [x for x in facts_only(sentences(text)) if ATTACK_SENT.search(x)]
+                if hits:
+                    said += hits[:1]
+                    src.add("attack_notes", mirror.pid(sub))
+    return items, list(dict.fromkeys(said))[:3]
+
+
+def class_aliases(names: Iterable[str], dump: Path | None = DUMP, combat: Path | None = COMBAT_KNOWLEDGE) -> dict[str, list[str]]:
+    """Game class or asset stems per creature name, from names only: AI folders (/Gameplay/AI/GiantRat/),
+    BP_AI_<X>_Character_C, DT_ATK_<X>, and the combat memory's 'Giant Rat:ATK_GiantRat_...' keys."""
+    want = {re.sub(r"[^a-z0-9]", "", n.lower()): n for n in names}
+    found: dict[str, set[str]] = defaultdict(set)
+
+    def offer(stem: str) -> None:
+        key = re.sub(r"[^a-z0-9]", "", stem.lower())
+        for k in (key, re.sub(r"^dragon", "", key)):
+            if k in want:
+                found[want[k]].add(stem)
+                return
+
+    if dump and Path(dump).exists():
+        text = Path(dump).read_text(encoding="utf-8", errors="ignore")
+        for rx in (r"/Gameplay/AI/([A-Za-z0-9]+)/", r"\bBP_AI_([A-Za-z0-9]+)_Character_C\b", r"\bDT_(?:ATK|DAA)_([A-Za-z0-9]+)\b"):
+            for stem in set(re.findall(rx, text)):
+                offer(stem)
+    if combat and Path(combat).exists():
+        try:
+            ck = json.loads(Path(combat).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            ck = {}
+        for key in ((ck.get("defense") or {}).get("attacks") or {}):
+            m = re.match(r"(.+?):ATK_([A-Za-z0-9]+?)_", key)
+            if m and m.group(1) in want.values():
+                found[m.group(1)].add(m.group(2))
+    return {k: sorted(v) for k, v in found.items()}
+
+
+def build_creatures(mirror: Mirror) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for title, page in sorted(mirror.pages.items()):
+        wt = page.get("wikitext") or ""
+        if "/" in title or not re.search(r"\{\{\s*Infobox Monster", wt, re.I):
+            continue
+        boxes = monster_infoboxes(wt)
+        if not boxes:
+            continue
+        pid = mirror.pid(title)
+        src = Src()
+        merged: dict[str, str] = {}
+        variants: list[dict] = []
+        for label, box in boxes:
+            for k, v in box.items():
+                if one_line(v) and k not in merged:
+                    merged[k] = v
+            variants += variants_of(label, box)
+        name = one_line(merged.get("name", "")) or title
+        e: dict[str, Any] = {"kind": "creature", "name": name, "title": title, "page": pid,
+                             "aliases": sorted({a for a in [title, re.sub(r"\s*\(.*\)$", "", title)] + mirror.aliases_of(title)
+                                                if a and a != name})}
+        vs = [v for v in variants if v["power_level"] or v["health"]]
+        if vs:
+            e["variants"] = [{k: v[k] for k in ("label", "power_level", "health") if v[k]} for v in vs]
+            src.add("variants", pid)
+        for key, field in (("race", "race"), ("weakness", "weak"), ("resistance", "resist"), ("immune", "immune"),
+                           ("aggressive", "aggressive"), ("respawn", "respawn")):
+            val = one_line(merged.get(key, ""))
+            if val:
+                e[field] = _split_names(val) if field in ("weak", "resist", "immune") else val
+                src.add(field, pid)
+        locs: list[str] = []
+        raw_locs = [x for _, box in boxes for k, val in box.items() if re.fullmatch(r"location\d*", k)
+                    for x in _list_values(val)]
+        for v in variants + [{"location": raw_locs}]:
+            for x in v["location"]:
+                for y in re.split(r",\s*", x):
+                    y = y.strip(" .")
+                    if y and y not in locs:
+                        locs.append(y)
+        if locs:
+            e["locations"] = locs
+            src.add("locations", pid)
+        secs = sections(wt)
+        lead = facts_only(sentences(plain(secs[0]["body"])))
+        if lead:
+            e["lead"] = lead[0][:300]
+            src.add("lead", pid)
+        items, said = attacks_of(mirror, title, src)
+        if items:
+            e["attacks"] = items
+        if said:
+            e["attack_notes"] = said
+        drops = drops_of(wt)
+        if drops:
+            e["drops"] = drops
+            src.add("drops", pid)
+        e["_src"] = src
+        out[title] = e
+    names = {e["name"] for e in out.values()} | set(out)
+    cls = class_aliases(names)
+    for title, e in out.items():
+        stems = sorted(set(cls.get(title, [])) | set(cls.get(e["name"], [])))
+        if stems:
+            e["class_names"] = stems
+    return out
+
+
+# ------------------------------------------------------------------------------ boss tables and vaults
+
+
+def boss_rows(mirror: Mirror) -> list[dict]:
+    """Rows of the 'Boss' page tables: {group, creature, power_level, health, weakness, locations, drops}."""
+    title = mirror.resolve("Boss")
+    if not title:
+        return []
+    out = []
+    for sec in sections(mirror.wikitext(title)):
+        for header, rows in table_rows(sec["body"]):
+            hl = [h.lower() for h in header]
+            for cells in rows:
+                rec = {"group": sec["heading"] or "", "page": mirror.pid(title)}
+                for i, c in enumerate(cells):
+                    h = hl[i] if i < len(hl) else ""
+                    if i == 0:
+                        t = (link_targets(c) or [one_line(c)])[0]
+                        rec["creature"] = mirror.resolve(t) or one_line(c)
+                    elif h == "power level":
+                        rec["power_level"] = ", ".join(cell_items(c))
+                    elif h == "health":
+                        rec["health"] = ", ".join(cell_items(c))
+                    elif h == "weakness":
+                        rec["weakness"] = ", ".join(cell_items(c))
+                    elif h == "location":
+                        rec["locations"] = [mirror.resolve(t) or t for t in link_targets(c)] or cell_items(c)
+                    elif "drops" in h:
+                        rec["drops"] = cell_items(re.sub(r"<br\s*/?>", "\n", c))
+                if rec.get("creature"):
+                    out.append(rec)
+    return out
+
+
+def vault_index(mirror: Mirror) -> dict[str, dict]:
+    """From the 'Dragonkin Vault' page: per vault, order, power level, area, common and notable enemies, recipes,
+    and the page's own words about shards in chests."""
+    title = mirror.resolve("Dragonkin Vault")
+    out: dict[str, dict] = defaultdict(dict)
+    if not title:
+        return out
+    pid = mirror.pid(title)
+    for sec in sections(mirror.wikitext(title)):
+        for header, rows in table_rows(sec["body"]):
+            hl = [h.lower() for h in header]
+            for cells in rows:
+                if "vault" not in hl:
+                    continue
+                vcol = hl.index("vault")
+                if vcol >= len(cells):
+                    continue
+                targets = link_targets(cells[vcol])
+                if not targets:
+                    continue
+                v = mirror.resolve(targets[0]) or targets[0]
+                rec = out[v]
+                rec.setdefault("_pid", pid)
+                for i, c in enumerate(cells):
+                    h = hl[i] if i < len(hl) else ""
+                    if h == "order":
+                        rec["order"] = one_line(c)
+                    elif h == "power level":
+                        rec["power_level"] = one_line(c)
+                    elif h == "area":
+                        rec["area"] = one_line(c)
+                    elif h.startswith("common"):
+                        rec["common"] = [mirror.resolve(t) or t for t in link_targets(c)]
+                    elif h.startswith("unique"):
+                        rec["notable"] = [mirror.resolve(t) or t for t in link_targets(c)]
+                    elif h == "recipe":
+                        rec["recipes"] = cell_items(c)
+    return out
+
+
+def shard_note(mirror: Mirror) -> tuple[str | None, int | None]:
+    """The Dragonkin Vault page's sentence on vault shards (its Rewards list), verbatim."""
+    title = mirror.resolve("Dragonkin Vault")
+    if not title:
+        return None, None
+    for b in bullets(mirror.wikitext(title)):
+        if b.lower().startswith("vault shard"):
+            return b, mirror.pid(title)
+    return None, None
+
+
+def vault_enemies(body: str, mirror: Mirror) -> tuple[list[dict], list[str]]:
+    """An Enemies section: rows {name, amount, power_level, group}, and other bullets (traps)."""
+    rows: list[dict] = []
+    pos = 0
+    group = ""
+    for tm in re.finditer(r"^\{\|.*?^\|\}", body, re.S | re.M):
+        before = body[pos:tm.start()]
+        bl = bullets(before)
+        if bl:
+            group = bl[-1]
+        pl_m = re.search(r"(?:power )?level (\d+)", group, re.I)
+        for header, cells_rows in table_rows(tm.group(0)):
+            hl = [h.lower() for h in header]
+            for cells in cells_rows:
+                t = link_targets(cells[0])
+                name = mirror.resolve(t[0]) if t else None
+                rec = {"name": name or one_line(cells[0]),
+                       "amount": one_line(cells[1]) if len(cells) > 1 else ""}
+                if "power level" in hl and hl.index("power level") < len(cells):
+                    rec["power_level"] = one_line(cells[hl.index("power level")])
+                elif pl_m:
+                    rec["power_level"] = pl_m.group(1)
+                elif group:
+                    rec["group"] = group.rstrip(":")
+                rows.append(rec)
+        pos = tm.end()
+    extra = [b for b in bullets(body[pos:]) if not ADVICE.search(b)]
+    return rows, extra
+
+
+def chest_text(mirror: Mirror, vault: str) -> tuple[str | None, int | None]:
+    """'Chest (<vault>)': what its drop sections hold. Drop tables kept only as templates are named by their heading
+    and rate, and marked as not itemised in the mirror."""
+    title = mirror.resolve(f"Chest ({vault})")
+    if not title:
+        return None, None
+    secs = sections(mirror.wikitext(title))
+    parts: list[str] = []
+    templated = False
+    for top in ("Drops", "Additional"):
+        names: list[str] = []
+        intro = ""
+        for sec in secs:
+            if sec["heading"] == top:
+                intro = " ".join(facts_only(sentences(plain(sec["body"]))))
+            if not ((sec["heading"] == top and sec["level"] == 2) or (sec["path"] and sec["path"][0] == top)):
+                continue
+            rows = [r for r in drops_of("== x ==\n" + sec["body"])]
+            if rows:
+                names += [f"{r['item']} {r['amount']} ({r['rate']})".replace("  ", " ") for r in rows]
+                continue
+            for _, _, nm, inner in find_templates(sec["body"]):
+                if nm.endswith("DropTable") and nm.lower() not in ("dropstablehead",):
+                    pos, _ = params(inner)
+                    rate = pos[0] if pos else ""
+                    label = (sec["heading"] if sec["heading"] != top else re.sub(r"(?<=[a-z])(?=[A-Z0-9])", " ", nm[:-9])).lower()
+                    names.append(f"{label} {rate}".strip())
+                    templated = True
+        if names:
+            head = "Always" if top == "Drops" else "Extra rolls"
+            parts.append(f"{head}: {', '.join(dict.fromkeys(names))}." + (f" {intro}" if intro and top != "Drops" else ""))
+    if not parts:
+        return None, mirror.pid(title)
+    if templated:
+        parts.append("The items inside these tables are not in the mirror.")
+    return " ".join(parts), mirror.pid(title)
+
+
+def build_vaults(mirror: Mirror, creatures: dict[str, dict], bosses: list[dict]) -> dict[str, dict]:
+    idx = vault_index(mirror)
+    shard, shard_pid = shard_note(mirror)
+    titles = set(idx)
+    for t, page in mirror.pages.items():
+        if t.endswith(" Kara") and re.search(r"\{\{\s*Infobox Scenery", page.get("wikitext") or "", re.I):
+            titles.add(t)
+    out: dict[str, dict] = {}
+    for title in sorted(t for t in titles if t in mirror.pages):
+        wt = mirror.wikitext(title)
+        pid = mirror.pid(title)
+        src = Src()
+        info = idx.get(title, {})
+        e: dict[str, Any] = {"kind": "vault", "name": title, "title": title, "page": pid,
+                             "aliases": sorted(set(mirror.aliases_of(title)))}
+        box = {}
+        for _, _, nm, inner in find_templates(wt):
+            if nm.lower() == "infobox scenery":
+                box = params(inner)[1]
+                break
+        area = one_line(box.get("location", "")) or info.get("area", "")
+        if area:
+            e["area"] = area
+            src.add("area", pid if box.get("location") else info.get("_pid"))
+        for k in ("power_level", "order"):
+            if info.get(k):
+                e[k] = info[k]
+                src.add(k, info["_pid"])
+        secs = sections(wt)
+        lead = facts_only(sentences(plain(secs[0]["body"])))
+        if lead:
+            e["lead"] = lead[0][:300]
+            src.add("lead", pid)
+        opens = [s for s in lead[1:] if OPENS.search(s)]
+        for sec in secs[1:]:
+            if sec["heading"] and re.search(r"unlock|entr", sec["heading"], re.I):
+                opens += facts_only(sentences(plain(sec["body"])))[:2]
+        if opens:
+            e["opens"] = opens[:3]
+            src.add("opens", pid)
+        enemies: list[dict] = []
+        extras: list[str] = []
+        for sec in secs[1:]:
+            h = (sec["heading"] or "").lower()
+            if h in ("enemies", "monsters"):
+                rows, more = vault_enemies(sec["body"], mirror)
+                enemies += rows
+                extras += more
+            elif h in ("hazards", "traps & mechanisms", "traps"):
+                extras += [b.split(" - ")[0] for b in bullets(sec["body"])]
+            elif h in ("nodes", "plants", "other") and (sec["path"][:1] == ["Resources"] or h in ("nodes", "plants")):
+                e.setdefault("resources", {})[h] = [b for b in bullets(sec["body"]) if not ADVICE.search(b)]
+                src.add("resources", pid)
+            elif h.startswith("notable loot"):
+                e["notable_loot"] = [b.split(" - ")[0].split(": ")[0] for b in bullets(sec["body"])] or \
+                    [one_line(re.split(r"\]\]", ln)[0] + "]]").split(":")[0] for ln in sec["body"].split("\n")
+                     if ln.strip().startswith("[[") and not re.match(r"\[\[\s*(file|image|category):", ln.strip(), re.I)][:4]
+                src.add("notable_loot", pid)
+            elif h == "recipes":
+                e["recipes"] = [b for b in bullets(sec["body"]) + bullets(sec["body"], 2) if not b.endswith(":")]
+                src.add("recipes", pid)
+        if enemies:
+            e["enemies"] = enemies
+            src.add("enemies", pid)
+        if extras:
+            e["hazards"] = list(dict.fromkeys(extras))
+            src.add("hazards", pid)
+        if info.get("common") or info.get("notable"):
+            e["listed_enemies"] = {"common": info.get("common", []), "notable": info.get("notable", [])}
+            src.add("listed_enemies", info["_pid"])
+        if not e.get("recipes") and info.get("recipes"):
+            e["recipes"] = info["recipes"]
+            src.add("recipes", info["_pid"])
+        boss = [b for b in bosses if b["group"].lower().startswith("vault") and title in (b.get("locations") or [])]
+        if boss:
+            e["boss"] = [{k: b[k] for k in ("creature", "power_level", "health", "weakness") if b.get(k)} for b in boss]
+            src.add("boss", boss[0]["page"])
+        chest, cpid = chest_text(mirror, title)
+        if chest:
+            e["chests"] = chest
+            src.add("chests", cpid)
+        if shard:
+            e["shards"] = shard
+            src.add("shards", shard_pid)
+        e["_src"] = src
+        out[title] = e
+    return out
+
+
+def build_dungeons(mirror: Mirror, creatures: dict[str, dict], vaults: dict[str, dict]) -> dict[str, dict]:
+    """Other dungeons and combat activities: a page (not a creature, not a vault) whose lead calls it a dungeon, cave
+    or activity and whose Monsters/Enemies section links creatures."""
+    out = {}
+    for title, page in sorted(mirror.pages.items()):
+        if title in creatures or title in vaults or "/" in title:
+            continue
+        wt = page.get("wikitext") or ""
+        secs = sections(wt)
+        lead = plain(secs[0]["body"]) if secs else ""
+        if not re.search(r"\b(dungeon|cave|activity|raid)\b", lead[:600], re.I):
+            continue
+        mons = [s for s in secs[1:] if (s["heading"] or "").lower() in ("monsters", "enemies")]
+        found: list[str] = []
+        for s in mons:
+            body = s["body"] + "".join(x["body"] for x in secs if x["path"][:1] == [s["heading"]])
+            for t in link_targets(body):
+                r = mirror.resolve(t)
+                if r in creatures and r not in found:
+                    found.append(r)
+        if len(found) < 2:
+            continue
+        pid = mirror.pid(title)
+        src = Src()
+        e: dict[str, Any] = {"kind": "dungeon", "name": title, "title": title, "page": pid,
+                             "aliases": sorted(set(mirror.aliases_of(title))), "enemies": [{"name": n} for n in found]}
+        src.add("enemies", pid)
+        ls = facts_only(sentences(lead))
+        if ls:
+            e["lead"] = ls[0][:300]
+            src.add("lead", pid)
+        text = plain(wt)
+        boss = [n for n in creatures if re.search(r"\b(?:before )?fighting " + re.escape(n) + r"\b", text)
+                or re.search(re.escape(n) + r"[^.]{0,40}\bboss\b", text)]
+        if boss:
+            e["boss"] = [{"creature": b} for b in boss]
+            src.add("boss", pid)
+        e["_src"] = src
+        out[title] = e
+    return out
+
+
+# ------------------------------------------------------------------------------ reverse index
+
+
+def build_reverse(creatures: dict[str, dict], vaults: dict[str, dict], bosses: list[dict], mirror: Mirror) -> dict[str, list[dict]]:
+    rev: dict[str, list[dict]] = defaultdict(list)
+
+    def add(item: str, row: dict) -> None:
+        item = item.strip()
+        if not item:
+            return
+        key = mirror.resolve(item) or item
+        if not any(r["from"] == row["from"] and r["how"] == row["how"] for r in rev[key]):
+            rev[key].append(row)
+
+    for title, e in creatures.items():
+        for d in e.get("drops") or []:
+            add(d["item"], {"from": e["name"], "how": "drop", "amount": d["amount"], "rate": d["rate"], "src": e["page"]})
+    for b in bosses:
+        cr = creatures.get(b["creature"])
+        for it in b.get("drops") or []:
+            add(it, {"from": cr["name"] if cr else b["creature"], "how": "drop", "amount": "", "rate": "", "src": b["page"]})
+    for title, e in vaults.items():
+        for it in (e.get("resources") or {}).get("other", []):
+            name = re.split(r"\s+-\s+|\s*\(", it)[0].strip()
+            if name.lower().startswith("chest"):
+                continue
+            add(name, {"from": title, "how": "vault", "amount": "", "rate": "", "src": e["page"]})
+        for it in e.get("recipes") or []:
+            add(it, {"from": title, "how": "recipe learned in vault", "amount": "", "rate": "", "src": (e["_src"].d.get("recipes") or [e["page"]])[0]})
+        for it in e.get("notable_loot") or []:
+            add(re.sub(r"\s+Vestige$", "", it), {"from": title, "how": "vault loot", "amount": "", "rate": "", "src": e["page"]})
+    shard, spid = shard_note(mirror)
+    if shard:
+        add("Vault Shard", {"from": "every dragonkin vault", "how": "vault chests and vault monsters", "amount": "", "rate": "",
+                            "src": spid, "note": shard})
+    return {k: v for k, v in sorted(rev.items())}
+
+
+# ------------------------------------------------------------------------------ text
+
+
+def _and(xs: list[str]) -> str:
+    xs = [x for x in xs if x]
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1] if xs else ""
+
+
+def _tidy(text: str) -> str:
+    """'total..' -> 'total.'; a stray '}}' left by a broken template is dropped."""
+    text = re.sub(r"\{\{|\}\}", "", text)
+    return re.sub(r"([.!?])\.(?=\s|$)", r"\1", text).strip()
+
+
+def _fit(parts: list[str], shrinkers: list) -> str:
+    parts = [_tidy(p) for p in parts if p]
+    text = "\n".join(p for p in parts if p)
+    for fn in shrinkers:
+        if len(text) <= ENTRY_CHARS:
+            break
+        parts = fn(parts)
+        text = "\n".join(p for p in parts if p)
+    if len(text) > ENTRY_CHARS:
+        text = text[:ENTRY_CHARS - 1].rsplit(" ", 1)[0] + "…"
+    return text
+
+
+def _sources(src: dict[str, list[int]]) -> str:
+    ids = sorted({i for v in src.values() for i in v})
+    return "Sources: wiki pages " + ", ".join(str(i) for i in ids) + "." if ids else ""
+
+
+def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int = 0) -> str:
+    """short: 0 full, 1 attack names only, 2 also drops cut, 3 also lead dropped."""
+    head = f"{e['name']}: creature" + (f", {_and(boss_of)}" if boss_of else "") + "."
+
+    def build(level: int) -> list[str]:
+        p = [head]
+        if e.get("lead") and level < 3:
+            p.append(e["lead"])
+        vs = e.get("variants") or []
+        if vs:
+            bits = []
+            for v in vs:
+                generic = re.fullmatch(r"monster|npc|(?:pl|power level|level) ?\d+", (v.get("label") or "").lower())
+                lab = f"{v['label']}: " if v.get("label") and not generic else ""
+                pl = f"power level {v['power_level']}" if v.get("power_level") else ""
+                hp = f"health {v['health']}" if v.get("health") else ""
+                bit = lab + ", ".join(x for x in (pl, hp) if x)
+                bits.append(bit[:1].upper() + bit[1:])
+            p.append(". ".join(bits) + ".")
+        fx = []
+        if e.get("race"):
+            fx.append(f"Race: {e['race']}.")
+        fx.append(f"Weak to {_and(e['weak'])}." if e.get("weak") else "Weak to: not in the mirror.")
+        if e.get("resist"):
+            fx.append(f"Resistant to {_and(e['resist'])}.")
+        if e.get("immune"):
+            imm = e["immune"]
+            fx.append(f"Immune: {imm[0]}." if len(imm) == 1 and len(imm[0].split()) > 3 else f"Immune to {_and(imm)}.")
+        if e.get("aggressive"):
+            fx.append(f"Aggressive: {e['aggressive']}.")
+        if e.get("respawn"):
+            fx.append(f"Respawn: {e['respawn']}.")
+        p.append(" ".join(fx))
+        if e.get("locations"):
+            p.append(f"Lives in: {', '.join(e['locations'])}.")
+        if vault_rows:
+            p.append(f"In vaults or dungeons: {'; '.join(vault_rows)}.")
+        att = e.get("attacks") or []
+        if att:
+            if level >= 1:
+                names = [a["name"] for a in att if a["name"]]
+                s = "Attacks: " + ("; ".join(names) + "." if names else " ".join(a["does"][:120] for a in att[:2]))
+            else:
+                s = "Attacks: " + " ".join(f"{a['name']}: {a['does']}" if a["name"] else a["does"] for a in att)
+            p.append(s)
+        for n in (e.get("attack_notes") or [])[: (2 if level < 2 else 1)]:
+            p.append(n if level < 1 else n[:240])
+        if not att and not e.get("attack_notes"):
+            p.append("Attacks: not in the mirror.")
+        dr = e.get("drops") or []
+        if dr:
+            items = [f"{d['item']} {d['amount']} ({d['rate']})".replace("  ", " ") for d in dr]
+            if level >= 2 and len(items) > 8:
+                items = items[:8] + [f"and {len(dr) - 8} more on the wiki page"]
+            p.append("Drops: " + ", ".join(items) + ".")
+        else:
+            p.append("Drops: not in the mirror.")
+        p.append(_sources(e["src"]))
+        return p
+
+    text = ""
+    for level in range(short, 4):
+        text = "\n".join(_tidy(x) for x in build(level) if x)
+        if len(text) <= ENTRY_CHARS:
+            return text
+    return _fit([text], [])
+
+
+def vault_text(e: dict, creatures: dict[str, dict]) -> str:
+    kind = "dragonkin vault" if e["kind"] == "vault" else "dungeon"
+    head = f"{e['name']}: {kind}" + (f" in {e['area']}" if e.get("area") else "") + \
+        (f", power level {e['power_level']}" if e.get("power_level") else "") + \
+        (f", number {e['order']} in the wiki's standard order" if e.get("order") else "") + "."
+    p = [head]
+    if e.get("lead"):
+        p.append(e["lead"])
+    if e["kind"] == "vault":
+        p.append("Opens: " + " ".join(e["opens"]) if e.get("opens") else "Opens: not in the mirror.")
+    en = e.get("enemies") or []
+    if en:
+        groups: dict[str, list[str]] = defaultdict(list)
+        for r in en:
+            g = f"power level {r['power_level']}" if r.get("power_level") else (r.get("group") or "")
+            groups[g].append(f"{r['name']} {r['amount']}".strip() if r.get("amount") else r["name"])
+        p.append("Enemies: " + "; ".join((f"{g}: " if g else "") + ", ".join(v) for g, v in groups.items()) + ".")
+    elif e.get("listed_enemies"):
+        le = e["listed_enemies"]
+        p.append(f"Enemies: {', '.join(le.get('common', []) + le.get('notable', []))}.")
+    else:
+        p.append("Enemies: not in the mirror.")
+    if e.get("hazards"):
+        p.append(f"Hazards: {', '.join(e['hazards'])}.")
+    if e.get("boss"):
+        bits = []
+        for b in e["boss"]:
+            c = creatures.get(b["creature"])
+            nm = c["name"] if c else b["creature"]
+            fx = [f"power level {b['power_level']}" if b.get("power_level") else "",
+                  f"health {b['health']}" if b.get("health") else "",
+                  f"weak to {b['weakness']}" if b.get("weakness") else ""]
+            fx = [x for x in fx if x]
+            bits.append(nm + (f" ({'; '.join(fx)})" if fx else ""))
+        p.append("Boss: " + "; ".join(bits) + ".")
+    elif e["kind"] == "vault":
+        p.append("Boss: not in the mirror's boss table.")
+    if (e.get("listed_enemies") or {}).get("notable"):
+        p.append(f"Notable enemies (Dragonkin Vault list): {', '.join(e['listed_enemies']['notable'])}.")
+    if e["kind"] == "vault":
+        p.append(f"Chests: {e['chests']}" if e.get("chests") else "Chests: contents not in the mirror.")
+        if e.get("shards"):
+            p.append(e["shards"])
+    if e.get("recipes"):
+        p.append(f"Recipes learned here: {', '.join(e['recipes'])}.")
+    if e.get("notable_loot"):
+        p.append(f"Notable loot: {', '.join(e['notable_loot'])}.")
+    res = e.get("resources") or {}
+    if res:
+        p.append("Resources: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in res.items() if v) + ".")
+    p.append(_sources(e["src"]))
+
+    def drop_resources(parts):
+        return [x for x in parts if not x.startswith("Resources:")]
+
+    def drop_lead(parts):
+        return [x for x in parts if x != e.get("lead")]
+    return _fit(p, [drop_resources, drop_lead])
+
+
+def reverse_text(item: str, rows: list[dict]) -> str:
+    drops = [r for r in rows if r["how"] == "drop"]
+    other = [r for r in rows if r["how"] != "drop"]
+    p = [f"{item}: where it comes from (wiki mirror)."]
+    if drops:
+        bits = []
+        for r in drops:
+            fx = ", ".join(x for x in (r.get("amount"), r.get("rate")) if x)
+            bits.append(r["from"] + (f" ({fx})" if fx else ""))
+        p.append("Dropped by: " + "; ".join(bits) + ".")
+    for r in other:
+        p.append(r["note"] if r.get("note") else f"{r['how'].capitalize()}: {r['from']}.")
+    ids = sorted({r["src"] for r in rows if r.get("src") is not None})
+    p.append("Sources: wiki pages " + ", ".join(map(str, ids)) + "." if ids else "")
+    return _fit(p, [lambda parts: parts[:2] + [f"and {len(other)} more sources"] + parts[-1:]])
+
+
+# ------------------------------------------------------------------------------ build
+
+
+def build(mirror: Mirror | None = None) -> dict:
+    mirror = mirror or Mirror()
+    creatures = build_creatures(mirror)
+    bosses = boss_rows(mirror)
+    vaults = build_vaults(mirror, creatures, bosses)
+    dungeons = build_dungeons(mirror, creatures, vaults)
+    reverse = build_reverse(creatures, vaults, bosses, mirror)
+    # creature to vault membership, and boss roles
+    in_vault: dict[str, list[str]] = defaultdict(list)
+    for v in list(vaults.values()) + list(dungeons.values()):
+        for r in v.get("enemies") or []:
+            if r["name"] in creatures:
+                bit = v["name"] + (f" ({r['amount']}" if r.get("amount") else " (") + \
+                    (f", power level {r['power_level']})" if r.get("power_level") else (f", {r['group']})" if r.get("group") else ")"))
+                bit = bit.replace(" ()", "")
+                if bit not in in_vault[r["name"]]:
+                    in_vault[r["name"]].append(bit)
+                creatures[r["name"]]["_src"].add("vaults", v["page"])
+        for name in (v.get("listed_enemies") or {}).get("common", []) + (v.get("listed_enemies") or {}).get("notable", []):
+            if name in creatures and not any(x.startswith(v["name"]) for x in in_vault[name]):
+                in_vault[name].append(v["name"])
+                creatures[name]["_src"].add("vaults", v["_src"].d.get("listed_enemies", [None])[0])
+    roles: dict[str, list[str]] = defaultdict(list)
+    for b in bosses:
+        if b["creature"] in creatures:
+            g = b["group"].lower()
+            role = ("vault boss in " + _and(b.get("locations") or [])) if g.startswith("vault") else \
+                ("world boss" if g.startswith("world") else "mini boss" if g.startswith("mini") else g)
+            if role not in roles[b["creature"]]:
+                roles[b["creature"]].append(role)
+                creatures[b["creature"]]["_src"].add("role", b["page"])
+            cr = creatures[b["creature"]]
+            if not cr.get("weak") and b.get("weakness"):  # the infobox has none; the Boss table names one
+                cr["weak"] = [b["weakness"]]
+                cr["_src"].add("weak", b["page"])
+    for v in dungeons.values():
+        for b in v.get("boss") or []:
+            if b["creature"] in creatures:
+                roles[b["creature"]].append(f"boss of {v['name']}")
+                creatures[b["creature"]]["_src"].add("role", v["page"])
+    doc: dict[str, Any] = {"schema": SCHEMA, "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                           "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids",
+                           "creatures": {}, "vaults": {}, "dropped_by": {}}
+    for title, e in creatures.items():
+        if in_vault.get(title):
+            e["vaults"] = in_vault[title]
+        if roles.get(title):
+            e["role"] = roles[title]
+        e["src"] = e.pop("_src").out()
+        e["text"] = creature_text(e, e.get("vaults") or [], e.get("role") or [])
+        doc["creatures"][title] = e
+    for title, e in list(vaults.items()) + list(dungeons.items()):
+        e["src"] = e.pop("_src").out()
+        e["text"] = vault_text(e, creatures)
+        doc["vaults"][title] = e
+    for item, rows in reverse.items():
+        doc["dropped_by"][item] = {"item": item, "rows": rows, "aliases": _item_aliases(item, mirror),
+                                   "text": reverse_text(item, rows)}
+    doc["counts"] = counts(doc)
+    return doc
+
+
+def _item_aliases(item: str, mirror: Mirror) -> list[str]:
+    al = set(mirror.aliases_of(item))
+    m = re.match(r"^[A-Z]+:\s*(.+)$", item)  # "MOUNT: Springdown Runner"
+    if m:
+        al.add(m.group(1))
+    return sorted(al)
+
+
+CREATURE_FIELDS = ("variants", "weak", "resist", "locations", "attacks_any", "drops")
+VAULT_FIELDS = ("area", "power_level", "opens", "enemies", "boss", "chests", "recipes")
+
+
+def counts(doc: dict) -> dict:
+    cr = doc["creatures"].values()
+    va = [v for v in doc["vaults"].values() if v["kind"] == "vault"]
+    du = [v for v in doc["vaults"].values() if v["kind"] == "dungeon"]
+
+    def has(e, f):
+        if f == "attacks_any":
+            return bool(e.get("attacks") or e.get("attack_notes"))
+        return bool(e.get(f))
+    return {"creatures": len(doc["creatures"]), "vaults": len(va), "dungeons": len(du),
+            "reverse_items": len(doc["dropped_by"]),
+            "reverse_rows": sum(len(v["rows"]) for v in doc["dropped_by"].values()),
+            "creatures_missing": {f: sum(1 for e in cr if not has(e, f)) for f in CREATURE_FIELDS},
+            "vaults_missing": {f: sum(1 for e in va if not has(e, f)) for f in VAULT_FIELDS},
+            "max_text": max((len(e["text"]) for sec in ("creatures", "vaults", "dropped_by") for e in doc[sec].values()), default=0)}
+
+
+# ------------------------------------------------------------------------------ lookup with the bestiary
+
+
+def _words(text: str) -> list[str]:
+    from brain.knowledge import _stem, words
+    return [_stem(w) for w in words(text)]
+
+
+class Bestiary:
+    """Name or alias matching over data/bestiary.json: the entries a query names, longest name first."""
+
+    def __init__(self, doc: dict | None = None, path: Path = OUT):
+        self.doc = doc if doc is not None else json.loads(Path(path).read_text(encoding="utf-8"))
+        self.names: list[tuple[tuple[str, ...], int, str, str]] = []  # (words, priority, section, key)
+        for sec, prio in (("creatures", 0), ("vaults", 0), ("dropped_by", 1)):
+            for key, e in self.doc.get(sec, {}).items():
+                for n in {e.get("name") or e.get("item") or key, key, *(e.get("aliases") or []), *(e.get("class_names") or [])}:
+                    w = tuple(_words(n))
+                    if w and (len(w) > 1 or len(w[0]) >= 4):
+                        self.names.append((w, prio, sec, key))
+        self.names.sort(key=lambda r: (-len(r[0]), r[1]))
+
+    def match(self, query: str) -> list[tuple[str, str]]:
+        q = _words(query)
+        used = [False] * len(q)
+        out: list[tuple[str, str]] = []
+        for w, _prio, sec, key in self.names:
+            n = len(w)
+            for i in range(len(q) - n + 1):
+                if tuple(q[i:i + n]) == w and not any(used[i:i + n]):
+                    if (sec, key) not in out:
+                        out.append((sec, key))
+                    for j in range(i, i + n):
+                        used[j] = True
+                    break
+        return out[:MAX_ENTRIES]
+
+    def entry(self, sec: str, key: str) -> dict:
+        return self.doc[sec][key]
+
+
+class BestiaryLookup:
+    """What lookup WOULD return with the bestiary: matched entries first (each under ENTRY_CHARS), then the old
+    lookup's results in their order while the texts stay within TEXT_BUDGET."""
+
+    def __init__(self, knowledge, bestiary: Bestiary, budget: int = TEXT_BUDGET):
+        self.k = knowledge
+        self.b = bestiary
+        self.budget = budget  # 0: the entries alone (a measure of the bestiary, not a mode for the brain)
+        self.build = getattr(knowledge, "build", None)
+
+    def stats(self) -> dict:
+        return self.k.stats()
+
+    def lookup(self, query: str, kind: str | None = None) -> dict:
+        res = self.k.lookup(query, kind)
+        if not res.get("ok"):
+            return res
+        data = dict(res.get("data") or {})
+        merged, info = merge(self.b, query, data.get("results") or [], self.budget)
+        if not info:
+            return res
+        data["results"] = merged
+        data["bestiary"] = info["entries"]
+        return {**res, "data": data}
+
+
+def merge(bestiary: Bestiary, query: str, results: list[dict], budget: int = TEXT_BUDGET) -> tuple[list[dict], dict | None]:
+    """The entries ``query`` names first, then ``results`` in their order while all texts stay within ``budget``.
+    Returns (results, info); info is None when no entry matched (results unchanged), else what a log line needs."""
+    hits = bestiary.match(query or "")
+    if not hits:
+        return results, None
+    mine = []
+    for sec, key in hits:
+        e = bestiary.entry(sec, key)
+        mine.append({"source": "bestiary (wiki mirror)", "authoritative": False,
+                     "kind": {"creatures": "creature", "vaults": e.get("kind", "vault"), "dropped_by": "item sources"}[sec],
+                     "title": e.get("name") or e.get("item") or key, "text": e["text"]})
+    used = sum(len(m["text"]) for m in mine)
+    rest = []
+    for r in results:
+        n = len(str(r.get("text") or ""))
+        if used + n <= budget:
+            rest.append(r)
+            used += n
+    return mine + rest, {"entries": [m["title"] for m in mine], "chars": used, "old_kept": len(rest),
+                         "old_dropped": len(results) - len(rest)}
+
+
+# ------------------------------------------------------------------------------ score (the eval's own functions)
+
+
+def load_eval():
+    spec = importlib.util.spec_from_file_location("lookup_enemies_eval", ROOT / "evals" / "lookup_enemies_eval.py")
+    ev = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ev)
+    return ev
+
+
+def score(heldout_once: bool = False, db: str | None = None, show_misses: bool = True) -> int:
+    ev = load_eval()
+    knowledge = ev.open_index(db)
+    base_tuned = ev.run_all(knowledge, ev.load_cases(ev.TUNED))
+    look = BestiaryLookup(knowledge, Bestiary())
+    tuned = ev.run_all(look, ev.load_cases(ev.TUNED))
+    only = ev.run_all(BestiaryLookup(knowledge, look.b, budget=0), ev.load_cases(ev.TUNED))
+    b, a, o = ev.summarise(base_tuned), ev.summarise(tuned), ev.summarise(only)
+    sizes = [len(look.b.entry(*m)["text"]) for c in ev.load_cases(ev.TUNED) for m in look.b.match(c["query"])[:1]]
+    print(f"index build {knowledge.build}")
+    print(f"BEFORE (lookup today)   TUNED {b['hits']}/{b['n']}  by kind: "
+          + ", ".join(f"{k} {h}/{n}" for k, (h, n) in b["by_kind"].items())
+          + f"  mean {b['mean_chars']} chars, max {b['max_chars']}, mean {b['mean_ms']} ms")
+    print(f"AFTER  (bestiary first) TUNED {a['hits']}/{a['n']}  by kind: "
+          + ", ".join(f"{k} {h}/{n}" for k, (h, n) in a["by_kind"].items())
+          + f"  mean {a['mean_chars']} chars, max {a['max_chars']}, mean {a['mean_ms']} ms")
+    print(f"ENTRY ONLY (no fallback) TUNED {o['hits']}/{o['n']}  by kind: "
+          + ", ".join(f"{k} {h}/{n}" for k, (h, n) in o["by_kind"].items())
+          + f"  entry text mean {round(sum(sizes) / max(1, len(sizes)))} chars, max {max(sizes, default=0)}"
+          + f"  ({len(sizes)} of {o['n']} queries matched an entry)")
+    if show_misses:
+        for r, r0 in zip(tuned, only):
+            r = {**r, "entry_only": r0["hit"]}
+            first = (r["titles"] or [None])[0]
+            print(f"  {'hit ' if r['hit'] else 'MISS'} {r['id']:<24} q={r['query']!r:<32} first={first!r} {r['chars']} chars"
+                  + f" entry-only {'hit' if r['entry_only'] else 'miss'}" + ("" if r["hit"] else f" missing={r['missing']}"))
+    if heldout_once:
+        held = ev.run_all(look, ev.load_cases(ev.HELDOUT))
+        print(ev.report(tuned, held).splitlines()[-1])  # the eval's own one line for the held-out half
+    return 0
+
+
+# ------------------------------------------------------------------------------ cli
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("build", help="write data/bestiary.json")
+    s = sub.add_parser("show", help="the bestiary entries a query matches")
+    s.add_argument("query")
+    sc = sub.add_parser("score", help="the lookup eval's tuned half with the bestiary first")
+    sc.add_argument("--heldout-once", action="store_true", help="also print the held-out half's one number")
+    sc.add_argument("--db", help="a knowledge.sqlite to use instead of the live index")
+    a = ap.parse_args(argv)
+    if a.cmd == "build":
+        t0 = time.perf_counter()
+        doc = build()
+        OUT.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(json.dumps(doc["counts"], indent=1))
+        print(f"wrote {OUT} in {time.perf_counter() - t0:.1f} s")
+        return 0
+    if a.cmd == "show":
+        b = Bestiary()
+        for sec, key in b.match(a.query):
+            print(f"--- {sec}/{key}\n{b.entry(sec, key)['text']}\n")
+        return 0
+    if a.cmd == "score":
+        return score(a.heldout_once, a.db)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
