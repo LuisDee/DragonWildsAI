@@ -122,6 +122,8 @@ M.cfg = {
                                -- past him: the Bramblemead Wise Old Man's switchback reaches 12 m out, 18:31Z)
     leap_land_cm = 130,
     jump_land_cm = 130,        -- a jump onto another level has landed within this of its point, at the point's height
+    takeoff_blocked_cm = 75,   -- within this of a jump's start (inside its 1 m cell) and no nearer for
+    takeoff_blocked_s = 0.6,   -- ... this long, on the ground: he takes off from where he stands
     below_max_cm = 500,        -- a go_to spot hanging over his floor up to this above his feet: arrived right under it        -- a leap's landing counts within this of the planned cell (he leaves the edge at speed)
     cam_taken_deg = 1.0,       -- the control rotation moved this far from move's own last write: another skill aims
     cam_yield_s = 0.6,         -- ... and move leaves the camera alone this long (renewed while it keeps aiming)
@@ -2021,6 +2023,7 @@ local function progress_tick(st, t, me, goal, dist, near)
     if not P then return end
     local d = P.to and d2(me, P.to) or dist
     P.dist, P.tpos = d, v(goal)
+    P.rise = goal.Z - me.Z
     -- the budget is for a chase, not for the way there: it grows with the distance he starts at
     if P.per_m and not P.d0 then P.d0 = d; P.budget_s = (P.budget_s or 0) + P.per_m * d / 100 end
     -- a gap between frames (paused by the world-teardown guard, or the loop was starved) restarts the window
@@ -2055,13 +2058,19 @@ local function progress_view(st)
     -- live 2026-10-26 16:05, sticks on a ledge 4 m up came back as a bare "timeout")
     local function stall_why()
         local walls = st.lp_fail == "verify_exhausted" or st.lp_fail == "unreachable_in_window" or (st.stuck_n or 0) > 0 or st.bug ~= nil
+            or (st.stuck_t ~= nil and P.best_t ~= nil and st.stuck_t >= P.best_t) -- stopped by something since his last gain
         local reach = ((st.env and st.env.jump) or 165) + 60
+        -- how much of the height he began under he has climbed since
+        local climbed = (st.dz0 and P.rise) and (st.dz0 - P.rise) or 0
         if st.status == "target_not_visible" then return "target_not_visible" end
         if heavy(st) then return "encumbered" end
         if moved > P.moving_cm then return "cant_catch" end
         -- the goal was out of jump reach from the start, and he got no closer: that height is the reason
-        -- (which move would reach it and what he lacks: double jump / Windstep, height_verdict)
-        if st.dz0 and st.dz0 > reach then
+        -- (which move would reach it and what he lacks: double jump / Windstep, height_verdict). Not once he has
+        -- climbed more than a jump of it and something stopped him on the way: live 2026-11-17 07:36:11Z, run 073510,
+        -- a rat 24 m up the hill, 19 m climbed, held against a ledge's foot; the attack ended "the Giant Rat is higher
+        -- up than I can jump" and his reflex walked up to it 6 s later
+        if st.dz0 and st.dz0 > reach and not (climbed > reach and walls) then
             local hr = height_reason(st, st.dz0, st.target_kind == "player" and "leader" or "target", t)
             if hr then return hr end
         end
@@ -2163,6 +2172,11 @@ local function lost_target(f)
         local names = st.target_kind ~= "actor" and map_names(f.pawn) or nil
         local detail = names and string.format("%s is not in sight, and no player of that name is on the game map (on the map: %s)",
             tostring(st.target_spec or st.target_name), #names > 0 and table.concat(names, ", ") or "nobody else") or nil
+        -- a thing he was walking to that is no longer in the world (live 2026-11-17 07:36:55Z, run 073510: his reflex
+        -- killed the rat he was walking to, and the walk ended with the bare code)
+        if not detail and st.target_ever then
+            detail = "what I was walking to is no longer there (it died, was used up or went out of sight)"
+        end
         return stop(st, { status = "failed", reason = "target_not_visible", detail = detail }, f.log)
     end
     st.prog_t = nil
@@ -3328,7 +3342,23 @@ local function steer_typed_jump(f, p)
     if p.act == "djump" and not (st.env and st.env.double_jump and (not st.local_authority or st.env.dj_measured)) then
         return traversal_failure("double jump unavailable")
     end
-    if not j and prev and d2(me, prev) < 50 then
+    -- He takes off at the jump's start. Stopped short of it inside its cell (the cell's centre can lie nearer to the
+    -- ledge's foot than his capsule can stand), he takes off from where he stands. Live 2026-11-17 07:36:02Z, run
+    -- 073510: on the ground 51 cm from the start he pushed at it for 8 s and moved 0 to 3 cm; two re-plans gave the
+    -- same path, and the attack ended path_blocked 7 m from the rat (139 stuck checks like it in the client log).
+    local near = (not j and prev) and d2(me, prev) or nil
+    local take = near ~= nil and near < 50
+    if near and not take then
+        local w = st.lp_take
+        if not (w and w.path == st.lpath and w.index == st.lwp) then w = { path = st.lpath, index = st.lwp, best = near, t = t }; st.lp_take = w end
+        if near < w.best - 5 then w.best, w.t = near, t end
+        if near < M.cfg.takeoff_blocked_cm and t - w.t >= M.cfg.takeoff_blocked_s and ground_check(pawn) == true then
+            if not owned(bind) then return true end
+            take = true
+            if log then log(string.format("move: taking off %.0f cm from the jump's start (I get no nearer to it)", near)) end
+        end
+    end
+    if take then
         local grounded = ground_check(pawn)
         if not owned(bind) then return true end
         if grounded ~= true then return traversal_failure("jump takeoff not confirmed grounded") end
@@ -3338,7 +3368,7 @@ local function steer_typed_jump(f, p)
             st.lp_jump_exec = { path = st.lpath, index = st.lwp, endpoint = p, previous = prev, token = st.owner_token, started = t, saw_air = false }
             st.lp_jumped[st.lwp] = t; j = st.lp_jump_exec
         elseif jr ~= "busy" then return true end
-    elseif not j and prev and d2(me, prev) >= 50 then f.aim = prev end
+    elseif near then f.aim = prev end
     if not j then return end
     if j.path ~= st.lpath or j.index ~= st.lwp or j.endpoint ~= p or j.token ~= st.owner_token then
         return traversal_failure("jump route changed")
@@ -4332,6 +4362,7 @@ local function stuck_tick(f)
     end
     st.stuck_n = st.stuck_n + 1
     st.stuck_total = (st.stuck_total or 0) + 1
+    st.stuck_t = t
     local n = st.stuck_n
     local ev = string.format("move: stuck n=%d moved=%.0fcm d=%.0f src=%s me=%s aim=%s goal=%s lwp=%s/%s trail=%s/%d",
         n, moved, dist, f.src, fmt(me), fmt(f.aim), fmt(goal), tostring(st.lwp), tostring(st.lpath and #st.lpath),

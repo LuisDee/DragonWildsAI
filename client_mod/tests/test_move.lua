@@ -2059,6 +2059,17 @@ check("progress: ledge goal -> timeout reported as target_above_jump_height", s.
     and s.progress.verdict == "unreachable" and s.progress.why == "target_above_jump_height",
     tostring(s.result and s.result.reason) .. " " .. tostring(s.progress and s.progress.why))
 MZ.stop(log)
+-- 45b. the same stall after he has climbed most of the way: the height he began under is not what stops him (live
+--      2026-11-17 07:36:11Z, run 073510: a rat 24 m up the hill, he climbed 19 m, was stopped against a ledge and the
+--      attack ended "the Giant Rat is higher up than I can jump"; his reflex walked up to it 6 s later)
+MZ.go_to(log, { 8, 0, 4.9 }, { tolerance_m = 0.35, timeout_s = 10, nav=false, progress = { stall_s = 3 } })
+run(5)
+_G.DW_MOVE.dz0 = 2400
+run(145)
+s = MZ.status()
+check("progress: stopped at a ledge after climbing most of the height -> blocked, not the height he began under",
+    s.result and s.result.status == "failed" and s.progress.why == "blocked", tostring(s.result and s.result.reason) .. " " .. tostring(s.progress and s.progress.why))
+MZ.stop(log)
 
 zreset()
 -- 46. a goal IN known water (a pond to use): no swap for dry ground, it walks in and arrives
@@ -3342,6 +3353,54 @@ do
     mv = land(0, 54, 48)
     check("gap jump on one level: 72 cm from the cell stays a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- The point a jump starts from lay against the foot of the ledge, nearer to it than his capsule could stand (live
+-- 2026-11-17 07:36:02Z, run 073510 Ratcatcher: on the ground 51 cm from that point he pushed at it for 8 s and moved 0
+-- to 3 cm; the re-plans gave the same path, and the attack ended path_blocked 7 m from the rat). He takes off from
+-- where he stands once he gets no nearer; further off than a cell he does not.
+do
+    local function blocked(off)
+        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(5)
+        local mv = _G.DW_MOVE
+        local here = pawn.loc
+        PINCH = { { here.X + 1, here.X + 400, here.Y - 400, here.Y + 400 } } -- his capsule gets no further along +X
+        mv.lpath = { { X = here.X + off, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X + off + 100, Y = here.Y, Z = FLOOR, act = "jump" } }
+        mv.lwp = 2; mv.lp_jump_exec = nil; mv.lp_jumped = {}
+        mv.trav_fails, mv.lp_fail = nil, nil
+        mv.win_t, mv.win_pos = T, { X = here.X, Y = here.Y, Z = here.Z }
+        local j0 = pawn.jumps
+        step(27) -- 0.9 s: before the first stuck window ends
+        PINCH = nil
+        return mv, pawn.jumps - j0
+    end
+    local mv, jumps = blocked(52)
+    check("takeoff: stopped 52 cm short of the jump's start, he takes off from where he stands", jumps == 1 and mv.lp_jumped[2] ~= nil
+        and (mv.stuck_n or 0) == 0, "jumps=" .. jumps .. " stuck_n=" .. tostring(mv.stuck_n) .. " lp_fail=" .. tostring(mv.lp_fail))
+    mv, jumps = blocked(120)
+    check("takeoff: stopped 120 cm short of it, he does not jump from there", jumps == 0, "jumps=" .. jumps)
+    M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- A walk to a creature that is gone before he gets there says so (live 2026-11-17 07:36:55Z, run 073510: his reflex
+-- killed the rat he was walking to and the walk ended with the bare code target_not_visible)
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local rat = obj({ loc = { X = 20000, Y = 0, Z = 0 }, K2_GetActorLocation = function(self) return self.loc end })
+    M.go_to(log, { actor = rat }, { tolerance_m = 1, nav = false })
+    run(105)
+    local walking = M.status().result == nil
+    rat.IsValid = function() return false end
+    run(30)
+    local r = M.status().result
+    check("gone target: a walk to a creature that is no longer there says so", walking and r and r.status == "failed"
+        and r.reason == "target_not_visible" and tostring(r.detail):find("no longer there", 1, true) ~= nil,
+        tostring(walking) .. " " .. tostring(r and r.reason) .. " " .. tostring(r and r.detail))
+    M.stop(log)
 end
 
 -- ARRIVAL UNDER CONTROL (live 20:33:51Z, rung 3 mine: "arrived" at 6.8 m/s after a hop 1.6 m from the goal, then a 5 m
