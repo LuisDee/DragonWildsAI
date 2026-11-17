@@ -33,4 +33,7 @@ if ($env:DW_SERVER_ROLE -eq 'dev' -and -not $env:DW_COMPANION_NAME) { $env:DW_CO
 $p = Start-Process -FilePath $ServerExe -WorkingDirectory $ServerWin64 -WindowStyle Hidden -PassThru
 for ($i = 0; $i -lt 50 -and -not (Get-ServerProcess); $i++) { Start-Sleep -Milliseconds 200 }
 Remove-Item $hold -ErrorAction SilentlyContinue
+# the nav helper must be pointed at this new process, whoever started it (tools
+av_reset.ps1)
+Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'nav_reset.ps1') -WindowStyle Hidden | Out-Null
 Write-Host "Started server pid $($p.Id) (build $(Get-ServerBuildId)). Log: $ServerLog"

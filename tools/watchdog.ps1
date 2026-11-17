@@ -48,7 +48,7 @@ while ($true) {
         $seen = $dump.FullName
         Log "crash dump $($dump.Name): killing hung server and restarting"
         & "$PSScriptRoot\stop_server.ps1" | Out-Null
-        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }; Reset-NavOracle
+        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }  # start_server.ps1 runs nav_reset.ps1
         continue
     }
     # Game-thread hang with no crash dump: the mod's heartbeat (written every 10 s from the game
@@ -66,12 +66,12 @@ while ($true) {
                 Log "stacks: $out"
             }
             & "$PSScriptRoot\stop_server.ps1" | Out-Null
-            & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }; Reset-NavOracle
+            & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }  # start_server.ps1 runs nav_reset.ps1
             continue
         }
     }
     if (-not (Get-ServerProcess)) {
         Log 'server process missing: starting it'
-        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }; Reset-NavOracle
+        & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }  # start_server.ps1 runs nav_reset.ps1
     }
 }
