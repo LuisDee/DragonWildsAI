@@ -2044,7 +2044,7 @@ All three failures ended the same way: he stopped with the quest's next step ope
 
 | Commit | What | What it is for |
 |---|---|---|
-| bb5214f | `quest_run` refuses a window on uncommitted code in `client_mod/` or `brain/` | the unfinished `combat.lua` that hot-loaded into window s29 |
+| bb5214f | `quest_run` refuses a window on uncommitted code in `client_mod/` or `brain/` | the unfinished `combat.lua` that hot-loaded into window s7 (run 215441, void) |
 | eaee93c | `tools/ab.py`: Wilson interval, Fisher's exact test, trials needed | rule 11: a window's number and sample size named first |
 | 7536640 | `tools/world_snapshot.py`: keep, restore (a dry run unless `--confirm`), verify, list; 23 tests | rule 9: a window starts from a named world |
 | 8b08085 | `tools/unseen.py` and `docs/unseen_fixes.jsonl`: 20 open rows, 2 confirmed; 16 tests | rule 12: no fix stays unseen; cap 8 |
