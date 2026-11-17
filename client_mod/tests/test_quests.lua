@@ -93,6 +93,15 @@ Qm.W.pc = PC0
 -- the game's quest map markers (live 2026-11-01: Windmill_Area_FTUE_RC, an 80 m area for Ratcatcher)
 check("marker name: the game's codes dropped", Qm.marker_name("Windmill_Area_FTUE_RC") == "Windmill Area"
     and Qm.marker_name("Vannaka_NPC_FTUE_RC") == "Vannaka" and Qm.marker_name("TribeA.Taskgiver1") == "Tribe A Taskgiver1")
+-- chain sitting 1 (2026-11-17), run 090028: "Doric_NPC_FTUE_RtftJ" was shown as "Doric Rtft J", the plan's talk used
+-- that name and the body answered "I can't see Doric Rtft J within 120 m" (a miss). A mixed-case tag with a part that
+-- has no vowel is a code too.
+check("marker name: a mixed-case code is dropped too", Qm.marker_name("Doric_NPC_FTUE_RtftJ") == "Doric"
+    and Qm.marker_name("Water_Area_FTUE_RtftJ") == "Water Area", Qm.marker_name("Doric_NPC_FTUE_RtftJ"))
+check("marker name: words stay", Qm.marker_name("WiseOldMan_Target_Farm") == "Wise Old Man Target Farm"
+    and Qm.marker_name("Essence_Area_RM") == "Essence Area" and Qm.marker_name("Zanik_Objective") == "Zanik Objective"
+    and Qm.marker_name("RuneEssenceGeyser_Spot") == "Rune Essence Geyser Spot" and Qm.marker_name("Crypt_Area") == "Crypt Area"
+    and Qm.marker_name("FTUE_RtftJ") == "FTUE_RtftJ")
 local wb = Qm.where_by_quest({ { quest = "Ratcatcher", key = "Windmill_Area_FTUE_RC", kind = "area", radius_m = 80, xy = { 156.1, 1713.4 }, distance_m = 60 },
                                { quest = "Ratcatcher", key = "Vannaka_NPC_FTUE_RC", kind = "npc", radius_m = 0, position = { 152.5, 1787.1, -24.4 }, distance_m = 20 } })
 check("where: nearest first, inside an area, xy only without a ground height", wb.Ratcatcher[1].name == "Vannaka"

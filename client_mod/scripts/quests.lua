@@ -141,11 +141,22 @@ end
 
 -- ------------------------------------------------------------------ pure
 -- A marker's key in words: "Windmill_Area_FTUE_RC" -> "Windmill Area" (the all-capitals tags are the game's own
--- quest and tutorial codes, not words a player sees)
+-- quest and tutorial codes, not words a player sees). A mixed-case tag is a code too when one of its parts has no
+-- vowel: "Doric_NPC_FTUE_RtftJ" was shown as "Doric Rtft J", a talk used that name and no such thing was in sight
+-- (chain sitting 1, 2026-11-17, run 090028).
+local function is_code(words)
+    for part in words:gmatch("%a+") do
+        if #part >= 2 and not part:lower():find("[aeiouy]") then return true end
+    end
+    return false
+end
 function M.marker_name(key)
     local w = {}
     for tok in tostring(key or ""):gmatch("[^_%.]+") do
-        if tok:find("%l") then w[#w + 1] = (tok:gsub("(%l)(%u)", "%1 %2")) end
+        if tok:find("%l") then
+            local words = tok:gsub("(%l)(%u)", "%1 %2")
+            if not is_code(words) then w[#w + 1] = words end
+        end
     end
     return #w > 0 and table.concat(w, " ") or tostring(key)
 end
