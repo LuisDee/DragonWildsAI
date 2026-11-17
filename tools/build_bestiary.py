@@ -1865,16 +1865,21 @@ class BestiaryLookup:
 
 def merge(bestiary: Bestiary, query: str, results: list[dict], budget: int = TEXT_BUDGET) -> tuple[list[dict], dict | None]:
     """The entries ``query`` names first, then ``results`` in their order while all texts stay within ``budget``.
-    Returns (results, info); info is None when no entry matched (results unchanged), else what a log line needs."""
+    Returns (results, info); info is None when no entry matched (results unchanged), else what a log line needs.
+    An entry's text is held to ENTRY_CHARS whatever the file says; an entry without text is skipped."""
+    from brain.knowledge import _clip
     hits = bestiary.match(query or "")
-    if not hits:
-        return results, None
     mine = []
     for sec, key in hits:
         e = bestiary.entry(sec, key)
+        text = e.get("text") if isinstance(e, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            continue
         mine.append({"source": "bestiary (wiki mirror)", "authoritative": False,
                      "kind": {"creatures": "creature", "vaults": e.get("kind", "vault"), "dropped_by": "item sources"}[sec],
-                     "title": e.get("name") or e.get("item") or key, "text": e["text"]})
+                     "title": str(e.get("name") or e.get("item") or key), "text": _clip(text, ENTRY_CHARS)})
+    if not mine:
+        return results, None
     used = sum(len(m["text"]) for m in mine)
     rest = []
     for r in results:
@@ -1899,6 +1904,7 @@ def load_eval():
 def score(heldout_once: bool = False, db: str | None = None, show_misses: bool = True) -> int:
     ev = load_eval()
     knowledge = ev.open_index(db)
+    knowledge.bestiary = None  # Knowledge now merges the bestiary itself: "before" is the lookup without it
     base_tuned = ev.run_all(knowledge, ev.load_cases(ev.TUNED))
     look = BestiaryLookup(knowledge, Bestiary())
     tuned = ev.run_all(look, ev.load_cases(ev.TUNED))

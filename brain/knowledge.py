@@ -615,7 +615,7 @@ class Knowledge:
     """``lookup(query, kind)`` over game data + wiki. Thread-safe for reads."""
 
     def __init__(self, data: Path | None = None, wiki: Path | None = None, db_path: Path | None = None,
-                 rebuild: bool = False, log=None):
+                 rebuild: bool = False, log=None, bestiary: Path | None = None):
         self.data = Path(data) if data else data_dir()
         self.wiki = Path(wiki) if wiki else wiki_dir()
         self.log = log
@@ -629,6 +629,21 @@ class Knowledge:
         if rebuild or self._meta("signature") != sig:
             self._build(sig)
         self.build = self._meta("build")
+        self.bestiary = self._load_bestiary(Path(bestiary) if bestiary else self.data / "bestiary.json")
+
+    def _load_bestiary(self, path: Path):
+        """``<data>/bestiary.json`` (tools/build_bestiary.py, docs/research/2026-11-17-bestiary.md): one entry per
+        enemy, vault and item source, put first when a lookup names one. Optional like the index itself: absent or
+        broken, lookup works as before, and the reason is logged. A rebuilt file is read at the next start."""
+        try:
+            if not path.is_file():
+                raise FileNotFoundError(str(path))
+            from tools.build_bestiary import Bestiary  # lazy, as brain/budget.py imports tools.spend
+            return Bestiary(path=path)
+        except Exception as exc:  # never block the brain on it
+            if self.log:
+                self.log.log("bestiary_unavailable", path=str(path), error=repr(exc)[:200])
+            return None
 
     # ---------------------------------------------------------------- build
 
@@ -798,6 +813,17 @@ class Knowledge:
                         node := self._node_line(r["title"], r.get("ref"), gates)):
                     item["wiki_node"] = node
                 out.append(item)
+        if self.bestiary is not None:  # the creature, vault or item the query names first, then the results above
+            seen = None
+            try:
+                from tools.build_bestiary import merge
+                out, seen = merge(self.bestiary, query, out)
+            except Exception as exc:  # a bad entry costs the entries, never the lookup
+                if self.log:
+                    self.log.log("bestiary_error", query=query[:120], error=repr(exc)[:200])
+            if seen and self.log:
+                self.log.log("lookup_bestiary", query=query[:120], entries=seen["entries"], chars=seen["chars"],
+                             old_kept=seen["old_kept"], old_dropped=seen["old_dropped"])
         data: dict[str, Any] = {"query": query, "results": out, "note": NOTE}
         if any((r.get("wiki_node") or {}).get("tool_source") == NODE_WIKI_ONLY for r in out):
             data["note"] = NOTE + " " + NODE_NOTE

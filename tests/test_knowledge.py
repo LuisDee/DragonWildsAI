@@ -374,3 +374,88 @@ def test_lookup_runs_in_the_brain_and_does_not_interrupt(tmp_path, know):
     tool_msg = next(m for m in rig.controller_llm.calls[1]["messages"] if m["role"] == "tool")
     body = json.loads(tool_msg["content"])
     assert body["ok"] and body["data"]["results"][0]["authoritative"] is True
+
+
+# --------------------------------------------------------------------------- the bestiary in lookup
+# <data>/bestiary.json (tools/build_bestiary.py, docs/research/2026-11-17-bestiary.md): the creature or vault a
+# query names comes first, the old results follow; absent or broken, lookup is what it was (logged, never raised).
+
+BESTIARY = {"schema": "dw_bestiary/1",
+            "creatures": {"Glow Moth": {"name": "Glow Moth", "aliases": ["GlowMoth"],
+                                        "text": "Glow Moth. Power level 4, health 30. Weak to Fire. Lives in Mossy Hollow."}},
+            "vaults": {"Mossy Hollow": {"name": "Mossy Hollow", "kind": "vault",
+                                        "text": "Mossy Hollow (vault). Enemies: Glow Moth x6 (power level 4)."}},
+            "dropped_by": {}}
+
+
+def _rows(path):
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _know(tmp_path, bestiary=None, raw=None):
+    """(Knowledge with a logger and the given bestiary file, if any; the log path)."""
+    from brain.jsonl_log import JsonlLogger
+    data = make_data(tmp_path / "data")
+    if bestiary is not None:
+        raw = json.dumps(bestiary)
+    if raw is not None:
+        (data / "bestiary.json").write_text(raw, encoding="utf-8")
+    log = tmp_path / "brain.jsonl"
+    return Knowledge(data=data, wiki=make_wiki(tmp_path / "wiki"), log=JsonlLogger(log)), log
+
+
+def _plain(tmp_path):
+    """The same game and wiki with no bestiary file: lookup as it was."""
+    return Knowledge(data=make_data(tmp_path / "plain-data"), wiki=make_wiki(tmp_path / "plain-wiki"))
+
+
+def test_bestiary_entry_comes_first_for_a_creature_or_vault_name_and_is_logged(tmp_path):
+    k, log = _know(tmp_path, BESTIARY)
+    moth = k.lookup("glow moth weakness")["data"]["results"]
+    assert moth[0]["title"] == "Glow Moth" and moth[0]["source"] == "bestiary (wiki mirror)"
+    assert moth[0]["authoritative"] is False and "Weak to Fire" in moth[0]["text"]
+    vault = k.lookup("Mossy Hollow enemies")["data"]["results"]
+    assert vault[0]["title"] == "Mossy Hollow" and vault[0]["kind"] == "vault"
+    old = _plain(tmp_path).lookup("Mossy Hollow enemies")["data"]["results"]
+    assert old and vault[1:] == old  # the old results follow, in their order
+    rows = [r for r in _rows(log) if r["kind"] == "lookup_bestiary"]
+    assert [r["entries"] for r in rows] == [["Glow Moth"], ["Mossy Hollow"]]
+    assert rows[1]["query"] == "Mossy Hollow enemies" and rows[1]["old_kept"] == len(old)
+    assert rows[1]["old_dropped"] == 0 and rows[1]["chars"] > 0
+    assert '"kind": "lookup_bestiary"' in log.read_text(encoding="utf-8")  # the tools.unseen signature
+
+
+def test_a_query_naming_no_entry_is_unchanged_and_not_logged(tmp_path):
+    k, log = _know(tmp_path, BESTIARY)
+    assert k.bestiary is not None
+    assert k.lookup("glowcap brew") == _plain(tmp_path).lookup("glowcap brew")
+    assert not [r for r in _rows(log) if r["kind"] == "lookup_bestiary"]
+
+
+@pytest.mark.parametrize("raw", [None, "{not json", "[1, 2]", json.dumps({"creatures": ["Glow Moth"]})])
+def test_absent_or_broken_bestiary_leaves_lookup_as_it_was(tmp_path, raw):
+    k, log = _know(tmp_path, raw=raw)
+    plain = _plain(tmp_path)
+    assert k.bestiary is None
+    for q in ("Mossy Hollow enemies", "glowcap brew"):
+        assert k.lookup(q) == plain.lookup(q)
+    why = [r for r in _rows(log) if r["kind"] == "bestiary_unavailable"]
+    assert len(why) == 1 and why[0]["path"].endswith("bestiary.json") and why[0]["error"]
+
+
+def test_a_bad_entry_costs_the_entry_never_the_lookup(tmp_path):
+    from tools.build_bestiary import ENTRY_CHARS
+    doc = json.loads(json.dumps(BESTIARY))
+    del doc["creatures"]["Glow Moth"]["text"]  # no text: skipped
+    doc["vaults"]["Mossy Hollow"]["text"] = "Mossy Hollow. " + "Glow Moth x6. " * 400  # over the size limit
+    k, log = _know(tmp_path, doc)
+    moth = k.lookup("glow moth")
+    assert moth["ok"] and all(r["source"] != "bestiary (wiki mirror)" for r in moth["data"]["results"])
+    vault = k.lookup("mossy hollow")["data"]["results"]
+    assert vault[0]["title"] == "Mossy Hollow" and len(vault[0]["text"]) <= ENTRY_CHARS
+    k.bestiary.doc["creatures"] = None  # broken after load: logged, the old results still come back
+    res = k.lookup("glow moth")
+    assert res["ok"] and res["data"]["results"] == moth["data"]["results"]
+    assert [r for r in _rows(log) if r["kind"] == "bestiary_error"]
