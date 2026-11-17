@@ -3607,3 +3607,9 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 - Since c835589 he takes off from where he stands when he is within 75 cm of the jump's start, on the ground, and has come no nearer for 0.6 s (`cfg.takeoff_blocked_cm`, `takeoff_blocked_s`). The client log line is `move: taking off N cm from the jump's start (I get no nearer to it)`. The landing check is unchanged.
 - The stall reason was the height he began under ("higher up than I can jump": 24 m at the start) although he had climbed 19 m. `stall_why` now gives `blocked` when he has climbed more than a jump's reach of it and a stuck check came since his last gain. A walk to a thing that is gone says "what I was walking to is no longer there" in place of the bare `target_not_visible`.
 - Limit: tests only until a live window shows the line.
+
+## A world restore does not roll back his character: the client's copy wins on join (2026-11-17 17:44Z, build 26574459, dev server, ClaudeDev)
+- What: `tools.world_snapshot restore base` put back the world saved at 17:12Z, which holds the server's cached copy of ClaudeDev (`CachedCharacterStates`). Between 17:12Z and the restore he made and wore a Community Cape (gear_up trial 3, 17:27Z). After the restore and a rejoin, his `inventory` read shows the cape worn, and the sword and shield he picked up at 17:19Z held.
+- So on join the server takes the character the client brings (his own save), not its cached copy. A restore resets the world (ground items, graves, rocks, stations) and leaves his bag and gear as they were. Items he took from the ground after the snapshot are back on the ground AND on him: the dev world can gain copies this way.
+- Not shown: what the cached copy IS used for; whether the same holds for another player's character (the restore guard for them stays).
+- Verified: one restore and one rejoin, `python -m tools.bridge_cmd inventory` at 17:45Z.
