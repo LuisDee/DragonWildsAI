@@ -4,8 +4,10 @@
 # launcher only spawns it. The server writes its log to Saved\Logs\RSDragonwilds.log either way.
 . "$PSScriptRoot\config.ps1"
 
-Remove-Item (Join-Path $RepoRoot 'logs\server.stopped') -ErrorAction SilentlyContinue
-if (Get-ServerProcess) { Write-Host 'Server already running.'; exit 0 }
+# The hold file goes only once the new process exists: removed first, the watchdog saw "no server, no hold" in the gap
+# and started a second server (2026-11-17 17:42Z); one exited, and the nav policy was written for its pid.
+$hold = Join-Path $RepoRoot 'logs\server.stopped'
+if (Get-ServerProcess) { Remove-Item $hold -ErrorAction SilentlyContinue; Write-Host 'Server already running.'; exit 0 }
 
 New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir, (Join-Path $RepoRoot 'logs\perf') | Out-Null
 $env:DW_MOD_LOG_DIR = $ModLogDir
@@ -29,4 +31,6 @@ $env:DW_SERVER_ROLE = 'dev'
 if ($env:DW_SERVER_ROLE -eq 'dev' -and -not $env:DW_COMPANION_NAME) { $env:DW_COMPANION_NAME = 'Tester' }
 
 $p = Start-Process -FilePath $ServerExe -WorkingDirectory $ServerWin64 -WindowStyle Hidden -PassThru
+for ($i = 0; $i -lt 50 -and -not (Get-ServerProcess); $i++) { Start-Sleep -Milliseconds 200 }
+Remove-Item $hold -ErrorAction SilentlyContinue
 Write-Host "Started server pid $($p.Id) (build $(Get-ServerBuildId)). Log: $ServerLog"

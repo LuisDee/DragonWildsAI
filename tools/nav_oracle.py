@@ -397,6 +397,10 @@ def write_policy(server_pid: int, retired: list[int], mod_log_dir: Path | None =
     server = windows_process(server_pid)
     if not server:
         raise RuntimeError(f"no process {server_pid}")
+    # a pid read before a racing second server exited can belong to another program by now (2026-11-17 17:43Z: the
+    # policy named bash.exe, and the helper stayed "recovering" for every walk of the next window)
+    if not Path(server.get("image") or "").name.lower().startswith("rsdragonwildsserver"):
+        raise RuntimeError(f"process {server_pid} is not the dev server: {server.get('image')}")
     logs = sorted(Path(mod_log_dir or paths.REPO_ROOT / "logs" / "mod").glob("mod_*.jsonl"), key=lambda q: q.stat().st_mtime)
     if not logs:
         raise RuntimeError("no mod log")

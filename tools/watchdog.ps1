@@ -19,6 +19,10 @@ function Reset-NavOracle {
     $helpers = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'nav_oracle serve' })
     for ($i = 0; $i -lt 24; $i++) { # the mod logs bridge_started a few seconds after the map loads
         Start-Sleep -Seconds 5
+        # read again each time: a second server started in a race exits within seconds, and its pid was written once
+        # (2026-11-17 17:43Z: the policy named a pid that a bash.exe had by then)
+        $live = Get-ServerProcess | Where-Object Name -like '*Shipping*' | Select-Object -First 1
+        if ($live) { $proc = $live }
         Push-Location $RepoRoot
         & $python -m tools.nav_oracle policy $proc.Id --retired @($helpers | ForEach-Object { $_.ProcessId }) *> $null
         $ok = $LASTEXITCODE -eq 0
