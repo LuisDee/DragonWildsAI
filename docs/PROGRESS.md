@@ -1755,3 +1755,35 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Ledger:** 53 failed runs, none untagged, 10 void. No new row.
 - **Spend** on 2026-11-17 UTC at 08:08Z: $1.83 of $10 by the guard (715 calls). s21 cost about $0.03 (32 calls).
 - **Limits.** No chain was run. Reports were not judged for truth. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, and c96dc9e's exact order.
+
+## 2026-11-17 08:10Z-08:55Z: the takeoff point he could not reach (fixed, seen firing once live); Ratcatcher alone, 5 of 5 (9 of the last 10)
+
+**The cause behind run 073510 (Ratcatcher, the attack that gave up on the windmill hill).** Read from `logs/client/client.log`, 07:35:57Z to 07:36:11Z; the mechanism is in DISCOVERIES ("A local path's jump could start from a point his capsule cannot reach").
+- A jump step took off only within 50 cm of its start. At a ledge's foot he stood on the ground 51 cm from it and could get no nearer. He pushed at it for 8 s; two re-plans gave the same path; the attack's 12 s no-progress window ended it one second after backtrack freed him.
+- How often: 139 of the 4,297 stuck checks in the client log are of this shape (local path, aim 50 to 75 cm away, at most 5 cm moved).
+- **Fix, c835589** (three tests that failed before it; Lua and places set 85 passed):
+  - Within 75 cm of the jump's start, on the ground and no nearer for 0.6 s, he takes off from where he stands. The landing check is unchanged.
+  - The stall reason is no longer the height he began under once he has climbed more than a jump's reach of it and was stopped by something since his last gain. He then says "something is in the way" in place of "higher up than I can jump".
+  - A walk to a thing that is gone says "what I was walking to is no longer there". It is still a failed action (the grader's miss rule is not touched).
+- **Not taken:** explore's "already in sight" as a success (3 right finds were counted as misses in 14 to 17 Nov). The matcher takes a thing whose whole name is in the words, so "rats or a windmill on the hill behind Vannaka" matches Vannaka; as a success that wrong find would be hidden. Queued until the matching is sound.
+
+**Window s22, Ratcatcher from `rc_start`, 5 of 5.**
+
+| run | result | time, x Luis | misses |
+|---|---|---|---|
+| 083040 | pass | 135.7 s, 0.72 | 0 |
+| 083451 | pass | 186.4 s, 0.71 | 0 |
+| 084003 | pass | 133.5 s, 0.79 | 0 |
+| 084412 | pass | 164.9 s, 0.80 | 0 |
+| 084859 | pass | 256.6 s, 0.78 | 0 |
+
+- No attack ended `path_blocked`. The only failed tool results were interruptions (3 attacks and 1 talk), which are not misses.
+- **c835589 live:** the takeoff line was logged once (08:52:10Z, run 084859: "taking off 57 cm from the jump's start", one second after the plan, where the old rule would have waited for a stuck check). In the same second a remembered route replaced the local path, and he arrived 6 s later. So the rule was seen to fire; whether that jump would have landed was not seen. The new stall reason and the gone-target words did not come up.
+- Four jumps still failed in the window (3 missed landings, 1 takeoff not on the ground); each trip went on and arrived.
+
+**State at 08:55Z.**
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 9 from `gs_start`; Ratcatcher 7 chained, **9 from `rc_start`** (6 in a row); Rune Mysteries 3 chained, 10 from `rm_part2`, 9 from `rm_start`. Every quest now passes 9 of 10 alone, and the guard prints "chain: ready".
+- **Ledger:** 54 rows, none untagged, 10 void. The 2 open Ratcatcher runs on the windmill hill stay open: one firing is not a count.
+- **Spend** on 2026-11-17 UTC at 08:55Z: $1.92 of $10 by the guard (776 calls). s22 cost about $0.10 (61 calls).
+- **Limits.** No chain was run yet. Reports were not judged for truth. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, c96dc9e's exact order, and c835589's stall reason and gone-target words.
+- **Next:** the chain gate (`quest_run fresh`, 3 sittings in a row).
