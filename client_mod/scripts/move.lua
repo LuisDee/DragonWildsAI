@@ -2173,6 +2173,8 @@ local function jump_tick(f)
             if not ok then return stop(st, { status = "failed", reason = "verification_failed", detail = "second jump input failed" }, log) end
             st.jump_double = false; st.jump_t2 = t; st.double_jumps = (st.double_jumps or 0) + 1
             st.jump_observation.submitted = true
+            -- for the typed jump's landing line (second=yes dj2=<s after the first press>)
+            if st.lp_jump_exec then st.lp_jump_exec.dj2 = t end
         elseif t - st.jump_t > 1.2 then
             -- the first jump never left the ground: no second press, carry on (the stuck/re-plan ladder decides;
             -- live 2026-10-31 20:32 this ended the ramp_down journey)
@@ -3368,14 +3370,18 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
     local function p3(q, dz) return q and q.X and string.format("(%.0f,%.0f,%.0f)", q.X, q.Y, q.Z - (dz or 0)) or "-" end
     log(string.format("move: jump verdict=%s why=%s act=%s rise=%.0f run=%.0f k=%s/%s from=%s to=%s takeoff=%s"
         .. " takeoff_off=%s v0=%s v0h=%s toward=%s air=%.2f apex=%s nearest=%s at=%s feet_dz=%.0f"
-        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s",
+        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s",
         verdict, why, p.leap and "leap" or tostring(p.act), p.Z - a.Z, el, tostring(st.lwp), tostring(st.lpath and #st.lpath),
         p3(a), p3(p), p3(tk, hh), tk.X and f0(math.sqrt((tk.X - a.X) ^ 2 + (tk.Y - a.Y) ^ 2)) or "-",
         p3(vv), f0(vh), toward and string.format("%.2f", toward) or "-", t - (j.started or t),
         j.apex and string.format("%+.0f", j.apex - hh - p.Z) or "-",
         j.nearest and string.format("%.0f@%+.0f", j.nearest, j.nearest_dz) or "-",
         p3(me, hh), feet - p.Z, tk.Z and string.format("%+.0f", me.Z - tk.Z) or "-",
-        math.sqrt((me.X - p.X) ^ 2 + (me.Y - p.Y) ^ 2), f0(fz), fnz and string.format("%.2f", fnz) or "-"))
+        math.sqrt((me.X - p.X) ^ 2 + (me.Y - p.Y) ^ 2), f0(fz), fnz and string.format("%.2f", fnz) or "-",
+        -- a double jump's second press: fired or not, and when after the first (2026-11-17 double-jumps study: a
+        -- flight cut short could not tell "never pressed" from "pressed and the face ate it")
+        p.act == "djump" and not p.leap and (j.dj2 and "yes" or "no") or "-",
+        j.dj2 and string.format("%.2f", j.dj2 - (j.started or j.dj2)) or "-"))
 end
 
 local function steer_typed_jump(f, p)
@@ -3458,7 +3464,9 @@ local function steer_typed_jump(f, p)
         -- landing, until he is slow (2026-11-17 study, docs/research/2026-11-17-jump-misses-left.md: single jumps
         -- pressed under 100 cm/s 0 of 40 missed, faster 28 of 69; at speed he reached the face under its lip or
         -- crossed a narrow top before he came down). A gap on one level and a leap keep their running jump.
-        local up = p.act == "jump" and not p.leap and prev ~= nil and p.Z - prev.Z > step_tol(st)
+        -- A double jump up too (docs/research/2026-11-17-double-jumps.md: at 2.4 m or more, pressed at 300 cm/s or
+        -- more 2 of 6 landed, three with the rise cut to 31-185 cm by the face; under 150 cm/s 8 of 10).
+        local up = (p.act == "jump" or p.act == "djump") and not p.leap and prev ~= nil and p.Z - prev.Z > step_tol(st)
         local why = (up and vh > M.cfg.run_up_up_cms) and "fast"
             or (vh > M.cfg.run_up_fast_cms and cosr < M.cfg.run_up_cos) and "sideways" or nil
         if why then

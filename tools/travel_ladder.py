@@ -4,7 +4,7 @@
   .venv\\Scripts\\python.exe -m tools.travel_ladder --label baseline
   .venv\\Scripts\\python.exe -m tools.travel_ladder --only ramp_up,ramp_down --repeat 2
   .venv\\Scripts\\python.exe -m tools.travel_ladder --list
-  .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric --repeat 5 --label jumpcourse
+  .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump --repeat 5 --label jumpcourse
       the jump course (docs/research/2026-11-17-jump-course.md): dev world only, teleported starts only, and a
       summary from tools/jump_stats.py of the paths with a jump up, strikes, real falls and jump verdict lines
 
@@ -148,7 +148,7 @@ OBSTACLES = [
 ]  # kept out of JOURNEYS: tools/chat_ladder.py asks JOURNEYS' goals in chat (Rung 1)
 
 # JUMP COURSE (docs/research/2026-11-17-jump-landings.md "The course (no model)"; docs/research/2026-11-17-jump-course.md):
-# six short go_tos (under about 10 m, so the local planner leads) from where he stood below the worst jump-up places to
+# seven short go_tos (under about 10 m, so the local planner leads) from where he stood below the worst jump-up places to
 # a point on top, to measure a change to how jumps are judged or planned in paths with a strike. Starts are capsule
 # centres from his own plan lines; goals are the path end points + 0.88 m (`jump_stats course`). Counts are
 # `jump_stats places` (14 Nov to 17 Nov, 5 m clusters of the landing point): jump-up edges tried / judged missed.
@@ -165,6 +165,10 @@ P.update({
     "jht_a": [143.97, 1703.38, -4.87], "jht_b": [144.0, 1706.0, -2.72],
     # the ledges by Doric: place (110.2, 1847.5), floor -31.2, 36 tried, 18 judged missed, median rise 80 cm
     "jd_a": [106.46, 1849.46, -31.36], "jd_b": [109.02, 1846.57, -29.57],  # the rock top he stands on (docs/research/2026-11-17-jump-doric.md); the old cell lay on its flank
+    # windmill hill, the 3 m double jump after a walk (docs/research/2026-11-17-double-jumps.md section 5): cell
+    # (156,1746,-9.7) + 0.88, the first point of three play plans (16 Nov) that walked 2-4 cells and took the 300 cm
+    # diagonal djump (156,1744,-9.3) to (157,1743,-6.3): 23 tried since 16 Nov, 7 missed, 6 real falls. Goal jhl_b.
+    "jwd_a": [156.0, 1746.0, -8.82],
 })
 # Reached = on top: within JUMP_TOL_M (2D; the body's own go_to tolerance is 1.5 m, every start is 2.6 m or more
 # from its goal) and within half the leg's rise in height (at least 0.5 m, at most ARRIVE_DZ): standing at the foot
@@ -190,6 +194,9 @@ JUMP_COURSE = [
     # the body's 1.5 m circle (and 1.76 m of height) reached the foot of this 0.84 m ledge: go_to said arrived 1.3 m
     # short and 0.7 m below in all 10 runs of 2026-11-17 and no jump was tried; 0.5 m puts the circle on the ledge
     _jump("jump_doric", "jd_a", "jd_b", "jump: the ledges by Doric", human_m=5, go_tol=0.5),
+    # the only leg with a double jump of 2.4 m or more pressed after a walk (the others' 2.4 m+ djumps all start from
+    # a standstill at the teleported start): it measures the djump run-up (the double-jumps study, section 5)
+    _jump("jump_windmill_djump", "jwd_a", "jhl_b", "jump: windmill hill, the 3 m double jump after a walk", human_m=9),
 ]
 # kept out of OBSTACLES so `--obstacles` runs what it ran before; `--only` picks from JOURNEYS + OBSTACLES + JUMP_COURSE
 JUMP_IDS = {j["id"] for j in JUMP_COURSE}

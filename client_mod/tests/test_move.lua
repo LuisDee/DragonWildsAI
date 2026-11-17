@@ -3394,18 +3394,20 @@ end
 -- approach put him on a 3 m ledge 72 cm from the planned cell, counted as the third miss, and the attack ended
 -- path_blocked 7.3 m from a rat he then walked straight to). A jump across a gap on one level keeps the 45 cm.
 do
-    local function land(rise, dx, dy, nearest, below)
+    local function land(rise, dx, dy, nearest, below, act, second)
         M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
         pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
         M.follow(log, "Zezima", 2, { nav = false })
         run(5)
         local mv = _G.DW_MOVE
         local here = pawn.loc
-        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X + 100, Y = here.Y, Z = FLOOR + rise, act = "jump" },
+        if act == "djump" then mv.env = mv.env or {}; mv.env.double_jump, mv.env.dj_measured = true, true end
+        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X + 100, Y = here.Y, Z = FLOOR + rise, act = act or "jump" },
                      { X = here.X + 200, Y = here.Y, Z = FLOOR + rise, act = "walk" } }
         mv.lwp = 2
         mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
-                            started = T, saw_air = true, nearest = nearest, nearest_dz = nearest and 60 or nil }
+                            started = T, saw_air = true, nearest = nearest, nearest_dz = nearest and 60 or nil,
+                            dj2 = second and T + 0.4 or nil }
         mv.trav_fails, mv.lp_fail = nil, nil
         pawn.loc = { X = here.X + 100 + dx, Y = here.Y + dy, Z = here.Z + rise - (below or 0) }
         air = 0
@@ -3455,6 +3457,21 @@ do
     check("gap jump on one level: over the cell and 1.8 m past it stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
     mv = land(0, 54, 48)
     check("gap jump on one level: 72 cm from the cell stays a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
+    -- the landing line says whether a double jump's second press fired, and when (double-jumps study 2026-11-17: three
+    -- flights cut to 31-185 cm could not tell "never pressed" from "pressed and the face ate it")
+    n0 = #logs
+    land(300, 200, 0, nil, nil, "djump", true)
+    vl = verdict_line(n0)
+    check("landing line: a double jump whose second press fired says second=yes", vl ~= nil and vl:find("act=djump", 1, true) ~= nil
+        and vl:find("second=yes dj2=0.40", 1, true) ~= nil, tostring(vl))
+    n0 = #logs
+    land(300, 200, 0, nil, nil, "djump", false)
+    vl = verdict_line(n0)
+    check("landing line: a double jump with no second press says second=no", vl ~= nil and vl:find("second=no dj2=-", 1, true) ~= nil, tostring(vl))
+    n0 = #logs
+    land(300, 200, 0)
+    vl = verdict_line(n0)
+    check("landing line: a single jump says second=-", vl ~= nil and vl:find("second=- dj2=-", 1, true) ~= nil, tostring(vl))
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
@@ -3494,15 +3511,16 @@ end
 -- sideways after run_up_wait_s, he jumps anyway and says so; slow or straight, he jumps at once.
 do
     local cm = pawn.CharacterMovement
-    local function runup(vel, frames, rise, leap)
+    local function runup(vel, frames, rise, leap, act)
         M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
         pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
         M.follow(log, "Zezima", 2, { nav = false })
         run(5)
         local mv = _G.DW_MOVE
         local here = pawn.loc
+        if act == "djump" then mv.env = mv.env or {}; mv.env.double_jump, mv.env.dj_measured = true, true end
         mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" },
-            { X = here.X, Y = here.Y + 150, Z = FLOOR + (rise or 0), act = "jump", leap = leap } }
+            { X = here.X, Y = here.Y + 150, Z = FLOOR + (rise or 0), act = act or "jump", leap = leap } }
         mv.lwp = 2; mv.lp_jump_exec = nil; mv.lp_jumped = {}; mv.lp_runup = nil
         mv.trav_fails, mv.lp_fail = nil, nil
         mv.win_t, mv.win_pos = T, { X = here.X, Y = here.Y, Z = here.Z }
@@ -3549,6 +3567,16 @@ do
     check("run-up: fast at a gap jump on one level, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
     jumps, said = runup({ X = 0, Y = 450, Z = 0 }, 1, 150, true)
     check("run-up: fast at a leap up, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
+    -- ... and a double jump up brakes like a jump up (double-jumps study 2026-11-17: djumps of 2.4 m or more pressed
+    -- at 300 cm/s or more landed 2 of 6, three with the rise cut to 31-185 cm by the face; under 150 cm/s 8 of 10)
+    jumps, said, inputs = runup({ X = 0, Y = 450, Z = 0 }, 3, 280, nil, "djump")
+    check("run-up: fast and straight at a double jump up, he brakes and does not press yet", jumps == 0 and inputs == 0 and said[1] ~= nil
+        and said[1]:find("slowing for a jump up", 1, true) ~= nil, "jumps=" .. jumps .. " inputs=" .. inputs .. " " .. tostring(said[1]))
+    f = 0
+    jumps, said = runup(function() f = f + 1; return f < 6 and { X = 0, Y = 450, Z = 0 } or { X = 0, Y = 60, Z = 0 } end, 10, 280, nil, "djump")
+    check("run-up: at a double jump up, he presses once he is slow", jumps == 1 and #said == 1, "jumps=" .. jumps .. " said=" .. #said)
+    jumps, said = runup({ X = 0, Y = 450, Z = 0 }, 1, 0, nil, "djump")
+    check("run-up: fast at a double jump on one level, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
     cm.Velocity = nil
     M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
 end

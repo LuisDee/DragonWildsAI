@@ -7,7 +7,7 @@ import pytest
 import tools.travel_ladder as T
 from tools import jump_stats as J
 
-COURSE = "jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric"
+COURSE = "jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump"
 
 # docs/research/2026-11-17-jump-landings.md, "The course (no model)": id -> (start, goal), capsule centre, m
 STUDY = {
@@ -17,10 +17,12 @@ STUDY = {
     "jump_hill_east": ([154.38, 1748.35, -11.36], [164.0, 1745.0, -7.42]),
     "jump_hill_top": ([143.97, 1703.38, -4.87], [144.0, 1706.0, -2.72]),
     "jump_doric": ([106.46, 1849.46, -31.36], [109.02, 1846.57, -29.57]),
+    # docs/research/2026-11-17-double-jumps.md section 5: the 3 m double jump after a walk, onto jump_hill_ledge3m's top
+    "jump_windmill_djump": ([156.0, 1746.0, -8.82], [158.0, 1739.0, -5.32]),
 }
 
 
-def test_the_six_legs_are_the_studys_and_only_only_picks_them():
+def test_the_legs_are_the_studys_and_only_only_picks_them():
     legs = T.pick(set(COURSE.split(",")))
     assert [j["id"] for j in legs] == COURSE.split(",")
     for j in legs:
