@@ -364,7 +364,7 @@ def _map_names(rows: list, places, about: str | None) -> bool | None:
         if not isinstance(t, dict):
             continue
         try:
-            name = places.name_at(t.get("actor_position") or t.get("position"))
+            name = places.name_for(t.get("name"), t.get("actor_position") or t.get("position"))
         except Exception:
             name = None
         if name and name != t.get("name"):  # the map's name IS its name (chat run 2: a separate map_name was ignored)

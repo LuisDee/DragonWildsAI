@@ -450,7 +450,7 @@ class Executor:
             return None
         q = _terms(name)
         for t in (r.get("data") or {}).get("things") or []:
-            seen = self.places.name_at(t.get("actor_position") or t.get("position")) or t.get("name")
+            seen = self.places.name_for(t.get("name"), t.get("actor_position") or t.get("position")) or t.get("name")
             if q and q <= _terms(str(seen or "")):
                 d = t.get("distance")
                 return f"{seen} is here" + (f", {d:.0f} m away" if isinstance(d, (int, float)) else "")

@@ -501,3 +501,33 @@ def test_go_to_a_lodestone_id_from_the_lodestones_tool_walks_to_it(tmp_path):
     body = _LodeBody(HERE)  # an id the list doesn't have: the body's own answer stands
     out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "lodestone:FFFF"}))
     assert not out.ok and out.reason == "unknown_target"
+
+
+VENT_MAP = {**DATA, "landmarks": DATA["landmarks"] + [{"name": "Law Anima Vent", "position": [22, 20, 0]}]}
+
+
+def test_a_seen_thing_takes_the_maps_name_only_when_it_is_a_fuller_name_of_the_same_thing():
+    """Brain logs of 2026-11-15 to 17: 121 of 123 renamed look rows carried another thing's name. Ash-log piles and a
+    lore item within 4 m of Vannaka's map spot were shown as "Vannaka" (105 rows), a Rune Altar he had built by a vent
+    as "Astral Anima Vent" (8), a Campfire as "Doric"."""
+    p = Places(VENT_MAP)
+    assert p.name_for("Anima Vent", [20.5, 20, 0]) == "Law Anima Vent"  # (the Shrine's spot is nearer: not its name)
+    assert p.name_for("Ash Logs", [-50, 51, 1]) is None  # 1 m from Zanik's spot: a log pile, not Zanik
+    assert p.name_for("Rune Altar", [22, 21, 0]) is None  # built beside the vent: not the vent
+    assert p.name_for("Zanik", [-50, 51, 1]) == "Zanik"
+    assert p.name_for("Anima Vent", [60, 60, 0]) is None and p.name_for(None, [22, 20, 0]) is None
+
+
+def test_look_rows_beside_another_things_map_spot_keep_their_own_name():
+    from brain.controller import _map_names
+    rows = [{"name": "Ash Logs", "position": [-50, 51, 1], "match": 0},
+            {"name": "Anima Vent", "position": [20.5, 20, 0], "match": 2}]
+    assert _map_names(rows, Places(VENT_MAP), None) is None
+    assert rows[0] == {"name": "Ash Logs", "position": [-50, 51, 1], "match": 0}
+    assert rows[1]["name"] == "Law Anima Vent" and rows[1]["seen_as"] == "Anima Vent"
+    # asked about Zanik with a log pile at Zanik's spot: the pile is no sighting of Zanik
+    rows = [{"name": "Ash Logs", "position": [-50, 51, 1], "match": 0}]
+    assert not _map_names(rows, Places(VENT_MAP), "Zanik") and rows[0]["name"] == "Ash Logs"
+    # asked about the Water vent, the Law one in sight: its map name lacks a word of it, so it is no match
+    rows = [{"name": "Anima Vent", "position": [20.5, 20, 0], "match": 2}]
+    assert _map_names(rows, Places(VENT_MAP), "Water Anima Vent") is False and "match" not in rows[0]

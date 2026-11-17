@@ -372,6 +372,27 @@ class Places:
                     best, best_d = name, d
         return best
 
+    def name_for(self, thing: str | None, pos, max_m: float = 4.0) -> str | None:
+        """The game map's name for a seen thing: the nearest landmark at its spot whose name holds every word of the
+        thing's own name ("Law Anima Vent" for the census's "Anima Vent"). A landmark of something else that stands
+        there is not its name: brain logs of 2026-11-15 to 17 showed ash-log piles within 4 m of Vannaka's map spot
+        as "Vannaka" (121 of 123 renamed look rows carried another thing's name)."""
+        q, p = _terms(thing or ""), _pos(pos)
+        if not (q and p):
+            return None
+        best, best_d = None, max_m
+        for name, rows in self.landmarks.items():
+            if not q <= _terms(name):
+                continue
+            for lm in rows:
+                at = _pos(lm.get("position"))
+                if not at:
+                    continue
+                d = ((p[0] - at[0]) ** 2 + (p[1] - at[1]) ** 2) ** 0.5
+                if d <= best_d and (len(p) < 3 or len(at) < 3 or abs(p[2] - at[2]) <= 5.0):
+                    best, best_d = name, d
+        return best
+
     def similar(self, query: str, here=None, k: int = 3) -> list[str]:
         """Map names (landmarks, regions) sharing a word with ``query``, most shared words first, then nearest:
         "temple entrance" -> "Forgotten Temple (landmark, 180 m)". Information for the model, never a choice."""
