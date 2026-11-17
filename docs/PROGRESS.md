@@ -1699,3 +1699,35 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Spend** on 2026-11-17 UTC at 07:12Z: $1.64 of $10 by the guard (626 calls). s18 cost about $0.33 (83 calls), s19 about $0.27 (85 calls). About $1.0 of replays and rollouts earlier today is not counted by the guard.
 - **Limits.** No chain was run. Reports were not judged for truth. The Rune Altar that earlier runs built is still in the world, so no `rm_start` pass had to build one. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7.
 - **Next:** the largest open cause (Getting Started: a give to an NPC after a craft tried too early), then Getting Started from `gs_start` toward 9 of 10, then the chain gate.
+
+## 2026-11-17 07:15Z-07:50Z: Ratcatcher alone, 4 of 5 (8 of the last 10); a player argument now lists the players there are (tests only so far)
+
+**Window s20, Ratcatcher from `rc_start`, 4 of 5.**
+
+| run | result | time, x Luis | misses |
+|---|---|---|---|
+| 072152 | pass | 113.3 s, 0.61 | 0 |
+| 072551 | pass | 134.6 s, 0.81 | 0 |
+| 073001 | pass | 179.6 s, 0.83 | 1 (explore, already in sight) |
+| 073510 | **fail** (quest completed) | 163.8 s, 0.85 | 2 (attack path_blocked, go_to unknown_target) |
+| 074006 | pass | 213.0 s, 0.77 | 0 |
+
+**The failure, 073510 (skill).** The only rat in sight was 60 m off and 24 m up the hill behind Vannaka.
+- **First miss, the attack.** He ran 82 m in 31 s and got within 7 m. A jump landed 139 cm from its point (130 allowed) on the right level, which counted as a missed landing. The new plan began at a spot he could not leave: five stuck checks on two aims moved him 0 to 3 cm in 8 s (`logs/client/client.log`, 07:36:02Z to 07:36:09Z). Wall-following freed him at 07:36:10Z. One second later the approach's 12 s no-progress window ended the attack.
+- **The reason he gave was not true.** "The Giant Rat is higher up than I can jump" is said whenever the target was above jump reach at the start (24 m here). At the stall it was 4.8 m above him, and 6 s later his reflex's approach walked and jumped to it in 7 s.
+- **Second miss, the go_to.** He sent `go_to` to the same rat. His reflex took that rat as a threat 13 m off, went to it and killed it and a second one, and the walk then failed as `unknown_target` (target_not_visible). The report does not say that the target died.
+- **How often.** 3 of the 74 attacks of 14 to 17 Nov ended `path_blocked`, all three on Giant Rats on this hill and all three with a missed jump landing. `go_to` failed as target_not_visible 2 times in the same days. The client log holds 128 missed landings since 16 Nov; of the 51 with a measured landing, 13 were on the point's level and within 2 m of it.
+- **Not fixed yet.** With 073510 the ledger holds 2 open Ratcatcher runs where the attack's approach gave up on this hill.
+
+**The largest open ledger cause: a give to an NPC (Getting Started, 3 open runs).**
+- Evidence: `give` was called 7 times in the logs of 14 to 17 Nov, all 7 on an NPC, all 7 refused by the body and followed by `talk`. The sentence added to give's description (946bee9) left it at 3 of 21 `gs_start` trials.
+- **Fix, 02d2cfd:** an argument the body's manifest marks as a player (give, follow) is offered with the players there are as its enum: the one he plays beside, whoever has spoken to him, everyone online but himself. The list is rebuilt only when the names change. The body still judges the call. Search and decision: `docs/research/2026-11-17-player-argument-enum.md`.
+- **Tests only so far.** A replay of the failing turn does not reproduce the call (talk 40 of 40). Window s21 (Getting Started from `gs_start`, 5 trials, started 07:49Z) is its live trial.
+- **Not covered:** the craft tried before the materials are carried (28 of about 250 crafts end `missing_materials`), the other half of that cause.
+
+**State at 07:50Z.**
+- **Tests:** brain set 389 passed. The Lua set and the full suite were not run (no Lua changed).
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 8 from `gs_start`; Ratcatcher 7 chained, **8 from `rc_start`**; Rune Mysteries 3 chained, 10 from `rm_part2`, 9 from `rm_start`.
+- **Ledger:** 53 failed runs, none untagged, 10 void.
+- **Spend** on 2026-11-17 UTC at 07:48Z: $1.80 of $10 by the guard (678 calls). s20 cost about $0.16 (52 calls).
+- **Limits.** No chain was run. Reports were not judged for truth. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, and c96dc9e's exact order.
