@@ -16,6 +16,14 @@ al. 2018, arXiv 1807.06757): success rate, SPL (success x straight / max(straigh
 at the end, plus seconds and metres walked. If the body wrote a trip record (client_io/events/trips.jsonl) for the
 command, its sentence is printed too.
 
+--fork (the default when --repeat > 1; --no-fork to stay on ClaudeDev, --fork for one pass): the legs run on a
+throwaway fork of ClaudeDev (ClaudeT<ddHHMMSS>, tools.quest_clone.fork), switched to inside the same live lock and
+topped up with tools.supply (6 Fillet, 6 Clean Water: a dev-only harness fixture, logged), so the reflex feeds him for
+the whole course and ClaudeDev's bag and bars are not used up (docs/research/2026-11-17-idle-starvation.md). Whatever
+happens (an error, Ctrl-C, the stop file) the client is switched back to ClaudeDev before the lock is released; the
+fork's save is then parked. Each switch costs about a minute (quest_run.SWITCH_S). A run is stopped by creating
+logs/travel_ladder.stop, never by killing it.
+
 Refuses unless the client is on the local dev server and the live brain is not running (DevTarget.guard), and while
 the body is unfit to start (health, food or water under 40 %, dead or unread: chat_ladder.body_unfit).
 Rows are appended to logs/evals/travel_ladder.jsonl (one per journey, then one summary row per run).
@@ -49,6 +57,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "logs" / "evals" / "travel_ladder.jsonl"
+# a course is stopped by creating this file, never by killing it: the legs stop and the run still switches back to
+# ClaudeDev before the lock goes (as tools/job_run.py's logs/job_run.stop)
+STOP_FILE = ROOT / "logs" / "travel_ladder.stop"
+# --fork (docs/research/2026-11-17-idle-starvation.md option 1): a body-only course plays a throwaway fork of
+# ClaudeDev topped up with tools.supply, so the reflex feeds him for the window and ClaudeDev's own bag and bars
+# (the jobs' start) are not what the course uses up. Default for multi-pass runs (--repeat > 1).
+FORK_PREFIX = "ClaudeT"
+FORK_FOOD, FORK_WATER = 6, 6
+FED_WAIT_S, FED_POLL_S = 120.0, 10.0  # after the top-up, the reflex has this long to eat and drink him fit
+STUCK_S = 120.0  # not back on ClaudeDev: keep the lock and retry this often (quest_run.clone_window's rule)
 TRIPS = ROOT / "client_io" / "events" / "trips.jsonl"
 SAMPLE_S = 1.0
 GO_TO_WAIT_S = 420.0  # the body's own deadline decides; this only catches a hung bridge
@@ -728,8 +746,63 @@ def label_rows(label: str, ids: set, path: Path | None = None) -> list[dict]:
     return out
 
 
+@contextlib.contextmanager
+def on_fork(dev, info: dict):
+    """Inside a live lock the caller already holds: fork ClaudeDev's save (tools.quest_clone.fork, a new name and
+    guid; ClaudeDev.json is only read), switch the client to the fork (evals.bench.devchar switch, as quest_run and
+    job_run do), aim the dev fixtures at the fork's guid, top it up with tools.supply (a dev-only harness fixture,
+    logged with its purpose in logs/bench/fixture_setup.jsonl) and yield the fork's name. Whatever the body does or
+    raises, it ends back on ClaudeDev (quest_run._on_main), retrying every STUCK_S and never returning (so the caller
+    never releases the lock) until he is; then the fork's save is parked (quest_clone.park)."""
+    from evals.bench.devchar import MAIN_CHARACTER, default_switch
+    from tools import quest_clone, supply
+    from tools import quest_run as q
+    sw, cli = default_switch(dev), q.cl._debug_client()
+    name = FORK_PREFIX + time.strftime("%d%H%M%S", time.gmtime())
+    old = (getattr(dev, "character_guid", None), getattr(dev, "character_name", None))
+    info.update(character=name, source=MAIN_CHARACTER)
+    t0 = time.time()
+    try:
+        quest_clone.fork(MAIN_CHARACTER, name)
+        info["forked"] = True
+        made = sw.ensure(name, create=False, wait_s=150)
+        info["switch_s"] = round(time.time() - t0, 1)
+        dev.character_guid, dev.character_name = made["guid"], name  # the fixture guard wants the fork's guid
+        print(f"[fork] on {name} after {info['switch_s']} s: {made}", flush=True)
+        info["supply"] = supply.top_up(dev, FORK_FOOD, FORK_WATER, heal=True,
+                                       purpose=f"travel_ladder on fork {name}: harness fixture, food and water for a "
+                                               "body-only course")
+        print(f"[fork] supply (harness fixture, dev only): {info['supply']}", flush=True)
+        yield name
+    finally:
+        t1 = time.time()
+        back = q._on_main(sw, cli)
+        while back is None:  # never release the lock while the client is on another character (CLAUDE.md 4)
+            print(f"STUCK: the client is not back on {MAIN_CHARACTER}; keeping the lock and retrying every "
+                  f"{STUCK_S:.0f} s", flush=True)
+            time.sleep(STUCK_S)
+            back = q._on_main(sw, cli, tries=1)
+        info["back"], info["back_s"] = back, round(time.time() - t1, 1)
+        dev.character_guid, dev.character_name = old
+        if info.get("forked"):
+            info["parked"] = quest_clone.park([name])
+        print(f"[fork] back on {MAIN_CHARACTER} after {info['back_s']} s; parked {info.get('parked')}", flush=True)
+
+
+def fed(cli, wait_s: float | None = None) -> str | None:
+    """body_unfit, given the reflex up to FED_WAIT_S to eat and drink what supply put in his bag."""
+    from tools.chat_ladder import body_unfit
+    end = time.time() + (FED_WAIT_S if wait_s is None else wait_s)
+    while (why := body_unfit(cli)) is not None and time.time() < end:
+        time.sleep(FED_POLL_S)
+    return why
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--fork", action=argparse.BooleanOptionalAction, default=None,
+                    help="play the course on a supplied fork of ClaudeDev and switch back at the end (default: on "
+                         "when --repeat > 1)")
     ap.add_argument("--only", default="", help="comma-separated journey names")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--label", default="run")
@@ -765,21 +838,54 @@ def main() -> None:
     from tools import live_lock
     # every command that drives the body (the stop before each leg, the teleports) goes out inside the live lock: a
     # caller's window (tools.live_lock run / held, which sets DW_LIVE_OWNER) or this run's own (main 2026-11-01)
+    if STOP_FILE.exists():
+        print(f"not running: {STOP_FILE} is present (remove it to run)", flush=True)
+        return
+    use_fork = a.fork if a.fork is not None else a.repeat > 1
     cur, lock = live_lock.read(), contextlib.ExitStack()
     atexit.register(lock.close)
-    if not (cur and not cur["stale"] and cur["owner"] == os.environ.get("DW_LIVE_OWNER")):
-        lock.enter_context(live_lock.held("movement", wait_s=3000))
-    dev = default_dev()
-    dev.guard()
-    from tools.chat_ladder import body_unfit  # the check every window makes before it starts (this one has no preflight)
-    if (why := body_unfit(client())) is not None:
-        print("not running:", why, flush=True)
-        raise SystemExit(3)
+    fork: dict = {}
     run_id = time.strftime("%Y%m%d-%H%M%S")
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    rows = []
+    rows, stopped = [], None
+    # ONE stack, unwound in reverse: the fork (if any) switches back to ClaudeDev before the lock is released
+    with lock:
+        if not (cur and not cur["stale"] and cur["owner"] == os.environ.get("DW_LIVE_OWNER")):
+            lock.enter_context(live_lock.held("movement", wait_s=3000))
+        dev = default_dev()
+        dev.guard()
+        if use_fork:
+            lock.enter_context(on_fork(dev, fork))
+        from tools.chat_ladder import body_unfit  # the check every window makes before it starts (no preflight here)
+        if (why := (fed(client()) if use_fork else body_unfit(client()))) is not None:
+            print("not running:", why, flush=True)
+            raise SystemExit(3)
+        stopped = course(a, dev, js, fs, run_id, rows)
+    walks = [r for r in rows if r.get("ok") is not None and r.get("kind") != "follow"]
+    folls = [r for r in rows if r.get("ok") is not None and r.get("kind") == "follow"]
+    n_ok = sum(1 for r in walks if r["ok"])
+    summary = {"summary": True, "run": run_id, "label": a.label, "head": head(), "n": len(walks), "ok": n_ok,
+               "success_rate": round(n_ok / len(walks), 3) if walks else None,
+               "spl": round(sum(r["spl"] for r in walks) / len(walks), 3) if walks else None,
+               "s_total": round(sum(r["s"] for r in walks), 1),
+               "mean_end_dist_m": round(sum(r["end_dist_m"] for r in walks) / len(walks), 1) if walks else None,
+               "human_ok": sum(1 for r in walks if r.get("human_ok")), "human_n": sum(1 for r in walks if r.get("human_s")),
+               "follow_ok": sum(1 for r in folls if r["ok"]), "follow_n": len(folls),
+               "errors": len(rows) - len(walks) - len(folls), "ts": round(time.time(), 1)}
+    if fork:
+        summary["fork"] = fork
+    if stopped:
+        summary["stopped"] = stopped
+    finish(a, run_id, walks, n_ok, summary)
+
+
+def course(a, dev, js: list[dict], fs: dict, run_id: str, rows: list[dict]) -> str | None:
+    """The legs, repeat by repeat, each row appended to OUT as it ends; the stop file's name when it ended the run."""
     for rep in range(a.repeat):
         for j in js:
+            if STOP_FILE.exists():
+                print(f"stopped: {STOP_FILE.name} present", flush=True)
+                return STOP_FILE.name
             n = j["id"]
             try:
                 row = run_journey(dev, j)
@@ -798,6 +904,9 @@ def main() -> None:
             if row.get("trip"):
                 print(f"     trip: {row['trip']}", flush=True)
         for n, g in fs.items():
+            if STOP_FILE.exists():
+                print(f"stopped: {STOP_FILE.name} present", flush=True)
+                return STOP_FILE.name
             try:
                 row = run_follow(dev, n, g)
             except Exception as x:
@@ -817,17 +926,11 @@ def main() -> None:
                   f"stuck {row.get('stuck_total')} lp {row.get('lp_runs')} trail {row.get('trail_entries')} "
                   f"bt {row.get('backtracks')} skip {row.get('trail_skips')} tj {row.get('trail_jumps')} "
                   f"dj {row.get('double_jumps')} {row.get('error') or ''}"[:400], flush=True)
-    walks = [r for r in rows if r.get("ok") is not None and r.get("kind") != "follow"]
-    folls = [r for r in rows if r.get("ok") is not None and r.get("kind") == "follow"]
-    n_ok = sum(1 for r in walks if r["ok"])
-    summary = {"summary": True, "run": run_id, "label": a.label, "head": head(), "n": len(walks), "ok": n_ok,
-               "success_rate": round(n_ok / len(walks), 3) if walks else None,
-               "spl": round(sum(r["spl"] for r in walks) / len(walks), 3) if walks else None,
-               "s_total": round(sum(r["s"] for r in walks), 1),
-               "mean_end_dist_m": round(sum(r["end_dist_m"] for r in walks) / len(walks), 1) if walks else None,
-               "human_ok": sum(1 for r in walks if r.get("human_ok")), "human_n": sum(1 for r in walks if r.get("human_s")),
-               "follow_ok": sum(1 for r in folls if r["ok"]), "follow_n": len(folls),
-               "errors": len(rows) - len(walks) - len(folls), "ts": round(time.time(), 1)}
+    return None
+
+
+def finish(a, run_id: str, walks: list[dict], n_ok: int, summary: dict) -> None:
+    """The summary row (with the jump course's numbers when the run had jump legs) and its print."""
     jump_text = []
     if any(r.get("journey") in JUMP_IDS for r in walks):
         try:  # read only (the client log, traversal.jsonl, this file): a failure here never loses the run's rows
@@ -841,10 +944,13 @@ def main() -> None:
         except Exception as x:
             jump_text = [f"jump course summary failed: {x!r} (run tools.jump_stats report --since the run's start)"]
     with OUT.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(summary) + "\n")
+        fh.write(json.dumps(summary, default=str) + "\n")
+    f = summary.get("fork") or {}
     print(f"\n{a.label}:{n_ok}/{len(walks)} reached ({summary['success_rate']}), SPL {summary['spl']}, "
           f"{summary['s_total']} s, within 1.5x human {summary['human_ok']}/{summary['human_n']}, "
-          f"follow {summary['follow_ok']}/{summary['follow_n']}, {summary['errors']} errors")
+          f"follow {summary['follow_ok']}/{summary['follow_n']}, {summary['errors']} errors"
+          + (f"; on fork {f.get('character')} (switch {f.get('switch_s')} s, back {f.get('back_s')} s)" if f else "")
+          + (f"; STOPPED by {summary['stopped']}" if summary.get("stopped") else ""))
     for ln in jump_text:
         print(ln)
 
