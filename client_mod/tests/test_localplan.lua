@@ -347,5 +347,47 @@ do
     check("forbid: a refused drop's cells are never entered", fpts ~= nil and not inside, fpts and #fpts)
 end
 
+-- A rock that reads as a slope at its midpoint (client.log 14 to 17 Nov: 70 of the 137 walk edges that rose 80 cm or
+-- more ended in a stuck; 0 of 58 jump edges of the same rise did). Three grounds between the cells at x = 400 and 500:
+-- "shelf": 0, a 50 cm shelf from 440 to 460, then 100 (two 50 cm steps; the midpoint is exactly on the line);
+-- "face":  an even rise of 85 whose floor is too steep to stand on (normal Z 0.5) between the cells;
+-- "ramp":  the same even rise with a floor he can stand on.
+do
+    local function plan_over(kind)
+        local function g(x)
+            if kind == "shelf" then return x < 440 and 0 or (x < 460 and 50 or 100) end
+            if x < 400 then return 0 end
+            return x < 500 and 0.85 * (x - 400) or 85
+        end
+        local function tr(a, b, horizontal)
+            if horizontal then
+                for k = 0, 20 do if g(a.X + (b.X - a.X) * k / 20) > a.Z then return true end end
+                return nil
+            end
+            local gz = g(a.X)
+            local on_face = kind == "face" and a.X > 400 and a.X < 500
+            return gz, a.Z < gz, on_face and 0.5 or 1.0
+        end
+        local R = LP.new({ trace = tr, center = { X = 0, Y = 0, Z = 90 }, radius_m = 10, walk_z = 0.70,
+            env = { step = 45, jump = 165, djump = 165, drop = 600 } })
+        while R:step(50) ~= "ready" do end
+        local goal = { X = 800, Y = 0, Z = g(800) }
+        local p, res, n = R:plan(goal), "blocked", 0
+        while p and res ~= "ok" and n < 30 do
+            res = R:verify(p, 100)
+            if res == "blocked" then p = R:plan(goal); n = n + 1 end
+        end
+        local act
+        for k = 2, #(p or {}) do if p[k - 1].X <= 400 and p[k].X >= 500 then act = p[k].act end end
+        return act, res
+    end
+    local a1, r1 = plan_over("shelf")
+    check("a rock with a shelf halfway up (two 50 cm steps) is jumped, not walked as a slope", a1 == "jump" and r1 == "ok", tostring(a1) .. " " .. tostring(r1))
+    local a2, r2f = plan_over("face")
+    check("a rise whose floor is too steep to stand on is jumped, not walked", a2 == "jump" and r2f == "ok", tostring(a2) .. " " .. tostring(r2f))
+    local a3, r3 = plan_over("ramp")
+    check("an even rise he can stand on is still walked", a3 == "walk" and r3 == "ok", tostring(a3) .. " " .. tostring(r3))
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

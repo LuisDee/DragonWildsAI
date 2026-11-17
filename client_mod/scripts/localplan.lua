@@ -463,11 +463,34 @@ function LP:verify(pts, budget)
             if used >= budget then return "verifying" end
             -- a provisional slope walk: one downward trace at the midpoint tells slope from step
             if b.act == "walk" and math.abs(b.Z - a.Z) > self.env.step then
-                local mx, my = (a.X + b.X) / 2, (a.Y + b.Y) / 2
-                local mz = self.trace({ X = mx, Y = my, Z = math.max(a.Z, b.Z) + 100 }, { X = mx, Y = my, Z = math.min(a.Z, b.Z) - 100 })
-                used, self.traces = used + 1, self.traces + 1
+                local top, bottom = math.max(a.Z, b.Z) + 100, math.min(a.Z, b.Z) - 100
+                local function floor_at(f) -- the floor a fraction f of the way along the edge, and its normal's Z
+                    local x, y = a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f
+                    used, self.traces = used + 1, self.traces + 1
+                    local z, _, nz = self.trace({ X = x, Y = y, Z = top }, { X = x, Y = y, Z = bottom })
+                    return z, nz
+                end
+                local mz, mnz = floor_at(0.5)
                 local lin = (a.Z + b.Z) / 2
-                if not mz or math.abs(mz - lin) > 0.3 * math.abs(b.Z - a.Z) then
+                local step_like = not mz or math.abs(mz - lin) > 0.3 * math.abs(b.Z - a.Z)
+                if not step_like and b.Z > a.Z then
+                    -- Going UP, the midpoint alone lets rock through: a boulder's shelf halfway up reads as a slope.
+                    -- Live 14 to 17 Nov (client.log, 137 walk edges rising 80 cm or more): 70 ended in a stuck, against
+                    -- 0 of 58 jump edges of the same rise and 45 of 2304 walk edges rising under 40 cm. Recast's rule
+                    -- for a slope, at the finer grid it has and a 1 m cell lacks: every part rises at most a step
+                    -- (walkableClimb, his MaxStepHeight) and is a floor he can stand on (walkableSlopeAngle, walk_z).
+                    local z1, n1 = floor_at(0.25)
+                    local z3, n3 = floor_at(0.75)
+                    local prev = a.Z
+                    for _, s in ipairs({ { z = z1, nz = n1 }, { z = mz, nz = mnz }, { z = z3, nz = n3 }, { z = b.Z } }) do
+                        if not s.z or s.z - prev > self.env.step or (self.walk_z and tonumber(s.nz) and s.nz < self.walk_z) then
+                            step_like = true
+                            break
+                        end
+                        prev = s.z
+                    end
+                end
+                if step_like then
                     self.steep[ek] = true
                     self.steeps = (self.steeps or 0) + 1
                     return "blocked" -- re-plan: edge() now treats it as a jump/drop
