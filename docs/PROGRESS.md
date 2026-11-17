@@ -1787,3 +1787,48 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Spend** on 2026-11-17 UTC at 08:55Z: $1.92 of $10 by the guard (776 calls). s22 cost about $0.10 (61 calls).
 - **Limits.** No chain was run yet. Reports were not judged for truth. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, c96dc9e's exact order, and c835589's stall reason and gone-target words.
 - **Next:** the chain gate (`quest_run fresh`, 3 sittings in a row).
+
+## 2026-11-17 08:55Z-10:10Z: the chain's first sitting not passed (all four quests completed, two over the miss bar); Ratcatcher alone 5 of 5 (10 of the last 10); the recipe of a named thing is now shown (tests and replay only)
+
+**Chain sitting 1 (`quest_run fresh`), not passed.** All four quests were completed, each inside the time bar.
+
+| quest | result | time, x Luis | misses |
+|---|---|---|---|
+| First Steps | pass | 34.8 s, 0.45 | 0 |
+| Getting Started (090028) | **fail** | 154.6 s, 1.07 | 2 (craft missing_materials; talk unknown_target "Doric Rtft J") |
+| Ratcatcher (090337) | **fail** | 232.7 s, 1.02 | 2 (explore already_in_sight; interact not_interactable) |
+| Rune Mysteries | pass | 381.1 s, 0.92 | 1 (go_to, goal above) |
+
+**The four misses and what was done.**
+- **talk "Doric Rtft J" (skill).** The quest marker's name is built from the game's code "Doric_NPC_FTUE_RtftJ"; the mixed-case code was left in, and he used the name as shown. **Fix, 526d60d:** a marker's name drops such a code. Not seen live yet.
+- **explore already_in_sight (skill).** He asked explore for a Giant Rat that stood 6.8 m off, and the right find came back as a failed result. This had cost a miss 4 times. The 08:55Z decision to leave it is reversed: explore's walking find already returns ok through the same matcher. **Fix, c2a9835:** a thing already in sight is a find.
+- **interact not_interactable (skill).** The game's item magnet took the Raw Rat Meat into his bag on the way, and interact said the drop was gone. **Fix, c2a9835:** it reports a pickup that "came to my bag ... before I pressed anything". Neither half was seen live: s23 made no explore call and had no magnet pickup.
+- **craft missing_materials (model).** The largest open ledger cause; see below.
+
+**Window s23, Ratcatcher from `rc_start`, 5 of 5.**
+
+| run (brain log) | result | time, x Luis | misses |
+|---|---|---|---|
+| 103050 | pass | 121.3 s, 0.67 | 1 (go_to unknown_target) |
+| 103446 | pass | 108.2 s, 0.72 | 0 |
+| 103829 | pass | 226.1 s, 0.75 | 0 |
+| 104407 | pass | 170.9 s, 0.87 | 0 |
+| 104856 | pass | 161.6 s, 0.70 | 0 |
+
+- **The one miss: c835589's gone-target words did not fire.** His reflex took over the walk to a rat and killed it. The resumed walk started with no target seen, so it failed with the bare "target_not_visible". The test had covered only a walk that was never suspended. **Fix, e5b851c:** a resumed walk remembers that its target was seen and says "what I was walking to is no longer there (it died, was used up or went out of sight)". The give-up time is unchanged (2 s), so he does not stand. A test that failed first passes.
+- c835589's takeoff: one "jump takeoff not confirmed grounded; re-planning from here" line; no approach gave up on the hill.
+
+**A craft tried before its materials (Getting Started, 6 ledger runs, the largest open cause).**
+- **Evidence.** On 16 and 17 Nov, 29 of 292 crafts ended `missing_materials`, 21 of them the Stone Club. 19 were the Controller's own call right after Doric's talk, 2 were plan steps. No log read `recipes` or `craft_plan` first. The Planner, which cannot look anything up, wrote "The exact recipe amounts are a guess".
+- **Search (rule 5):** GITM and JARVIS-1 put the target item's recipe into the planner's context; Voyager learns it from the failed craft. `docs/research/2026-11-17-recipe-of-a-named-thing.md`.
+- **Fix, d924707 (perception):** for each thing a quest step, the job or a waiting job names by its whole in-game name, the situation shows the catalog's recipe with what he carries: "Stone Club at a Crafting Table takes 8 Stone (you have 4) and 6 Ash Logs (you have 4)". The Planner gets the same in its notes. Only things a station makes, at most 3. It says what a recipe takes, not what to do, and it holds for any item in the catalog.
+- **Replay** (the failing turn, 10 times each way, Haiku, 20 calls, about $0.08, not counted by the guard): a craft first 6 of 10 as logged, 0 of 10 with the line.
+- **1cffdc4:** the craft's own reason names every missing thing ("I need 8 Stone for that and I have 4, and 6 Ash Logs and I have 4"); it named only the first.
+
+**State at 10:10Z.**
+- **Tests:** brain set with the needs and situation tests 451 passed; Lua suites for move (new case), crafting (230) and skills pass. The full suite was not run.
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 9 from `gs_start`; Ratcatcher 6 chained, **10 from `rc_start`** (11 in a row); Rune Mysteries 4 chained, 10 from `rm_part2`, 9 from `rm_start`. The guard prints "chain: ready".
+- **Ledger:** 56 rows, none untagged, 10 void. 090028 is tagged model and left open; 090337 skill with c2a9835.
+- **Spend** on 2026-11-17 UTC at 10:05Z: $2.26 of $10 by the guard (870 calls). The chain sitting cost about $0.25 (46 calls), s23 about $0.08 (48 calls).
+- **Limits.** The chain is at 0 sittings in a row. Reports were not judged for truth. 526d60d, c2a9835, e5b851c, 1cffdc4 and d924707 have passed tests (and one replay) only; window s24 (Getting Started from `gs_start`, 5 trials, started 10:08Z) is the live trial of 526d60d, 1cffdc4 and d924707. The recipe line shows the catalog's recipe, not the live menu. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, c96dc9e's exact order, c835589's stall reason.
+- **Next:** s24's ledger, then the chain gate again.
