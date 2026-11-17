@@ -426,10 +426,14 @@ function M.assess(rid, crafts, ctx)
     elseif unl == nil then
         a.status, a.detail = "unlock_unknown", "I can't read which recipes I've unlocked right now"
     elseif #a.missing > 0 then
-        local m = a.missing[1]
+        -- every missing thing with what the recipe takes and what he has (chain sitting of 2026-11-17, run 090028:
+        -- "I need 8 Stone for that and I have 4 (and 1 more thing missing)" left the Ash Logs for a second try)
+        local parts = {}
+        for i, m in ipairs(a.missing) do
+            parts[i] = m.need .. " " .. tostring(m.name or m.item) .. (i == 1 and " for that" or "") .. " and I have " .. m.have
+        end
         a.status = "missing_input"
-        a.detail = "I need " .. m.need .. " " .. tostring(m.name or m.item) .. " for that and I have " .. m.have
-            .. (#a.missing > 1 and (" (and " .. (#a.missing - 1) .. " more thing" .. (#a.missing > 2 and "s" or "") .. " missing)") or "")
+        a.detail = "I need " .. table.concat(parts, ", and ")
     elseif not best then
         local names = {}
         for _, s in ipairs(r.stations or {}) do names[#names + 1] = station_name(s) end

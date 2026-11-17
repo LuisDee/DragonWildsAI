@@ -330,6 +330,19 @@ do -- "used a Tannery: not yet" beside a Tannery: using it (the craft opens it) 
     a = C.assess("RECIPE_Process_Leather_From_Hide", 1, { have = base.have, unlocked = {}, near = {}, discovered = disc({ ITEM_Resources_Animal_Hide = true }) })
     check("unlock on use: no Tannery near -> not_unlocked", a.status == "not_unlocked", a.status)
 end
+do -- a craft short of several things names each with what it takes and what he has (chain sitting of 2026-11-17, run
+   -- 090028: "I need 8 Stone for that and I have 4 (and 1 more thing missing)" left the Ash Logs for a second try)
+    local ctx = { have = { ITEM_Resources_Stone = 4, ITEM_Resources_Wood_Ash = 4 }, unlocked = { RECIPE_Weapon_Club_Stone = true },
+        near = near("Crafting Table") }
+    local a = C.assess("RECIPE_Weapon_Club_Stone", 1, ctx)
+    check("missing input: every missing thing is named with need and have", a.status == "missing_input"
+        and tostring(a.detail):find("8 Stone", 1, true) ~= nil and tostring(a.detail):find("6 Ash Logs", 1, true) ~= nil
+        and select(2, tostring(a.detail):gsub("I have 4", "")) == 2 and not tostring(a.detail):find("more thing", 1, true),
+        a.status .. ": " .. tostring(a.detail))
+    ctx.have.ITEM_Resources_Wood_Ash = 6
+    a = C.assess("RECIPE_Weapon_Club_Stone", 1, ctx)
+    check("missing input: one missing thing reads as before", a.detail == "I need 8 Stone for that and I have 4", tostring(a.detail))
+end
 do -- held-out: an item absent from every fixture above resolves from the catalog by display name
     -- every word he said is a word of the name (live 2026-11-01 17:10Z: "Stone Axe" read unknown, then 24 axes)
     check("resolve: words -> Stone Logging Axe", C.resolve_item("Stone Axe") == "ITEM_Logging_Axe_Stone")
