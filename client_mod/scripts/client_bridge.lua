@@ -474,6 +474,7 @@ function M.get_state()
         if cr.ok then
             local bk = bucket_census(cr.data)
             data.players, data.nearby_entities, data.nearby_resources = bk.players, bk.nearby_entities, bk.nearby_resources
+            data.nearby_m = M.NEARBY_M  -- the reach of the lists above, so an empty one can be said with its radius
             data.nearby_items, data.interactables, data.players_online = bk.nearby_items, bk.interactables, cr.data.players_online
             -- the kinds of things within NEARBY_M that the lists above have no row of (the caps cut them: sense.digest_cut)
             if type(cr.data.beyond) == "table" and #cr.data.beyond > 0 then data.further_off = cr.data.beyond end

@@ -384,6 +384,18 @@ def _group(things: list[Thing]) -> list[Thing]:
     return list(groups.values())
 
 
+def no_creatures_line(state: dict, far: list) -> str | None:
+    """The creature list read and empty, in words. Without it an empty list and an unread one looked the same: chain
+    sitting 2 (2026-11-17, run 103436) and window s26 called attack on a "rat" with none in the list (unknown_target,
+    a miss); a replay of that turn attacked 6 of 15 times as logged and 0 of 15 with this line. Nothing is said when
+    the body did not read the list, or when creatures the list's caps cut are on the "Further off" line."""
+    unread = not isinstance(state.get("nearby_entities"), list) or "nearby_entities" in (state.get("not_implemented") or [])
+    if unread or any(t.kind == "creature" for t in far):
+        return None
+    reach = _num(state.get("nearby_m"))  # the radius the body's list covers (client get_state)
+    return "Creatures: none in sight" + (f" within {reach:.0f} m" if reach else "")
+
+
 def _line(label: str, items: list[str], cap: int = LINE_CHARS) -> str | None:
     if not items:
         return None
@@ -817,7 +829,7 @@ COVERED_KEYS = frozenset({
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
-    "containers_remembered", "my_bases", "burn_odds", "further_off",
+    "containers_remembered", "my_bases", "burn_odds", "further_off", "nearby_m",
 })
 
 
@@ -1179,7 +1191,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     odds_note = (" (the body's odds, you alone: 'now' = as equipped; 'prepared' = with what you own and can cast;"
                  " blocking, dodging and armour not counted)") if state.get("fight_odds") else ""
     lines.append(_line("Creatures" + odds_note, [("hostile " if g.hostile else "") + g.label() for g in creatures],
-                       CREATURE_LINE_CHARS if odds_note else LINE_CHARS))
+                       CREATURE_LINE_CHARS if odds_note else LINE_CHARS) if creatures else no_creatures_line(state, far))
 
     ground = _group([t for t in things if t.kind == "item"])
     lines.append(_line("On the ground", [g.label() for g in ground]))

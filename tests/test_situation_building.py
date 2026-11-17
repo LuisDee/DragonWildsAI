@@ -116,3 +116,27 @@ def test_bases_and_farm_survive_a_full_digest():
     text = "\n".join(lines)
     assert "Your bases (what you built): 99 m NE" in text and "Your farm: 1 plot 7.5 m N" in text
     assert "Burn odds" not in text
+
+
+def test_an_empty_creature_list_is_said_in_words():
+    """Chain sitting 2 (2026-11-17, run 103436) and window s26: `attack {"target": "rat"}` with no creature in the
+    list, answered unknown_target, a miss. With no Creatures line the digest did not say the list was read and empty
+    (a replay of the turn: attack 6 of 15 as logged, 0 of 15 with the line)."""
+    st = {**STATE, "nearby_entities": [], "nearby_m": 50}
+    assert "Creatures: none in sight within 50 m" in summary(st)
+    assert "Creatures: none in sight" in summary({**STATE, "nearby_entities": []})  # a body that states no reach
+    # a dead one is not a creature in sight
+    dead = {"id": "rat_1", "name": "Giant Rat", "distance": 4.0, "alive": False}
+    assert "Creatures: none in sight within 50 m" in summary({**st, "nearby_entities": [dead]})
+
+
+def test_no_creatures_line_when_the_list_was_not_read_or_was_cut():
+    text = lambda st: "\n".join(summary(st))
+    assert "Creatures" not in text(STATE)  # no list in the state at all
+    assert "Creatures" not in text({**STATE, "nearby_entities": [], "not_implemented": ["nearby_entities"]})
+    # creatures in sight that the caps cut from the list are on the "Further off" line: "none" would be false
+    cut = {**STATE, "nearby_entities": [], "nearby_m": 50,
+           "further_off": [{"name": "Giant Rat", "category": "creatures", "count": 2, "distance": 44.0}]}
+    assert "Creatures: none" not in text(cut) and "Giant Rat" in text(cut)
+    seen = {**STATE, "nearby_entities": [{"id": "rat_1", "name": "Giant Rat", "distance": 4.0, "hostile": True}]}
+    assert "Creatures: hostile Giant Rat" in text(seen) and "none in sight" not in text(seen)
