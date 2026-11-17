@@ -3401,6 +3401,23 @@ do
         and r.reason == "target_not_visible" and tostring(r.detail):find("no longer there", 1, true) ~= nil,
         tostring(walking) .. " " .. tostring(r and r.reason) .. " " .. tostring(r and r.detail))
     M.stop(log)
+    -- the same when the walk was suspended for a fight and the creature died in it (live 2026-11-17 09:32:09Z, window
+    -- s23: the walk resumed 5 s after his reflex killed the rat and ended 2 s later with the bare code again)
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local rat2 = obj({ loc = { X = 20000, Y = 0, Z = 0 }, K2_GetActorLocation = function(self) return self.loc end })
+    M.go_to(log, { actor = rat2 }, { tolerance_m = 1, nav = false })
+    run(105)
+    local snap = M.snapshot()
+    M.stop(log)
+    rat2.IsValid = function() return false end
+    local rr = M.restore(log, snap)
+    run(120)
+    local r2 = M.status().result
+    check("gone target: a resumed walk to a creature that died meanwhile says so", snap ~= nil and rr and rr.ok ~= false
+        and r2 and r2.status == "failed" and r2.reason == "target_not_visible"
+        and tostring(r2.detail):find("no longer there", 1, true) ~= nil,
+        tostring(rr and rr.ok) .. " " .. tostring(r2 and r2.reason) .. " " .. tostring(r2 and r2.detail))
+    M.stop(log)
 end
 
 -- ARRIVAL UNDER CONTROL (live 20:33:51Z, rung 3 mine: "arrived" at 6.8 m/s after a hop 1.6 m from the goal, then a 5 m

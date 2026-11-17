@@ -2169,12 +2169,16 @@ local function lost_target(f)
     -- (a target never seen in this move fails after those 2 s: nothing to hand over; live rung1, 10 s to fail
     -- before the brain's map fallback)
     if st.mode == "go_to" and (f.t - st.t0 > 10 or not st.target_ever) and f.t - st.lost_t >= 2 then
-        local names = st.target_kind ~= "actor" and map_names(f.pawn) or nil
+        -- a walk resumed after a fight starts with no target when the fight killed it: what it was before the
+        -- suspend is kept (st.seen_before, from M.snapshot)
+        local kind = st.target_kind or (st.seen_before ~= true and st.seen_before) or nil
+        local names = kind ~= "actor" and map_names(f.pawn) or nil
         local detail = names and string.format("%s is not in sight, and no player of that name is on the game map (on the map: %s)",
             tostring(st.target_spec or st.target_name), #names > 0 and table.concat(names, ", ") or "nobody else") or nil
         -- a thing he was walking to that is no longer in the world (live 2026-11-17 07:36:55Z, run 073510: his reflex
-        -- killed the rat he was walking to, and the walk ended with the bare code)
-        if not detail and st.target_ever then
+        -- killed the rat he was walking to, and the walk ended with the bare code; again 09:32:09Z, window s23, on
+        -- the walk as resumed after that fight, which had not seen the rat itself)
+        if not detail and (st.target_ever or st.seen_before) then
             detail = "what I was walking to is no longer there (it died, was used up or went out of sight)"
         end
         return stop(st, { status = "failed", reason = "target_not_visible", detail = detail }, f.log)
@@ -4977,6 +4981,7 @@ local function start(log, mode, opts)
             math.max(0, os.time() - (rt.at or os.time())), tostring(rt.by or "a reflex"))
     end
     opts.resume_trip = nil
+    st.seen_before, opts.resume_seen = opts.resume_seen, nil -- the target's kind, when the suspended walk had seen it
     -- he can't walk while holding a hold interaction (an Anima Vent's siphon roots him): let go first, as a player
     -- lets go of E before walking off (live 2026-11-01 19:20Z: the siphon was never let go; every walk stood still)
     local inv0 = inv_mod()
@@ -5223,6 +5228,7 @@ function M.snapshot()
     for k, x in pairs(a.opts) do opts[k] = x end
     -- the trip so far, so a resumed move keeps one record (restore -> start(opts.resume_trip))
     opts.resume_trip = st.trip_rec and { rec = st.trip_rec, notes = st.trip_notes, at = os.time() } or nil
+    opts.resume_seen = (st.target_ever or st.seen_before) and (st.target_kind or st.seen_before or true) or nil
     local life = rawget(_G, "DW_LIFE")
     opts.life_seq = type(life) == "table" and (life.move_death_seq or 0) or 0 -- restore refuses across a death
     return { mode = a.mode, goal = a.goal, distance_m = a.distance_m, opts = opts }
