@@ -2633,6 +2633,35 @@ do
         st.trail_i == nil and st.source == "memory" and pawn.input and pawn.input.Y > 0.9, tostring(st.source))
     M.stop(log)
 end
+-- A local plan is made toward a point of the remembered route some metres ahead. Where it ends, the route picks up
+-- at that point, not at the point he was on when the plan began. Live 2026-11-17 12:00:37Z (run 120009) and
+-- 07:35:50Z (run 073510): a plan took him up a 3 m ledge to the route's point 25; the route's index still stood at
+-- point 21 at the ledge's foot, he ran back to it off the ledge, and the attack ended path_blocked.
+do
+    M.stop(log); walls, raised, oracle, frame_hook, air, HOLES = { { -30, 30, 150, 210, true } }, {}, nil, nil, 0, nil; pump_oracle()
+    _G.DW_LP_CACHE = nil
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    M.go_to(log, { 7, -15, 0 }, { nav = false, sprint = false })
+    local st = _G.DW_MOVE
+    st.mem_checked = true
+    -- the route's first two points lie close together and off the plan's way, so he neither reaches nor passes them
+    st.mpath, st.mwp, st.msrc = { { X = 0, Y = 400, Z = -90 }, { X = 0, Y = 460, Z = -90 }, { X = 700, Y = 400, Z = -90 },
+        { X = 700, Y = -1500, Z = -90 } }, 1, "memory"
+    local n0, at_far, back = #logs, false, false
+    frame_hook = function()
+        if math.abs(pawn.loc.X - 700) < 120 and math.abs(pawn.loc.Y - 400) < 120 then at_far = true end
+        if at_far and pawn.loc.X < 450 then back = true end
+    end
+    run(250)
+    local planned = false
+    for i = n0 + 1, #logs do if logs[i]:find("(wall_ahead)", 1, true) and logs[i]:find("toward (700,400", 1, true) then planned = true end end
+    local r = M.status().result
+    check("remembered route: a local plan toward a point of it ends there and the route goes on from that point",
+        planned and at_far and not back and r and r.status == "arrived",
+        string.format("planned=%s at_far=%s back=%s status=%s at=(%.0f,%.0f)", tostring(planned), tostring(at_far), tostring(back),
+            tostring(r and r.status), pawn.loc.X, pawn.loc.Y))
+    M.stop(log); frame_hook = nil; walls = {}
+end
 -- A malformed oracle answer is never a route: each shape below falls back with "invalid_route".
 do
     for _, case in ipairs({

@@ -1658,6 +1658,7 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
     local plan_goal = v(far)
     if observe then plan_goal.Z = plan_goal.Z - hh end -- planner nodes and heuristic use floor height
     st.lp_far, st.lp_state, st.lp_why, st.lp_observe = plan_goal, "sampling", why, observe == true
+    st.lp_rejoin = (st.far_k and st.far_k.far == far) and st.far_k or nil -- (steer_local: the route picks up there)
     st.lp_runs = (st.lp_runs or 0) + 1
     st.lp_plans_np = (st.lp_plans_np or 0) + 1
     if log then log(string.format("move: local plan #%d (%s) at %s toward %s", st.lp_runs, why, fmt(me), fmt(far))) end
@@ -3416,7 +3417,29 @@ local function steer_local(f)
         end
     end
     if st.local_authority and st.lwp > #st.lpath then st.lwp = #st.lpath end
-    if st.lwp > #st.lpath then st.lpath = nil; return end -- segment done; the forward probe re-plans if still blocked
+    if st.lwp > #st.lpath then -- segment done; the forward probe re-plans if still blocked
+        st.lpath = nil
+        -- The plan was made toward a point some metres ahead on a remembered or oracle route. Standing at that point,
+        -- the route picks up there (as past a water detour, M._steer_wet), not at the point he was on when the plan
+        -- began: advance() counts a point as passed only when he is nearer to the next one than it is, which fails
+        -- for points close together that the plan went round. Live 2026-11-17 12:00:37Z (run 120009) and 07:35:50Z,
+        -- 07:35:54Z (run 073510): the plan took him up a 3 m ledge to the route's point 25, the index stood at
+        -- point 21 at the ledge's foot (0.7 m from point 22, 1.2 m off his way), he ran back to it off the ledge,
+        -- and after the jumps missed from there the attack ended path_blocked.
+        local r = st.lp_rejoin
+        st.lp_rejoin = nil
+        local q = r and r.floor -- (route points are floor points)
+        if q and d2(me, q) < 2 * M.cfg.wp_radius_cm and math.abs((me.Z - (st.half_h or 90)) - q.Z) < step_tol(st) then
+            if r.src == "memory" and r.path == st.mpath and st.mwp and r.k > st.mwp then
+                if f.log then f.log(string.format("move: memory: the route picks up at its point %d (it stood at %d)", r.k, st.mwp)) end
+                st.mwp = r.k
+            elseif r.src == "nav" and r.path == st.path and st.wp and r.k > st.wp then
+                if f.log then f.log(string.format("move: route: it picks up at its point %d (it stood at %d)", r.k, st.wp)) end
+                st.wp = r.k
+            end
+        end
+        return
+    end
     local p = st.lpath[st.lwp]
     f.aim, f.src = p, "local"
     if p.act == "superjump" then return steer_superjump(f, p) end
@@ -3774,6 +3797,7 @@ end
 -- ~6 m ahead on a remembered or oracle route (it knows the way round cliffs and hills); else the goal
 local function far_goal(f)
     local st, me = f.st, f.me
+    st.far_k = nil -- which point of which route this far goal is (lp_begin keeps it with the plan)
     if st.doorway_used then st.wet = nil end -- (through a doorway: its frame points, never a water detour)
     -- the doorway line-up beats the oracle's route: its waypoint outside pulled every wall_ahead plan back out
     -- toward (172.8,1920) from 1 m before the door (live 05:45:54-05:46:10Z, 12 plans)
@@ -3788,11 +3812,14 @@ local function far_goal(f)
         local k = st.mwp
         while k < #st.mpath and d2(me, st.mpath[k]) < 600 do k = k + 1 end
         local q = st.mpath[k]
-        return { X = q.X, Y = q.Y, Z = q.Z + (st.half_h or 90) }
+        local far = { X = q.X, Y = q.Y, Z = q.Z + (st.half_h or 90) }
+        st.far_k = { far = far, src = "memory", path = st.mpath, k = k, floor = q }
+        return far
     end
     if st.path and st.wp and st.wp <= #st.path then
         local k = st.wp
         while k < #st.path and d2(me, st.path[k]) < 600 do k = k + 1 end
+        st.far_k = { far = st.path[k], src = "nav", path = st.path, k = k, floor = st.path[k] }
         return st.path[k]
     end
     return f.goal
