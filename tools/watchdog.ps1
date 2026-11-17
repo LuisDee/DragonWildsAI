@@ -32,8 +32,12 @@ function Get-LatestDump { Get-ChildItem $dumpDir -Filter 'crash_*.dmp' -ErrorAct
 
 $seen = (Get-LatestDump).FullName
 Log "watchdog started (poll ${PollSeconds}s), last dump: $seen"
+$hold = Join-Path $RepoRoot 'logs\server.stopped'
 while ($true) {
     Start-Sleep -Seconds $PollSeconds
+    # stopped on purpose (stop_server.ps1 -Hold): no branch restarts it, the hang one included. On 2026-11-17 the hang
+    # branch restarted a server stopped for a world snapshot, and start_server.ps1 removed the hold file.
+    if (Test-Path $hold) { continue }
     $dump = Get-LatestDump
     if ($dump -and $dump.FullName -ne $seen -and (Get-Item $dump.FullName).Length -gt 0) {
         Start-Sleep -Seconds 3 # let the dump finish writing
@@ -62,7 +66,7 @@ while ($true) {
             continue
         }
     }
-    if (-not (Get-ServerProcess) -and -not (Test-Path (Join-Path $RepoRoot 'logs\server.stopped'))) {
+    if (-not (Get-ServerProcess)) {
         Log 'server process missing: starting it'
         & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Log $_ }; Reset-NavOracle
     }

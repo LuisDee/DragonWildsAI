@@ -82,13 +82,51 @@ def has_server(tasklist_csv: str, image: str = SERVER_IMAGE) -> bool:
     return any(line.strip().lstrip('"').lower().startswith(image.lower()) for line in tasklist_csv.splitlines())
 
 
+def live_images() -> list[str] | None:
+    """The image names of the processes that are running now, from a Toolhelp snapshot, or None when it cannot be
+    read. `tasklist` hung past 30 s on this VM (2026-11-17), and a killed server stays listed while a handle to it is
+    open, so each listed process is opened and only those whose exit code is still STILL_ACTIVE count."""
+    import ctypes
+    from ctypes import wintypes as w
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", w.DWORD), ("cntUsage", w.DWORD), ("th32ProcessID", w.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", w.DWORD), ("cntThreads", w.DWORD),
+                    ("th32ParentProcessID", w.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", w.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    try:
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+    except (OSError, AttributeError):
+        return None
+    k.CreateToolhelp32Snapshot.restype = w.HANDLE
+    k.OpenProcess.restype = w.HANDLE
+    snap = k.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    if not snap or snap == w.HANDLE(-1).value:
+        return None
+    names, e = [], Entry()
+    e.dwSize = ctypes.sizeof(Entry)
+    try:
+        ok = k.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            h = k.OpenProcess(0x1000, False, e.th32ProcessID)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if h:
+                code = w.DWORD()
+                if not k.GetExitCodeProcess(h, ctypes.byref(code)) or code.value == 259:  # STILL_ACTIVE
+                    names.append(e.szExeFile)
+                k.CloseHandle(h)
+            else:
+                names.append(e.szExeFile)  # cannot open it: count it, never guess it gone
+            ok = k.Process32NextW(snap, ctypes.byref(e))
+    finally:
+        k.CloseHandle(snap)
+    return names or None
+
+
 def server_running() -> bool | None:
     """True / False, or None when the process list could not be read (which refuses: never copy on a guess)."""
-    try:
-        p = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return has_server(p.stdout) if p.returncode == 0 and p.stdout.strip() else None
+    names = live_images()
+    return None if names is None else has_server("\n".join(names))
 
 
 def live_lock() -> dict | None:

@@ -27,4 +27,6 @@ function Get-ServerBuildId {
     if (Test-Path $acf) { (Select-String -Path $acf -Pattern '"buildid"\s+"(\d+)"').Matches[0].Groups[1].Value }
 }
 
-function Get-ServerProcess { Get-Process 'RSDragonwildsServer*' -ErrorAction SilentlyContinue }
+# A killed server stays in Get-Process with HasExited while any handle to it is open (2026-11-17: the watchdog took the
+# stopped server for a hung one and restarted it), so only live processes count.
+function Get-ServerProcess { Get-Process 'RSDragonwildsServer*' -ErrorAction SilentlyContinue | Where-Object { try { -not $_.HasExited } catch { $true } } }
