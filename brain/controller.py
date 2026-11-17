@@ -319,6 +319,19 @@ def _with_map_names(t: dict) -> dict:
     return {**t, "function": {**f, "parameters": {**params, "properties": {**params["properties"], "target": target}}}}
 
 
+def _with_players(t: dict, args: list[str], names: list[str]) -> dict:
+    """The tool with its player arguments (the body's manifest: ground = player) limited to the players there are.
+    Getting Started, 14 to 17 Nov: give {player: Doric} 7 times, refused by the body each time (an NPC is no player);
+    a sentence in give's description (946bee9) left it at 3 of 21 trials. The body still judges the call."""
+    f = t.get("function") or {}
+    params = f.get("parameters") or {}
+    props = dict(params.get("properties") or {})
+    for a in args:
+        if isinstance(props.get(a), dict):
+            props[a] = {**props[a], "enum": list(names)}
+    return {**t, "function": {**f, "parameters": {**params, "properties": props}}}
+
+
 def _look_row(t):
     """One look row as the model sees it: the engine class and category repeat id/name/kind, and a zero match score
     says nothing (the full row stays in the log and in the situation's looks)."""
@@ -431,6 +444,8 @@ class Controller:
         self._progress_last: str | None = None
         self.places = None  # brain.places.Places (LiveSession): look rows get the map name of their spot
         self.map_names = False  # go_to also takes the game map's place names (executor fallback; use_map_names)
+        self._spoke: set[str] = set()  # everyone who has spoken to him this session (players, by the chat's own name)
+        self._player_names: list[str] = [player] if player else []  # what a player argument may be (_note_players)
         self.tools = self._tool_list()
         self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
         self.on_say: Callable[[str], None] | None = None  # told about every line the companion says
@@ -461,6 +476,9 @@ class Controller:
                 t = {**t, "function": {**f, "description": (f.get("description") or "").rstrip() + " " + READ_ALONE}}
             if self.map_names and f.get("name") == "go_to":
                 t = _with_map_names(t)
+            takes_player = [a for a, g in self.caps.ground_spec(f.get("name")).items() if g == "player"] if self.caps else []
+            if takes_player and self._player_names:
+                t = _with_players(t, takes_player, self._player_names)
             out.append(t)
         if self.say_channel:
             out.insert(0, SAY_SCHEMA)
@@ -482,6 +500,20 @@ class Controller:
         acts = [n for n in ACTION_TOOLS if self.has(n)]
         reads = [n for n in READ_TOOLS if self.has(n) and n not in BRAIN_TOOLS]
         return [tool_schema(n) for n in reads + acts] + rules + brain
+
+    def _note_players(self, speaker: str | None, state: dict) -> None:
+        """The players there are: the one he plays beside, whoever has spoken to him, everyone online but himself
+        (the state's players_online: PlayerStates, at any distance). The tool list is rebuilt only when they change
+        (it is the head of the prompt cache)."""
+        if speaker:
+            self._spoke.add(str(speaker))
+        me = {str(state.get("name") or ""), self.name, ""}
+        online = {str(n) for n in state.get("players_online") or [] if isinstance(n, str)}
+        names = sorted(({self.player} | self._spoke | online) - me)
+        if names != self._player_names:
+            self._player_names = names
+            self.tools = self._tool_list()
+            self.log.log("player_names", names=names)
 
     def use_map_names(self) -> None:
         """The brain resolves go_to <a region / NPC / landmark name> from the game's map data when the body can't
@@ -685,6 +717,7 @@ class Controller:
     def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
                body_event: dict | None = None) -> Decision:
         self._state_for_reads = state
+        self._note_players(player if (text or "").strip() and body_event is None else None, state)
         context = self.context(player, text, state, active_goal, addressed, body_event)
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]

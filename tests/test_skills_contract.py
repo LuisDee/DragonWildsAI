@@ -288,3 +288,28 @@ def test_give_me_the_logs_is_go_to_then_drop_in_order(lua_caps, tmp_path):
     rig.command("give me the logs", FakeLLM.say("Here you go.", FakeLLM.call("go_to", target="Zezima"),
                                                 FakeLLM.call("drop", item="Ash Logs", count=4)))
     assert rig.game.body_calls() == [("go_to", {"target": "Zezima"}), ("drop", {"item": "Ash Logs", "count": 4, "at": "feet"})]
+
+
+@needs_lua
+def test_an_argument_that_takes_a_player_lists_the_players_there_are(lua_caps, tmp_path):
+    """give and follow take a player (the body's manifest: ground = player). The offered schema names the players
+    there are: the one he plays beside, whoever has spoken to him, and everyone online but himself. Getting Started,
+    14 to 17 Nov: give {player: Doric} 7 times, each refused by the body (an NPC) and a miss; the sentence in the
+    description (946bee9) left it at 3 of 21 trials."""
+    rig = Rig(tmp_path, lua_caps)
+
+    def names(tool, arg="player"):
+        fn = next(t["function"] for t in rig.controller.tools if t["function"]["name"] == tool)
+        return fn["parameters"]["properties"][arg].get("enum")
+
+    assert names("give") == ["Zezima"] and names("follow") == ["Zezima"]  # from the start: the warm-up's tools
+    assert names("go_to", "target") is None and names("give", "item") is None  # not a player argument
+    state = {**grave_world(), "name": "Claude", "players_online": ["Claude", "luisdeburnaybast"]}
+    rig.llm.push(FakeLLM.say("hi"))
+    rig.controller.decide("Bob", "hello claude", state, None)
+    assert names("give") == names("follow") == ["Bob", "Zezima", "luisdeburnaybast"]  # never himself
+    assert rig.caps.manifest["give"]["args"]["properties"]["player"].get("enum") is None  # the manifest is not written to
+    offered = rig.controller.tools
+    rig.llm.push(FakeLLM.say("hi"))
+    rig.controller.decide("Bob", "still here?", state, None)
+    assert rig.controller.tools is offered  # nothing changed: the same list (the prompt cache's head)
