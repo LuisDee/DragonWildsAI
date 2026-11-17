@@ -502,3 +502,15 @@ def test_a_stop_file_ends_the_trial_stopped(doc, tmp_path):
     io = FakeIO(script=l2_script(store_at=400.0), states=lambda t: state(mine=[CRATE]))
     rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"], "stop_file": str(stop)})
     assert rec["ended"] == "stopped" and not rec["job_done"]
+
+
+def test_gear_target_judges_on_the_games_own_power_level():
+    # a broken tunic and leggings under a cowl: the catalog's levels say PL 1, the game says 0 (broken counts 0)
+    cat = {"cowl": {"power_level": 2}, "tunic": {"power_level": 1}, "legs": {"power_level": 1}}
+    start = {"gear_target": {"pl": 1}}
+    end = {"worn": {"Head": "cowl", "Body": "tunic", "Legs": "legs"}, "power_level": 0.0}
+    ok, why = j.p_gear_target({}, start, end, cat)
+    assert not ok and "armour PL 0 of 1" in why
+    end["power_level"] = None
+    assert j.p_gear_target({}, start, end, cat)[0]  # no game figure: the catalog's, as before
+    assert j.snapshot({"power_level": 0.0, "position": [0, 0, 0]})["power_level"] == 0.0

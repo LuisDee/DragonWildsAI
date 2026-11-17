@@ -101,8 +101,10 @@ def snapshot(data: dict | None) -> dict:
             worn[k] = v
     own = {str(e["id"]) for key in ("structures", "interactables") for e in d.get(key) or []
            if isinstance(e, dict) and e.get("mine") and e.get("id")}
+    pl = d.get("power_level")
     return {"carried": carried, "worn": worn, "consumables": cons, "position": d.get("position"),
-            "dead": bool(d.get("dead")), "own_containers": sorted(own), "empty_slots": d.get("empty_slots")}
+            "dead": bool(d.get("dead")), "own_containers": sorted(own), "empty_slots": d.get("empty_slots"),
+            "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
 
 
 def _item_id(name: str | None) -> str | None:
@@ -284,6 +286,12 @@ def p_gear_target(spec: dict, start: dict, end: dict, cat: dict | None = None) -
     if not isinstance(tg, dict) or "pl" not in tg:
         return False, "no gear target was computed at the start"
     on = gear_on(end.get("worn") or {}, cat)
+    # the game's own figure when the state has it: a broken piece counts 0 there, and the item levels the catalog
+    # gives do not (2026-11-17: a broken tunic and leggings under a cowl read PL 0 in the game and 1 from the
+    # catalog, 13,192 of 13,194 readings; docs/research/2026-11-17-power-level.md)
+    game = end.get("power_level")
+    if isinstance(game, (int, float)):
+        on["pl_items"], on["pl"] = on["pl"], int(game)
     short = [f"armour PL {on['pl']} of {tg['pl']}"] if on["pl"] < int(tg["pl"] or 0) else []
     short += [f"{s} PL {on['kit'].get(s, 0)} of {want}" for s, want in (tg.get("kit") or {}).items()
               if on["kit"].get(s, 0) < int(want)]
