@@ -231,3 +231,97 @@ def test_summarize_counts_by_group():
     assert s["by_group"]["harness"]["endings"] == {"closed_silent": 1}
     assert s["by_group"]["free"]["asks"] == 0
     assert "closed_silent" in AE.report([a])
+
+
+# ------------------------------------------------------------------ the open-ask turn (brain/agent.py 3ec85ff)
+# Row shapes as brain/agent.py logs them (open_ask_turn, request_done_claimed, request_parked, request_closed's
+# after_open_ask_turn / no_open_ask_turn); no live log of that code is old enough to be read yet (FRESH_S).
+
+OA = {"ts": 1794940000.0, "kind": "session_start", "player": "Tester"}  # 2026-11-17 18:40Z, after 3ec85ff
+ROPE = "claude, get us some rope for the bridge"
+
+
+def oa_turn(ts, ep, outcome, actions=(), speech=None):
+    return {"ts": ts, "kind": "open_ask_turn", "request": ROPE, "player": "Tester", "turn": 3, "outcome": outcome,
+            "shown": {"request": ROPE, "changed": {"bag": []}}, "actions": list(actions), "speech": speech,
+            "episode_id": ep}
+
+
+def closed(ts, ep, after, why=None):
+    return {"ts": ts, "kind": "request_closed", "request": ROPE, "after_open_ask_turn": after,
+            **({} if after else {"no_open_ask_turn": why}), "episode_id": ep}
+
+
+def ask_with(*tail, ep="chat-0001"):
+    rows = [OA, *chat(1794940010.0, ep, "Tester", ROPE), call(1794940012.0, ep, "gather", "g1"),
+            turn(1794940040.0, ep, 2, []), *tail]
+    (a,) = AE.reconstruct(rows, name="oa.jsonl", end_ts=1794940400.0)
+    AE.judge([a], {"by_log": {}, "lines": {}})
+    return a
+
+
+def test_open_ask_turn_went_on_then_closed_with_no_second_turn():
+    ep = "chat-0001"
+    a = ask_with(oa_turn(1794940041.0, ep, "world", ["craft"]), turn(1794940041.1, ep, 3, ["craft"]),
+                 call(1794940042.0, ep, "craft", "c1"), turn(1794940090.0, ep, 4, []),
+                 closed(1794940090.1, ep, False, "had one this run"))
+    assert (a.ending, a.open_ask, a.closed_after_open_ask, a.no_open_ask_turn) == (
+        "closed_silent", ["world"], False, "had one this run")
+    assert a.body_calls == 2
+    o = AE.summarize([a])["by_group"]["all"]["open_ask"]
+    assert (o["asks_seen"], o["turned"], o["went_on"], o["closed_silent_after"]) == (1, 1, 1, 0)
+    assert o["outcomes"] == {"world": 1} and o["no_turn"] == {"had one this run": 1}
+
+
+def test_open_ask_turn_silent_then_the_second_stop_closes_it():
+    ep = "chat-0001"
+    a = ask_with(oa_turn(1794940041.0, ep, "say", speech="got 2 rope so far"), turn(1794940041.1, ep, 3, []),
+                 closed(1794940041.2, ep, True))
+    assert (a.ending, a.open_ask, a.closed_after_open_ask) == ("closed_silent", ["say"], True)
+    o = AE.summarize([a])["by_group"]["all"]["open_ask"]
+    assert (o["went_on"], o["closed_silent_after"], o["no_turn"]) == (0, 1, {})
+    assert "open-ask turn (3ec85ff): 1 of 1 (100 %) asks got one; went on 0 of 1" in AE.report([a])
+
+
+def test_request_done_claimed_ends_it_as_a_claim_not_a_verdict():
+    ep = "chat-0001"
+    a = ask_with(oa_turn(1794940041.0, ep, "done_claim", ["request_done"]),
+                 {"ts": 1794940041.5, "kind": "request_done_claimed", "request": ROPE, "player": "Tester",
+                  "evidence": "bag holds 3 Rope", "episode_id": ep})
+    assert (a.ending, a.end, a.closed_words) == ("claimed_done", 1794940041.5, "bag holds 3 Rope")
+    assert a.verdict == "unknown"  # his claim is not state
+    assert AE.summarize([a])["by_group"]["all"]["open_ask"]["claimed_done"] == 1
+
+
+def test_request_parked_ends_it_not_done_by_his_word():
+    ep = "chat-0001"
+    a = ask_with(oa_turn(1794940041.0, ep, "park", ["park_request"]),
+                 {"ts": 1794940041.5, "kind": "request_parked", "request": ROPE, "player": "Tester",
+                  "reason": "no flax left nearby", "episode_id": ep},
+                 say(1794940042.0, ep, "no flax left nearby"))
+    assert (a.ending, a.verdict, a.verdict_by, a.verdict_detail) == (
+        "parked_by_him", "not_done", "parked_by_him", "no flax left nearby")
+    o = AE.summarize([a])["by_group"]["all"]["open_ask"]
+    assert (o["parked_by_him"], o["endings_after_turn"]) == (1, {"parked_by_him": 1})
+
+
+def test_closed_with_no_open_ask_turn_counts_why():
+    a = ask_with(closed(1794940040.1, "chat-0001", False, "turn budget"))
+    assert (a.ending, a.open_ask, a.no_open_ask_turn) == ("closed_silent", [], "turn budget")
+    o = AE.summarize([a])["by_group"]["all"]["open_ask"]
+    assert (o["asks_seen"], o["turned"], o["no_turn"]) == (1, 0, {"turn budget": 1})
+
+
+def test_an_old_request_closed_row_reads_as_before():
+    (a,) = AE.reconstruct(era2_rune_altar(), name="x.jsonl", end_ts=1794838100.0)
+    assert a.ending == "closed_silent" and a.closed_after_open_ask is None and not a.open_ask
+    assert AE.summarize([a])["by_group"]["all"]["open_ask"]["asks_seen"] == 0
+    assert "open-ask turn" not in AE.report([a])
+
+
+def test_read_rows_keeps_the_open_ask_rows(tmp_path):
+    p = tmp_path / "brain-live-y.jsonl"
+    rows = [oa_turn(1.0, "c", "silent"), {"ts": 2.0, "kind": "request_parked", "request": ROPE, "reason": "r"},
+            {"ts": 3.0, "kind": "request_done_claimed", "request": ROPE, "evidence": "e"}]
+    p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    assert [r["kind"] for r in AE.read_rows(p)] == ["open_ask_turn", "request_parked", "request_done_claimed"]

@@ -4,6 +4,10 @@ An ask is a line a player addressed to him (a `chat_decision` row with decision 
 `Agent._open_request` (brain/agent.py:524) from commit c019a6f (2026-11-16 12:11Z) on, and closes it on a turn in
 which the model calls nothing (`request_closed`, brain/agent.py:668-671). Before that commit the ask lived only as
 long as the run it started (and the goal that run queued). Nothing in either era checks the game.
+From commit 3ec85ff (2026-11-17 18:29Z) a stop on the open ask first gets one more turn that shows it as data and
+offers request_done / park_request (`open_ask_turn` rows, outcome world|park|done_claim|say|silent|refused|error);
+the ask then ends on `request_done_claimed`, `request_parked`, or `request_closed` with `after_open_ask_turn` (a
+second silent turn) or `no_open_ask_turn` (why the turn could not run). Older logs read as before.
 
     .venv\\Scripts\\python.exe -m tools.ask_ends report [--since 2026-11-01] [--until 2026-11-18] [--json]
     .venv\\Scripts\\python.exe -m tools.ask_ends show ASK_ID        # e.g. 20261117-151932-23576#1
@@ -11,6 +15,8 @@ long as the run it started (and the goal that run queued). Nothing in either era
 Endings (one per ask):
   closed_silent   the model stopped on it: a turn with no call (era 2: the `request_closed` row; era 1: the run's
                   last decision had no body action, or the model chose silence after a failure)
+  claimed_done    he closed it with request_done(evidence) on the open-ask turn (a claim: never checked here)
+  parked_by_him   he closed it with park_request(reason) on the open-ask turn (not the breaker's `parked`)
   goal_done       era 1 only: the goal the run queued ended done, and with it the run
   goal_stuck      era 1 only: the goal ended stuck (max_replans, max_interrupts, no plan)
   turn_budget     the run hit MAX_TURNS and the hand-ons were used up (`chain_stopped` why=budget)
@@ -22,7 +28,8 @@ Endings (one per ask):
 
 Was it done (no model): the quest runner's verdict (logs/evals/quest_runs.jsonl, joined by brain_log), a gate's
 leg (logs/evals/rung*_gate.jsonl, farm_gate.jsonl), the travel ladder (chat_ladder.jsonl); otherwise "not_done" only
-when the same player said the same line again within 2 minutes of the end, or his last line said he could not.
+when the same player said the same line again within 2 minutes of the end, his last line said he could not, or he
+parked it himself (park_request: by his own word it is not finished).
 Everything else is "unknown". "done_later" = done, but after the ask had ended (it was not done when it ended).
 Read only: logs/ is never written. Files modified in the last 30 minutes are skipped (a live brain writes them).
 """
@@ -55,7 +62,10 @@ KIND_RE = re.compile(r'"kind":\s*"([a-z_]+)"')
 KEEP = {"session_start", "chat_decision", "request_closed", "tool_call", "task_failed", "llm_response", "chain_turn",
         "chain_stopped", "chain_handed_on", "say", "event", "situation_review", "failure_unspoken", "reply_silent",
         "goal_dropped", "controller_budget_exhausted", "stop_for_check", "open_job_check", "failure_unreported",
-        "board_run", "next_turn_error", "situation_error", "talk_only_check"}
+        "board_run", "next_turn_error", "situation_error", "talk_only_check", "open_ask_turn",
+        "request_done_claimed", "request_parked"}
+# brain/agent.py 3ec85ff: the rows that end an open ask, and the ending each gives
+CLOSE_ROWS = {"request_closed": "closed_silent", "request_done_claimed": "claimed_done", "request_parked": "parked_by_him"}
 EVENT_TYPES = {"chat_heard", "vitals_low"}
 ACTIVITY_KINDS = {"combat_started"}
 DEATH = "companion_down"
@@ -251,6 +261,12 @@ class Ask:
     idle_at_end_s: float | None = None
     after_s: float = 0.0  # from the end to the next addressed line or the log's end
     calls_after: int = 0  # body calls in that span (work he did with no ask open)
+    # the open-ask turn (3ec85ff): its outcomes in order; on a request_closed row, whether the open-ask turn came just
+    # before it (None: an older log, or another ending) and, if none could run, why not; the done evidence or park reason
+    open_ask: list = field(default_factory=list)
+    closed_after_open_ask: bool | None = None
+    no_open_ask_turn: str = ""
+    closed_words: str = ""
 
 
 def _calls_of(r: dict) -> list[str]:
@@ -335,8 +351,16 @@ def _end_era2(a: Ask, rows: list[dict], nxt: float | None, file_end: float) -> N
     for r in rows:
         if r["ts"] < a.start or r["ts"] >= stop:
             continue
-        if r.get("kind") == "request_closed" and r.get("request") == a.line:
-            a.end, a.ending, a.ending_row = r["ts"], "closed_silent", _cut(r, 200)
+        k = r.get("kind")
+        # request_done / park_request log the ask that was open; None only if none was (then it is this one's)
+        if k in CLOSE_ROWS and (r.get("request") == a.line or (k != "request_closed" and r.get("request") is None)):
+            a.end, a.ending, a.ending_row = r["ts"], CLOSE_ROWS[k], _cut(r, 200)
+            if k == "request_closed":
+                if "after_open_ask_turn" in r:
+                    a.closed_after_open_ask = bool(r["after_open_ask_turn"])
+                a.no_open_ask_turn = str(r.get("no_open_ask_turn") or "")
+            else:
+                a.closed_words = _cut((r.get("evidence") if k == "request_done_claimed" else r.get("reason")) or "", 240)
             return
     if nxt is not None:
         a.end, a.ending, a.ending_row = nxt, "replaced", "the next addressed line"
@@ -443,6 +467,8 @@ def _measure(a: Ask, rows: list[dict], goals: list[dict], progress: list[dict]) 
             a.hand_ons += 1
         elif k == "say" and r.get("text"):
             a.last_say = _cut(r["text"], 240)
+        elif k == "open_ask_turn" and r.get("request") in (a.line, None):
+            a.open_ask.append(str(r.get("outcome") or "?"))
     # one death per minute at most (a death fails every call until the respawn)
     a.deaths = sum(1 for i, t in enumerate(sorted(deaths)) if i == 0 or t - sorted(deaths)[i - 1] > 60)
     a.body_calls = len(body)
@@ -531,6 +557,9 @@ def judge(asks: list[Ask], verdicts: dict) -> None:
         elif a.last_say and COULD_NOT.search(a.last_say):
             a.verdict, a.verdict_by = "not_done", "said_could_not"
             a.verdict_detail = a.last_say
+        elif a.ending == "parked_by_him":
+            a.verdict, a.verdict_by = "not_done", "parked_by_him"
+            a.verdict_detail = a.closed_words
 
 
 # ------------------------------------------------------------------ scanning
@@ -580,8 +609,31 @@ def summarize(asks: list[Ask]) -> dict:
             "not_done_causes": dict(Counter(a.cause for a in sel if a.verdict in ("not_done", "done_later")).most_common()),
             "eras": dict(Counter(a.era for a in sel)),
             "sources": dict(Counter(a.source for a in sel)),
+            "open_ask": open_ask_summary(sel),
         }
     return out
+
+
+def open_ask_summary(asks: list[Ask]) -> dict:
+    """The open-ask turn (3ec85ff) over these asks. ``asks_seen``: asks whose log carries its rows (an open-ask turn,
+    request_done_claimed / request_parked, or a request_closed saying whether the turn ran); ``turned``: those that got
+    at least one open-ask turn; ``went_on``: one of its turns called something in the world (outcome world);
+    ``closed_silent_after``: a second silent turn closed it (request_closed after_open_ask_turn); ``no_turn``: closed
+    silent with no turn just before, by why (turn budget, deadline, the player spoke, had one this run, ...)."""
+    seen = [a for a in asks if a.open_ask or a.ending in ("claimed_done", "parked_by_him")
+            or a.closed_after_open_ask is not None]
+    turned = [a for a in seen if a.open_ask]
+    return {
+        "asks_seen": len(seen), "turned": len(turned),
+        "outcomes": dict(Counter(o for a in turned for o in a.open_ask).most_common()),
+        "went_on": sum(1 for a in turned if "world" in a.open_ask),
+        "closed_silent_after": sum(1 for a in seen if a.ending == "closed_silent" and a.closed_after_open_ask),
+        "claimed_done": sum(1 for a in seen if a.ending == "claimed_done"),
+        "parked_by_him": sum(1 for a in seen if a.ending == "parked_by_him"),
+        "no_turn": dict(Counter(a.no_open_ask_turn or "?" for a in seen
+                                if a.ending == "closed_silent" and a.closed_after_open_ask is False).most_common()),
+        "endings_after_turn": dict(Counter(a.ending for a in turned).most_common()),
+    }
 
 
 def report(asks: list[Ask], as_json: bool = False) -> str:
@@ -602,6 +654,13 @@ def report(asks: list[Ask], as_json: bool = False) -> str:
         nd = sum(g["not_done_causes"].values())
         for c, k in list(g["not_done_causes"].items())[:8]:
             lines.append(f"  not done: {_pct(k, nd):14} {c}")
+        o = g["open_ask"]
+        if o["asks_seen"]:
+            lines.append(f"  open-ask turn (3ec85ff): {_pct(o['turned'], o['asks_seen'])} asks got one; went on "
+                         f"{_pct(o['went_on'], o['turned'])}; closed silent after it {o['closed_silent_after']}; "
+                         f"claimed done {o['claimed_done']}; parked by him {o['parked_by_him']}")
+            lines.append(f"    turn outcomes {o['outcomes']}; closed silent with no turn {o['no_turn']}; "
+                         f"endings after a turn {o['endings_after_turn']}")
     return "\n".join(lines)
 
 

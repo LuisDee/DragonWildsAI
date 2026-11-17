@@ -436,3 +436,16 @@ def test_the_real_pins_are_the_lint_clean_main_cases():
              + goal_drafts.every_skill() + goal_drafts.capstone())
     want = {c.id: case_hash(c) for c in cases if goal_drafts.pinnable(c)}
     assert pins == want and not any(k.endswith("_quick") for k in pins)
+
+
+def test_snapshot_digest_does_not_depend_on_the_checkouts_line_endings(tmp_path, monkeypatch):
+    """The pins failed in every LF checkout (worktrees) and held in the CRLF main one: same manifest, other bytes."""
+    from evals.bench import spec
+    monkeypatch.setattr(spec, "SNAPSHOTS", tmp_path)
+    text = json.dumps({"schema": "x", "bag": ["a", "b"]}, indent=2)
+    for name, nl in (("lf", "\n"), ("crlf", "\r\n")):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "manifest.json").write_bytes(text.replace("\n", nl).encode("utf-8"))
+    assert spec.snapshot_digest("lf") == spec.snapshot_digest("crlf")
+    (tmp_path / "lf" / "manifest.json").write_bytes(text.replace('"b"', '"c"').encode("utf-8"))
+    assert spec.snapshot_digest("lf") != spec.snapshot_digest("crlf")

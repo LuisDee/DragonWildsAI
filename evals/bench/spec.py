@@ -189,14 +189,19 @@ SNAPSHOTS = Path(__file__).resolve().parent / "state_snapshots"
 
 def snapshot_digest(name: str) -> str:
     """sha256 of a state snapshot's manifest (review C5): editing a snapshot changes every case that uses it.
-    "empty" = no snapshot; a missing manifest hashes as "missing" (and fails the lint for suite cases)."""
+    "empty" = no snapshot; a missing manifest hashes as "missing" (and fails the lint for suite cases).
+    A line ending is not content: the bytes are hashed with CRLF line ends whatever the checkout wrote. The pins
+    (docs/goal_targets.json, manifests/26161880/goal_v1.json) and every recorded run's case_hash were made from the
+    main checkout's CRLF files (autocrlf, 2026-10-26); a fresh checkout or worktree writes LF (.gitattributes
+    eol=lf), which moved all 60 pinned hashes there and would have made every recorded run stale."""
     if not name or name == "empty":
         return "empty"
     f = SNAPSHOTS / name / "manifest.json"
     try:
-        return hashlib.sha256(f.read_bytes()).hexdigest()[:16]
+        raw = f.read_bytes()
     except OSError:
         return "missing"
+    return hashlib.sha256(raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")).hexdigest()[:16]
 
 
 def case_hash(case: Case) -> str:
