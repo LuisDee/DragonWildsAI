@@ -163,7 +163,8 @@ WATER_SOURCE = ("{name} (collect_water: Dirty Water, +10 water and +20 Soulscour
 
 def _station_names(sids: list[str], cat: dict) -> str:
     st = cat.get("stations") or {}
-    return " or ".join(dict.fromkeys(str((st.get(s) or {}).get("name") or s) for s in sids))
+    return " or ".join(dict.fromkeys(str((st.get(s) or {}).get("display_name") or (st.get(s) or {}).get("name") or s)
+                                     for s in sids))
 
 
 def _station_near(sids: list[str], state: dict, cat: dict) -> dict | None:
@@ -192,7 +193,7 @@ def _named_index(cat: dict) -> tuple:
     for rid, r in (cat.get("recipes") or {}).items():
         sids = r.get("stations") or []
         if (r.get("test") or r.get("vendor_reputation") or not sids
-                or any((stations.get(s) or {}).get("vendor") for s in sids)):
+                or any((stations.get(s) or {}).get("is_vendor") for s in sids)):
             continue
         for o in r.get("outputs") or []:
             name = str(o.get("name") or "").strip().lower()
@@ -240,8 +241,7 @@ def named_recipes(state: dict, texts, cat: dict | None = None, limit: int = NAME
     out = []
     for name in named[:limit]:
         rid, r, o = min(by[name], key=short)
-        at = " or ".join(dict.fromkeys(str((stations.get(s) or {}).get("display_name") or (stations.get(s) or {}).get("name")
-                                           or s) for s in r.get("stations") or []))
+        at = _station_names(r.get("stations") or [], cat)
         takes = " and ".join(f"{int(i.get('count') or 1)} {i.get('name') or i.get('item')} "
                              f"(you have {have.get(i.get('item'), 0)})" for i in r.get("inputs") or [])
         carried = have.get(o.get("item"), 0)

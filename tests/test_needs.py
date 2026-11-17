@@ -246,3 +246,9 @@ def test_summary_shows_the_recipe_a_quest_step_names():
     st["quests"] = {"active": [{"quest": "Growing Pains", "step": "Speak to the Wise Old Man"}], "complete": []}
     assert not any(line.startswith("Recipes of things") for line in summary(st))
     assert any("Stone Club at a Crafting Table" in line for line in summary(st, active_goal="craft a Stone Club"))
+
+
+def test_named_recipes_leave_a_vendor_s_trades_out_and_stations_carry_their_shown_name():
+    # 60 trades at the two vendor stations carry no vendor_reputation; the station row says is_vendor
+    assert needs.named_recipes({"inventory": {}}, ["Buy a Salve Crystal and a Weighted Training Band"]) == []
+    assert needs._station_names(["CraftingTable"], needs.catalog()) == "Crafting Table"
