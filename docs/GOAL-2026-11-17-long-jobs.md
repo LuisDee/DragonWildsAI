@@ -126,7 +126,7 @@ Rules for the held-out set: its runs are scored and tagged by class in the ledge
 
 ## 4. Capstone: a vault from one ask
 
-Rung 6 of the ladder. Tried only when L1 to L3 are at standard and the jump course passes. The first vault is the one the storyline uses (Vertentis Kara, boss Velgar, power level 4, 6,000 HP, four phases, poison). Its first three runs are held-out scores.
+Rung 6 of the ladder. Tried only when L1 to L3 are at standard and the jump course passes. The first vault is the one the storyline uses: Vertentis Kara, whose boss is a rat king in its "rat boss room" (corrected 2026-11-17: Velgar, power level 4, is a separate boss at Velgar's Rise in Ghornfell, not this vault's; the lookup eval and the wiki mirror pages 3517 and 10114). Its facts and the path to its door: `docs/research/2026-11-17-vault-capstone.md`. Its first three runs are held-out scores.
 
 ## Parked on 2026-11-17 (owed; return in this order unless Luis says otherwise)
 
