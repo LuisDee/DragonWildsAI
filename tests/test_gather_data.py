@@ -59,3 +59,21 @@ def test_gather_progress_event_parses():
     ev = parse_event({"type": "gather_progress", "task_id": "t1", "resource": "oak",
                       "item": "ITEM_Resources_Wood_Oak", "have": 3, "want": 6})
     assert ev.have == 3 and ev.want == 6
+
+
+def test_craft_verifier_counts_what_the_stay_fed_reflex_used_as_made():
+    """Run 20261117-044508: he boiled 3 Clean Water, the stay-fed reflex drank 1 as they came out (the body's result
+    said so in "reflex_used"), and the bag check failed the craft: "+2, wanted +3". The failure note took the place
+    of the note that names the open request, and he stopped with the quest open. 7 of the 23 craft verification
+    failures of 14 to 17 Nov were this."""
+    check = VERIFIERS["craft"]
+    water = "ITEM_Consumable_Water_Clean"
+    used = [{"item": water, "name": "Clean Water", "count": 1}]
+    base, post = {"inventory": {water: 0}}, {"inventory": {water: 2}}
+    assert check({"item": "Clean Water", "count": 3}, base, post, {"item": water, "reflex_used": used}) is None
+    assert check({"item": "Clean Water", "count": 3}, base, post, {"item": water}) == f"inventory {water} +2, wanted +3"
+    # what the reflex used of another item is not this craft's output
+    other = [{"item": "ITEM_Consumable_Soup_Vegetable", "count": 1}]
+    assert check({"item": "Clean Water", "count": 3}, base, post, {"item": water, "reflex_used": other})
+    # consume's reflex_used is one row, not a list (skills.lua): never read as a count
+    assert check({"item": "Clean Water", "count": 3}, base, post, {"item": water, "reflex_used": {"item": water}})

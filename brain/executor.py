@@ -124,6 +124,11 @@ def _v_gain(skill):
             return None
         want = args.get("count") or 1
         gained = _inv(post, item) - _inv(base, item)
+        # what the stay-fed reflex ate or drank of the output as it came out was made too (the body's own count,
+        # crafting.lua "reflex_used"). Run 20261117-044508: 3 Clean Water boiled, the reflex drank 1, "+2, wanted +3"
+        # failed the craft and he stopped on the failure note with the quest open (7 such false failures in 4 days).
+        used = (data or {}).get("reflex_used")
+        gained += sum(int(r.get("count") or 0) for r in used if isinstance(r, dict) and r.get("item") == item)             if isinstance(used, list) else 0
         return None if gained >= want else f"inventory {item} +{gained}, wanted +{want}"
     return check
 
