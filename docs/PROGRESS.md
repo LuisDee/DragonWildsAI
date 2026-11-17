@@ -1523,3 +1523,75 @@ Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the 
 - **Rates:** Ratcatcher from `rc_start` 9 of the last 10, 8 in a row. First Steps 10 of 10; Getting Started 7 of 10 chained, 4 of 6 from `gs_start`; Rune Mysteries 3 of 10 chained, 10 of 10 from `rm_part2`. The guard reads "chain: ready".
 - **Spend** on 2026-11-16 UTC at 23:56Z: $3.74 of the day's $20 (1,432 calls). From 00:00Z the cap is $10 a day again.
 - **Limits.** d5f57ad has passed tests only. No chain has passed all four quests in one sitting. The swing probe was bare-handed. Reports were not judged for truth. 9 of 10 at `rc_start` includes trials from before the last three fixes.
+
+## 2026-11-17 00:05Z-03:05Z: six step windows (Getting Started 13 of 15, Ratcatcher 14 of 15); the state after an action showed the quest step from before it (fixed, 13959e8, tests only)
+
+Each window is `quest_run step`, 5 trials, each on a new fork of the checkpoint. Controller Haiku 5.5, Planner Sonnet 5.5.
+
+**Getting Started from `gs_start`: 13 of 15.**
+
+| window | trial | result | time, ratio to Luis | misses |
+|---|---|---|---|---|
+| s10 | 235954 | pass | 88.9 s, 0.75 | 1 (craft, missing materials) |
+| s10 | 000320 | pass | 75.8 s, 0.61 | 0 |
+| s10 | 000641 | pass | 84.7 s, 0.65 | 0 |
+| s10 | 001005 | pass | 84.5 s, 0.66 | 0 |
+| s10 | 001325 | pass | 73.3 s, 0.58 | 0 |
+| s12 | 005434 | pass | 69.9 s, 0.59 | 0 |
+| s12 | 005900 | pass | 99.0 s, 0.81 | 0 |
+| s12 | 010244 | pass | 70.4 s, 0.54 | 1 (craft, missing materials) |
+| s12 | 010619 | pass | 110.1 s, 0.90 | 0 |
+| s12 | 011014 | **fail** | 519.8 s, 3.53 | 0; stood 436 s |
+| s14 | 020911 | **fail** | 85.6 s, 0.67 | 2 (craft, missing materials; give to Doric, unknown target) |
+| s14 | 021242 | pass | 75.9 s, 0.61 | 0 |
+| s14 | 021619 | pass | 86.9 s, 0.70 | 1 (craft, missing materials) |
+| s14 | 021953 | pass | 69.1 s, 0.52 | 0 |
+| s14 | 022331 | pass | 73.4 s, 0.59 | 1 (craft, missing materials) |
+
+**Ratcatcher from `rc_start`: 14 of 15.**
+
+| window | trial | result | time, ratio to Luis | misses |
+|---|---|---|---|---|
+| s11 | 002345 | pass | 222.3 s, 1.00 | 1 (explore, nothing in range) |
+| s11 | 002920 | pass | 237.4 s, 1.23 | 1 (explore, nothing in range) |
+| s11 | 003515 | pass | 189.1 s, 0.99 | 1 (craft, too far) |
+| s11 | 004024 | pass | 112.6 s, 0.75 | 0 |
+| s11 | 004409 | pass | 274.3 s, 1.06 | 0 |
+| s13 | 013633 | pass | 204.0 s, 0.98 | 1 (explore, nothing in range) |
+| s13 | 014210 | pass | 186.7 s, 1.12 | 1 (explore, nothing in range) |
+| s13 | 014727 | pass | 152.9 s, 0.76 | 1 (explore, already in sight) |
+| s13 | 015214 | pass | 165.4 s, 0.90 | 0 |
+| s13 | 015707 | pass | 252.3 s, 1.25 | 1 (explore, nothing in range) |
+| s15 | 022954 | pass | 147.4 s, 0.74 | 0 |
+| s15 | 023427 | pass | 120.8 s, 0.73 | 0 |
+| s15 | 023825 | pass | 131.4 s, 0.73 | 0 |
+| s15 | 024233 | **fail** (time) | 210.5 s, 1.62 | 0 |
+| s15 | 024805 | pass | 105.2 s, 0.72 | 0 |
+
+s15's first pass was kept as the checkpoint `rm_start` (Ratcatcher complete), so Rune Mysteries can be worked alone from its start.
+
+**Changes in this stretch, and what the live trials said of each.**
+
+- **3315255, craft's description** (no longer "safe to try straight away"; says a recipe is read with `recipes`). **No effect.** The early craft without its materials, in `gs_start` trials by which wording the brain was shown: old wording 5 of 11, new wording 4 of 10. (s10 ran on the old wording: it was written after that window.) A replay of the turn from run 020911, 20 times: `craft_plan` 19, `craft` 1. The slip is a low-rate sample of the model's choice that a wording A/B cannot measure at this cost. No further wording change was made. The check stays in the client, so it stays a counted miss.
+- **4118de9, what he learns of a world's creatures goes with the player** (`combat_knowledge.json`, read by every character of his in that world). Seen live in s11: forks began with the known attacks instead of "none yet". **It had a side effect:** the forks also took over which answer had worked for other characters, and rolled for 18 of 28 attacks (DISCOVERIES). **6d989ec** keeps the shared file to the creature's facts. Confirmed in s13.
+
+| answer | s9 (28 defences) | s11 (28, with the side effect) | s13 (27, after 6d989ec) |
+|---|---|---|---|
+| block | blocked 7, hit 1 | blocked 3 | blocked 4, parried 1, whiff 1 |
+| parry | parried 9, blocked 5, hit 2 | parried 2, blocked 2 | parried 11, blocked 4, hit 2, whiff 2 |
+| dodge | avoided 2 | avoided 15, hit 3 | avoided 2 |
+| retreat | | avoided 1, hit 2 | |
+| none | hit 2 | | |
+
+  The 2 hits in s13 were both parries pressed late (0.24 to 0.28 s before the impact). All 7 hits in s11 and s13 came by the plain damage event (DISCOVERIES). s13's swings: within 30 degrees of the target 2 hit, 3 landed nothing, 2 connected with no effect; at 30 to 90 degrees 2 hit.
+- **82a9824, a `run_skill` that cannot start goes back to the model.** Cause of run 011014 (stood 436 s): the model called `run_skill` with a made-up name, code spoke a fixed line and the request ended. Replay of the turn with the fix: 5 of 5 went on with a real tool. **Not yet seen live** (the model has not made up a name since).
+- **e0c8a60, explore's description** says it walks with no place in mind and that `go_to` goes to a known place. Before it, explore was a miss in 7 of the 15 `rc_start` trials of s9, s11 and s13 (5 nothing in range, 2 already in sight; the commit message's "5 of 12" counts only the first kind). s15: 0 misses in 5. **Not cleanly shown:** in the 4 quick trials he looked 60 m about, saw a rat and attacked; in 024233 he looked 40 m, saw none and still chose explore (62 s, it found rats far off), then walked 51 s back to Vannaka.
+- **Give to an NPC** (020911, the second miss): with "Usable: Doric (1 m, Talk)" and the quest's marker on Doric in view he called `give` with Doric as the player. give's description already says "Players only: an NPC takes what a quest asks for in the talk with them (talk)". Replay of that turn 40 times: `talk` 40, `give` 0. Live it is 3 of 21 `gs_start` trials. No change made.
+
+**Found in s15's one failure, and fixed (13959e8, tests only).** After a talk that moved a quest on, the next observation still showed the old step and the old marker: 18 of 20 in s14 and s15, 35 of 47 earlier the same day (each talk result counted once; scratch `stale2.py`). `quests.lua` kept its `get_state` extras for 5 s and nothing dropped them when an action ended. So his first decision on every new step was made with the step in words (the talk result) but without the game's marker for it. In 024233 that was the look, the 62 s explore and the walk back. The bridge now tells the modules when an action ends, and quests and crafting drop what they kept. This changes what he is shown, not what he should do with it. Tests first (4 failing checks), then the fix: test_client_bridge 60, test_quests 27, test_crafting 228, the Lua suites through pytest 45.
+
+- **Also seen, not yet looked into:** `look about rat` with `matched: false` returned rows named "Vannaka" for ash-log spawners and a lore item (`"name": "Vannaka", "seen_as": "Ash Logs"`).
+- **Ledger:** 46 failed runs, none untagged, 10 void. Largest open cause: "craft tried before the materials, then a give to an NPC" (5 runs, 3 open, class model). 011014 is tagged with 82a9824, 024233 with 13959e8.
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 8 from `gs_start`; Ratcatcher 7 chained, 9 from `rc_start`; Rune Mysteries 3 chained, 10 from `rm_part2`.
+- **Spend** on 2026-11-17 UTC at 03:02Z: $0.41 of $10 by the guard (279 calls). On top of it about $0.36 of replays (about 365 Controller calls) that the guard does not count (DISCOVERIES).
+- **Limits.** 13959e8 and 82a9824 have passed tests and replays only. No chain was run. Rune Mysteries has not been tried alone from its start. Reports were not judged for truth. The two wording questions (craft, give) are open as low-rate model slips, not solved.

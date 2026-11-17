@@ -3553,3 +3553,30 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 - A step trial runs on a new fork of the checkpoint under a new name, and a chain on a new clone. So every trial begins with `combat: memory ...: none yet` (`logs/client/ue4ss-20261116T234629Z.log` line 870) and learns each attack again. 44 such files are in `data/skills/dev/`.
 - What that costs: an attack he has not met is taken to reach 4.0 m plus a 1.2 m margin. `Giant Rat:ATK_GiantRat_Attack_01` lunges: the files hold hits from 4.47 m (ClaudeS162325b), 4.59 m (ClaudeS162215c) and 5.75 m (ClaudeDev). A telegraph from beyond 5.2 m is left unanswered as `out_of_reach`: 12 such hits on 2026-11-15/16 and 2 more in s9.
 - ClaudeDev's own file knows 7 attacks (Goblin Runt Attack2 51 times, SlowAttack 28, Kebbit Attack_01 15, the three Giant Rat attacks once or twice each).
+
+## A hit on him arrives by the plain damage event (2026-11-17, windows s11 and s13, build 26574459)
+- Settles "The server's block verdict has not been read from a live hit" above. Since d5f57ad each hit in a defence line says which event carried it. All 7 hits on him in windows s11 and s13 (55 defences) read "a plain hit" (`Multicast_ApplyDamageFromGameplayEffect`); none came by the point-damage event.
+- So the server's `BlockOutcome` is not available for a hit on a player. What his block or parry did is read from his own health and the hit's damage, as before.
+
+## Which answer works against an attack is the character's own, not the creature's (2026-11-17, window s11)
+- A defence record's `arms` (per answer: successes, failures, tries) depends on what the character holds and how he fights. Records learned by forks without a shield read "dodge 18 of 22" for `Giant Rat:ATK_GiantRat_Attack_01`.
+- 4118de9 shared whole records between a player's characters. `defense.lua` `D.import` replaces a whole record when the imported one has the larger `n`, so a fork with a shield took over those arms. In window s11 he rolled for 18 of 28 attacks (s9: 2 of 28), ran out of stamina and took 2 hits with only "retreat" left.
+- Since 6d989ec the shared file (`data/skills/<world>/combat_knowledge.json`) holds the creature's facts only (impact time, lunge, the farthest hit, cadence, the ranged fits). On import the character's own `arms` stay. Confirmed in window s13: block and parry again (table in PROGRESS).
+- Not cleaned: ClaudeDev's own combat memory still holds arms learned before 46c0ca9 (blocks that faced away).
+
+## A refusal by the brain that has no failed call is spoken by code and ends the request (2026-11-17, run 20261117-011014)
+- `Controller` collects refusals (a tool it will not start) in `Decision.refusals`. When the refused call is not handed back as that call's failed result, `agent.py` says a fixed line and the request ends there. The model never reads the refusal.
+- Run 011014: beside an "on it" line the model called `run_skill` with a name it had made up ("gather and craft stone club"). Code said "I haven't learned a skill called ..." and he stood 436 s with the quest step open.
+- Since 82a9824 an unknown `run_skill` name, and a skill that cannot start (params, preconditions), go back to the model as the call's failed result with the names he has learned. Replay of that turn: 5 of 5 chose a real tool next. Not yet seen live.
+- Still on the old path: failures of the `RULE_TOOLS` set.
+
+## Modules keep their `get_state` extras for 5 s, so the state after an action could show the game from before it (2026-11-17, windows s14 and s15)
+- `quests.lua` (the active quests, their step and map markers), `crafting.lua` (stations nearby and their contents), `farm.lua`, `fishing.lua` and `spells.lua` each keep what they add to `get_state` for `cfg.extras_ttl_s = 5` seconds.
+- A talk that moves a quest on takes under 5 s. Measured on the brain logs with each talk result counted once: the observation after a result that carried `quests_changed` still showed the old step and the old marker in 18 of 20 cases (s14 and s15), and in 35 of 47 in the windows before them on the same day. Example: after Vannaka's "Kill rats ..." the line read "Ratcatcher: Speak to Vannaka near the windmill. (on the map: Vannaka Objective (target), 2 m away ...)".
+- The talk result itself named the new step in words, so he knew what to do, but the new step's marker (where) was not in front of him at his first decision on it.
+- Since 13959e8 `client_bridge` calls `action_ended(kind)` on every module that exports it when an action ends (the action slot's `finish` and the waiters); `quests.lua` and `crafting.lua` drop what they kept. `farm`, `fishing` and `spells` do not export it yet.
+- The quest markers themselves (`W.markers`, 174 static actors) stay cached 60 s; which of them he is shown (`VisibilityTrackers`) is read on every call.
+
+## A replay's model calls are not in the spend guard (2026-11-17)
+- `tools/replay_episode.py` and scripts built on `replay_first_call.live_controller` log to a temporary directory, and `tools.spend.spend_today()` reads `logs/` only. A replay spends real money that the $10 guard does not see.
+- Their rows carry no `model`, so `tools.spend.price` prices them at the dearest tier (56 calls: $1.03). The true figure is the sum of `usage.cost_usd` in the replay's `replay.jsonl`: 56 Controller calls cost $0.0585, 25 cost $0.0293, 60 cost $0.0771.
