@@ -1487,3 +1487,39 @@ Controller Haiku 5.5, Planner Sonnet 5.5; the day's spend stood at $2.39 of the 
 - **Rates:** First Steps 10 of 10; Getting Started 7 of 10 chained, 4 of 6 from `gs_start`; Ratcatcher 7 of 10 chained, 5 of 7 from `rc_start` (3 in a row); Rune Mysteries 3 of 10 chained, 10 of 10 from `rm_part2`. The guard reads "chain: ready". By rule 6 no gate is tried until Ratcatcher alone is at about 9 of 10.
 - **Spend** on 2026-11-16 UTC at 23:25Z: $3.58 of the day's $20 (1,378 calls: Haiku 1,307, Sonnet 71).
 - **Limits.** No chain has passed all four quests in one sitting. 1007076, 62d7fc7 and 46c0ca9 have passed tests only. The block probe was bare-handed; the turn with a shield raised is assumed to be the same. The server's block verdict has been read from the header dump, not from a live hit. Still unseen live from earlier: the craft menu reopen (235f401), `cannot_build_now` (07f1cb3), the back-in-world review (c9fb8ff), d6f9e8a, 93ec959, the kept station loads (4df3901). Reports were not judged for truth.
+
+## 2026-11-16 23:25Z to 2026-11-17 00:05Z: window s9, Ratcatcher alone 5 of 5 with blocks that face the attacker; a swing goes where the camera looks (d5f57ad, tests only)
+
+**Window s9** (Ratcatcher from `rc_start`, 5 trials, Controller Haiku 5.5, Planner Sonnet 5.5; 54 calls, $0.16), with 46c0ca9 live:
+
+| trial (client log) | result | time, ratio to Luis | misses |
+|---|---|---|---|
+| 232544Z | pass | 156.1 s, 0.87 | 0 |
+| 233046Z | pass | 247.1 s, 0.94 | 1 (explore, nothing in range) |
+| 233653Z | pass | 173.9 s, 0.73 | 0 |
+| 234138Z | pass | 173.6 s, 0.72 | 1 (explore, already in sight) |
+| 234629Z | pass | 153.5 s, 0.77 | 0 |
+
+**46c0ca9 confirmed live.** All 28 defences in the five client logs, against every defence logged on 2026-11-15/16 before the fix:
+
+| answer | before (145 defences) | s9 (28 defences) |
+|---|---|---|
+| block | blocked 3, hit 4 | blocked 7, hit 1 |
+| parry | parried 23, blocked 18, hit 12 | parried 9, blocked 5, hit 2 |
+| dodge | avoided 51, hit 5 | avoided 2 |
+| none | hit 12, whiff 8 | hit 2 |
+
+- Live lines: "block -> blocked ... acted at 0.17s, turned 167 deg from it at the key, 0 deg at the hit"; "parry -> parried ... turned 162 deg from it at the key, 9 deg at the hit".
+- The 5 hits left: 2 unanswered as out of reach (Giant Rat Attack_01, 12 damage; Attack_02, 18 damage, during the approach); a parry pressed 0.04 s before the impact because a station menu was open and "back" had to be pressed first; a block that faced the rat (0 degrees) and was hit for 12 all the same; a parry at 0 degrees hit for 6.
+- 5d07a74's swap was seen live once (232544Z): "5 swings in a row landed nothing on it; the Giant Rat attacked me and is 0.4 m off: fighting it".
+- 1007076 seen live: the Planner's prompt carried `quests` with the step's map markers in the two trials where the Planner ran (`logs/brain-live-20261117-003810-16536.jsonl`, `...004259-20756.jsonl`). 222242's ledger row now names it as the fix.
+- Not seen: the in-water arrival (62d7fc7) had no occasion. The server's block verdict was in none of the 5 hit lines.
+
+**A regression from 46c0ca9, found in s9's logs and fixed (d5f57ad).** After a block against an attacker that was not the fight's target, the camera stayed on that attacker. 8 swings went 84 to 168 degrees off the target and landed nothing. A live probe showed why: the attack key turns his body to the camera's yaw, as the block key does (DISCOVERIES). d5f57ad: in reach, the camera is on the one he swings at. With it, two things made readable: each hit on him says which damage event carried it, and an unanswered telegraph says how far off it was and the reach it was judged by. Negative tests failed first (4), 537 combat checks, 45 Lua suite tests. Not seen live yet.
+
+**Found while reading for the next fix:** his combat memory is per character, so every trial's fork starts with none and learns each attack again (DISCOVERIES). That is where the unanswered Giant Rat lunges come from. Next: what he learns of a world's creatures is kept for the player, read by every character of his in that world.
+
+- **Ledger:** `scan` found no new failed run. 43 failed runs, none untagged, 10 void.
+- **Rates:** Ratcatcher from `rc_start` 9 of the last 10, 8 in a row. First Steps 10 of 10; Getting Started 7 of 10 chained, 4 of 6 from `gs_start`; Rune Mysteries 3 of 10 chained, 10 of 10 from `rm_part2`. The guard reads "chain: ready".
+- **Spend** on 2026-11-16 UTC at 23:56Z: $3.74 of the day's $20 (1,432 calls). From 00:00Z the cap is $10 a day again.
+- **Limits.** d5f57ad has passed tests only. No chain has passed all four quests in one sitting. The swing probe was bare-handed. Reports were not judged for truth. 9 of 10 at `rc_start` includes trials from before the last three fixes.

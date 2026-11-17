@@ -3537,3 +3537,19 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 ## Skill modules hot-load into the running client within seconds of a file write (2026-11-16 21:53Z)
 - A patch written to `client_mod/scripts/combat.lua` in the repo while a step window ran was loaded by the live client (loads 2 and 3 in `logs/client/mod_20261116T215321Z.jsonl`) and stayed for 19 s of trial 20261116-215441, until the file was put back. The trial passed and is void in the ledger.
 - So: no repo Lua edits while a window runs (CLAUDE.md section 2, rule 7). Test files, docs and scratch scripts are not loaded by the client.
+
+## A swing turns the body to the camera's yaw too (2026-11-16 23:50Z, build 26574459, dev client, ClaudeDev, bare hands; scratch probe `swing_face_probe.lua`)
+- Probe: control rotation set 120 degrees off the body, then the attack key (`IA_PrimaryAction`) injected for 3 frames at 30 fps, no movement input. Actor yaw by frame: 75.7 (1), 156.3 (4), -164.25 (8), then held at -164.25, which was the control yaw. Montage `AM_PlayerM_Attack_Unarmed_Translation_01_0` from frame 2. So the swing turns him faster than the block does (120 degrees in 8 frames against 12).
+- Before 46c0ca9 nothing in a melee fight moved the camera except move's steering and the dodge, so it mostly pointed along his last walk to the target and swings went roughly at it. After 46c0ca9 the camera stayed on whichever attacker he had last blocked. Window s9: 8 swings between 84 and 168 degrees off the fight's target, all "landed nothing" (5 in `logs/client/ue4ss-20261116T232544Z.log`, 3 in `...234629Z.log`). In window s8 no swing was between 30 and 179 degrees off.
+- Since d5f57ad `step_engage` puts the camera on the target every tick he is in reach. Tests only so far.
+- Not verified: the turn with a weapon in hand (the probe was bare-handed).
+
+## The server's block verdict has not been read from a live hit (2026-11-17, window s9)
+- Adds to "The server's verdict on a block rides on the point-damage event" above. In 28 defences of window s9, 5 ended in a hit on him and none of the 5 lines carried "the server:". So either a hit on a player comes by the plain event (`Multicast_ApplyDamageFromGameplayEffect`), or the `BlockOutcome` read fails on the live struct.
+- Since d5f57ad each hit in a defence line says "a point hit" or "a plain hit", which settles which of the two it is at the next hit.
+
+## His combat memory is kept per character, so a fork starts with none (2026-11-17, read from `client_mod/scripts/combat.lua` and `data/skills/dev/`)
+- `combat.lua` writes what the defence planner learned (`defense.lua` `D.export`: per attack the impact time, lunge, the farthest he was hit from, parry offset, outcome counts) to `data/skills/<world>/combat_memory_<character>.json` at the end of every fight, and loads it the first time a character fights.
+- A step trial runs on a new fork of the checkpoint under a new name, and a chain on a new clone. So every trial begins with `combat: memory ...: none yet` (`logs/client/ue4ss-20261116T234629Z.log` line 870) and learns each attack again. 44 such files are in `data/skills/dev/`.
+- What that costs: an attack he has not met is taken to reach 4.0 m plus a 1.2 m margin. `Giant Rat:ATK_GiantRat_Attack_01` lunges: the files hold hits from 4.47 m (ClaudeS162325b), 4.59 m (ClaudeS162215c) and 5.75 m (ClaudeDev). A telegraph from beyond 5.2 m is left unanswered as `out_of_reach`: 12 such hits on 2026-11-15/16 and 2 more in s9.
+- ClaudeDev's own file knows 7 attacks (Goblin Runt Attack2 51 times, SlowAttack 28, Kebbit Attack_01 15, the three Giant Rat attacks once or twice each).
