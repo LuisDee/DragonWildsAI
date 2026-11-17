@@ -5,12 +5,12 @@ Claude plays **RuneScape: Dragonwilds** beside Luis as another player. He is a r
 This file holds the binding rules only. The original brief, its history and the sections that code and older docs cite as "CLAUDE.md section N" are in `docs/BRIEF-ORIGINAL.md`.
 
 ## 1. Start of a session
-1. **The goal:** `docs/GOAL-2026-11-01.md` (six rungs to a human standard, judged against `docs/BASELINES-2026-11-01-luis.md`; status table inside). Direction: `docs/DIRECTION-2026-11-01.md`.
-2. **Where it stands:** the last entries of `docs/PROGRESS.md`, then `.venv\Scripts\python.exe -m tools.quest_run rates` and `.venv\Scripts\python.exe -m tools.failure_ledger report`.
+1. **The goal:** what is worked now is `docs/GOAL-2026-11-17-long-jobs.md` (long jobs that survive interruption, jump landings, a lookup for enemies and vaults; it also lists what is parked and owed). The standard is `docs/GOAL-2026-11-01.md` (six rungs, judged against `docs/BASELINES-2026-11-01-luis.md`; status table inside). Direction: `docs/DIRECTION-2026-11-01.md`.
+2. **Where it stands:** the last entries of `docs/PROGRESS.md`, then `.venv\Scripts\python.exe -m tools.quest_run rates`, `-m tools.failure_ledger report` and `-m tools.unseen report`.
 3. **Look it up before working it out:** `docs/DISCOVERIES.md` (verified engine facts with build ID), `docs/ARCHITECTURE.md` (layers, "how to add X" recipes, crash risk register), `docs/BUGS.md`, `docs/research/`, `docs/RUNBOOK-patch.md` (after a game patch), `SERVER-SETUP.md` (this VM).
 
 ## 2. How the work is run (binding; there is ONE live body)
-The loop: research, make the failure observable, negative test, small change, live trial, keep or bin. Local tests are not progress; live behaviour is. No design-note or review chains: review only native-crash risk, anything near Luis's character, and Shockbyte. Seven rules come from the 17-hour run of 2026-11-15/16 (`docs/RETRO-2026-11-16-workflow.md`):
+The loop: research, make the failure observable, negative test, small change, live trial, keep or bin. Local tests are not progress; live behaviour is. No design-note or review chains: review only native-crash risk, anything near Luis's character, and Shockbyte. Rules 1 to 7 come from the 17-hour run of 2026-11-15/16 (`docs/RETRO-2026-11-16-workflow.md`), rules 8 to 12 from the two days after it (`docs/RETRO-2026-11-17-session.md`):
 
 1. **Shortest reproduction.** Work a failing step alone: K trials from a checkpoint in one window (`quest_run step --from <checkpoint> --quest "<name>" -k 5`). Never rerun a whole chain to see one step.
 2. **Ledger before fix.** After every window run `failure_ledger scan`, tag each failed run with the first thing that went wrong (`model`, `skill`, `harness`, `game`), and fix the cause with the most open runs, not the one the last run showed.
@@ -18,7 +18,14 @@ The loop: research, make the failure observable, negative test, small change, li
 4. **Visibility before a second fix.** Before a second fix on one item, confirm the game's own state for it is readable (quest flags, station contents, the thing's real name). If it is not, make it readable first.
 5. **Search at the triggers.** Ten minutes of search (skill `search-before-building`) at the first failure of a new class, and again after two fixes that did not move the number. A question about the game's rules goes to the Dragonwilds wiki first.
 6. **Gate last.** The goal's gate stays 3 in a row. Try it only when the item passes about 9 of 10 alone. `quest_run fresh` refuses a chain until every quest in it has passed 4 of its last 5 trials.
-7. **Body never idle, me never waiting.** While the body plays a window: replay turns (`tools/replay_episode.py`), tests, trace reading, research. No repo Lua edits while a window runs: skill modules hot-load into the running client.
+7. **Body never idle, me never waiting.** Before a window starts, hand out the offline work to subagents (about five busy: log measurement, research, an eval, a tool, a replay study; each with its own files). While the body plays: read what they return, replay turns (`tools/replay_episode.py`), tests. No repo Lua or brain edits while a window runs: skill modules hot-load into the running client, and `quest_run` refuses to start a window on uncommitted code.
+8. **A checkpoint comes from the run it stands for** (`quest_run step --save-as`), never from a hand-built bag or grants. A step that passes alone and fails in the chain means the checkpoint is wrong: compare the bags first.
+9. **A window starts from a named world.** `tools.world_snapshot restore <label>` with the server stopped, so no trial meets what an earlier one left (mined rocks, leftovers in a fire, a built altar). A trial that did is void.
+10. **A fix changes what he is shown, offered or told back.** Words in a prompt or a tool description may be tried once per cause. If that does not hold live, the next fix is structural.
+11. **One change per window, its number named first.** Before the window: the change, the number it should move, and the trials that takes (`tools.ab need p0 p1`). After it: `tools.ab two` on the counts. Five of five says only "above about 57 %".
+12. **No fix stays unseen.** Every fix gets a row in `tools.unseen` with the log line that shows it ran. `unseen scan` after each window; confirm or bin on what the trials show. Over 8 open rows, the next window is a confirm window and no new fix is written.
+
+**Breadth:** a held-out set of asks is run and scored but never fixed against, and the first three trials of anything new are scored before its trace is read (`docs/GOAL-2026-11-17-long-jobs.md`). Report the untuned pass rate beside the tuned one.
 
 Drop an approach whose number has not moved after 3 live iterations. Commit and push each change as it is made.
 
