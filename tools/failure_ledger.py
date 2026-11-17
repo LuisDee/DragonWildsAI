@@ -72,7 +72,7 @@ def scan(recs: list[dict], verdict, not_counted, since: str = "", path: Path | N
         if v["pass"]:
             continue
         at, what = first_wrong(rec, v)
-        new.append({"run": rec["run"], "item": f"quest: {rec.get('quest')}", "character": rec.get("character"),
+        new.append({"run": rec["run"], "item": rec.get("item") or f"quest: {rec.get('quest')}", "character": rec.get("character"),
                     "checkpoint": rec.get("checkpoint"), "bars": [k for k, ok in v["bars"].items() if not ok],
                     "at_s": round(at, 1), "first_wrong": what, "class": None, "cause": None, "void": False, "fix": None})
     if new:
@@ -88,7 +88,7 @@ def tag(runs: list[str], cls: str | None, cause: str | None, void: bool, fix: st
     have = {r["run"] for r in rs}
     for rec in recs or []:
         if void and rec["run"] in runs and rec["run"] not in have:
-            rs.append({"run": rec["run"], "item": f"quest: {rec.get('quest')}", "character": rec.get("character"),
+            rs.append({"run": rec["run"], "item": rec.get("item") or f"quest: {rec.get('quest')}", "character": rec.get("character"),
                        "checkpoint": rec.get("checkpoint"), "bars": [], "at_s": None, "first_wrong": "passed, not counted",
                        "passed": True, "class": None, "cause": None, "void": False, "fix": None})
     hit = [r for r in rs if r["run"] in runs]
@@ -109,9 +109,51 @@ def counts(rs: list[dict]) -> list[dict]:
         g["n"] += 1
         g["open"] += 0 if r.get("fix") else 1
         g["void"] += 1 if r.get("void") else 0
-        g["items"][re.sub(r"^quest: ", "", str(r.get("item")))] += 1
+        g["items"][re.sub(r"^(quest|job|gate): ", "", str(r.get("item")))] += 1
         g["runs"].append(r["run"])
     return sorted(by.values(), key=lambda g: (-g["open"], -g["n"]))
+
+
+GATES = ("rung4_gate",)  # gates whose items are long jobs (gear_up, bag): logs/evals/<gate>.jsonl
+GATES_FROM = "r1-20261117"  # the gates' run ids sort after every quest run id ("r" > "2"): --since cannot keep the
+                            # 2 Nov runs out, so the ledger takes gate runs from the day it began to hold them
+
+
+def gate_runs(gates: tuple[str, ...] = GATES, root: Path | None = None) -> list[dict]:
+    """The rows of the rung gates as runs the ledger can hold: run = the gate's run_id, item = "gate: <item>"."""
+    out = []
+    for g in gates:
+        p = (root or ROOT / "logs" / "evals") / f"{g}.jsonl"
+        if not p.exists():
+            continue
+        for line in p.read_text(encoding="utf-8").splitlines():
+            r = json.loads(line) if line.strip() else None
+            if not r or not r.get("run_id") or r["run_id"] < GATES_FROM:
+                continue
+            legs = r.get("legs") or []
+            out.append({"run": r["run_id"], "item": f"gate: {r.get('item')}", "pass": bool(r.get("pass")),
+                        "bars": r.get("bars") or {}, "done": bool((r.get("bars") or {}).get("done")),
+                        "ended": "; ".join(str(x.get("ended")) for x in legs if x.get("ended")) or None,
+                        "wall_s": r.get("wall_s")})
+    return out
+
+
+def gate_verdict(rec: dict) -> dict:
+    return {"pass": rec["pass"], "bars": rec["bars"], "misses": []}
+
+
+def _all_recs() -> list[tuple[list[dict], object, object]]:
+    """(runs, verdict, not_counted) for each source: quest runs, job runs, the long-job gates."""
+    from tools import quest_run as q
+    srcs = [([json.loads(line) for line in q.OUT.read_text(encoding="utf-8").splitlines() if line.strip()],
+             q.verdict, q.not_counted)]
+    try:
+        from tools import job_run as jr
+        srcs.append((jr.all_runs(), jr.verdict, jr.not_counted))
+    except ImportError:
+        pass
+    srcs.append((gate_runs(), gate_verdict, lambda rec: None))
+    return srcs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,15 +170,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("report")
     a = ap.parse_args(argv)
     if a.cmd == "scan":
-        from tools import quest_run as q
-        recs = [json.loads(line) for line in q.OUT.read_text(encoding="utf-8").splitlines() if line.strip()]
-        new = scan(recs, q.verdict, q.not_counted, a.since)
+        new = [r for recs, verdict, nc in _all_recs() for r in scan(recs, verdict, nc, a.since)]
         for r in new:
             print(f"{r['run']} {r['item']:<24} {r['at_s']:>6}s {r['first_wrong']}")
         print(f"{len(new)} new row(s); {len(rows())} in the ledger")
     elif a.cmd == "tag":
-        from tools import quest_run as q
-        recs = [json.loads(line) for line in q.OUT.read_text(encoding="utf-8").splitlines() if line.strip()]
+        recs = [r for rs, _, _ in _all_recs() for r in rs]
         print(f"tagged {tag(a.runs, a.cls, a.cause, a.void, a.fix, recs=recs)} row(s)")
     else:
         rs = rows()

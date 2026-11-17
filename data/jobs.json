@@ -1,0 +1,166 @@
+{
+  "schema": "dw_jobs/1",
+  "source": "docs/GOAL-2026-11-17-long-jobs.md section 1 (jobs L1 to L3, held-out H1 to H3, interruption steps I1 to I5); read by tools/job_run.py",
+  "notes": [
+    "line: what the player types, one line, no hint of how. It is sent once at the trial's start; nothing else is sent.",
+    "end: the end predicate, read from the game by tools/job_run.done(). Every key must hold. Item patterns are fnmatch globs on item ids; '|' separates alternatives.",
+    "bar: Luis's per-unit times (data/baselines/luis-2026-11-01.json) composed into a floor for the job (tools/job_run.bar_s). null = no baseline covers the job; the verdict always uses quest_run.human_bar on the run's own successful steps (walking included), as quest runs do.",
+    "start: a checkpoint label (logs/quests/checkpoints) or a character save name that is forked for each trial (tools/quest_clone.fork; ClaudeDev.json is only read). interrupt_from: a mid-job checkpoint made by a real run (rule 8: trial --until first_step --save-as LABEL); while it does not exist, interruption trials start from 'start' and the interruption is put in after his first verified step.",
+    "not_carried_at_start: item patterns he must not hold when the trial starts; a trial that starts holding any is recorded and not counted (as quest_run's head start).",
+    "work_tools: the tool calls that count as working the job (first verified step, and 'took the job up again' after an interruption). go_to is left out on purpose: after a death it may be the walk to the grave."
+  ],
+  "jobs": {
+    "L1": {
+      "line": "claude, make yourself a full set of leather armour and put it on",
+      "held_out": false,
+      "end": {
+        "worn_made_in_run": {
+          "Head": ["ITEM_Armour_T2_Head_Leather", "ITEM_Armour_T3_Head_HardLeather", "ITEM_Armour_T4_Head_StuddedLeather"],
+          "Body": ["ITEM_Armour_T2_Body_Leather", "ITEM_Armour_T3_Body_HardLeather", "ITEM_Armour_T4_Body_StuddedLeather"],
+          "Legs": ["ITEM_Armour_T2_Legs_Leather", "ITEM_Armour_T3_Legs_HardLeather", "ITEM_Armour_T4_Legs_StuddedLeather"]
+        }
+      },
+      "not_carried_at_start": ["ITEM_Resources_Animal_Hide", "ITEM_Resources_Leather", "ITEM_Armour_T*_*Leather"],
+      "bar": {
+        "parts": [
+          {"task": "kill cow", "x": 1.4667, "why": "22 hides for 22 leather (Body 10, Chaps 8, Cowl 4): his 'kill cow' window gave 15"},
+          {"seconds": 13.41, "why": "build a tannery: his 'MAKE tannery' 31.21 s less its 17.8 s of leather (rung4_gate.gear_up_t_h)"},
+          {"seconds_each": 5.933, "n": 22, "why": "tan one leather: 17.8 s / 3 (rung4_gate.gear_up_t_h)"},
+          {"task": "pick flax", "x": 5.3333, "why": "16 flax for 16 Coarse Thread (Body 8, Chaps 6, Cowl 2): his 'pick flax' window gave 3"},
+          {"task": "made thread", "x": 1.2308, "why": "16 thread: his 'made thread' window gave 13"},
+          {"task": "make armour", "x": 1.5, "why": "3 pieces: his 'make armour' window made 2"},
+          {"family": "pickup", "n": 3, "why": "3 equips, one press each at his pickup press time"}
+        ],
+        "note": "a floor: walking between cows, flax, tannery, wheel and bench is not in it (the per-run human_bar adds his own path). The spinning wheel works only under a roof (parked item 5): thread may block L1 before any interruption is tried."
+      },
+      "start": "ClaudeDev",
+      "interrupt_from": "job_l1_mid",
+      "work_tools": ["attack", "gather", "pickup", "craft", "build", "equip", "interact", "take", "store", "cast"]
+    },
+    "L2": {
+      "line": "claude, we need thirty copper ore in the chest at your base",
+      "held_out": false,
+      "end": {
+        "in_own_chest": [{"item": "ITEM_Resources_CopperOre", "count": 30}]
+      },
+      "not_carried_at_start": [],
+      "bar": {
+        "parts": [
+          {"family": "mine", "per_item": true, "n": 30, "why": "30 ore at his mining rate (0.91 s an item, from 'mine rock' on stone; copper was never timed)"},
+          {"family": "pickup", "n": 2, "why": "open the chest and one stack moved (store), at his press time"}
+        ],
+        "note": "a floor: the walk to a copper rock and back to his chest depends on the named world; the per-run human_bar adds it from his own path. Needs his chest to exist in the named world (world_snapshot base)."
+      },
+      "start": "ClaudeDev",
+      "interrupt_from": "job_l2_mid",
+      "work_tools": ["gather", "store", "craft", "take", "interact", "cast"]
+    },
+    "L3": {
+      "line": "claude, gear up for the vault",
+      "held_out": false,
+      "end": {
+        "gear_target": {"from": "brain/gear_plan.py at the trial's start (tools/rung4_gate.gear_target)"},
+        "consumables_carried": {"food": 5, "drink": 5}
+      },
+      "not_carried_at_start": [],
+      "bar": null,
+      "bar_note": "no fixed bar: rung4_gate.gear_up_t_h composes it from what the gear_plan target is short of at the start; the verdict uses human_bar per run. 5 food and 5 drink is not set by the goal: chosen here, open to change.",
+      "start": "ClaudeDev",
+      "interrupt_from": "job_l3_mid",
+      "work_tools": ["attack", "gather", "pickup", "craft", "build", "equip", "interact", "take", "store", "cast", "consume"]
+    },
+    "H1": {
+      "line": "claude, make a bow and forty arrows, then bring back five hides",
+      "held_out": true,
+      "end": {
+        "made_in_run": {"ITEM_Shortbow_*|ITEM_Longbow_*": 1, "ITEM_Ammo_Arrows_*": 40},
+        "carried_gain": {"ITEM_Resources_Animal_Hide": 5},
+        "near_start_m": 25
+      },
+      "not_carried_at_start": [],
+      "bar": {
+        "parts": [
+          {"task": "make bowq", "x": 0.6667, "why": "two crafts (bow, arrows): his 'make bow' window made three"},
+          {"family": "chop", "per_item": true, "n": 12, "why": "12 Ash Logs for an Ash Shortbow at his chop rate"},
+          {"task": "kill cow", "x": 0.3333, "why": "5 hides: his 'kill cow' window gave 15"}
+        ],
+        "note": "held-out: scored, never tuned against. Thread for the bow and the arrows' inputs are not in the floor; the walk back is in the per-run human_bar."
+      },
+      "start": "ClaudeDev",
+      "interrupt_from": null,
+      "work_tools": ["attack", "gather", "pickup", "craft", "build", "equip", "interact", "take", "store", "cast"]
+    },
+    "H2": {
+      "line": "claude, cook ten meals and boil ten waters for the trip and put them in your chest",
+      "held_out": true,
+      "end": {
+        "in_own_chest": [
+          {"made_at": ["Campfire", "Grill", "RangeStone", "RangeBronze"], "category": "Item.Food", "exclude": "*Burnt*", "count": 10, "label": "cooked meals (burnt ones left out)"},
+          {"item": "ITEM_Consumable_Water_Clean", "count": 10}
+        ]
+      },
+      "not_carried_at_start": [],
+      "bar": null,
+      "bar_note": "no fixed bar: whether a station cooks ten at once or one at a time was not timed by Luis ('cook' 19 s for one steak, 'boil water' 12.5 s for two); human_bar per run.",
+      "start": "ClaudeDev",
+      "interrupt_from": null,
+      "work_tools": ["gather", "pickup", "attack", "craft", "build", "interact", "take", "store", "cast"]
+    },
+    "H3": {
+      "line": "claude, get yourself the next tools up from the ones you carry",
+      "held_out": true,
+      "end": {
+        "next_tier_tools": {
+          "families": {"pickaxe": "ITEM_Pickaxe_*", "logging axe": "ITEM_Logging_Axe_*", "watering can": "ITEM_WateringCan_*"},
+          "order": ["Wood", "Stone", "Bone", "Bronze", "Iron", "Steel", "Mithril", "Adamant", "Rune"]
+        }
+      },
+      "not_carried_at_start": [],
+      "bar": null,
+      "bar_note": "no fixed bar: it depends on which tools he carries at the start; human_bar per run. Bone's place in the order (after Stone, before Bronze) is a guess from its power level, unverified.",
+      "start": "ClaudeDev",
+      "interrupt_from": null,
+      "work_tools": ["gather", "pickup", "attack", "craft", "build", "equip", "interact", "take", "store", "cast"]
+    }
+  },
+  "interruptions": {
+    "I1": {
+      "what": "hunger and thirst",
+      "how": "fixture set_stat sustenance and hydration to pct of max (mod/bench/fixtures.lua, verified live; the server-local Add<Stat> path the game uses when he eats)",
+      "pct": 10,
+      "resume_within_s": 90,
+      "note": "his stay-fed reflex eats and drinks from his bag without a tool call: a bag with food and water makes I1 nearly free. A real I1 needs a checkpoint whose bag holds none (made by a run, rule 8)."
+    },
+    "I2": {
+      "what": "a fight",
+      "how": "fixture spawn of a hostile beside him (the rung1 gate's fight_back fixture: Goblin Runt at 6 m, verified live)",
+      "class": "BP_AI_RuntGoblin_Character_C",
+      "offset_m": [8, 0, 0],
+      "fight_wait_s": 40,
+      "resume_within_s": 90,
+      "note": "cleared at the body's combat_end event. If no fight starts within fight_wait_s the interruption did not take: the trial says so and is a harness fault (void)."
+    },
+    "I3": {
+      "what": "his own death and grave",
+      "how": "fixture set_health 0 (the rung1 gate's grave item, verified live); the game files a grave and respawns him at the lodestone",
+      "respawn_wait_s": 120,
+      "resume_within_s": 180,
+      "note": "cleared at the respawn (alive, more than 20 m from where he died). Each I3 trial leaves a grave in the world for the rest of the window (rule 9): restore the named world between I3 windows."
+    },
+    "I4": {
+      "what": "a full bag",
+      "how": "fixture grant of a filler item to HIS bag only (the fork's guid; the fixture refuses while any other player is on), one unit per empty slot",
+      "filler": "ITEM_FishingNet_CoarseNet",
+      "rounds": 3,
+      "resume_within_s": 120,
+      "note": "Coarse Net: weight 1, a stack of 1, so N empty slots take N nets with little weight (a full bag, not an over-weight one). Unverified: whether one grant of N unstackable items fills N slots; job_run re-reads the empty slots and grants again up to 'rounds' times."
+    },
+    "I5": {
+      "what": "a brain restart",
+      "how": "the harness's own brain process (chat_ladder.start_brain) is ended (stop_brain: taskkill /T) and started again on the same world store (DW_WORLD_GUID); the body is not touched",
+      "gap_s": 5,
+      "resume_within_s": 120,
+      "note": "the new brain reads back only what state_store keeps (the board, off unless DW_DIRECTOR=1): today the ask is lost, so I5 is expected to fail until the ask is on disk."
+    }
+  }
+}
