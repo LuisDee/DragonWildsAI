@@ -234,6 +234,7 @@ class Decision:
     speech: str | None = None
     goal: str | None = None
     skill: tuple[str, dict] | None = None  # run_skill(name, params)
+    skill_call: ToolCall | None = None  # the model's run_skill call (its result goes back when it cannot start)
     interrupts: bool = False
     # (tool, reason, data) the Controller refused before reaching the body, e.g. cant_sense, not_perceived
     refusals: list[tuple[str, str, dict]] = field(default_factory=list)
@@ -1060,9 +1061,13 @@ class Controller:
         name = str(call.arguments.get("name") or "")
         params = call.arguments.get("params") if isinstance(call.arguments.get("params"), dict) else {}
         if not self.skills or not self.skills.get(name):
-            d.refusals.append(("run_skill", Reason.UNKNOWN_SKILL, {"skill": name}))
+            # the call's own failed result, with what he has learned: the model decides again (run 20261117-011014:
+            # a made-up name was answered by a line from code and the request ended; he stood 436 s)
+            learned = [r.name for r in self.skills.all()][:40] if self.skills else []
+            d.refusals.append(("run_skill", Reason.UNKNOWN_SKILL, {"skill": name, "learned": learned}))
+            d.invalid.append(call)
             return
-        d.skill = (self.skills.get(name).name, params)
+        d.skill, d.skill_call = (self.skills.get(name).name, params), call
 
     # ---------------------------------------------------------------- grounding (in code)
 

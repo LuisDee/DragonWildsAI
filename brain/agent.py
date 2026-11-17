@@ -612,7 +612,8 @@ class Agent:
                 self.log.log("failure_unreported", failures=unreported)
             # the request's latest body failure still stands: no body action of a later turn worked
             failed_any = bool(t["failure"]) or (failed_any and not t["ran"])
-            handed = handed or bool(d.goal) or any(c.name in LONG_JOB_TOOLS for c in d.actions)
+            # (a learned skill he queued is a job handed on as much as a goal is)
+            handed = handed or bool(d.goal) or bool(d.skill) or any(c.name in LONG_JOB_TOOLS for c in d.actions)
             open_check = False
             job_tool = None
             if not more and failed_any and not (handed or open_checked):
@@ -811,6 +812,10 @@ class Agent:
                 break  # steps run in order and stop at the first that fails (the model hears why)
         if d.skill and failure is None:
             failure = self._queue_skill(*d.skill, state)
+            if failure and d.skill_call is not None:  # it could not start (params, preconditions): the model hears why
+                failed_call = d.skill_call
+                results[failed_call.id or failed_call.name] = {"ok": False, "reason": failure[1], "data": failure[2],
+                                                               "args_help": self.controller.arg_help("run_skill")}
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
                 "spoken": spoken, "ran": ran, "body": body}
 

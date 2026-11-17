@@ -85,3 +85,47 @@ def test_empty_recovery_still_reports_original_failure_without_retry(tmp_path):
     assert rig.companion_said() == []  # the model chose silence; the body's busy detail is never read out
     assert rig.agent.pending_goal is None and rig.agent.pending_skill is None
     assert not records(rig, "skill_queued")
+
+
+def tool_results(rig, n):
+    return [json.loads(m["content"]) for m in rig.controller_llm.calls[n]["messages"] if m["role"] == "tool"]
+
+
+def test_unlearned_skill_name_comes_back_to_the_model_as_the_calls_failed_result(tmp_path):
+    """Run 20261117-011014 (Getting Started from gs_start): beside an "on it" line the model called run_skill with a
+    name it had made up. Code said "I haven't learned a skill called ..." and the request ended there: he stood 436 s
+    with the quest step open. The failure is the model's to read, with the names he has learned."""
+    rig, sent = boundary(tmp_path)
+    rig.controller_llm.push(
+        FakeLLM.say("on it", ToolCall("run_skill", {"name": "gather and craft stone club"}, "c1")),
+        FakeLLM.say("", ToolCall("run_skill", {"name": "walk_to_location", "params": {"x": 20., "y": 0., "z": 0.}}, "c2")),
+        FakeLLM.say(""))  # (asked once whether Luis should hear of the failed call: sorted, nothing to say)
+    rig.agent._command(CommandReceived(player="Luis", text="make the club"))
+    assert len(rig.controller_llm.calls) == 3 and len(records(rig, "failure_unreported")) == 1
+    res = tool_results(rig, 1)[0]
+    assert res["ok"] is False and res["reason"] == "unknown_skill"
+    assert res["data"] == {"skill": "gather and craft stone club", "learned": ["walk_to_location"]}
+    assert len(records(rig, "skill_queued")) == 1 and rig.agent.pending_skill == "walk_to_location"
+    # ("on it" is not said: the call it came with failed first; the queued skill is the job, no open-job check)
+    assert rig.companion_said() == [] and not records(rig, "open_job_check")
+
+
+def test_skill_that_cannot_start_comes_back_to_the_model_too(tmp_path):
+    rig, sent = boundary(tmp_path)
+    rig.controller_llm.push(
+        FakeLLM.say("", ToolCall("run_skill", {"name": "walk_to_location", "params": {}}, "c1")),
+        FakeLLM.say("", ToolCall("run_skill", {"name": "walk_to_location", "params": {"x": 20., "y": 0., "z": 0.}}, "c2")),
+        FakeLLM.say(""))  # (asked once whether Luis should hear of the failed call: sorted, nothing to say)
+    rig.agent._command(CommandReceived(player="Luis", text="walk over there"))
+    assert len(rig.controller_llm.calls) == 3 and len(records(rig, "failure_unreported")) == 1
+    res = tool_results(rig, 1)[0]
+    assert res["ok"] is False and "can't use it like that" in res["reason"] and res["data"]["skill"] == "walk_to_location"
+    assert len(records(rig, "skill_queued")) == 1
+    assert rig.companion_said() == []
+
+
+def test_unlearned_skill_is_still_said_when_the_model_cannot_be_asked(tmp_path):
+    rig, sent = boundary(tmp_path)
+    rig.controller_llm.push(FakeLLM.say("", ToolCall("run_skill", {"name": "dance"}, "c1")))  # (and then the provider fails)
+    rig.agent._command(CommandReceived(player="Luis", text="do the thing"))
+    assert rig.companion_said()[-1] == "I haven't learned a skill called dance."
