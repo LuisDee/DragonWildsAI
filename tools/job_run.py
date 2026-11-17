@@ -78,28 +78,91 @@ def count_of(counts: dict, pattern: str) -> int:
 from tools.chat_ladder import FIT_PCT, body_unfit as unfit  # noqa: E402,F401
 
 
-def snapshot(data: dict | None) -> dict:
-    """A get_state (or raw `inventory`) read in one shape: carried {item: n} over hotbar, bag and loadout; worn {slot:
-    item} (Head, Body, Legs, HeldRight, held_right ...); consumables {food, drink}; position; dead; own_containers
-    (ids get_state marks mine: the client's ledger of what he built); empty_slots."""
-    d = data or {}
+# Loadout slots that point at a stack he already carries in the hotbar or the bag: the Held slots reference a hotbar
+# slot, the ammo slots a bag stack (DISCOVERIES 2026-11-01 rung 4 gate: "Arrows read as -22 because the loadout's
+# Ammo slot references the bag stack"; tools/rung4_gate.Ctx4.stacks counts that stack once). Worn slots (Head, Body,
+# Legs, Cape, Trinket) hold the piece itself and count.
+REF_SLOTS = ("HeldRight", "HeldLeft", "Ammo", "MagicAmmo", "CrossbowBolts", "FishingBait")
+# The pages a picked-up or granted item can land in: the hotbar first, then the item page (DISCOVERIES "Collect =
+# the interact key": items landed in the first free hotbar slots; rung 1 gate: runes, ammo and quest items have
+# pages of their own, and GetNumEmptySlots counts every page).
+ROOM_PAGES = ("QuickAction", "InventoryItems")
+# The census's kinds of a thing with a game component (client_mod/scripts/sense.lua FAMILIES, ACTOR_FAMILIES). Only
+# "storage" is storage: an actor with an InventoryComponent and no station component (stations own inventories too).
+CENSUS_KINDS = {"crafting_station", "processing_station", "enchanting_station", "bed", "lodestone", "container",
+                "storage", "chest"}
+# deconstruct.kind's marks of a station, a farm plot or a composter in the game's asset id or class
+NOT_STORAGE_MARKS = ("Station", "BP_Crafting_", "Composter", "FarmPlot")
+
+
+def _consumable_harm(item: str | None, kind: str) -> str | None:
+    """None when the game's own data says one of these restores food or water and does no harm (no Soulscourge, no
+    Wither: data/food_values_<build>.json, the live DT_FoodSustenance / DT_DrinkHydration / DT_Toxicity_V2 /
+    DT_Wither_V2 rows); else why it does not count (Dirty Water: Soulscourge 20; burnt food: Soulscourge 20)."""
+    from brain import needs_options
+    v = ((needs_options.values() or {}).get("items") or {}).get(item or "")
+    if not isinstance(v, dict) or v.get("kind") != kind:
+        return f"no {kind} row in the game's food data"
+    bad = [f"{k} {v[k]:g}" for k in ("soulscourge", "wither") if isinstance(v.get(k), (int, float)) and v[k] > 0]
+    return ", ".join(bad) or None
+
+
+def bag_room(d: dict | None) -> int | None:
+    """Free slots a new kind of item can land in, from the raw inventory read (`inventory {raw: true}`): the hotbar
+    and item pages' sizes (`pages`, "QuickAction:8", "InventoryItems:32") less the hotbar rows and the item-page bag
+    rows. None when the pages were not read. Never GetNumEmptySlots, which counts the rune, ammo and quest pages too
+    (164 live with a full item page, docs/research/2026-11-17-job-end-readability.md I4)."""
+    d = d or {}
     if isinstance(d.get("data"), dict) and ("ok" in d):
         d = d["data"]
+    size: dict[str, int] = {}
+    for p in d.get("pages") or []:
+        name, _, n = str(p).partition(":")
+        if n.strip().isdigit():
+            size[name.strip()] = int(n)
+    if not all(p in size for p in ROOM_PAGES):
+        return None
+    used = sum(1 for w in ("hotbar", "bag") for r in d.get(w) or []
+               if isinstance(r, dict) and (r.get("slot_type") or ("QuickAction" if w == "hotbar" else None)) in ROOM_PAGES)
+    return max(0, sum(size[p] for p in ROOM_PAGES) - used)
+
+
+def snapshot(data: dict | None) -> dict:
+    """A get_state (or raw `inventory`) read in one shape: carried {item: n} over hotbar, bag and loadout, each stack
+    once (a loadout slot that references a carried stack is not counted again); worn {slot: item} (Head, Body, Legs,
+    HeldRight, held_right ...); consumables {food, drink} that do no harm, and the ones left out; position; dead;
+    own_containers (ids get_state marks mine: the client's ledger of what he built); container_kinds {id: census
+    kind}; empty_slots (the game's count over every page); bag_room (bag_room()); unread (why the read is not a
+    reading of him: a failed get_state is never an empty character)."""
+    d = data or {}
+    if isinstance(d.get("data"), dict) and ("ok" in d):
+        if d.get("ok") is False:
+            d = {"unread": str(d.get("reason") or (d["data"].get("detail")) or "get_state failed")}
+        else:
+            d = d["data"]
     rows = d.get("inventory_items")
     if rows is None and any(k in d for k in ("hotbar", "bag", "loadout")):  # inventory {raw: true}
         rows = [{**r, "where": w} for w in ("hotbar", "bag", "loadout") for r in d.get(w) or []]
     carried: dict[str, int] = {}
     cons = {"food": 0, "drink": 0}
+    left_out: dict[str, str] = {}
     worn: dict[str, str] = {}
+    on_him = {r.get("item") or r.get("name") for r in rows or [] if r.get("where") != "loadout"}
     for r in rows or []:
         item = r.get("item") or r.get("name")
         n = int(r.get("count") or 1)
-        if item:
+        slot = str(r.get("loadout_slot") or "")
+        loadout = r.get("where") == "loadout"
+        if item and not (loadout and slot.startswith(REF_SLOTS) and item in on_him):
             carried[item] = carried.get(item, 0) + n
-        if r.get("where") == "loadout" and r.get("loadout_slot") and item:
-            worn[str(r["loadout_slot"])] = item
-        elif r.get("consumable") in cons:
-            cons[r["consumable"]] += n
+        if loadout and slot and item:
+            worn[slot] = item
+        elif not loadout and r.get("consumable") in cons:
+            harm = _consumable_harm(item, r["consumable"])
+            if harm is None:
+                cons[r["consumable"]] += n
+            else:
+                left_out[f"{n} {item}"] = harm
     if rows is None:
         carried = {k: int(v or 0) for k, v in (d.get("inventory") or {}).items()}
     for k, v in (d.get("gear") or {}).items():
@@ -107,10 +170,20 @@ def snapshot(data: dict | None) -> dict:
             worn[k] = v
     own = {str(e["id"]) for key in ("structures", "interactables") for e in d.get(key) or []
            if isinstance(e, dict) and e.get("mine") and e.get("id")}
+    kinds = {str(e["id"]): str(e["kind"]) for key in ("interactables", "structures") for e in d.get(key) or []
+             if isinstance(e, dict) and e.get("id") and e.get("kind") in CENSUS_KINDS}
     pl = d.get("power_level")
-    return {"carried": carried, "worn": worn, "consumables": cons, "position": d.get("position"),
-            "dead": bool(d.get("dead")), "own_containers": sorted(own), "empty_slots": d.get("empty_slots"),
-            "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
+    unread = d.get("unread") or (None if rows is not None or d.get("inventory") or d.get("position") is not None
+                                 else "the read carried no position and no inventory")
+    out = {"carried": carried, "worn": worn, "consumables": cons, "position": d.get("position"),
+           "dead": bool(d.get("dead")), "own_containers": sorted(own), "container_kinds": kinds,
+           "empty_slots": d.get("empty_slots"), "bag_room": bag_room(d),
+           "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
+    if left_out:
+        out["consumables_left_out"] = left_out
+    if unread:
+        out["unread"] = str(unread)
+    return out
 
 
 def _item_id(name: str | None) -> str | None:
@@ -165,6 +238,65 @@ def evidence(rows: list[dict]) -> dict:
     return {"chests": chests_seen(rows), "crafted": crafted_in_run(rows)}
 
 
+def is_storage(cid: str, kinds: dict | None = None, read: dict | None = None) -> bool | None:
+    """Is this container one the game treats as storage: True, False, or None (not known). The census kind decides
+    when it was read ("storage", not a station: sense.FAMILIES); else the game's asset id and class as
+    deconstruct.kind reads them (a station, plot or composter is not storage; a piece whose inventory was read is).
+    Never by "mine": his campfire is his, and not a chest (docs/research/2026-11-17-job-end-readability.md H2)."""
+    read = read or {}
+    k = (kinds or {}).get(cid) or read.get("kind")
+    if k in CENSUS_KINDS:
+        return k == "storage"
+    s = f"{cid} {read.get('class') or ''}"
+    if any(m in s for m in NOT_STORAGE_MARKS):
+        return False
+    if str(cid).startswith("BuildingPiece_"):  # an instance-only piece (wall, floor): no actor, no inventory
+        return False
+    if read.get("read") and isinstance(read.get("items"), dict):
+        return True
+    return None
+
+
+def read_container(reply: Any) -> dict:
+    """An `inspect` reply on one container -> {read, items {item id: n}, kind, class, why}. read is False (unread)
+    when the body could not find it or found no inventory on it: never an empty chest."""
+    r = reply if isinstance(reply, dict) else {}
+    d = r.get("data") if isinstance(r.get("data"), dict) else {}
+    out = {"kind": d.get("kind"), "class": d.get("class")}
+    if r.get("ok") is not True or not isinstance(d.get("contents"), list):
+        why = r.get("reason") or d.get("detail") or ("no inventory read on it" if r.get("ok") else "no reply")
+        return {**out, "read": False, "why": str(why)[:200]}
+    from brain import stash
+    items: dict[str, int] = {}
+    for e in d["contents"]:
+        iid, name, n = stash._parse(e)
+        iid = iid or _item_id(name)
+        if iid:
+            items[iid] = items.get(iid, 0) + n
+    return {**out, "read": True, "items": items}
+
+
+def chest_candidates(start: dict, end: dict) -> list[str]:
+    """His containers worth an end read: every id a read in the run marked his (start, samples, end) and every one his
+    body's own container result marked his, less those known not to be storage."""
+    kinds = {**(start.get("container_kinds") or {}), **(end.get("container_kinds") or {})}
+    own = set(start.get("own_containers") or []) | set(end.get("own_containers") or [])
+    own |= {cid for cid, c in (end.get("chests") or {}).items() if c.get("mine")}
+    return sorted(cid for cid in own if is_storage(cid, kinds) is not False)
+
+
+def chest_reads(io, ids: list[str]) -> dict[str, dict]:
+    """The end read of each container (the body's `inspect`: client_bridge.contents_of, the same inventory read the
+    store tool proves on a built crate). A failed read is recorded as unread with its reason."""
+    out = {}
+    for cid in ids:
+        try:
+            out[cid] = read_container(io.inspect(cid))
+        except Exception as exc:  # the debug client failed: unread, never empty
+            out[cid] = {"read": False, "why": f"inspect failed: {exc!r}"[:200]}
+    return out
+
+
 # ------------------------------------------------------------------ the end predicates
 def _gain(start: dict, end: dict, pattern: str) -> int:
     return count_of(end.get("carried") or {}, pattern) - count_of(start.get("carried") or {}, pattern)
@@ -187,11 +319,6 @@ def p_worn_made_in_run(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
         elif _gain(start, end, on) <= 0:
             short.append(f"{slot}: {on} worn but he held as many at the start")
     return (not short), ("all worn and made in the run" if not short else "; ".join(short))
-
-
-def _own_chests(start: dict, end: dict) -> dict[str, dict]:
-    own = set(start.get("own_containers") or []) | set(end.get("own_containers") or [])
-    return {cid: c for cid, c in (end.get("chests") or {}).items() if cid in own or c.get("mine")}
 
 
 def _want_count(items: dict, want: dict) -> int:
@@ -226,20 +353,54 @@ def _item_categories() -> dict[str, str]:
     return {k: v.get("category") for k, v in items.items() if isinstance(v, dict)}
 
 
-def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool, str]:
-    """Each want is in ONE container of his (get_state marks it mine) in the count asked, by his body's last read of
-    that container in the run. Limit: not an independent read at the end (see the doc's missing read)."""
-    chests = _own_chests(start, end)
-    if not chests:
-        seen = len(end.get("chests") or {})
-        return False, f"no container of his was opened in the run ({seen} other container(s) were)"
-    short = []
+def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | None, str]:
+    """Each want is in ONE storage container of his (a read in the run marked it mine; the game treats it as storage)
+    in the count asked, by the END read of that container (end["chest_end"]: chest_reads). None (unread) when that
+    read is missing or failed for a container that could hold it: his body's earlier open of a chest is memory, and
+    is used only to doubt an end read that shows less with nothing taken out since (an unopened crate's replica may
+    be stale; unverified live)."""
+    kinds = {**(start.get("container_kinds") or {}), **(end.get("container_kinds") or {})}
+    reads = end.get("chest_end")
+    own = set(chest_candidates(start, end)) | set(reads or {})
+    opened = end.get("chests") or {}
+    if not own:
+        if opened:
+            return None, (f"unread: he used {len(opened)} container(s) ({', '.join(sorted(opened)[:3])}) but no read "
+                          "in the run marked any of them his")
+        return False, "no storage container of his was seen in the run"
+    if reads is None:
+        return None, "unread: no end read of his containers"
+    storage = {cid: is_storage(cid, kinds, reads.get(cid)) for cid in sorted(own)}
+    if not any(v is not False for v in storage.values()):
+        return False, f"none of his containers is storage ({', '.join(sorted(own)[:4])})"
+    good = {cid: reads[cid]["items"] for cid, s in storage.items() if s and (reads.get(cid) or {}).get("read")}
+    unread = {cid: (reads.get(cid) or {}).get("why") or "not read" for cid, s in storage.items()
+              if s is not False and cid not in good}
+    short, doubt = [], []
     for want in spec:
-        best = max(((cid, _want_count(c["items"], want)) for cid, c in chests.items()), key=lambda x: x[1])
         label = want.get("label") or want.get("item")
-        if best[1] < int(want["count"]):
-            short.append(f"{label}: {best[1]} of {want['count']} (best: {best[0]})")
-    return (not short), ("in his chest" if not short else "; ".join(short))
+        n = int(want["count"])
+        best = max(((cid, _want_count(items, want)) for cid, items in good.items()), key=lambda x: x[1],
+                   default=(None, 0))
+        if best[1] >= n:
+            continue
+        if unread:
+            doubt.append(f"{label}: {best[1]} of {n} in the read ones; unread: "
+                         + "; ".join(f"{c} ({w})" for c, w in sorted(unread.items())[:3]))
+            continue
+        before = [(cid, _want_count(opened[cid]["items"], want)) for cid in good
+                  if cid in opened and opened[cid].get("tool") != "take"]
+        was = max(before, key=lambda x: x[1], default=(None, 0))
+        if was[1] >= n:
+            doubt.append(f"{label}: the end read of {was[0]} has {_want_count(good[was[0]], want)} of {n}, his last "
+                         f"open of it ({opened[was[0]].get('tool')}) {was[1]}, and he took nothing out since")
+            continue
+        short.append(f"{label}: {best[1]} of {n} (best: {best[0]})")
+    if short:
+        return False, "; ".join(short + doubt)
+    if doubt:
+        return None, "unread: " + "; ".join(doubt)
+    return True, "in his chest (end read)"
 
 
 def p_carried_gain(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
@@ -266,8 +427,13 @@ def p_near_start_m(spec: float, start: dict, end: dict) -> tuple[bool, str]:
 
 
 def p_consumables_carried(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
+    """Food and drink he carries that the game's data says do no harm (snapshot: Dirty Water and burnt food left
+    out, and named in the reason)."""
     have = end.get("consumables") or {}
     short = [f"{k}: {have.get(k, 0)} of {n}" for k, n in spec.items() if int(have.get(k, 0)) < int(n)]
+    out = end.get("consumables_left_out") or {}
+    if short and out:
+        short.append("left out: " + ", ".join(f"{k} ({why})" for k, why in sorted(out.items())[:4]))
     return (not short), ("carried" if not short else "; ".join(short))
 
 
@@ -332,26 +498,36 @@ PREDICATES = {"worn_made_in_run": p_worn_made_in_run, "in_own_chest": p_in_own_c
               "next_tier_tools": p_next_tier_tools}
 
 
-def done(job: dict, state_start: dict, state_end: dict) -> tuple[bool, str]:
+def done(job: dict, state_start: dict, state_end: dict) -> tuple[bool | None, str]:
     """The job's end read from the game: every predicate of job["end"] holds. state_*: snapshot() of a get_state
-    read; state_end also carries evidence() of the run's rows (chests, crafted), state_start the gear target."""
-    whys, ok = [], True
+    read; state_end also carries evidence() of the run's rows (chests, crafted) and the end read of his containers
+    (chest_end), state_start the gear target. None (unread) when a read it needs failed and no predicate failed on
+    what was read: never a pass or a fail on a reading that is not there."""
+    for label, st in (("start", state_start), ("end", state_end)):
+        if st.get("unread"):
+            return None, f"unread: the {label} get_state ({st['unread']})"
+    whys, ok, unread = [], True, False
     for name, spec in (job.get("end") or {}).items():
         fn = PREDICATES.get(name)
         if fn is None:
             return False, f"unknown predicate {name!r}"
         good, why = fn(spec, state_start, state_end)
-        ok = ok and good
-        whys.append(f"{name}: {'ok' if good else 'NO'} ({why})")
+        unread = unread or good is None
+        ok = ok and good is True
+        whys.append(f"{name}: {'ok' if good else 'UNREAD' if good is None else 'NO'} ({why})")
+    if unread and not any(": NO (" in w for w in whys):
+        return None, "; ".join(whys)
     return (ok and bool(whys)), "; ".join(whys)
 
 
 def not_counted(rec_or_job: dict, state_start: dict | None = None) -> str | None:
-    """Why a trial does not count, or None. With a run record alone: what it says (failure_ledger.scan's argument).
-    With a job and its start state: the items it must not start with that he holds (a head start, as
-    quest_run.not_counted)."""
+    """Why a trial does not count, or None. With a run record alone: what it says (failure_ledger.scan's argument),
+    or that its end state was unread. With a job and its start state: the items it must not start with that he holds
+    (a head start, as quest_run.not_counted)."""
     if state_start is None:
-        return rec_or_job.get("not_counted")
+        if rec_or_job.get("not_counted"):
+            return rec_or_job["not_counted"]
+        return f"end state unread: {rec_or_job['unread']}" if rec_or_job.get("unread") else None
     held = {k: n for k, n in (state_start.get("carried") or {}).items() if n
             and any(matches(k, p) for p in rec_or_job.get("not_carried_at_start") or [])}
     return ("held at the start: " + ", ".join(f"{k} x{n}" for k, n in sorted(held.items()))) if held else None
@@ -469,6 +645,7 @@ def verdict(rec: dict) -> dict:
         return {"pass": all(bars.values()), "bars": bars, "misses": ms, "truth": "not judged"}
     v = q.verdict(rec)
     v["bars"]["counted"] = not rec.get("not_counted")
+    v["bars"]["read"] = not rec.get("unread")  # an unread end state is neither a pass nor a fail (not counted)
     v["pass"] = all(v["bars"].values())
     return v
 
@@ -487,7 +664,7 @@ def all_runs(path: Path | None = None) -> list[dict]:
 def scored(recs: list[dict], void: set[str]) -> list[tuple[dict, bool]]:
     """(run, passed) of the trials that say something: to the end (not a first_step probe), counted, not void."""
     return [(r, verdict(r)["pass"]) for r in recs
-            if r.get("until") != "first_step" and r["run"] not in void and not r.get("not_counted")]
+            if r.get("until") != "first_step" and r["run"] not in void and not not_counted(r)]
 
 
 def rates(recs: list[dict], void: set[str], n: int = 10) -> dict[str, dict]:
@@ -569,16 +746,19 @@ def apply_interruption(io, step: str, spec: dict, t0: float) -> dict:
                 io.sleep(2.0)
             else:
                 out["how"] = f"no respawn within {spec.get('respawn_wait_s', 120)} s (dead seen: {saw_dead})"
-        elif step == "I4":
+        elif step == "I4":  # full = no free hotbar or item-page slot (bag_room), never GetNumEmptySlots
             filled = 0
             for _ in range(int(spec.get("rounds", 3))):
-                empty = io.empty_slots()
-                if not empty:
+                room = io.bag_room()
+                if not room:
                     break
-                io.fixture("grant", purpose, item=spec["filler"], count=int(empty))
-                filled += int(empty)
-            left = io.empty_slots()
-            out.update(took=left == 0, t_clear=rel(), how=f"{filled} {spec['filler']} granted; {left} empty slot(s) left")
+                io.fixture("grant", purpose, item=spec["filler"], count=int(room))
+                filled += int(room)
+            left = io.bag_room()
+            out.update(took=left == 0, t_clear=rel() if left == 0 else None,
+                       how=f"{filled} {spec['filler']} granted; " + (
+                           "bag room unread (no hotbar and item page sizes in the inventory read)" if left is None
+                           else f"{left} free hotbar and item slot(s) left"))
         elif step == "I5":
             ready = io.restart_brain(float(spec.get("gap_s", 5)))
             out.update(took=bool(ready), t_clear=rel() if ready else None,
@@ -615,6 +795,47 @@ def fight_cleared(rows: list[dict], intr: dict, t0: float, wait_s: float) -> dic
 
 
 # ------------------------------------------------------------------ one trial
+READ_TRIES = 3
+
+
+def _read_state(io) -> tuple[dict, dict]:
+    """(raw get_state, snapshot) with up to READ_TRIES reads 2 s apart while the read fails (78 of 4 760 replies on 16
+    and 17 Nov were ok: false, "no local player controller"); the snapshot keeps `unread` if every try failed."""
+    raw = io.state()
+    snap = snapshot(raw)
+    for _ in range(READ_TRIES - 1):
+        if not snap.get("unread"):
+            break
+        io.sleep(2.0)
+        raw = io.state()
+        snap = snapshot(raw)
+    return raw, snap
+
+
+class _Seen:
+    """What the run's reads said about his containers, kept across samples: get_state lists only the 15 nearest
+    pieces within 30 m (build.lua cfg.structures), so a crate of his is marked mine only while he is near it (run
+    20261117-195219-L2: in neither the start nor the end read)."""
+
+    def __init__(self):
+        self.own: set[str] = set()
+        self.kinds: dict[str, str] = {}
+
+    def see(self, snap: dict) -> None:
+        self.own |= set(snap.get("own_containers") or [])
+        self.kinds.update(snap.get("container_kinds") or {})
+
+    def into(self, snap: dict) -> None:
+        snap["own_containers"] = sorted(self.own | set(snap.get("own_containers") or []))
+        snap["container_kinds"] = {**self.kinds, **(snap.get("container_kinds") or {})}
+
+
+def _open_reads(snap: dict) -> dict[str, dict]:
+    """His body's opens of containers in the run as if they were end reads: only to decide when to make the real end
+    read mid-run, never to judge."""
+    return {cid: {"read": True, "items": c.get("items") or {}} for cid, c in (snap.get("chests") or {}).items()}
+
+
 def run_job(io, job: dict, opts: dict) -> dict:
     """One trial on the body io gives: the brain started, the player's line sent, the run watched until the end the
     game confirms (or the step's end), the interruption put in when due, and the record written. io: Live (or a
@@ -628,8 +849,11 @@ def run_job(io, job: dict, opts: dict) -> dict:
     if not io.start_brain():
         return {"error": "brain did not start"}
     left_before = io.leave_dialogue()
-    raw0 = io.state()
-    start = snapshot(raw0)
+    raw0, start = _read_state(io)
+    chest_job = "in_own_chest" in (job.get("end") or {})
+    seen = _Seen()
+    if not start.get("unread"):
+        seen.see(start)
     if "gear_target" in (job.get("end") or {}):
         try:
             start["gear_target"] = io.gear_target(raw0)
@@ -655,8 +879,14 @@ def run_job(io, job: dict, opts: dict) -> dict:
         if now - last_sample >= SAMPLE_S:
             last_sample = now
             cur = snapshot(io.state())
-            cur.update(evidence(rows))
-            ok, ok_why = done(job, start, cur)
+            if not cur.get("unread"):  # a failed read is skipped, never judged
+                seen.see(cur)
+                cur.update(evidence(rows))
+                seen.into(cur)
+                ok, ok_why = done(job, start, cur)
+                if ok is None and chest_job and done(job, start, {**cur, "chest_end": _open_reads(cur)})[0] is True:
+                    cur["chest_end"] = chest_reads(io, chest_candidates(start, cur))  # his opens say done: read it now
+                    ok, ok_why = done(job, start, cur)
         if step and intr is None and trigger_due(opts.get("trigger") or "first_step", first_t, rel, bar):
             intr = apply_interruption(io, step, spec, t0)
             print(f"[{rel:6.1f}s] {step} put in: {intr.get('how')}")
@@ -692,9 +922,14 @@ def run_job(io, job: dict, opts: dict) -> dict:
         io.sleep(q.POLL_S)
     ended = io.now()
     left_after = io.stop_all()
-    end = snapshot(io.state())
+    _, end = _read_state(io)
     rows = io.rows(t0 - 1, ended + 3)
+    if not end.get("unread"):
+        seen.see(end)
     end.update(evidence(rows))
+    seen.into(end)
+    if chest_job:
+        end["chest_end"] = chest_reads(io, chest_candidates(start, end))
     ok, ok_why = done(job, start, end)
     tl = q.timeline(rows, t0, ended)
     calls = cl.model_calls(rows)
@@ -711,7 +946,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
            "job": job["id"], "step": step, "held_out": bool(job.get("held_out")), "until": until,
            "character": opts.get("character"), "checkpoint": opts.get("checkpoint"), "holder": opts.get("holder"),
            "lines": sent, "ended": why, "wall_s": round(ended - t0, 1), "active_s": active,
-           "done": bool(res.get("resumed")) if step else ok, "job_done": ok, "done_why": ok_why,
+           "done": bool(res.get("resumed")) if step else ok is True, "job_done": ok is True, "done_why": ok_why,
            "state_start": start, "state_end": {k: v for k, v in end.items() if k != "chests"}, "chests": end.get("chests"),
            "first_step_s": first_t, "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": idle_total, "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
@@ -724,6 +959,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
     nc = not_counted(job, start)
     if nc:
         rec["not_counted"] = nc
+    if ok is None and not step:  # a whole job whose end state could not be read: not counted, the reason kept
+        rec["unread"] = ok_why
     rec["misses"] = misses(tl["calls"], active - idle_total, intr)
     try:
         h = q.human_bar(rows, len(sent))
@@ -792,16 +1029,21 @@ class Live:
 
     def state(self) -> dict:
         r = self.cli.request("get_state", {}, timeout=20)
-        return (r.get("data") if isinstance(r, dict) else None) or {}
+        if not isinstance(r, dict) or r.get("ok") is False:  # a failed read is unread, never an empty character
+            d = (r.get("data") if isinstance(r, dict) else None) or {}
+            return {"unread": str((r or {}).get("reason") or d.get("detail") or "get_state failed")}
+        return r.get("data") or {}
 
     def me(self) -> dict | None:
         from tools import chat_ladder as cl
         return cl.me(self.cli)
 
-    def empty_slots(self) -> int | None:
-        r = self.cli.request("inventory", {"raw": True}, timeout=20)
-        d = (r.get("data") if isinstance(r, dict) else None) or {}
-        return d.get("empty_slots")
+    def bag_room(self) -> int | None:
+        return bag_room(self.cli.request("inventory", {"raw": True}, timeout=20))
+
+    def inspect(self, cid: str) -> dict:
+        """One container's contents through the body's own read (client_bridge inspect -> contents_of)."""
+        return self.cli.request("inspect", {"target": cid}, timeout=20)
 
     def fixture(self, verb: str, purpose: str, **kw) -> dict:
         return self.dev.setup(verb, purpose=purpose, **kw)
@@ -952,7 +1194,8 @@ def cmd_rates(a) -> int:
     void = failure_ledger.voided()
     recs = [r for r in all_runs() if r["run"] >= a.since]
     rs = rates(recs, void, a.n)
-    print(f"{'item':<20} last {a.n:<3} streak   (void runs left out: {sum(1 for r in recs if r['run'] in void)})")
+    print(f"{'item':<20} last {a.n:<3} streak   (void runs left out: {sum(1 for r in recs if r['run'] in void)}; "
+          f"end state unread, left out: {sum(1 for r in recs if r.get('unread') and not r.get('not_counted'))})")
     for k, r in sorted(rs.items()):
         print(f"{k:<20} {r['passes']:>2} of {r['of']:<2} {r['streak']:>4}{'   held-out' if r['held_out'] else ''}")
     for label, held in (("tuned", False), ("untuned (held-out)", True)):

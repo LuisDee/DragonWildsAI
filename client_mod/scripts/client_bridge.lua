@@ -1229,6 +1229,21 @@ local function contents_of(a, U)
     -- owner and the component in this same tick, never during a pause
     if rawget(_G, "DW_PAUSE") == true or not U.valid(a) then return nil end
     local inv = U.try(function() return a:GetInventory() end) or U.prop(a, "InventoryComponent") -- R17: by-name reads via U.prop
+    if not U.valid(inv) then
+        -- a BUILT crate has neither (live 2026-11-01 18:58Z): the store tool's own read, inventory.inventory_of ->
+        -- owned_inventory (the one InventoryComponent this actor owns; nil for a station, which owns several), read
+        -- with inventory.external_rows as store reads its contents (docs/research/2026-11-17-job-end-readability.md)
+        local inv_of, rows_of = fn_of("inventory", "inventory_of"), fn_of("inventory", "external_rows")
+        local oki, owned = pcall(function() return inv_of and rows_of and inv_of(a) end)
+        if not (oki and owned) then return nil end
+        local okr, rows = pcall(rows_of, owned)
+        if not (okr and type(rows) == "table") then return nil end
+        local out = {}
+        for _, r in ipairs(rows.rows or {}) do
+            out[#out + 1] = { name = r.name, item = r.item, count = r.count }
+        end
+        return out
+    end
     local desc = fn_of("inventory", "describe_item")
     if not (U.valid(inv) and desc) then return nil end
     local out = {}

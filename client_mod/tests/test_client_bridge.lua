@@ -593,6 +593,23 @@ test("inspect: one thing with gives/requires, container contents; unknown id", f
     assert(rpc("inspect", {}).reason == "invalid_args")
 end)
 
+test("inspect reads a BUILT crate (no GetInventory) the way store does: inventory_of + external_rows", function()
+    local crate = { id = "BP_BaseBuilding_Crate_C_7", class = "BP_BaseBuilding_Crate_C", name = "Crate", kind = "storage",
+                    position = { 2, 2, 3 } }
+    table.insert(FAKE.world.interactables, crate)
+    FAKE.chests = { [crate.id] = { slots = 20, rows = { { slot = 0, item = "ITEM_Resources_CopperOre", name = "Copper Ore", count = 30 } } } }
+    local r = rpc("inspect", { target = crate.id })
+    assert(r.ok and r.data.kind == "storage" and r.data.contents and r.data.contents[1]
+        and r.data.contents[1].item == "ITEM_Resources_CopperOre" and r.data.contents[1].count == 30, json.encode(r.data))
+    FAKE.chests = { [crate.id] = { slots = 20, rows = {} } }
+    r = rpc("inspect", { target = crate.id })
+    assert(r.ok and type(r.data.contents) == "table" and #r.data.contents == 0, "an empty crate reads empty: " .. json.encode(r.data))
+    FAKE.chests = nil -- no inventory found on it: no contents (unread), never an empty list
+    r = rpc("inspect", { target = crate.id })
+    assert(r.ok and r.data.contents == nil, json.encode(r.data))
+    table.remove(FAKE.world.interactables)
+end)
+
 test("L26: a foliage id resolves where the instance stood (converted actor, gone reasons, go_to)", function()
     local fid, gone = "fol:BP_BM_Tree_Ash_03_C@1084,18948,-313", "fol:BP_BM_Tree_Ash_03_C@1,2,3"
     FAKE.foliage = { [fid] = { how = "converted", row = { id = "BP_BM_Tree_Ash_03_C_2147454756", class = "BP_BM_Tree_Ash_03_C",

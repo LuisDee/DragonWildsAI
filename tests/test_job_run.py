@@ -130,19 +130,25 @@ def test_l1_not_counted_when_he_starts_with_hides(doc):
     assert j.not_counted({"not_counted": "x"}) == "x"
 
 
-def test_l2_done_from_his_own_chest_only(doc):
+def end_read(n, item="ITEM_Resources_CopperOre"):
+    return {"read": True, "items": {item: n} if n else {}, "kind": "storage", "class": "BP_BaseBuilding_Crate_C"}
+
+
+def test_l2_done_from_the_end_read_of_his_own_chest_only(doc):
     job = j.job_of("L2", doc)
     rows = [result(5, "s", "store", data={"container": CRATE, "item": "ITEM_Resources_CopperOre", "inside_now": 30,
                                           "contents": ["30 Copper Ore"]})]
     start, end = snap(mine=[CRATE]), snap()
     end.update(j.evidence(rows))
-    assert j.done(job, start, end)[0]
+    end["chest_end"] = {CRATE: end_read(30)}
+    assert j.done(job, start, end)[0] is True
     not_his = snap()
-    assert not j.done(job, not_his, end)[0]
+    assert j.done(job, not_his, dict(end, chest_end={}))[0] is None  # he stored in it, nothing marked it his: unread
     rows[0]["result"]["data"].update(inside_now=29, contents=["29 Copper Ore"])
     end.update(j.evidence(rows))
+    end["chest_end"] = {CRATE: end_read(29)}
     ok, why = j.done(job, start, end)
-    assert not ok and "29 of 30" in why
+    assert ok is False and "29 of 30" in why
 
 
 def test_h1_made_gained_and_back(doc):
@@ -162,9 +168,9 @@ def test_h2_cooked_meals_and_water_in_his_chest(doc):
     job = j.job_of("H2", doc)
     cooked = sorted(x for x in j.made_at(["Campfire", "Grill"], "Item.Food") if "Burnt" not in x)[0]
     start, end = snap(mine=[CRATE]), snap()
-    end["chests"] = {CRATE: {"items": {cooked: 10, "ITEM_Consumable_Water_Clean": 10}}}
+    end["chest_end"] = {CRATE: {"read": True, "items": {cooked: 10, "ITEM_Consumable_Water_Clean": 10}}}
     assert j.done(job, start, end)[0]
-    end["chests"][CRATE]["items"] = {"ITEM_Consumable_Bread_Burnt": 10, "ITEM_Consumable_Water_Clean": 10}
+    end["chest_end"][CRATE]["items"] = {"ITEM_Consumable_Bread_Burnt": 10, "ITEM_Consumable_Water_Clean": 10}
     assert not j.done(job, start, end)[0]
 
 
@@ -325,12 +331,14 @@ def test_show_prints_scores_but_not_a_held_out_trace(tmp_path, monkeypatch, caps
 class FakeIO:
     """The body, brain and fixtures as run_job sees them: a clock, scripted brain-log rows, scripted states."""
 
-    def __init__(self, script=(), states=None, me_seq=None, empty=None, fixture_fail=None):
+    def __init__(self, script=(), states=None, me_seq=None, room=None, fixture_fail=None, chests=None):
         self.t = T0
         self.script = list(script)
         self.states = states or (lambda t: state())
         self.me_seq = list(me_seq or [])
-        self.empty = list(empty or [])
+        self.room = list(room or [])
+        self.chests = chests if callable(chests) else (lambda t, cid: (chests or {}).get(cid))
+        self.inspected: list[str] = []
         self.fixtures: list[tuple] = []
         self.restarts = 0
         self.sent: list[str] = []
@@ -366,8 +374,15 @@ class FakeIO:
     def me(self):
         return self.me_seq.pop(0) if self.me_seq else {"position": [0, 0, 0]}
 
-    def empty_slots(self):
-        return self.empty.pop(0) if self.empty else 0
+    def bag_room(self):
+        return self.room.pop(0) if self.room else 0
+
+    def inspect(self, cid):
+        self.inspected.append(cid)
+        c = self.chests(self.t, cid)
+        if c is None:
+            return {"ok": False, "reason": "unknown_target", "data": {"detail": "not perceived within 60 m"}}
+        return {"ok": True, "data": {"id": cid, "class": "BP_BaseBuilding_Crate_C", "kind": "storage", "contents": c}}
 
     def fixture(self, verb, purpose, **kw):
         if self.fixture_fail:
@@ -403,10 +418,10 @@ def test_i3_waits_for_the_respawn_away_from_the_death():
 
 
 def test_i4_fills_his_bag_until_no_slot_is_left():
-    io = FakeIO(empty=[12, 2, 0])
+    io = FakeIO(room=[12, 2, 0])
     out = j.apply_interruption(io, "I4", {"filler": "ITEM_FishingNet_CoarseNet", "rounds": 3}, T0)
     assert [kw["count"] for v, kw in io.fixtures] == [12, 2] and out["took"]
-    io = FakeIO(empty=[5, 5, 5, 5])
+    io = FakeIO(room=[5, 5, 5, 5])
     assert not j.apply_interruption(io, "I4", {"filler": "x", "rounds": 3}, T0)["took"]
 
 
@@ -441,7 +456,8 @@ def l2_script(store_at=30.0, extra=()):
 
 
 def test_run_job_whole_l2_ends_when_the_game_says_done(doc):
-    io = FakeIO(script=l2_script(), states=lambda t: state(mine=[CRATE]))
+    io = FakeIO(script=l2_script(), states=lambda t: state(mine=[CRATE]),
+                chests={CRATE: [{"item": "ITEM_Resources_CopperOre", "name": "Copper Ore", "count": 30}]})
     rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
     assert rec["ended"] == "job done" and rec["done"] and rec["job_done"]
     assert io.sent == [doc["jobs"]["L2"]["line"]]
@@ -564,3 +580,166 @@ def test_the_window_skips_a_fork_that_starts_starved(tmp_path, monkeypatch):
     assert len(forked) == 1  # every fork of this save starts the same: the window stops at the first
     (t,) = out["trials"]
     assert t["skipped"].startswith("body unfit: health 1 of 100, food 0 of 100, water 0 of 100")
+
+
+# ------------------------------------------------------------------ the grader reads only what the game says
+# (docs/research/2026-11-17-job-end-readability.md: each fixture below is a reading from its evidence lines)
+def _gs(rows, **kw):
+    return {"position": [0.0, 0.0, 0.0], "inventory_items": rows, **kw}
+
+
+def test_h1_an_equipped_stack_is_counted_once():
+    # last get_state of run 20261117-195219-L2: Stone Arrows bag 20 + loadout Ammo 20 read as 40; one Stone Pickaxe in
+    # the hotbar + HeldRight + HeldLeft read as 3; the worn Leather Cowl only in the loadout
+    rows = [{"item": "ITEM_Ammo_Arrows_Stone", "count": 20, "where": "bag", "slot_type": "InventoryAmmunition"},
+            {"item": "ITEM_Ammo_Arrows_Stone", "count": 20, "where": "loadout", "loadout_slot": "Ammo"},
+            {"item": "ITEM_Pickaxe_Stone", "count": 1, "where": "hotbar", "slot_type": "QuickAction"},
+            {"item": "ITEM_Pickaxe_Stone", "count": 1, "where": "loadout", "loadout_slot": "HeldRight"},
+            {"item": "ITEM_Pickaxe_Stone", "count": 1, "where": "loadout", "loadout_slot": "HeldLeft"},
+            {"item": "ITEM_Armour_T2_Head_Leather", "count": 1, "where": "loadout", "loadout_slot": "Head"}]
+    s = j.snapshot(_gs(rows))
+    assert s["carried"] == {"ITEM_Ammo_Arrows_Stone": 20, "ITEM_Pickaxe_Stone": 1, "ITEM_Armour_T2_Head_Leather": 1}
+    assert s["worn"]["Ammo"] == "ITEM_Ammo_Arrows_Stone" and s["worn"]["HeldRight"] == "ITEM_Pickaxe_Stone"
+    # an ammo slot whose stack the read did not list is still counted (it is the only sight of it)
+    assert j.snapshot(_gs(rows[1:2]))["carried"] == {"ITEM_Ammo_Arrows_Stone": 20}
+
+
+def test_h1_one_craft_of_33_arrows_equipped_is_not_40(doc):
+    job = j.job_of("H1", doc)
+    start = j.snapshot(_gs([{"item": "ITEM_Resources_Animal_Hide", "count": 1, "where": "bag"}]))
+    end = j.snapshot(_gs([{"item": "ITEM_Shortbow_Ash", "count": 1, "where": "hotbar"},
+                          {"item": "ITEM_Ammo_Arrows_Stone", "count": 33, "where": "bag", "slot_type": "InventoryAmmunition"},
+                          {"item": "ITEM_Ammo_Arrows_Stone", "count": 33, "where": "loadout", "loadout_slot": "Ammo"},
+                          {"item": "ITEM_Resources_Animal_Hide", "count": 6, "where": "bag"}]))
+    end["crafted"] = {"ITEM_Shortbow_Ash": 1, "ITEM_Ammo_Arrows_Stone": 1}
+    ok, why = j.done(job, start, end)
+    assert ok is False and "ITEM_Ammo_Arrows_*: +33 of +40" in why
+
+
+def raw_inventory(hotbar_n, item_n, runes_n=6, empty_slots=164):
+    """inventory {raw: true}: the pages and rows as inventory.list gives them; empty_slots is GetNumEmptySlots."""
+    hot = [{"item": f"ITEM_H{i}", "count": 1, "slot_type": "QuickAction", "slot": i} for i in range(hotbar_n)]
+    bag = [{"item": f"ITEM_B{i}", "count": 1, "slot_type": "InventoryItems", "slot": i} for i in range(item_n)]
+    bag += [{"item": f"ITEM_Rune_{i}", "count": 50, "slot_type": "InventoryRunes", "slot": i} for i in range(runes_n)]
+    return {"ok": True, "data": {"pages": ["QuickAction:8", "InventoryItems:32", "InventoryRunes:32",
+                                           "InventoryAmmunition:32", "InventoryQuestItems:72"],
+                                 "hotbar": hot, "bag": bag, "loadout": [], "empty_slots": empty_slots}}
+
+
+def test_i4_bag_room_is_the_hotbar_and_item_page_not_every_page():
+    # live: GetNumEmptySlots read 164 with the item page full, so "left == 0" could never be true
+    assert j.bag_room(raw_inventory(8, 32)) == 0
+    assert j.bag_room(raw_inventory(8, 30)) == 2 and j.bag_room(raw_inventory(5, 32)) == 3
+    assert j.bag_room({"ok": True, "data": {"hotbar": [], "bag": [], "empty_slots": 164}}) is None  # pages unread
+    assert j.snapshot(raw_inventory(8, 32))["bag_room"] == 0
+
+
+def test_i4_unread_room_never_takes():
+    io = FakeIO(room=[None, None])
+    out = j.apply_interruption(io, "I4", {"filler": "ITEM_FishingNet_CoarseNet", "rounds": 3}, T0)
+    assert out["took"] is False and "unread" in out["how"] and io.fixtures == []
+
+
+def test_l3_dirty_water_and_burnt_food_are_not_provisions():
+    # 17 Nov: Dirty Water reads consumable "drink" (236 rows); the game's data gives it Soulscourge 20
+    rows = [{"item": "ITEM_Consumable_Water_Dirty", "count": 5, "where": "bag", "consumable": "drink"},
+            {"item": "ITEM_Consumable_Farm_Steak_Burnt", "count": 5, "where": "bag", "consumable": "food"},
+            {"item": "ITEM_Consumable_Farm_Steak", "count": 5, "where": "hotbar", "consumable": "food"}]
+    s = j.snapshot(_gs(rows))
+    assert s["consumables"] == {"food": 5, "drink": 0}
+    ok, why = j.p_consumables_carried({"food": 5, "drink": 5}, {}, s)
+    assert not ok and "drink: 0 of 5" in why and "Water_Dirty" in why and "soulscourge 20" in why
+    rows.append({"item": "ITEM_Consumable_Water_Clean", "count": 5, "where": "bag", "consumable": "drink"})
+    assert j.p_consumables_carried({"food": 5, "drink": 5}, {}, j.snapshot(_gs(rows)))[0]
+
+
+CAMPFIRE = "BP_Station_Campfire_C_2147473018"
+
+
+def test_h2_his_campfire_is_not_his_chest(doc):
+    # a station he built is "mine" in get_state; meals left in it and read by a take there were "in his chest"
+    job = j.job_of("H2", doc)
+    cooked = sorted(x for x in j.made_at(["Campfire", "Grill"], "Item.Food") if "Burnt" not in x)[0]
+    rows = [result(5, "t", "take", data={"container": CAMPFIRE, "contents": ["10 Clean Water"]})]
+    st = _gs([], structures=[{"id": CAMPFIRE, "mine": True, "piece": "BUILDPIECE_Campfire"}],
+             interactables=[{"id": CAMPFIRE, "kind": "processing_station", "class": "BP_Station_Campfire_C"}])
+    start, end = j.snapshot(st), j.snapshot(st)
+    end.update(j.evidence(rows))
+    end["chests"][CAMPFIRE]["items"] = {cooked: 10, "ITEM_Consumable_Water_Clean": 10}
+    end["chest_end"] = {CAMPFIRE: {"read": True, "items": {cooked: 10, "ITEM_Consumable_Water_Clean": 10}}}
+    ok, why = j.done(job, start, end)
+    assert ok is False and "storage" in why
+    assert j.is_storage(CAMPFIRE) is False and j.is_storage("BP_Crafting_StartingBench_C_1") is False
+    assert j.is_storage(CRATE, {CRATE: "storage"}) is True and j.is_storage(CRATE) is None
+    assert j.is_storage(CRATE, {}, {"read": True, "items": {}, "class": "BP_BaseBuilding_Crate_C"}) is True
+    assert j.chest_candidates(start, end) == []
+
+
+def test_l2_without_an_end_read_is_unread_never_a_pass(doc):
+    job = j.job_of("L2", doc)
+    rows = [result(5, "s", "store", data={"container": CRATE, "item": "ITEM_Resources_CopperOre", "inside_now": 30,
+                                          "contents": ["30 Copper Ore"]})]
+    start, end = snap(mine=[CRATE]), snap()
+    end.update(j.evidence(rows))
+    ok, why = j.done(job, start, end)  # his last open of it said 30: memory
+    assert ok is None and "no end read" in why
+    end["chest_end"] = {CRATE: {"read": False, "why": "unknown_target"}}
+    ok, why = j.done(job, start, end)
+    assert ok is None and "unknown_target" in why
+    end["chest_end"] = {CRATE: end_read(0)}  # an end read below his last open, nothing taken out since: doubted
+    ok, why = j.done(job, start, end)
+    assert ok is None and "took nothing out since" in why
+    end["chests"][CRATE]["tool"] = "take"  # he took them out himself: the end read stands
+    assert j.done(job, start, end)[0] is False
+
+
+def test_read_container_of_an_inspect_reply():
+    r = j.read_container({"ok": True, "data": {"id": CRATE, "kind": "storage", "contents": [
+        {"item": "ITEM_Resources_CopperOre", "name": "Copper Ore", "count": 30}]}})
+    assert r == {"kind": "storage", "class": None, "read": True, "items": {"ITEM_Resources_CopperOre": 30}}
+    assert j.read_container({"ok": True, "data": {"id": CRATE}})["read"] is False  # no inventory read: not empty
+    assert j.read_container({"ok": False, "reason": "unknown_target"}) == {"kind": None, "class": None,
+                                                                           "read": False, "why": "unknown_target"}
+
+
+def test_run_job_l2_reads_his_crate_at_the_end_even_when_get_state_drops_it(doc):
+    # run 20261117-195219-L2: the crate was in neither the start nor the end read (15 rows within 30 m); it was in
+    # the reads while he stood at it
+    near = lambda t: state(mine=[CRATE]) if T0 + 15 <= t <= T0 + 40 else state()  # noqa: E731
+    io = FakeIO(script=l2_script(), states=near,
+                chests={CRATE: [{"item": "ITEM_Resources_CopperOre", "name": "Copper Ore", "count": 30}]})
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
+    assert rec["job_done"] and rec["state_end"]["chest_end"][CRATE]["items"] == {"ITEM_Resources_CopperOre": 30}
+    assert CRATE in io.inspected and "end read" in rec["done_why"]
+
+
+def test_run_job_l2_with_his_crate_unreadable_is_unread_and_not_counted(doc):
+    io = FakeIO(script=l2_script(), states=lambda t: state(mine=[CRATE]), chests={})
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"], "deadline": 200})
+    assert not rec["job_done"] and rec["unread"] and "unknown_target" in rec["unread"]
+    v = j.verdict(rec)
+    assert not v["pass"] and v["bars"]["read"] is False
+    assert j.not_counted(rec).startswith("end state unread") and j.scored([rec], set()) == []
+
+
+def test_a_failed_get_state_is_unread_never_an_empty_character(doc):
+    # 78 of 4 760 replies: ok false, "no local player controller"
+    bad = {"ok": False, "reason": "no local player controller", "data": {}}
+    s = j.snapshot(bad)
+    assert s["unread"] == "no local player controller" and s["carried"] == {}
+    assert j.snapshot({"unread": "get_state failed"})["unread"]
+    job = j.job_of("H1", doc)
+    end = j.snapshot(_gs([{"item": "ITEM_Shortbow_Ash", "count": 1, "where": "hotbar"},
+                          {"item": "ITEM_Ammo_Arrows_Stone", "count": 66, "where": "bag"},
+                          {"item": "ITEM_Resources_Animal_Hide", "count": 6, "where": "bag"}]))
+    end["crafted"] = {"ITEM_Shortbow_Ash": 1, "ITEM_Ammo_Arrows_Stone": 2}
+    ok, why = j.done(job, s, end)
+    assert ok is None and "start get_state" in why
+
+
+def test_l1_the_cowl_he_wears_is_the_jobs_own_head_start_rule(doc):
+    # not a reading fault: the cowl is read once (the loadout), and L1's not_carried_at_start names worn leather
+    job = j.job_of("L1", doc)
+    start = j.snapshot(_gs([{"item": "ITEM_Armour_T2_Head_Leather", "count": 1, "where": "loadout", "loadout_slot": "Head"}]))
+    assert start["carried"] == {"ITEM_Armour_T2_Head_Leather": 1}
+    assert j.not_counted(job, start) == "held at the start: ITEM_Armour_T2_Head_Leather x1"
