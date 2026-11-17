@@ -232,7 +232,7 @@ def test_named_recipes_only_for_things_a_station_makes_and_the_text_names():
 def test_named_recipes_say_when_the_recipe_is_not_unlocked_and_what_he_carries():
     st = {"inventory": {"ITEM_Club_Stone": 1}, "recipes_unlocked": ["RECIPE_Consumable_Rat_Roast_From_Rat"]}
     rows = needs.named_recipes(st, ["Cook a Rat Roast, then craft a Stone Club"])
-    assert rows[0] == "Rat Roast at a Campfire or Grill takes 1 Raw Rat Meat (you have 0)"
+    assert rows[0].startswith("Rat Roast at a Campfire or Grill takes 1 Raw Rat Meat (you have 0); a Campfire burns fuel")
     assert rows[1].startswith("Stone Club (you carry 1) at a Crafting Table takes 8 Stone (you have 0)")
     assert rows[1].endswith("not among your unlocked recipes yet")
 
@@ -252,3 +252,25 @@ def test_named_recipes_leave_a_vendor_s_trades_out_and_stations_carry_their_show
     # 60 trades at the two vendor stations carry no vendor_reputation; the station row says is_vendor
     assert needs.named_recipes({"inventory": {}}, ["Buy a Salve Crystal and a Weighted Training Band"]) == []
     assert needs._station_names(["CraftingTable"], needs.catalog()) == "Crafting Table"
+
+
+def test_named_recipes_say_what_the_fire_burns_and_what_he_carries_of_it():
+    """Chain sitting 2 (run 103436) and window s29 (run of log 125956), 2026-11-17: Rat Roast crafted beside a
+    Campfire with no fuel in it while carrying none (missing_materials, a miss). The row said only "takes 1 Raw Rat
+    Meat (you have 2)", which is everything the craft needs but the fuel. A replay of the turn: a craft first 5 of 12
+    as logged, 0 of 12 with the fuel named."""
+    step = ["Kill rats and successfully cook one rat roast from their meat."]
+    st = {"inventory": {"ITEM_Resources_Raw_Stringy_Meat": 2}}
+    assert needs.named_recipes(st, step) == [
+        "Rat Roast at a Campfire or Grill takes 1 Raw Rat Meat (you have 2); a Campfire burns fuel, and you carry none"
+        " (it burns Charcoal, Ash Logs, Oak Logs and 8 others)"]
+    st["inventory"]["ITEM_Resources_Wood_Ash"] = 7
+    assert needs.named_recipes(st, step)[0].endswith("(you have 2); a Campfire burns fuel (you carry Ash Logs x7)")
+    # a fire in sight that holds fuel: what he carries is not what the craft lacks
+    lit = {"inventory": {"ITEM_Resources_Raw_Stringy_Meat": 2},
+           "stations_nearby": [{"name": "Campfire", "id": "c1", "station": "Campfire", "distance": 17.2, "fuel": True}]}
+    assert needs.named_recipes(lit, step)[0].endswith("; a Campfire burns fuel, and the one 17 m off has fuel in it")
+    lit["stations_nearby"][0]["fuel"] = False
+    assert "you carry none" in needs.named_recipes(lit, step)[0]
+    # a station that burns nothing gets no fuel words
+    assert "fuel" not in needs.named_recipes({"inventory": {}}, ["craft a Stone Club"])[0]

@@ -178,6 +178,36 @@ def _station_near(sids: list[str], state: dict, cat: dict) -> dict | None:
     return None
 
 
+FUELS_SHOWN = 3
+
+
+def _fuel_words(r: dict, have: dict, state: dict, cat: dict) -> str:
+    """For a recipe made at a station that burns fuel: what he carries of what it burns ('' when none of its
+    stations burns any). A recipe's inputs are not all a craft takes at a fire.
+
+    Chain sitting 2 (run 103436) and window s29 (log 125956), 2026-11-17: Rat Roast crafted beside a Campfire with no
+    fuel in it while carrying none (missing_materials, a miss; 2 of the 6 Ratcatcher trials from the chain's own
+    state). The row read "takes 1 Raw Rat Meat (you have 2)". The turn replayed 12 times each way: a craft first 5 of
+    12 as logged, 0 of 12 with these words."""
+    stations, items = cat.get("stations") or {}, cat.get("items") or {}
+    burners = [s for s in r.get("stations") or [] if (stations.get(s) or {}).get("accepted_fuels")]
+    if not burners:
+        return ""
+    fuels = list(dict.fromkeys(f for s in burners for f in stations[s]["accepted_fuels"]))
+    name = lambda f: (items.get(f) or {}).get("name") or f
+    head = f"; a {_station_names(burners, cat)} burns fuel"
+    carried = [f"{name(f)} x{have[f]}" for f in fuels if have.get(f)]
+    if carried:
+        return f"{head} (you carry {', '.join(carried[:FUELS_SHOWN])})"
+    for row in state.get("stations_nearby") or []:  # a fire in sight that holds fuel needs none of his
+        lit = isinstance(row, dict) and row.get("station") in burners and row.get("fuel") is True
+        if lit and isinstance(row.get("distance"), (int, float)):
+            return f"{head}, and the one {row['distance']:.0f} m off has fuel in it"
+    more = len(fuels) - FUELS_SHOWN
+    return (f"{head}, and you carry none (it burns {', '.join(name(f) for f in fuels[:FUELS_SHOWN])}"
+            + (f" and {more} others" if more > 0 else "") + ")")
+
+
 _NAMED: dict[int, tuple] = {}
 NAMED_LIMIT = 3
 
@@ -246,13 +276,14 @@ def named_recipes(state: dict, texts, cat: dict | None = None, limit: int = NAME
                              f"(you have {have.get(i.get('item'), 0)})" for i in r.get("inputs") or [])
         carried = have.get(o.get("item"), 0)
         out.append(f"{o.get('name')}" + (f" (you carry {carried})" if carried else "") + f" at a {at} takes {takes}"
-                   + (", not among your unlocked recipes yet" if unlocked is not None and rid not in unlocked else ""))
+                   + (", not among your unlocked recipes yet" if unlocked is not None and rid not in unlocked else "")
+                   + _fuel_words(r, have, state, cat))
     return out
 
 
 def named_recipes_line(state: dict, texts, cat: dict | None = None) -> str | None:
     rows = named_recipes(state, texts, cat)
-    return ("Recipes of things your quests and job name: " + "; ".join(rows))[:LINE_CHARS] if rows else None
+    return ("Recipes of things your quests and job name: " + " | ".join(rows))[:LINE_CHARS] if rows else None
 
 
 def _craft(state: dict, kinds: list[str], cat: dict, heal: bool = False) -> list[str]:
@@ -272,7 +303,7 @@ def _craft(state: dict, kinds: list[str], cat: dict, heal: bool = False) -> list
         if not outs:
             continue
         st = (cat.get("stations") or {})
-        if any((st.get(s) or {}).get("vendor") for s in sids):
+        if any((st.get(s) or {}).get("is_vendor") for s in sids):  # the station row's key (no trade is food today)
             continue
         missing = [(i, max(0, int(i.get("count") or 1) - int(have.get(i.get("item"), 0)))) for i in r.get("inputs") or []]
         missing = [(i, n) for i, n in missing if n > 0]
