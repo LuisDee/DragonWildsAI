@@ -1731,3 +1731,27 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Ledger:** 53 failed runs, none untagged, 10 void.
 - **Spend** on 2026-11-17 UTC at 07:48Z: $1.80 of $10 by the guard (678 calls). s20 cost about $0.16 (52 calls).
 - **Limits.** No chain was run. Reports were not judged for truth. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, and c96dc9e's exact order.
+
+## 2026-11-17 07:50Z-08:10Z: Getting Started alone, 5 of 5 (9 of the last 10); the player list seen in the offered tools, no give call made
+
+**Window s21, Getting Started from `gs_start`, 5 of 5.** No failed tool result in any of the five trials, no stand.
+
+| run | result | time, x Luis | misses |
+|---|---|---|---|
+| 075126 | pass | 80.7 s, 0.68 | 0 |
+| 075450 | pass | 79.3 s, 0.61 | 0 |
+| 075816 | pass | 94.6 s, 0.69 | 0 |
+| 080203 | pass | 67.2 s, 0.57 | 0 |
+| 080535 | pass | 95.3 s, 0.75 | 0 |
+
+**02d2cfd (a player argument lists the players there are), what the window showed:**
+- The tools offered in every trial carried `enum: ["Tester"]` on give's and follow's `player`.
+- The warm-up wrote 14,369 tokens to the prompt cache and the first turn read 14,252 of them, so the list does not cost the cached head. No rebuild was logged (the names did not change).
+- **He made no `give` call in the five trials**, so the window does not show what happens when he reaches for one. The baseline is 3 gives to an NPC in 21 `gs_start` trials; 0 in 5 would happen by chance about every second window. The 3 open ledger runs stay open.
+- No craft ended `missing_materials` either (each trial: craft_plan, gather, craft).
+
+**State at 08:10Z.**
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, **9 from `gs_start`** (9 in a row); Ratcatcher 7 chained, 8 from `rc_start`; Rune Mysteries 3 chained, 10 from `rm_part2`, 9 from `rm_start`. The guard prints "chain: ready"; by rule 6 Ratcatcher (8 of 10, 2 open runs where the attack's approach gave up on the windmill hill) is worked first.
+- **Ledger:** 53 failed runs, none untagged, 10 void. No new row.
+- **Spend** on 2026-11-17 UTC at 08:08Z: $1.83 of $10 by the guard (715 calls). s21 cost about $0.03 (32 calls).
+- **Limits.** No chain was run. Reports were not judged for truth. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, and c96dc9e's exact order.
