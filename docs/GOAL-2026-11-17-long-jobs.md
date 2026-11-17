@@ -72,7 +72,7 @@ Luis: long jobs should "push the synergy between the planning thinking model and
 
 - The end is read from the game: the pieces are worn, the ore is in his chest, the count is in his bag. His own claim is never the end.
 - Bars per job: done; at most 1.5 times the time composed from Luis's per-unit baselines (as `rung4_gate.gear_up_t_h` and `quest_run.human_bar` do); no stand over 5 s without work or a reason he says; every report true.
-- **Misses:** the ladder says at most 1 per item. A 20-minute job has about ten times the calls of a quest. Until Luis says otherwise the bar stays 1, and each run also reports misses per 5 minutes of work.
+- **Misses** (Luis, 2026-11-17: "you want as much information on every run but you can decide"): the bar for a pass stays 1 per job, as the ladder says. Every run records all of it, pass or fail: each miss with its kind, time and the call that made it, misses per job, misses per 5 minutes of work, and the same split by interruption. If whole jobs fail on the count alone while the rate is at or under a quest's, that is reported with both numbers and the bar is looked at again then, not before.
 
 ### The interruption steps (short trials, worked first)
 
@@ -147,8 +147,8 @@ Rung 6 of the ladder. Tried only when L1 to L3 are at standard and the jump cour
 
 Not parked, because the tools now carry it: fixes not yet seen live (`tools/unseen.py`), and armour made and worn (job L1).
 
-## Decisions that are Luis's
+## Decisions (answered by Luis on 2026-11-17)
 
-1. The miss bar for a long job: 1 per job as the ladder says, or a rate (for example 1 per 5 minutes).
-2. Placement: whether the fallback is allowed (the placement call sent only when the game's preview says valid, with the preview's own transform).
-3. World restore and his dev character: the world save holds the server's copy of every character it has seen. `world_snapshot restore` refuses when the server's logs show a player other than Claude joined after the snapshot (none has since 2026-11-02, as far back as the logs go). If Luis plays on the dev world again, a later restore needs his word (`--others-ok`).
+1. **The miss bar for a long job.** Luis: "you want as much information on every run but you can decide". Decided: 1 per job stays the bar; every run records each miss and both rates (see "Misses" above).
+2. **The placement fallback.** Luis: "you make the decision". Decided: allowed, as a fallback only, under four conditions. The preview-move route is tried first and its press is shown not to place. The game's own preview says valid at that moment. The call carries the preview's own transform and piece, copied from the live engine objects, with nothing built by hand in Lua. Its first call is on the dev world with no other player on it, and every use is logged as `place_fallback` and counted beside the normal route. It stays marked TEMPORARY until the reason the press does not place is found.
+3. **The dev world.** Luis: "you can delete roll back nuke do whatever to the world its a dev world". A restore of the dev world needs no further word from him, also after he has played on it: `world_snapshot restore` is then run with `--others-ok` and those words. The guard stays for any other player, and none of this reaches the Shockbyte world or his character saves on his own machine.
