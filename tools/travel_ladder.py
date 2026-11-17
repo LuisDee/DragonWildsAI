@@ -164,7 +164,7 @@ P.update({
     # windmill hill, top: place (143.1, 1705.9), floor -5.0, 9 tried, 4 judged missed, median rise 120 cm
     "jht_a": [143.97, 1703.38, -4.87], "jht_b": [144.0, 1706.0, -2.72],
     # the ledges by Doric: place (110.2, 1847.5), floor -31.2, 36 tried, 18 judged missed, median rise 80 cm
-    "jd_a": [106.46, 1849.46, -31.36], "jd_b": [109.0, 1847.0, -30.52],
+    "jd_a": [106.46, 1849.46, -31.36], "jd_b": [109.02, 1846.57, -29.57],  # the rock top he stands on (docs/research/2026-11-17-jump-doric.md); the old cell lay on its flank
 })
 # Reached = on top: within JUMP_TOL_M (2D; the body's own go_to tolerance is 1.5 m, every start is 2.6 m or more
 # from its goal) and within half the leg's rise in height (at least 0.5 m, at most ARRIVE_DZ): standing at the foot
