@@ -1832,3 +1832,91 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Spend** on 2026-11-17 UTC at 10:05Z: $2.26 of $10 by the guard (870 calls). The chain sitting cost about $0.25 (46 calls), s23 about $0.08 (48 calls).
 - **Limits.** The chain is at 0 sittings in a row. Reports were not judged for truth. 526d60d, c2a9835, e5b851c, 1cffdc4 and d924707 have passed tests (and one replay) only; window s24 (Getting Started from `gs_start`, 5 trials, started 10:08Z) is the live trial of 526d60d, 1cffdc4 and d924707. The recipe line shows the catalog's recipe, not the live menu. Still unseen live: 82a9824, eb68bfb, 235f401, 07f1cb3, c9fb8ff, d6f9e8a, 93ec959, 4df3901, 62d7fc7, c96dc9e's exact order, c835589's stall reason.
 - **Next:** s24's ledger, then the chain gate again.
+
+## 2026-11-17 10:10Z-12:50Z: chain sitting 2 not passed (Ratcatcher, 2 misses); the step checkpoints were richer than the chain's character (new ones made); Ratcatcher at the chain's own state 9 of 10; three fixes (recipe rows without vendors, fuel words, a route that picks up after a local plan)
+
+**Window s24, Getting Started from `gs_start`, 5 of 5, no miss.**
+
+| brain log | result | time, x Luis | misses |
+|---|---|---|---|
+| 111100 | pass | 75.5 s, 0.63 | 0 |
+| 111424 | pass | 71.2 s, 0.61 | 0 |
+| 111753 | pass | 85.0 s, 0.65 | 0 |
+| 112121 | pass | 89.4 s, 0.73 | 0 |
+| 112452 | pass | 69.5 s, 0.59 | 0 |
+
+- **d924707 confirmed live** (the recipe of a named thing in the situation): no craft before the materials in 5 of 5. The baseline was 21 of 46 trials.
+- **526d60d confirmed live:** the quest marker read "Doric (npc)".
+- **1f5525f:** a vendor's trades stay out of the named recipes, and a station is named as the game shows it.
+
+**Chain sitting 2 (window 20261117-102857): not passed. Streak 0.**
+
+| quest | result | time, x Luis | misses |
+|---|---|---|---|
+| First Steps | pass | 30.5 s, 0.40 | 0 |
+| Getting Started | pass | 115.1 s, 0.86 | 0 |
+| Ratcatcher (103436) | **fail** (quest completed) | 157.8 s, 0.88 | 2 (attack unknown_target, craft missing_materials) |
+| Rune Mysteries | pass | 353.0 s, 0.81 | 0 |
+
+- **Why Ratcatcher passed 10 of 10 alone and failed in the chain.** The checkpoints `gs_start`, `rc_start` and `rc_chain` carry a richer bag than the chain's character has at that point (Ash Logs among it). The chain's character reaches Ratcatcher with 0 Ash Logs, so he has to find fuel. A trial from those checkpoints never met that.
+- **New checkpoints from the chain's own state:** `gs_chain` (after First Steps on a chain clone; s27, pass, 56.8 s, 0.65) and `rc_chain2` (after Getting Started from `gs_chain`; s28, pass, 86.4 s, 0.72). `rc_chain2` holds Stone Arrow x20, Bone Bolt x2, a Stone Club, Vegetable Soup, Dirty Water, runes, and no Ash Logs.
+- s25 (Getting Started from `gs_start`, 1 trial): pass, 92.6 s, 0.64.
+
+**Window s26, Ratcatcher from `rc_chain`, 5 of 5** (the old rich checkpoint; run before the finding above).
+
+| brain log | result | time, x Luis | misses |
+|---|---|---|---|
+| 115735 | pass | 117.0 s, 0.68 | 0 |
+| 120140 | pass | 112.1 s, 0.59 | 0 |
+| 120534 | pass | 106.4 s, 0.72 | 0 |
+| 120923 | pass | 105.4 s, 0.65 | 0 |
+| 121311 | pass | 108.7 s, 0.80 | 1 (attack unknown_target) |
+
+**Window s29, Ratcatcher from `rc_chain2`, 4 of 5.**
+
+| brain log | result | time, x Luis | misses |
+|---|---|---|---|
+| 123944 | pass | 239.1 s, 1.06 | 0 |
+| 124555 | pass | 169.6 s, 0.79 | 1 (attack unknown_target) |
+| 125058 | pass | 85.9 s, 0.63 | 0 |
+| 125432 | pass | 189.1 s, 0.87 | 0 |
+| 125956 (run 120009) | **fail** (quest completed) | 186.6 s, 0.93 | 2 (attack path_blocked, craft missing_materials) |
+
+**Window s30, Ratcatcher from `rc_chain2`, 5 of 5** (with be9a157).
+
+| run | result | time, x Luis | misses |
+|---|---|---|---|
+| 121459 | pass | 162.4 s, 0.81 | 1 (go_to to a Campfire by its instance name, not in sight) |
+| 121954 | pass | 177.7 s, 0.94 | 0 |
+| 122516 | pass | 467.5 s, 1.49 | 1 (attack: he died) |
+| 123523 | pass | 201.7 s, 0.90 | 0 |
+| brain log 134047 | pass | 290.8 s, 1.18 | 0 |
+
+- **122516: a death and a grave inside a pass, by 0.01 of the time bar.** He searched for rats with `explore` (94 s, 606 m walked in the trial), built his own Campfire, and was killed by a rat and goblins. He said so, walked to his grave, took everything back, and finished the quest.
+- **Brain log 134047:** the Rat Roast craft took 146 s. His reflex fought a Giant Rat on rocks beside the fire for about 2 minutes, with the approach stuck again and again. Not examined further.
+
+**The three causes worked, by the ledger.**
+
+1. **`attack` on a name with nothing in reach (model, about 1 call in 6).** The creature list was empty and he attacked a "Giant Rat" anyway.
+   - **Fix, f1108be (perception):** an empty creature list is said in words, with its reach ("no creature within 50 m").
+   - **Replay** of the turn (Haiku): 6 of 15 as logged, 0 of 15 with the line. Two other wordings (in the header, in the tool's text) did no better than 2 of 20 and 2 of 24 against 2 of 12, and were not built.
+   - **Live:** one exposure so far. He attacked anyway and it worked: attack resolves a name within 60 m, the list shows 50 m.
+   - **Open question for Luis:** such an attack is answered at once and nothing happens in the world. Whether it counts as a miss is his call; the rule is unchanged.
+2. **A craft at a fire with no fuel (model, on the information he had).** The recipe row named the inputs and not the fuel.
+   - **Fix, be9a157 (perception):** the recipe row of a thing made at a station that burns fuel says what he carries of what it burns, or that the fire in sight has fuel in it, or that he carries none and what it burns.
+   - **Replay:** s29's failing turn 5 of 12 as logged, 0 of 12 with the words. Sitting 2's turn was 10 of 10 both ways.
+   - **Live, s30:** in 5 of 5 trials he had fuel in his bag before the first craft at a fire, and no craft failed.
+3. **The attack's approach gave up on the hill behind Vannaka (skill; runs 073510 and 120009).**
+   - **Mechanism** (client log 12:00:22Z to 12:00:51Z, and the route planned again offline from the navigation memory): a wall-ahead local plan took him up a 3 m ledge to point 25 of the remembered route, 10 m from the rat. The route's index still stood at point 21 at the ledge's foot: points 21 and 22 are 0.7 m apart and the plan passed 1.2 m beside them, so neither counted as reached or passed. He ran back to point 21 off the ledge, three jumps from the foot missed, and the attack ended `path_blocked` after 29 s. Run 073510 shows the same run-back twice (07:35:50Z, 07:35:54Z).
+   - **Search (rule 5):** Nav2 prunes the global plan to the pose nearest the robot each cycle; this repo already does the same past a water detour. `docs/research/2026-11-17-route-rejoin-after-local-plan.md`.
+   - **Fix, d933d0e (move):** a local plan keeps which point of which route it was made toward. When its segment ends and he stands at that point, the remembered or oracle route picks up there.
+   - **Test:** a new move test failed before the change (he ran back) and passes with it; the Lua client suites pass (40).
+   - **Not seen live yet.** No s30 trial took that ledge. The jumps that missed from the foot (170 cm and 297 cm off the point's height) are not explained.
+
+**State at 12:50Z.**
+- **Tests:** brain set 483 passed (at be9a157); Lua client suites 40 passed (at d933d0e). The full suite was not run.
+- **Rates** (last 10 each): First Steps 10; Getting Started 7 chained, 10 from `gs_start`, 1 of 1 from `gs_chain`; Ratcatcher 6 chained, 10 from `rc_start`, 5 of 5 from `rc_chain`, **9 from `rc_chain2`**; Rune Mysteries 5 chained, 10 from `rm_part2`, 9 from `rm_start`. The guard prints "chain: ready".
+- **Ledger:** 58 rows, none untagged, 10 void. 120009 is tagged skill (be9a157 for the craft, d933d0e for the approach); 073510 carries d933d0e; 103436 is tagged model with be9a157.
+- **Spend** on 2026-11-17 UTC at 12:49Z: $2.62 of $10 by the guard (1,110 calls). Replays not counted by the guard in this stretch: about 130 Haiku calls, about $0.65.
+- **Limits.** The chain is at 0 sittings in a row. Reports were not judged for truth. `gs_chain` has 1 trial. No checkpoint holds the chain's state at Rune Mysteries' start. Still unseen live: d933d0e, c2a9835, e5b851c, 1cffdc4, f1108be beyond one exposure.
+- **Next:** chain sitting 3 (started 12:50Z).
