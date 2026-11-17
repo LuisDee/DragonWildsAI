@@ -2492,8 +2492,9 @@ M.MANIFEST = {
     craft = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 15, timeout_s = 300,
         detail_is_speech = true,
         description = "Make one recipe at a nearby station from carried items (walks there, uses it, collects the "
-            .. "result). Safe to try straight away: when an input, the unlock or a station is missing it does nothing "
-            .. "and says which. It does not gather or craft ingredients (craft_plan plans those).",
+            .. "result). It needs every input carried, the recipe unlocked and a station of its type: without one it "
+            .. "fails and says which. What a recipe takes, and what of it you are short of, is read with recipes. It "
+            .. "does not gather or craft ingredients (craft_plan plans those).",
         args = { type = "object", properties = obj({
             item = str("Item to make (name or id)."),
             input = str("Or a carried item to put in the station instead of naming what comes out (e.g. raw food at a fire): the recipe that takes it."),

@@ -986,6 +986,11 @@ for name in pairs(C.HANDLERS) do
     check("needs entry " .. name, C.NEEDS[name] ~= nil)
 end
 check("manifest: craft is an action, plan is read", C.MANIFEST.craft.kind == "action" and C.MANIFEST.craft_plan.kind == "read")
+-- a craft without its inputs is a failed action (the goal counts it as a miss), and a recipe can be read without one:
+-- 6 of 12 Getting Started runs (2026-11-16 16:00Z on) began the craft step with a craft that had no Ash Logs
+check("manifest: craft does not call a craft without its inputs safe, and says where a recipe is read",
+    not C.MANIFEST.craft.description:lower():find("safe to try", 1, true) and C.MANIFEST.craft.description:find("recipes", 1, true) ~= nil,
+    C.MANIFEST.craft.description)
 
 do -- an ambiguous name lists what he can make now first and names it (rung 4, 21:57Z: "bow" hid the Ash Shortbow)
     reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Weapon_Shortbow_Wood" }),
