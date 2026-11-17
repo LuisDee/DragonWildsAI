@@ -9,6 +9,7 @@ import pytest
 from brain import result_knowledge as rk
 from brain.knowledge import REPO_ROOT, Knowledge, _place_list
 from brain.llm import FakeLLM
+from tests.conftest import Rig
 
 # the two results from the live logs, as the body sent them (trail and trips trimmed)
 GATHER_COPPER = {"ok": False, "reason": "nothing_in_range", "data": {
@@ -128,3 +129,21 @@ def test_the_agent_adds_nothing_without_a_fact(rig):
     rig.agent.step()
     tool_msg = json.loads(next(m for m in rig.controller_llm.calls[1]["messages"] if m["role"] == "tool")["content"])
     assert "knowledge" not in tool_msg and not [r for r in rig.log.read_all() if r["kind"] == "result_knowledge"]
+
+
+def test_a_planned_step_that_finds_nothing_carries_it_too(tmp_path):
+    """Live 2026-11-17 22:24Z (run 20261117-212448-L2): explore and gather ran as Planner steps, failed nothing_in_range,
+    and no fact was added: only the turn's own calls were enriched. Every path's failed step carries it now: the
+    step's result (which the replan and the stuck message show) and the result_knowledge row."""
+    rig = Rig(tmp_path, max_replans=0)
+    rig.controller.knowledge = _KB({"gold": {"title": "Gold Ore Node", "location": "Bloodblight Swamp",
+                                             "tool": "Iron pickaxe or better", "url": "u"}})
+    rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "gold", "count": 1}}]))
+    rig.controller_llm.push(FakeLLM.say(""), FakeLLM.say(""))
+    assert rig.agent.run_goal("get some gold") == "stuck"
+    fact = "wiki, Gold Ore Node: found in Bloodblight Swamp; tool: Iron pickaxe or better"
+    assert fact in (rig.store.tree.tasks[0].detail or "")
+    rows = [r for r in rig.log.read_all() if r["kind"] == "result_knowledge"]
+    assert [(r["tool"], r["query"]) for r in rows] == [("gather", "gold")]
+    shown = json.dumps([m for c in rig.controller_llm.calls for m in c["messages"]])
+    assert "Bloodblight Swamp" in shown

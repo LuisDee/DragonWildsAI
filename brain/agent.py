@@ -496,6 +496,16 @@ class Agent:
         outcome = self.executor.run_task(task)
         detail = (outcome.data or {}).get("detail") if isinstance(outcome.data, dict) else None
         task.detail = str(detail)[:TASK_DETAIL_CHARS] if detail else None
+        if not outcome.ok:  # not found: what his own knowledge says about where it is (facts, with source), on every
+            # path: a Planner step's result is what the replan and the stuck message show (live 2026-11-17 22:24Z, run
+            # 20261117-212448-L2: explore and gather ran as plan steps and only the turn's own calls carried it)
+            got = result_knowledge.note(getattr(self.controller, "knowledge", None), task.skill, task.args,
+                                        {"ok": False, "reason": outcome.reason, "data": outcome.data})
+            if got is not None:
+                self.log.log("result_knowledge", tool=task.skill, query=got[0], added=got[1])
+                if isinstance(outcome.data, dict):
+                    outcome.data["knowledge"] = got[1]
+                task.detail = (f"{task.detail} " if task.detail else "") + f"({got[1]})"
         self._killed_note(task, outcome)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
         if self._directed is not None:
@@ -908,8 +918,8 @@ class Agent:
             if not outcome.ok and outcome.reason in (Reason.UNKNOWN_TARGET, Reason.INVALID_ARGS, Reason.NOT_PERCEIVED,
                                                      Reason.AMBIGUOUS_TARGET):
                 res["args_help"] = self.controller.arg_help(call.name)  # how to name a target for this tool
-            if not outcome.ok:  # not found: what his own knowledge says about where it is (facts, with source)
-                result_knowledge.enrich(getattr(self.controller, "knowledge", None), call.name, call.arguments, res, self.log)
+            if isinstance(outcome.data, dict) and outcome.data.get("knowledge"):  # added in _run_task, shown beside the reason
+                res["knowledge"] = outcome.data.pop("knowledge")
             results[call.id or call.name] = res
             if not outcome.ok:
                 failure, failed_call = (call.name, outcome.reason, outcome.data), call
@@ -1240,7 +1250,9 @@ class Agent:
         if self._quiet_goal:
             return "stuck"  # the board hears it from run_directed's records and decides
         self._situations.append({"type": "stuck", "goal": goal, "failed": task.skill if task else None,
-                                 "reason": reason, "question": question, **self._goal_request()})
+                                 "reason": reason, "question": question,
+                                 **({"result": task.detail} if task and task.detail else {}),  # what the step said
+                                 **self._goal_request()})
         self.flush_situations()
         return "stuck"
 
