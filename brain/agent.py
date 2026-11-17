@@ -96,6 +96,17 @@ UNREPORTED_NOTE = ("Before you stop: these steps failed and {player} hasn't hear
 STOP_NOTE = ("You stopped: no tool call and nothing said. Your last line to the player was: {line!r}. If it says you "
              "will keep going or do more, call the tool(s) for that now. If you can't, say in a few words what's "
              "stopping you. If it's done, reply with no text at all.")
+# The same one turn for a run that stops with nothing while a request a goal came from is still open (the run that
+# hears that goal end, or a later body run): the request closes on a reply with no call, so he is asked once whether
+# it is finished. Window s17 (2026-11-17), runs 044508 and 045210: the goal "50 ash logs to Zanik" came from "go and
+# see Zanik and do her quest"; the run that heard it end ate, drank, replied with nothing, and he stood with the
+# quest's next step open until the trial ran out. 16 and 17 Nov: 5 of the 26 runs that heard such a goal end stopped
+# so, all 5 with the quest open. Rolled forward from their first call 10 times each (with each step's report in
+# goal_done): went on 3 and 9 of 10 without this turn, 10 and 10 with it (it was needed 4 times and once).
+STOP_FOR_NOTE = ("You stopped: no tool call and nothing said. {player} asked {request!r}: if that is not finished, call "
+                 "the tool(s) for its next step now, in order. If you can't do it now (no tool or target for it, or "
+                 "something is missing), say in a few words what's stopping you. If it is finished, reply with no text "
+                 "at all.")
 # Live 2026-11-02 gear_up (logs/brain-live-20261102-013020-15324.jsonl): "gear up properly" met a failed craft (no
 # thread: the wheels need a roof) and he ended the request with "short on bones and leather, any spare?", the job
 # dropped although his situation listed the no-thread set and a task board was offered. A player's request that is
@@ -106,6 +117,7 @@ OPEN_JOB_NOTE = ("He asked {request!r}. This request ends here unless you act: i
                  "blocked, reply with no text at all.")
 LONG_JOB_TOOLS = ("add_task", "start_goal")
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
+GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
@@ -117,6 +129,24 @@ POST_ACTION_REUSE_S = 1.0  # the executor's own verification read is this fresh:
 def _task_label(t: Task) -> str:
     bits = [str(v) for k, v in t.args.items() if k in ("resource", "item", "target", "player", "count") and v is not None]
     return f"{t.skill} {' '.join(bits)}".strip()
+
+
+def _step_results(tasks: list[Task]) -> list[str]:
+    """What each step of a finished job reported, in the words a call of his own would have been answered with, for
+    the run that hears the job end. Window s17 (2026-11-17), runs 044508 and 045210: the hand-in talk was a plan step,
+    so "... moved on to its next step, Mine Rune Essence ... Given to you: 1 Stone Pickaxe" stayed on the task. The
+    run that heard goal_done saw the goal, "steps": 3 and the statuses, ate, drank and stopped with the quest's next
+    step open. 15 to 17 Nov: the hand-in made by the model itself ended in a finished quest 7 times of 11, as a plan
+    step 2 of 12. Run 045210 rolled forward from its first call, 10 times each: he went on 0 times as logged, 4 with
+    these rows, 9 with the talk report worded as one quest moving on (talk.lua outcome_words). (The plan-and-execute
+    idiom: the executor hands the planner's caller each step with its result.)"""
+    rows = []
+    for t in tasks:
+        if t.status not in ("done", "failed"):
+            continue
+        row = f"{_task_label(t)}: " + ("ok" if t.done else f"FAILED: {t.last_reason}")
+        rows.append(row + (f". {t.detail[:GOAL_RESULT_CHARS]}" if t.detail else ""))
+    return rows
 
 
 def _work_rows(d, t: dict, chars: int, unrun: bool = False) -> list[dict]:
@@ -490,6 +520,11 @@ class Agent:
         heard = addressed and bool(event.text)
         if heard:
             self._open_request = (event.player, event.text)
+        # a goal he queued that has not begun (step() starts it after this run): the run is told of it. Run
+        # 20261117-041914: "chopping them now" + start_goal, a hunger event came in before the goal began, and the
+        # run for it knew nothing of the waiting goal: it chopped the 48 logs and handed them in itself (260 s),
+        # then the goal began and the Planner had the done work done again.
+        self.controller.queued_goal = self.pending_goal if not self.pending_skill else None
         d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=heard,
                                    body_event=body_ctx)
         if body_events:  # speak-time check of the situation itself, on fresh state
@@ -602,8 +637,13 @@ class Agent:
             stop_check = (turn > 0 and not stop_checked and self.check_promises and bool(event.text) and not t["ran"]
                           and not t["failure"] and bool(prev_line) and not d.speech
                           and not (d.actions or d.goal or d.skill or d.refusals))
-            stop_checked = stop_checked or stop_check or promise_check or unheard  # never doubled with those
-            more = more or stop_check
+            stop_for = (not stop_checked and self.check_promises and bool(goal_asked)
+                        and goal_asked == self._open_request and not t["ran"] and not t["failure"] and not d.speech
+                        and not (d.actions or d.goal or d.skill or d.refusals))  # STOP_FOR_NOTE
+            if stop_for:
+                self.log.log("stop_for_check", request=goal_asked[1])
+            stop_checked = stop_checked or stop_check or promise_check or unheard or stop_for  # never doubled
+            more = more or stop_check or stop_for
             stop_line, prev_line = prev_line, this_line
             # not in a board run: the board reports its own step failures (test_recovery_decision_dispatch)
             if not more and unreported and not fail_checked and not t["failure"] and self._directed is None                     and not self._player_spoke():
@@ -654,9 +694,11 @@ class Agent:
             news = self._news()
             try:
                 promise_for = promise_check and goal_asked
-                plain = not (parked or last_turn or fail_check or open_check or promise_check or unheard or stop_check)
+                plain = not (parked or last_turn or fail_check or open_check or promise_check or unheard or stop_check
+                             or stop_for)
                 # does the note this turn's results go back with name the request (CONTINUE_FOR, PROMISE_FOR_NOTE)?
-                named = bool(event.text) or bool(promise_for) or (plain and not t["failure"] and bool(run_asked))
+                named = bool(event.text) or bool(promise_for) or stop_for or (
+                    plain and not t["failure"] and bool(run_asked))
                 say_res = {"ok": True, "note": "said"} if line_said else \
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
                      else "not said (too close to a line you just said)"}
@@ -671,7 +713,9 @@ class Agent:
                                                   request=goal_asked[1])
                                               if promise_for else
                                               PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else
-                                              STOP_NOTE.format(line=stop_line) if stop_check else None,
+                                              STOP_NOTE.format(line=stop_line) if stop_check else
+                                              STOP_FOR_NOTE.format(player=goal_asked[0] or self.controller.player,
+                                                                   request=goal_asked[1]) if stop_for else None,
                                               news=news, request=run_asked)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
@@ -1200,6 +1244,7 @@ class Agent:
         self.store.progress("goal done", goal=goal)
         if self._quiet_goal:
             return "done"
-        self._situations.append({"type": "goal_done", "goal": goal, "steps": len(tree.tasks), **self._goal_request()})
+        self._situations.append({"type": "goal_done", "goal": goal, "steps": len(tree.tasks),
+                                 "results": _step_results(tree.tasks), **self._goal_request()})
         self.flush_situations()
         return "done"

@@ -1096,7 +1096,7 @@ def gear_line(state: dict) -> str | None:
 
 
 def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | None = None,
-            places: Iterable[str] = (), looks_supported: bool = False) -> list[str]:
+            places: Iterable[str] = (), looks_supported: bool = False, queued_goal: str | None = None) -> list[str]:
     """At most 10 short lines describing the companion's situation, by in-game names."""
     if not state or state.get("unavailable"):
         return [f"(game state unavailable: {state.get('unavailable') if state else 'no state'})"]
@@ -1201,6 +1201,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         cur = next((t for t in tasks if t.get("status") in ("running", "pending")), None)
         step = f"; step {done + 1}/{len(tasks)}: {cur['skill']}" if cur and tasks else ""
         lines.append(f"Job: {active_goal}{step}"[:LINE_CHARS])
+    elif queued_goal:  # a goal he handed over that has not begun: its work is not this run's to do (agent.py)
+        lines.append(f"Job queued (it starts by itself when this turn ends): {queued_goal}"[:LINE_CHARS])
 
     known = sorted(set(state.get("places") or []) | set(places))
     lines.append(_line("Places", known))
@@ -1212,7 +1214,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     optional = ("Places:", "Reflex policy:", "Skills ", "Quests:", "Stations:",
                 "Spare gear:", "Food/drink:", "Players:", "Wearing:", "World:",
                 "On the ground:", "Around:", "Usable:", "Built pieces:", "Gear vs this area:", "Further off")
-    for prefix in ("Creatures", "Job:", "Asked:", "Your bases", "Your farm"):
+    for prefix in ("Creatures", "Job:", "Job queued", "Asked:", "Your bases", "Your farm"):
         required = next((line for line in available if line.startswith(prefix)), None)
         if required and required not in chosen:
             index = next((i for i in range(len(chosen)-1, -1, -1)

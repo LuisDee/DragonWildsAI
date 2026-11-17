@@ -396,6 +396,7 @@ class Controller:
                  progress_interval: float = 20.0, clock: Callable[[], float] = time.monotonic, caps=None,
                  knowledge=None):
         self.llm = llm
+        self.queued_goal: str | None = None  # a goal queued and not begun (the agent sets it before a run): a situation line
         self._logged: tuple[int, dict | None] = (0, None)  # the last prompt row's message count and last message
         self.knowledge = knowledge  # brain.knowledge.Knowledge | None: the lookup tool is offered only with one
         self.game = game
@@ -590,7 +591,7 @@ class Controller:
             # spoken_to=false: a body/board run, nobody said anything (L31: "hey! what we up to?" unprompted)
             "command": {"player": player, "text": text, "addressed": addressed, "spoken_to": bool(text)},
             "situation": sit.summary(state, active_goal=active_goal, tasks=tasks, places=self.store.places(),
-                                     looks_supported=self.can_look),
+                                     looks_supported=self.can_look, queued_goal=self.queued_goal),
             "active_goal": active_goal,
             "board": self.director.brief() if self.director is not None else None,
             "goal_tasks": tasks,
@@ -675,7 +676,8 @@ class Controller:
         tree = self.store.tree
         tasks = [t.model_dump(include={"skill", "args", "status"}) for t in tree.tasks] if tree and goal else []
         try:
-            return sit.summary(state, active_goal=goal, tasks=tasks, places=self.store.places(), looks_supported=self.can_look)
+            return sit.summary(state, active_goal=goal, tasks=tasks, places=self.store.places(),
+                               looks_supported=self.can_look, queued_goal=self.queued_goal)
         except Exception as exc:  # perception is best effort: the turn still runs
             self.log.log("situation_error", where="next_turn", error=repr(exc))
             return None

@@ -1465,3 +1465,100 @@ def test_back_in_the_world_after_a_drop_is_reviewed_at_once_with_the_request_sti
     r.at(301).step()
     r.at(312).step()
     assert len(r.model.contexts) == seen
+
+
+def test_a_goal_waiting_to_start_is_named_to_the_run_that_comes_before_it(tmp_path):
+    """Run 20261117-041914 (Rune Mysteries from rm_start): the model said "chopping them now" and called start_goal
+    ("Gather 50 Ash Logs ... bring them to Zanik"); a hunger event came in before the goal began, and the run for it
+    was shown nothing of the waiting goal. It chopped the 48 logs and handed them in itself, 260 s of work, and then
+    the goal began: the Planner had it chop 1 more log and talk to Zanik again, with the quest already a step on."""
+    r = Replay(tmp_path, STATES[0])
+    goal = "Gather 50 Ash Logs and bring them to Zanik"
+
+    def asked(ctx):  # the hunger event comes in while the model answers: the next poll has it
+        r.body.emit({"type": "vitals_low", "stat": "hydration", "value": STATES[0]["hydration"], "max": 75.0})
+        return FakeLLM.say("chopping them now", FakeLLM.call("start_goal", goal=goal))
+    r.model.replies["do her quest"] = asked
+    r.model.body_reply = lambda ctx: FakeLLM.say("")
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude go and see Zanik and do her quest"})
+    r.agent.planner.llm.push(FakeLLM.plan([{"skill": "go_to", "args": {"target": "Zezima"}}]))
+    r.body.act("go_to", go_to_ok(STATES[0]))
+    r.at(0).step()
+    body_runs = [c for c in r.model.contexts if c.get("body_event") and not c["command"]["text"]]
+    assert body_runs, [c["command"] for c in r.model.contexts]
+    lines = [ln for ln in body_runs[0]["situation"] if ln.startswith("Job queued")]
+    assert lines and goal in lines[0] and "starts by itself" in lines[0], body_runs[0]["situation"]
+    # the run that queued it, and any run with no goal waiting, has no such line
+    assert not [ln for ln in r.model.contexts[0]["situation"] if ln.startswith("Job queued")]
+    assert r.agent.pending_goal is None and [c[0] for c in r.body.calls] == ["go_to"]  # it began after that run
+
+
+def test_the_run_that_hears_a_job_end_is_shown_what_each_step_reported(tmp_path):
+    """Window s17 (2026-11-17), runs 044508 and 045210 (Rune Mysteries from rm_start): the hand-in talk was a step of
+    the plan, so its report ("... moved on to its next step, Mine Rune Essence ...") went to the task and nowhere
+    else. The run that heard goal_done was shown the goal, "steps": 3 and each step's status; it ate, drank and
+    stopped with the quest's next step open. In the three days before, the hand-in made by the model itself ended in
+    a finished quest 7 times of 11, as a plan step 2 of 12. Run 045210 rolled forward from its first call, 10 times
+    each: he went on 0 times as logged, 4 with each step's report in the event, 9 with the report worded as one quest
+    moving on (talk.lua). Run 044508 stopped on another cause (a craft failed falsely, test_gather_data)."""
+    r = Replay(tmp_path, STATES[0])
+    goal = "Bring the logs to Zezima and talk to him"
+    r.model.replies["do his quest"] = lambda ctx: FakeLLM.say("on it", FakeLLM.call("start_goal", goal=goal))
+    r.model.body_reply = lambda ctx: FakeLLM.say("")
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come and do his quest"})
+    r.agent.planner.llm.push(FakeLLM.plan([{"skill": "go_to", "args": {"target": "Zezima"}},
+                                           {"skill": "interact", "args": {"target": "npc_1"}}]))
+    r.body.act("go_to", go_to_ok(STATES[0]))
+    told = "The conversation ended. Odd Jobs is not finished: it moved on to its next step, Mine the ore."
+    r.body.act("interact", ok(target="npc_1", detail=told + " " + "x" * 600))
+    r.at(0).step()
+    done = [c["body_event"] for c in r.model.contexts if (c.get("body_event") or {}).get("type") == "goal_done"]
+    assert len(done) == 1 and done[0]["steps"] == 2, r.model.contexts
+    assert done[0]["results"][0] == "go_to Zezima: ok", done[0]
+    assert done[0]["results"][1].startswith("interact npc_1: ok. " + told), done[0]
+    assert len(done[0]["results"][1]) <= 440, len(done[0]["results"][1])  # a long report is cut, not dropped
+
+
+def _goal_from_his_words_then_silence(tmp_path):
+    """He asks for a quest, the model hands a goal to the Planner, the goal ends, and the run that hears it end
+    replies with nothing."""
+    r = Replay(tmp_path, STATES[0])
+    goal = "Bring the logs to Zezima and talk to him"
+    r.model.replies["do his quest"] = lambda ctx: FakeLLM.say("on it", FakeLLM.call("start_goal", goal=goal))
+    r.model.body_reply = lambda ctx: FakeLLM.say("")
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come and do his quest"})
+    r.agent.planner.llm.push(FakeLLM.plan([{"skill": "go_to", "args": {"target": "Zezima"}},
+                                           {"skill": "interact", "args": {"target": "npc_1"}}]))
+    r.body.act("go_to", go_to_ok(STATES[0]))
+    r.body.act("interact", ok(target="npc_1", detail="Odd Jobs is not finished: it moved on to its next step."))
+    return r
+
+
+def _stop_for_notes(r):
+    from brain.agent import STOP_FOR_NOTE
+    return [c["messages"][-1]["content"] for c in r.model.calls
+            if c["messages"][-1]["role"] == "user" and c["messages"][-1]["content"].startswith(STOP_FOR_NOTE.split("{")[0])]
+
+
+def test_a_run_that_stops_with_nothing_on_his_open_request_is_asked_once_and_may_go_on(tmp_path):
+    """Window s17 (2026-11-17), runs 044508 and 045210: the goal "50 ash logs to Zanik" came from "go and see Zanik
+    and do her quest"; the run that heard it end ate, drank and replied with nothing, the request closed and he stood
+    with the quest's next step open until the trial ran out. 16 and 17 Nov: 5 of the 26 runs that heard such a goal
+    end stopped so, all 5 with the quest open. One turn names the request; the model decides."""
+    r = _goal_from_his_words_then_silence(tmp_path)
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("interact", target="npc_1")), FakeLLM.say("")]
+    r.body.act("interact", ok(target="npc_1"))  # his own next step, after the plan's two
+    r.at(0).step()
+    notes = _stop_for_notes(r)
+    assert len(notes) == 1 and "come and do his quest" in notes[0], notes
+    assert [c[0] for c in r.body.calls] == ["go_to", "interact", "interact"], r.body.calls  # the plan, then his step
+    assert [row["request"] for row in r.records("stop_for_check")] == ["claude come and do his quest"]
+    assert len(r.records("request_closed")) == 1  # the empty reply after his step ends it
+
+
+def test_the_model_may_end_the_request_at_that_one_turn(tmp_path):
+    r = _goal_from_his_words_then_silence(tmp_path)  # every later reply is empty too
+    r.at(0).step()
+    assert len(_stop_for_notes(r)) == 1
+    assert [c[0] for c in r.body.calls] == ["go_to", "interact"], r.body.calls
+    assert len(r.records("request_closed")) == 1

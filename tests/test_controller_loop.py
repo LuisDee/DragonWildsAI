@@ -327,7 +327,9 @@ def test_progress_is_noted_for_body_status_not_said(tmp_path):
     assert any(r["kind"] == "progress" for r in rig.log.read_all())
     assert any(line.startswith("Job progress") for line in rig.agent.broker.digest())
     goal_done = [json.loads(c["messages"][1]["content"]) for c in rig.controller_llm.calls]
-    assert goal_done and goal_done[-1]["body_event"] == {"type": "goal_done", "goal": "gather 30 logs", "steps": 1}
+    ev = goal_done[-1]["body_event"]
+    assert {k: v for k, v in ev.items() if k != "results"} == {"type": "goal_done", "goal": "gather 30 logs", "steps": 1}
+    assert len(ev["results"]) == 1 and ev["results"][0].startswith("gather log 30: ok"), ev
 
 
 def _said_at(rig):
@@ -642,11 +644,16 @@ def test_a_later_body_run_carries_the_open_request_until_he_stops_on_it(tmp_path
     _review(rig)
     assert rig.agent._open_request == asked  # the line after a failure is about that step, not the request
     n = len(rig.controller_llm.calls)
-    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+                            FakeLLM.say(""))
     _review(rig)
     note = rig.controller_llm.calls[n + 1]["messages"][-1]["content"]
     assert "Luis asked \"claude, go and do the woodcutter's quest\": continue with the next step of that" in note, note
-    assert rig.agent._open_request is None  # he stopped on the note that named it: his call
+    # a stop with nothing while it is open is asked about once (agent.STOP_FOR_NOTE, window s17)...
+    note = rig.controller_llm.calls[n + 2]["messages"][-1]["content"]
+    assert note.startswith("You stopped: no tool call and nothing said. Luis asked \"claude, go and do the"), note
+    assert len(rig.controller_llm.calls) == n + 3
+    assert rig.agent._open_request is None  # ...and he stopped on the note that named it: his call
     n = len(rig.controller_llm.calls)
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
     _review(rig)
