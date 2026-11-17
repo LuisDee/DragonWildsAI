@@ -1308,8 +1308,47 @@ local function read_all(path)
     local t = f:read("a"); f:close(); return t
 end
 
--- -> the memory record (c.mem); loads the file the first time a world+character is seen
-function M.memory(log, pawn)
+-- What he has learned of a world's creatures (each attack's timing, reach and lunge; the ranged fits) is the
+-- player's, not one character's: kept beside the characters' memories as combat_knowledge.json, read by every
+-- character of his in that world and written with each memory save. (Step trials run on a new fork each: in windows
+-- s6 to s9 every trial began with "none yet" and left the first Giant Rat lunge unanswered as out of reach.)
+function M.knowledge_path(world) return (M.cfg.memory_root or ROOT) .. "/data/skills/" .. world .. "/combat_knowledge.json" end
+function M.knowledge_load(log, m)
+    local path = M.knowledge_path(m.world)
+    local txt = read_all(path) or read_all(path .. ".tmp") -- (.tmp: a save that died between its remove and its rename)
+    if not txt then return nil end
+    local J = json()
+    local ok, doc = pcall(function() return J and J.decode(txt) end)
+    if not ok or type(doc) ~= "table" then return nil end -- unreadable: the next save writes a whole one
+    if m.build and tostring(doc.build) ~= m.build then
+        if log then pcall(log, string.format("combat: knowledge %s is from build %s (client build %s): not used", path, tostring(doc.build), m.build)) end
+        return nil
+    end
+    local D, R = mod("defense"), mod("ranged")
+    m.known = { attacks = D and D.import and D.import(doc.defense) or 0, ranged = R and R.import and R.import(doc.ranged) or 0 }
+    if log then
+        pcall(log, string.format("combat: %d attacks added from what his characters learned in this world (%s, last written by %s)",
+            m.known.attacks, path, tostring(doc.by)))
+    end
+    return m.known
+end
+function M.knowledge_save(m, doc)
+    local J = json()
+    if not J then return false end
+    local ok, txt = pcall(J.encode, { v = 1, build = m.build, world = m.world, saved_at = doc.saved_at, by = m.char,
+                                      defense = doc.defense, ranged = doc.ranged })
+    if not ok or type(txt) ~= "string" then return false end
+    local path = M.knowledge_path(m.world)
+    local tmp = path .. ".tmp"
+    local f = M.fs.open(tmp, "wb")
+    if not f then return false end
+    f:write(txt); f:close()
+    M.fs.remove(path)
+    return M.fs.rename(tmp, path) and true or false
+end
+
+-- -> the memory record (c.mem); loads the character's own file the first time a world+character is seen
+local function memory_own(log, pawn)
     local c = C()
     local char = sanitize(pawn and U.try(function() return U.player_name(pawn) end)) or (c.mem and c.mem.char) or "unknown"
     local world, world_src = M.world_id()
@@ -1324,7 +1363,7 @@ function M.memory(log, pawn)
     local from = path
     if not txt then txt = read_all(path .. ".bak"); from = path .. ".bak" end
     if not txt then
-        if log then pcall(log, "combat: memory " .. path .. ": none yet (first fights in this world)") end
+        if log then pcall(log, "combat: memory " .. path .. ": none yet (this character's first fights in this world)") end
         return m
     end
     local J = json()
@@ -1369,6 +1408,16 @@ function M.memory(log, pawn)
         local n = 0
         for _ in pairs(m.history) do n = n + 1 end
         pcall(log, string.format("combat: memory loaded %s (build %s, %d attacks, %d creatures)", path, tostring(m.file_build), m.imported.attacks, n))
+    end
+    return m
+end
+
+-- -> the memory record (c.mem): the character's own first, then what his other characters learned of this world
+function M.memory(log, pawn)
+    local m = memory_own(log, pawn)
+    if m and not m.off and m.known == nil then
+        m.known = false
+        pcall(M.knowledge_load, log, m)
     end
     return m
 end
@@ -1479,6 +1528,7 @@ function M.memory_save(log, m)
     end
     M.fs.remove(bak)
     m.saves, m.save_err, m.saved_at = (m.saves or 0) + 1, nil, doc.saved_at
+    pcall(M.knowledge_save, m, doc)
     return true
 end
 

@@ -29,5 +29,6 @@ data/envelopes/
 data/skills/*/nav_memory.json
 data/skills/*/terrain_observations.json*
 data/skills/*/combat_memory_*.json
+data/skills/*/combat_knowledge.json*
 data/skills/dev_*/
 .claude/settings.local.json

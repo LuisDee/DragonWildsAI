@@ -2394,8 +2394,10 @@ do
     local in_fight = 0
     for _, w in ipairs(writes) do if w.in_fight then in_fight = in_fight + 1 end end
     check("memory: no file write while fighting", in_fight == 0, in_fight)
-    check("memory: written once at the fight's end (tmp then renamed)", #writes == 1 and writes[1].path == path .. ".tmp" and exists(path)
-          and not exists(path .. ".tmp") and not exists(path .. ".bak"), #writes)
+    local kpath = Cm.knowledge_path("shockbyte")
+    check("memory: written once at the fight's end (tmp then renamed), the world's shared knowledge with it", #writes == 2
+          and writes[1].path == path .. ".tmp" and writes[2].path == kpath .. ".tmp" and exists(path) and exists(kpath)
+          and not exists(path .. ".tmp") and not exists(path .. ".bak") and not exists(kpath .. ".tmp"), #writes)
     Cm.fs.open = real_open
     local txt = read(path) or ""
     check("memory: tagged with the build and world", txt:find('"build":"TESTBUILD"', 1, true) ~= nil and txt:find('"world":"shockbyte"', 1, true) ~= nil, txt:sub(1, 160))
@@ -2438,6 +2440,8 @@ do
     -- a file from another build is refused loudly and kept
     local stale = (read(path) or ""):gsub('"build":"TESTBUILD"', '"build":"OLD1"')
     local f = io.open(path, "wb"); f:write(stale); f:close()
+    stale = (read(kpath) or ""):gsub('"build":"TESTBUILD"', '"build":"OLD1"') -- (a patch: the shared knowledge is as old)
+    f = io.open(kpath, "wb"); f:write(stale); f:close()
     restart()
     local lines = {}
     local m2 = Cm.memory(function(l) lines[#lines + 1] = l end, pawn)
@@ -3166,6 +3170,69 @@ do
     local g3 = { comp = {}, seed = { full_accuracy_s = 1.25 }, aim_t0 = 0, flags = { loaded = true, aim = true }, aim_on_t = 0 }
     check("bow_ready: a kebbit 3 m off -> 0.5 s of draw is enough", Cm.bow_ready({ t = 0.5, dist_m = 3 }, g3))
     check("bow_ready: 14 m off -> 0.5 s is not", not Cm.bow_ready({ t = 0.5, dist_m = 14 }, g3))
+end
+
+-- ================================================================ 22c. what he learned of a world's creatures goes with the player
+-- Step trials run on a new fork of a checkpoint each. In windows s6 to s9 every trial's client said "memory ...: none
+-- yet", and the first Giant Rat lunge of a trial was left unanswered as out of reach (none -> hit 14 times), though his
+-- earlier characters had been hit by that lunge from 4.5 to 5.8 m. An attack's timing and reach is the creature's.
+reset_world()
+do
+    Cm.cfg.memory_enabled = true
+    local dir = Cm.cfg.memory_root .. "/data/skills/shockbyte"
+    local kpath = dir .. "/combat_knowledge.json"
+    local function clean()
+        for _, n in ipairs({ "combat_memory_BP_PlayerCharacter_C_1", "combat_memory_ClaudeFork", "combat_memory_ClaudeFork2", "combat_knowledge" }) do
+            for _, s in ipairs({ ".json", ".json.bak", ".json.tmp" }) do os.remove(dir .. "/" .. n .. s) end
+        end
+    end
+    local function restart() _G.DWCombat, _G.DWDefense, _G.DWRanged = nil, nil, nil end
+    local function as(name) pawn.PlayerState = name and { IsValid = function() return true end, GetPlayerName = function() return name end } or nil end
+    local key = "Giant Rat:ATK_GiantRat_Attack_01"
+    local fixed = function() return 0.5 end
+    local function lunge()
+        return Dm.plan({ key = key, dmg_time = 1.08 }, { dist_cm = 650, latency_s = 0.03, stamina = 60, can_block = true, block_cost = 10,
+                                                        evade_cost = 15, hp_frac = 1, heal_hp = 0.5 }, {}, fixed)
+    end
+    clean(); restart()
+    Cm.memory(nil, pawn)
+    check("knowledge: an attack never met, 6.5 m off, is taken to be out of reach", lunge().why == "out_of_reach", lunge().why)
+    local r = Dm.rec(key); r.n, r.impact_s, r.hit_from_cm = 3, 1.08, 575 -- (he was hit by it from 5.75 m)
+    Cm.memory_save(nil)
+    -- another character of his in the same world
+    restart(); as("ClaudeFork")
+    local lines = {}
+    local m = Cm.memory(function(l) lines[#lines + 1] = l end, pawn)
+    local a = Dm.status().attacks[key]
+    check("knowledge: a new character has no memory of its own", m.status == "new" and m.char == "ClaudeFork", tostring(m.status) .. " " .. tostring(m.char))
+    check("knowledge: but knows the attack another character of his learned", a and a.hit_from_cm == 575 and a.impact_s == 1.08, a and a.hit_from_cm)
+    check("knowledge: and the log says so", table.concat(lines, " | "):find("1 attacks added from what his characters learned in this world", 1, true) ~= nil,
+        table.concat(lines, " | "))
+    check("knowledge: so that lunge from 6.5 m is answered", lunge().action ~= "none", tostring(lunge().action) .. " " .. tostring(lunge().why))
+    -- what the second character learns reaches the first
+    Dm.rec(key).n, Dm.rec(key).hit_from_cm = 5, 600
+    Cm.memory_save(nil)
+    restart(); as(nil)
+    local m1 = Cm.memory(nil, pawn)
+    check("knowledge: what the second learned reaches the first", m1.status == "loaded" and Dm.status().attacks[key].hit_from_cm == 600,
+        tostring(m1.status) .. " " .. tostring(Dm.status().attacks[key].hit_from_cm))
+    -- another build's timings are not trusted; a file that does not read is tolerated
+    local f = io.open(kpath, "rb"); local txt = f:read("a"); f:close()
+    f = io.open(kpath, "wb"); f:write((txt:gsub("TESTBUILD", "OLD1"))); f:close()
+    restart(); as("ClaudeFork2")
+    Cm.memory(nil, pawn)
+    check("knowledge: another build's is not used", Dm.status().attacks[key] == nil)
+    f = io.open(kpath, "wb"); f:write("{nope"); f:close()
+    restart()
+    local m2 = Cm.memory(nil, pawn)
+    check("knowledge: a file that does not read is tolerated", m2.status == "new" and Dm.status().attacks[key] == nil, m2.status)
+    Cm.memory_save(nil)
+    f = io.open(kpath, "rb"); txt = f and f:read("a") or ""; if f then f:close() end
+    check("knowledge: and the next save writes a whole one", txt:find('"build":"TESTBUILD"', 1, true) ~= nil or txt:find('"build": "TESTBUILD"', 1, true) ~= nil, txt:sub(1, 120))
+    clean(); as(nil)
+    Cm.cfg.memory_enabled = false
+    restart()
+    A.reset(nil)
 end
 
 -- ================================================================ a block faces where the camera looks
