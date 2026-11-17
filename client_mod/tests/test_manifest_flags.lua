@@ -35,6 +35,11 @@ do
     local s = assert(io.open(root .. "/client_mod/scripts/skills.lua", "rb")):read("a")
     check("skills.collect_water llm=true action moves",
         s:find('collect_water = { kind = "action", llm = true, moves = true', 1, true) ~= nil)
+    -- explore walks with no place in mind. 5 of 12 Ratcatcher runs from rc_start (2026-11-16/17) called it for the rats
+    -- with the step's marker in view as a go_to target: 45 s of legs, nothing_in_range, then go_to the marker
+    local d = s:match('explore = { kind = "action".-description = (.-)args = ') or ""
+    check("skills.explore says it has no place in mind and that go_to goes to a known one",
+        d:find("no place in mind", 1, true) ~= nil and d:find("go_to", 1, true) ~= nil, d:sub(1, 300))
 end
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

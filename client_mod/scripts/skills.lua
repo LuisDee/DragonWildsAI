@@ -3444,8 +3444,9 @@ M.MANIFEST = {
         reasons = { "invalid_args" } },
     explore = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 60, timeout_s = 300,
         detail_is_speech = SPEAKS,
-        description = "Search outward, least-visited directions first, until something matching 'about' comes into view; "
-            .. "reports what was found or how far you searched.",
+        description = "Search outward on foot with no place in mind, least-visited directions first, until something "
+            .. "matching 'about' comes into view; reports what was found or how far you searched. It does not head for a "
+            .. "place you know of (a quest's marker, a named or remembered place): go_to goes there.",
         args = { type = "object", required = { "about" }, properties = obj({
             about = str("What to look for, in words (e.g. water, berries, a tree)."),
             max_legs = { type = "integer", minimum = 1, maximum = 12, default = 6, description = "How many legs." },
