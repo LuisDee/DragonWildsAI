@@ -3456,24 +3456,28 @@ end
 -- sideways after run_up_wait_s, he jumps anyway and says so; slow or straight, he jumps at once.
 do
     local cm = pawn.CharacterMovement
-    local function runup(vel, frames)
+    local function runup(vel, frames, rise, leap)
         M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
         pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
         M.follow(log, "Zezima", 2, { nav = false })
         run(5)
         local mv = _G.DW_MOVE
         local here = pawn.loc
-        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X, Y = here.Y + 150, Z = FLOOR, act = "jump" } }
+        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" },
+            { X = here.X, Y = here.Y + 150, Z = FLOOR + (rise or 0), act = "jump", leap = leap } }
         mv.lwp = 2; mv.lp_jump_exec = nil; mv.lp_jumped = {}; mv.lp_runup = nil
         mv.trav_fails, mv.lp_fail = nil, nil
         mv.win_t, mv.win_pos = T, { X = here.X, Y = here.Y, Z = here.Z }
         local j0, n0 = pawn.jumps, #logs
+        local inputs, real_add = 0, pawn.AddMovementInput
+        pawn.AddMovementInput = function(self, d, sc) if pawn.jumps == j0 then inputs = inputs + 1 end return real_add(self, d, sc) end
         frame_hook = function() cm.Velocity = type(vel) == "function" and vel() or vel end
         step(frames)
         frame_hook = nil
+        pawn.AddMovementInput = real_add
         local said = {}
         for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump run-up", 1, true) then said[#said + 1] = logs[i] end end
-        return pawn.jumps - j0, said
+        return pawn.jumps - j0, said, inputs
     end
     local jumps, said = runup({ X = 450, Y = 0, Z = 0 }, 1)
     check("run-up: fast and sideways at the takeoff, he does not press yet", jumps == 0 and said[1] ~= nil
@@ -3488,6 +3492,25 @@ do
     check("run-up: slow at the takeoff, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
     jumps, said = runup({ X = 0, Y = 450, Z = 0 }, 1)
     check("run-up: fast and straight at the landing, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
+    -- a jump up onto another level is pressed from a near standstill (jump-misses-left study 2026-11-17: pressed under
+    -- 100 cm/s 0 of 40 missed, faster 28 of 69): fast, he faces the landing with no move input until he is slow, at
+    -- most run_up_wait_s; a gap jump on one level and a leap keep their running jump
+    local inputs
+    jumps, said, inputs = runup({ X = 0, Y = 450, Z = 0 }, 3, 150)
+    check("run-up: fast and straight at a jump up, he brakes and does not press yet", jumps == 0 and inputs == 0 and said[1] ~= nil
+        and said[1]:find("slowing for a jump up", 1, true) ~= nil, "jumps=" .. jumps .. " inputs=" .. inputs .. " " .. tostring(said[1]))
+    f = 0
+    jumps, said = runup(function() f = f + 1; return f < 6 and { X = 0, Y = 450, Z = 0 } or { X = 0, Y = 60, Z = 0 } end, 10, 150)
+    check("run-up: at a jump up, he presses once he is slow", jumps == 1 and #said == 1, "jumps=" .. jumps .. " said=" .. #said)
+    jumps, said = runup({ X = 0, Y = 450, Z = 0 }, 30, 150)
+    check("run-up: still fast at a jump up after the wait, he jumps anyway and says so", jumps == 1
+        and tostring(said[#said]):find("jumping anyway", 1, true) ~= nil, "jumps=" .. jumps .. " " .. tostring(said[#said]))
+    jumps, said = runup({ X = 0, Y = 60, Z = 0 }, 1, 150)
+    check("run-up: slow at a jump up, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
+    jumps, said = runup({ X = 0, Y = 450, Z = 0 }, 1, 0)
+    check("run-up: fast at a gap jump on one level, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
+    jumps, said = runup({ X = 0, Y = 450, Z = 0 }, 1, 150, true)
+    check("run-up: fast at a leap up, he jumps at once", jumps == 1 and #said == 0, "jumps=" .. jumps)
     cm.Velocity = nil
     M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
 end

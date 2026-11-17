@@ -128,6 +128,9 @@ M.cfg = {
     run_up_cos = 0.7,          -- ... he steers at the landing before he presses (jump course 2026-11-17: 10 of 16
     run_up_wait_s = 0.6,       -- ... misses took off sideways at 450 cm/s), at most this long, then jumps anyway
     run_up_keep_cm = 150,      -- ... and while he turns, the takeoff holds within this of the jump's start
+    run_up_up_cms = 100,       -- a jump up onto another level faster than this: no input, facing the landing, until he
+                               -- ... is slower, at most run_up_wait_s (2026-11-17 study: pressed under 100 cm/s 0 of
+                               -- ... 40 single jumps missed, faster 28 of 69)
     below_max_cm = 500,        -- a go_to spot hanging over his floor up to this above his feet: arrived right under it        -- a leap's landing counts within this of the planned cell (he leaves the edge at speed)
     cam_taken_deg = 1.0,       -- the control rotation moved this far from move's own last write: another skill aims
     cam_yield_s = 0.6,         -- ... and move leaves the camera alone this long (renewed while it keeps aiming)
@@ -3416,13 +3419,26 @@ local function steer_typed_jump(f, p)
         local ex, ey = p.X - me.X, p.Y - me.Y
         local el = math.sqrt(ex * ex + ey * ey)
         local cosr = (vh > 1 and el > 1) and (vx * ex + vy * ey) / (vh * el) or 1
-        if vh > M.cfg.run_up_fast_cms and cosr < M.cfg.run_up_cos then
+        -- ... and a jump up onto another level is pressed from a near standstill: he lets go of the input, facing the
+        -- landing, until he is slow (2026-11-17 study, docs/research/2026-11-17-jump-misses-left.md: single jumps
+        -- pressed under 100 cm/s 0 of 40 missed, faster 28 of 69; at speed he reached the face under its lip or
+        -- crossed a narrow top before he came down). A gap on one level and a leap keep their running jump.
+        local up = p.act == "jump" and not p.leap and prev ~= nil and p.Z - prev.Z > step_tol(st)
+        local why = (up and vh > M.cfg.run_up_up_cms) and "fast"
+            or (vh > M.cfg.run_up_fast_cms and cosr < M.cfg.run_up_cos) and "sideways" or nil
+        if why then
             if not turning then
                 ru = { path = st.lpath, index = st.lwp, t = t }; st.lp_runup = ru
-                if log then log(string.format("move: jump run-up: turning to the landing first (toward=%.2f at %.0f cm/s)", cosr, vh)) end
+                if log then log(why == "fast" and string.format("move: jump run-up: slowing for a jump up (%.0f cm/s, toward=%.2f)", vh, cosr)
+                    or string.format("move: jump run-up: turning to the landing first (toward=%.2f at %.0f cm/s)", cosr, vh)) end
             end
-            if t - ru.t < M.cfg.run_up_wait_s then return end
-            if log then log(string.format("move: jump run-up still sideways after %.1f s (toward=%.2f at %.0f cm/s); jumping anyway",
+            if t - ru.t < M.cfg.run_up_wait_s then
+                -- no input this frame (steer_input turns him to f.aim, the landing, and lets go; not counted as stuck)
+                if why == "fast" then st.status, st.hold_gap, st.win_t, st.win_pos = "slowing", true, t, v(me) end
+                return
+            end
+            if log then log(why == "fast" and string.format("move: jump run-up still at %.0f cm/s after %.1f s (toward=%.2f); jumping anyway",
+                vh, t - ru.t, cosr) or string.format("move: jump run-up still sideways after %.1f s (toward=%.2f at %.0f cm/s); jumping anyway",
                 t - ru.t, cosr, vh)) end
         end
         local jr = start_jump(st, t, pawn, p.act == "djump" and st.env and st.env.double_jump, log)
