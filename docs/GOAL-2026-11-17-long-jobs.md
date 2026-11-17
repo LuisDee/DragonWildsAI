@@ -100,6 +100,21 @@ The first window runs each once to get a number and a ledger row. After that the
 
 Each is tried whole only when its interruption steps pass about 9 of 10. A job passes at 4 of its last 5, then 3 in a row.
 
+### The venture ladder (Luis, 2026-11-18)
+
+L2 (copper) is not one job from a level-1 start: copper grows only in Fractured Plains (power 3, garou), Stormtouched Highlands (power 4) and Dowdun Reach, and needs a bone pickaxe or better; he starts in Temple Woods (power 1) at power level 0 (broken armour). Region power comes from the map data (`data/places_*.json`), who lives there from the bestiary lookup. Nothing tells him to prepare: he reads these facts and decides. So L2 is worked as rungs, each trialled alone from a checkpoint saved at the end of his own previous passing rung (rule 8, never a hand-built bag), about 9 of 10 before the next, then the whole chain from scratch 3 in a row (gate last):
+
+| rung | from | done when the game reads |
+|---|---|---|
+| V1 | home, fresh fork | a bone pickaxe made and carried (bones, hides, tannery on the way) |
+| V2 | V1's save | gear for the region's power: armour worn and a weapon, each made by him |
+| V3 | V2's save | he is in Fractured Plains and alive after meeting garou (a death here also counts as the I3 death-and-grave interruption) |
+| V4 | V3's save | copper ore mined there, while defending himself |
+| V5 | V4's save | the ore in his own chest at home (L2's end read) |
+| V6 | V5's save | bronze: tin found and mined, bars smelted, a bronze piece made (the next tier's tools and armour) |
+
+The same ladder serves coal, Fellhollow (power 5, skeletons) and the vault capstone, each a rung of gear higher. The interruption steps I1-I5 move to a job he can finish near home (logs or stone into his chest), since L2 cannot pass until the ladder does.
+
 ### Held-out (never fixed against)
 
 - **H1** "claude, make a bow and forty arrows, then bring back five hides".
