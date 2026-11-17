@@ -3356,7 +3356,7 @@ end
 -- approach put him on a 3 m ledge 72 cm from the planned cell, counted as the third miss, and the attack ended
 -- path_blocked 7.3 m from a rat he then walked straight to). A jump across a gap on one level keeps the 45 cm.
 do
-    local function land(rise, dx, dy)
+    local function land(rise, dx, dy, nearest)
         M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
         pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
         M.follow(log, "Zezima", 2, { nav = false })
@@ -3367,7 +3367,7 @@ do
                      { X = here.X + 200, Y = here.Y, Z = FLOOR + rise, act = "walk" } }
         mv.lwp = 2
         mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
-                            started = T, saw_air = true }
+                            started = T, saw_air = true, nearest = nearest, nearest_dz = nearest and 60 or nil }
         mv.trav_fails, mv.lp_fail = nil, nil
         pawn.loc = { X = here.X + 100 + dx, Y = here.Y + dy, Z = here.Z + rise }
         air = 0
@@ -3390,6 +3390,17 @@ do
     check("every typed jump writes its landing line: a missed one", vl ~= nil and vl:find("verdict=missed why=far", 1, true) ~= nil
         and vl:find("off=200", 1, true) ~= nil, tostring(vl))
     check("ledge jump: 2 m past the cell is still a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
+    -- over the cell in the air and down on its level past it (jump course 2026-11-17 18:33Z: 10 of 15 misses passed
+    -- within 20 cm of the cell and rested 1.4-1.9 m on)
+    n0 = #logs
+    mv = land(300, 180, 0, 10)
+    vl = verdict_line(n0)
+    check("ledge jump: over the cell in the air and down on its level 1.8 m past it is landed", (mv.trav_fails or 0) == 0
+        and vl ~= nil and vl:find("verdict=landed why=over", 1, true) ~= nil, "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    mv = land(300, 180, 0, 140)
+    check("ledge jump: never over the cell and 1.8 m past it stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
+    mv = land(0, 180, 0, 10)
+    check("gap jump on one level: over the cell and 1.8 m past it stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
     mv = land(0, 54, 48)
     check("gap jump on one level: 72 cm from the cell stays a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
