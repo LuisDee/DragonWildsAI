@@ -673,6 +673,18 @@ local function small_refusal(api, e, det, gone)
     local a, searched
     if not gone and fresh == nil and tostring(th.id):sub(1, 4) ~= "fol:" then a, searched = api.actor_of(th) end
     if gone or (fresh == nil and a == nil and searched ~= nil) then
+        -- gone into HIS bag: the game's item magnet pulls a drop in from a few metres (MagnetRange 350), so it can
+        -- arrive before he presses. Chain sitting 1 of 2026-11-17, run 090337: Raw Rat Meat 1 -> 2 as he walked up,
+        -- and the report was "isn't there any more; someone may have picked it up" (a miss).
+        local okc, now = pcall(api.counts)
+        local item, n = nil, 0
+        if th.item and okc and type(now) == "table" then item, n = gained(e.before or {}, now, th.item) end
+        if item then
+            return { ok = true, data = { target = th.id, item = item, count = n, gained = api.object({ [item] = n }),
+                target_gone = true, changed = api.null, prompt = api.null, pressed = false,
+                detail = string.format("The %s came to my bag as I walked up to it, before I pressed anything: +%d %s.",
+                    e.label, n, e.label) } }
+        end
         data.why, data.detail = "gone", "The " .. e.label .. " isn't there any more; someone may have picked it up."
     elseif type(fresh) == "table" and fresh.available == false then
         data.why, data.detail = "depleted", "The " .. e.label .. " there is already picked; there's nothing to collect until it grows back."
@@ -2508,8 +2520,12 @@ local function start_explore(api, args, ctx)
     if not start then return api.fail("companion_down", { detail = "no position" }) end
     local hit = matching(api, args.about, radius)
     if hit then
-        return api.fail("already_in_sight", { found = hit, detail = tostring(hit.name) .. " is already in sight ("
-            .. tostring(hit.distance) .. " m, id " .. tostring(hit.id) .. ")" })
+        -- a find, as the walk's own find is (the same matcher): it was the failed result "already_in_sight", so a
+        -- right answer counted against him (4 Ratcatcher trials of 16 and 17 Nov, last the chain's run 090337:
+        -- "rats" with a Giant Rat 6.8 m off)
+        return { ok = true, data = { found = hit, legs = 0, travelled_m = 0, from = start, position = start,
+            detail = tostring(hit.name) .. " is already in sight (" .. tostring(hit.distance) .. " m, id "
+                .. tostring(hit.id) .. "), so I did not walk anywhere" } }
     end
     local mem = memory()
     local job = { kind = "explore", legs_done = 0, failed = {}, trail = { start }, travelled = 0, trips = {}, bad = {} }
@@ -3202,7 +3218,7 @@ local function handler(name)
         if not api then return { ok = false, reason = "body_error", data = { detail = "skills need the bridge api (ctx.api)" } } end
         if paused() then return api.fail("companion_down", { detail = "I'm not in the world right now." }) end
         local job = STARTERS[name](api, args or {}, ctx)
-        if job.ok == false then return job end
+        if job.ok == false or (job.ok == true and job.kind == nil) then return job end -- a result, not a job to run
         if job.handover then return job.handover(log) end
         return action(api, ctx, job)
     end
@@ -3451,7 +3467,7 @@ M.MANIFEST = {
             about = str("What to look for, in words (e.g. water, berries, a tree)."),
             max_legs = { type = "integer", minimum = 1, maximum = 12, default = 6, description = "How many legs." },
             leg_m = { type = "number", minimum = 8, maximum = 80, default = 30, description = "Metres per leg." } }) },
-        reasons = { "already_in_sight", "nothing_in_range", "path_blocked", "interrupted", "timeout" } },
+        reasons = { "nothing_in_range", "path_blocked", "interrupted", "timeout" } },
     fetch = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
         detail_is_speech = SPEAKS,
         description = "Pick up items lying on the ground by name or id (find, walk, face, use, verify; repeats for count)." .. COMPOUND,

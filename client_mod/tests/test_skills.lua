@@ -1388,6 +1388,28 @@ test("co-play 2026-11-01: the game highlights ANOTHER stone (overlapping) -> pre
     r = run(id, 60, 0.1)
     B.API.actor_of = a0
     assert(r and r.reason == "not_interactable" and r.data.why == "gone" and F.presses == 0 and T - t0 < 1, json.encode(r))
+    -- gone because it came to HIS bag on the way (the game's item magnet pulls a drop in from a few metres): that is
+    -- a pickup, not "someone may have picked it up" (chain sitting 1 of 2026-11-17, run 090337: Raw Rat Meat 1 -> 2
+    -- while he walked up, the report said it wasn't there any more, a miss)
+    reset()
+    F.world.items = {}
+    table.insert(F.world.resources, stone("stone_mag", 1.8, true))
+    local c0 = B.API.counts
+    local base = c0() or {}
+    local polls = 0
+    B.API.counts = function()
+        polls = polls + 1
+        local c = {}
+        for k, v in pairs(base) do c[k] = v end
+        if polls > 1 then c.ITEM_Resources_Stone = (c.ITEM_Resources_Stone or 0) + 1 end
+        return c
+    end
+    B.API.actor_of = function(t) if t.id == "stone_mag" then return nil, {} end return a0(t) end
+    _, id = rpc("interact", { target = "stone_mag" })
+    r = run(id, 60, 0.1)
+    B.API.actor_of, B.API.counts = a0, c0
+    assert(r and r.ok and r.data.item == "ITEM_Resources_Stone" and r.data.count == 1 and r.data.target_gone == true
+        and F.presses == 0 and r.data.detail:find("came to my bag", 1, true), json.encode(r))
 end)
 
 test("co-play 2026-11-01: the WATER holds the prompt over a stick at the pond's edge -> he steps out to its far side and takes it", function()
@@ -1839,7 +1861,9 @@ test("BUGS L21: explore walks least-visited legs and stops when something matchi
     assert(not (r.data.position[1] > 0 and r.data.position[2] > 0), "did not go back the way he came (NE)")
     -- already in sight: says so at once
     local a = rpc("explore", { about = "water" })
-    assert(a.reason == "already_in_sight" and a.data.found.id == "water_1", json.encode(a))
+    -- (a find, not a failure: chain sitting 1 of 2026-11-17, run 090337, "rats" with a Giant Rat 6.8 m off was a miss)
+    assert(a.ok and a.data.found.id == "water_1" and a.data.legs == 0 and a.data.travelled_m == 0
+        and a.data.detail:find("already in sight", 1, true), json.encode(a))
     -- nothing anywhere: a bounded search, then nothing_in_range with how far
     F.world.interactables = {}
     local _, id2 = rpc("explore", { about = "lava", max_legs = 2, leg_m = 10 })
@@ -1859,7 +1883,7 @@ test("explore reads its whole radius, not the 40 nearest of a category (chain 20
                                       tool = "Pickaxe", position = { 30, 5, 3 } })
     rpc("get_state")
     local a = rpc("explore", { about = "rune essence" })
-    assert(a and a.reason == "already_in_sight" and a.data.found.id == "ess_1", a and json.encode(a) or "it set off walking")
+    assert(a and a.ok and a.data.legs == 0 and a.data.found.id == "ess_1", a and json.encode(a) or "it set off walking")
 end)
 
 test("explore names its legs that fell short, and a death is not 'saw nothing' (forensics E2)", function()
@@ -1908,7 +1932,7 @@ test("explore: a thing that only shares a word with the ask is not a find, and i
     assert(n and n.reason == "nothing_in_range", json.encode(n))
     assert(n.data.detail:find("here I see Rune Essence (shares a word with it, not the same thing)", 1, true), n.data.detail)
     local a = rpc("explore", { about = "rune essence or an altar" })
-    assert(a.reason == "already_in_sight" and a.data.found.id == "ess_1", json.encode(a))
+    assert(a.ok and a.data.legs == 0 and a.data.found.id == "ess_1", json.encode(a))
 end)
 
 test("explore that finds nothing says how far he looked and where he has gathered it before (farm chain run 9)", function()
@@ -1967,7 +1991,7 @@ test("explore ignores function-word substrings", function()
     reset(); F.me_pos=nil; F.move.position={0,0,3}; F.world.resources={}; F.world.interactables={}
     table.insert(F.world.interactables,{id="ash_1",class="BP_Spawner_AshBranch_01_C",name="Ash Logs",kind="foliage",verb="gather",position={5,0,3}})
     local hit=rpc("explore",{about="ash logs or something missing"})
-    assert(hit.reason=="already_in_sight" and hit.data.found.id=="ash_1",json.encode(hit))
+    assert(hit.ok and hit.data.legs==0 and hit.data.found.id=="ash_1",json.encode(hit))
 end)
 
 local function chest_world(slots, rows)
