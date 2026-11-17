@@ -1979,3 +1979,54 @@ All three failures ended the same way: he stopped with the quest's next step ope
 - **Spend** on 2026-11-17 UTC at 13:55Z: $2.92 of $10 by the guard (1,239 calls). The three sittings cost about $0.30 (121 calls).
 - **Limits.** The Rune Altar that earlier runs built still stands in the world, so no sitting had to build one. The second First Steps (Bramblemead) is not part of the chain. `attack` on a name with nothing in reach is still an open question for Luis. Still unseen live: 80bfb5b, 61412a5, c2a9835, e5b851c, 1cffdc4, f1108be beyond one exposure.
 - **Next:** window s31 (Ratcatcher from `rc_chain2`, 5 trials, started 13:56Z) as the live trial of both fixes; then the open table items and the quests after these four.
+
+## 2026-11-17 13:56Z-14:25Z: Ratcatcher at the chain's own state 10 of 10; go_to by name confirmed live; the slope change not confirmed (more jumps judged missed); a third of all jump landings are judged missed; Luis stopped the run and made two decisions
+
+**Window s31, Ratcatcher from `rc_chain2`, 5 of 5.** Stated before the run: the live trial of 80bfb5b and 61412a5.
+
+| run | result | time, x Luis | misses |
+|---|---|---|---|
+| 135928 | pass | 156.2 s, 0.89 | 1 (attack path_blocked) |
+| 140431 | pass | 173.6 s, 0.86 | 0 |
+| 140945 | pass | 139.8 s, 0.83 | 0 |
+| 141420 | pass | 186.1 s, 0.87 | 0 |
+| 141943 | pass | 131.1 s, 0.78 | 0 |
+
+- Ratcatcher from `rc_chain2` is now 10 of 10 (95 % interval by `tools.ab one 10 10`: 72 to 100 %).
+- Reports were not judged for truth in this window.
+
+**80bfb5b confirmed live (kept).** Twice in s31 a `go_to` to "Vannaka" was answered with which thing the name was taken to be: `"Vannaka" taken as the Vannaka 79 m away (id SkeletalMeshActor_UAID_AC1A3DB43E39B61902_1148254933)`, and again at 61 m. Neither walk went through the brain's name lookup first (no `via`).
+
+**61412a5 not confirmed: neither kept nor binned.** Local plans of s31 (33 paths) against s29 and s30 from the same checkpoint (95 paths), by `lp_after.py` and `lp_jumps.py` in the session scratchpad:
+
+| measure | s29 + s30 (before) | s31 (after) |
+|---|---|---|
+| walk up, 80 cm or more: planned / stuck | 7 / 6 | 0 / 0 |
+| walk up, 40 to 80 cm: planned / stuck | 38 / 6 (16 %) | 11 / 2 (18 %) |
+| paths with a jump whose landing was judged missed | 8 of 43 | 11 of 16 |
+| plan time, median | 0.72 s | 0.75 s |
+
+- The change did what it was written to do: no steep walk was planned.
+- The jumps got worse: 8 of 43 against 11 of 16 is p = 0.0005 by Fisher's exact test (`tools.ab two 8 43 11 16`). Paths inside one trial are not independent, so the true p is larger, but this is not noise. On 2026-11-17 I told Luis one window was too small to judge it; for the jumps that was wrong.
+- **Reading, not yet shown:** an edge that used to be a steep walk is now a jump, and its landing is judged by the rule below. The cause sits in how a landing is judged, not in the slope check.
+
+**Jump landings (new finding, not fixed).**
+- **How often.** 14 to 17 Nov, before the change: 166 landings judged missed in 466 paths with a jump up (36 %). By edge: jump under 65 cm 12 of 30; 65 to 120 cm 33 of 77; 120 to 200 cm 48 of 153; drop-and-climb 120 to 200 cm 12 of 27; 200 cm or more 59 of 248.
+- **The rule** (`client_mod/scripts/move.lua`, `steer_typed_jump`): a landing counts when he is within 130 cm of the jump's point (45 cm for a small hop) and within 65 cm of its height. Anything else is a strike, the edge is excluded and the path is planned again. In a fight's approach the third strike ends it as `unreachable: no_route`, which the attack reports as `path_blocked`.
+- **What the misses were.** Of the 82 with a measured landing: 23 on the point's level and under 250 cm from it, 38 off its height but within the planner's own walkable slope from the point, 20 truly off.
+- **One run in full** (s31 trial 1, the miss in the table): three landings judged missed (121 cm away and 69 cm off the height; 185 cm and 1 cm; 226 cm and 75 cm) while he closed from 29.4 m to 25.5 m. The attack ended `path_blocked`. The next walk reached the rat in 5 s.
+- **What cannot be read yet** (rule 4): the log line gives absolute values only. It has no sign for the height, no takeoff position, no edge kind and no rise. That is the first change.
+- **Idea, not built:** a strike only when he came down no nearer the jump's end than where he took off, as Unreal's and Detour's path following do (off the corridor after a link is a re-plan, not a failure count).
+
+**Seen in s31 and not worked.** 14:16:15Z to 14:16:20Z: his reflex started a fight while a station menu was open. The input mode was `DIM_FocussedInGameUI`, the fight pressed back four times, ended `body_error`, started again and won. No miss, about 5 s lost.
+
+**Luis's decisions, 2026-11-17.**
+1. An `attack` on a name with nothing in reach stays a counted miss. Follow-up for me: the creature list shows 50 m and `attack` resolves a name within 60 m; they should agree.
+2. Placement: he agreed to the route I recommended. He picks the piece in build mode as now, the game's own preview is moved to the spot he worked out, the game's validity verdict is read, then he presses place. No bare `Server_SpawnBuilding` call for his own building. A fallback I named in the same message (the placement call sent only when the game says valid, with the preview's own transform) was not named in his agreement, so it is not agreed. Nothing of this is built or tried.
+3. He stopped the run at about 14:25Z ("Stop everything") and cleared the goal. Nothing has run on the body since.
+
+**State at 14:25Z.**
+- **Rates** (last 10 each): First Steps 10; Getting Started 8 chained, 10 from `gs_start`; Ratcatcher 6 chained, 10 from `rc_chain2`, 10 from `rc_start`; Rune Mysteries 6 chained, 10 from `rm_part2`, 9 from `rm_start`. The guard prints "chain: ready".
+- **Ledger:** 58 rows, none untagged, 10 void. No failed run in s31.
+- **Spend** on 2026-11-17 UTC: $3.01 of $10 by the guard (1,284 calls). s31 cost about $0.08.
+- **Body:** client on `ClaudeDev`; dev server and client left up; no brain running.
