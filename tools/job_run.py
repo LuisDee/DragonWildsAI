@@ -1105,6 +1105,10 @@ def cmd_window(a, step: str | None) -> int:
     if a.save_as and (quest_clone.CHECKPOINT_DIR / f"{a.save_as}.json").exists():
         print(f"checkpoint {a.save_as!r} exists already: pick a new --save-as label")
         return 2
+    from tools.vitals_rescue import save_unfit  # a fork copies the SAVE, not his live bars (live 2026-11-17 21:05Z)
+    if (why := save_unfit(src)) is not None:
+        print(f"not running: {why}")
+        return 3
     print(f"{a.job}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
           f"each up to {a.max_haiku} Haiku calls (controller) plus the Planner (Sonnet), capped at ${a.usd} a trial on "
           f"top of today's spend")

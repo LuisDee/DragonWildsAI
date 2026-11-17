@@ -842,6 +842,11 @@ def main() -> None:
         print(f"not running: {STOP_FILE} is present (remove it to run)", flush=True)
         return
     use_fork = a.fork if a.fork is not None else a.repeat > 1
+    if use_fork:  # the fork copies ClaudeDev's SAVE, not his live bars (live 2026-11-17 21:05Z): judged before the lock
+        from tools.vitals_rescue import save_unfit
+        if (why := save_unfit()) is not None:
+            print("not running:", why, flush=True)
+            raise SystemExit(3)
     cur, lock = live_lock.read(), contextlib.ExitStack()
     atexit.register(lock.close)
     fork: dict = {}

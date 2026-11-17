@@ -541,6 +541,38 @@ def test_a_starving_start_is_unfit():
     assert j.unfit(st) is None
 
 
+def fit_save(path, food=90.0, water=90.0, health=100.0):
+    """A character save file with only the bars the start check reads (GameProgress.Character)."""
+    path.write_text(json.dumps({"GameProgress": {"Character": {
+        "Health": {"CurrentValue": health}, "Sustenance": {"SustenanceValue": food},
+        "Hydration": {"HydrationValue": water}}}}), encoding="utf-8")
+    return path
+
+
+def test_the_window_refuses_when_the_save_it_forks_is_under_the_bar(tmp_path, monkeypatch, capsys):
+    # live 2026-11-17 21:05Z: a vitals rescue on ClaudeDev's live body, then a job window forked his older SAVE and
+    # both forks were unfit. A fork copies the save, so the save is checked before any switch.
+    from tools import quest_clone
+    monkeypatch.setattr(quest_clone, "SAVE_DIR", tmp_path)
+    fit_save(tmp_path / "ClaudeDev.json", food=33.0, water=20.0)
+
+    def no_window(*a, **k):
+        raise AssertionError("opened the lock window")
+
+    def no_fork(ref, name):
+        raise AssertionError("forked")
+    monkeypatch.setattr(q, "refuse_dirty", lambda a: False)
+    monkeypatch.setattr(q, "clone_window", no_window)
+    monkeypatch.setattr(j, "load_jobs", lambda: {"jobs": {"L9": {"start": "ClaudeDev"}}})
+    monkeypatch.setattr(j, "start_ref", lambda job, step, override: ("ClaudeDev", "the job's start"))
+    monkeypatch.setattr(quest_clone, "CHECKPOINT_DIR", tmp_path / "no_checkpoints")
+    monkeypatch.setattr(quest_clone, "place_of", lambda ref: None)
+    monkeypatch.setattr(quest_clone, "fork", no_fork)
+    assert j.main(["trial", "--confirm", "--job", "L9", "-k", "2"]) == 3
+    out = capsys.readouterr().out
+    assert "ClaudeDev's save unfit: food 33 of 100, water 20 of 100" in out and "-m tools.vitals_rescue" in out
+
+
 def test_the_window_skips_a_fork_that_starts_starved(tmp_path, monkeypatch):
     # the per-fork check is chat_ladder's body_unfit, read through the window's debug client before the walk to the start
     import contextlib
@@ -573,7 +605,7 @@ def test_the_window_skips_a_fork_that_starts_starved(tmp_path, monkeypatch):
     monkeypatch.setattr(j, "load_jobs", lambda: {"jobs": {"L9": {"start": "cp"}}})
     monkeypatch.setattr(j, "start_ref", lambda job, step, override: ("cp", "the job's start"))
     monkeypatch.setattr(j, "STOP_FILE", tmp_path / "none.stop")
-    monkeypatch.setattr(quest_clone, "source_of", lambda ref: tmp_path / "cp.json")
+    monkeypatch.setattr(quest_clone, "source_of", lambda ref: fit_save(tmp_path / "cp.json"))
     monkeypatch.setattr(quest_clone, "place_of", lambda ref: [0.0, 0.0, 0.0])
     monkeypatch.setattr(quest_clone, "fork", lambda ref, name: forked.append(name))
     assert j.main(["trial", "--confirm", "--job", "L9", "-k", "2"]) == 1

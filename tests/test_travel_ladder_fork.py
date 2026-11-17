@@ -30,6 +30,13 @@ class Cli:
         return {"ok": True, "data": dict(FIT)}
 
 
+def save(path, food, water, health=100.0):
+    path.write_text(json.dumps({"GameProgress": {"Character": {
+        "Health": {"CurrentValue": health}, "Sustenance": {"SustenanceValue": food},
+        "Hydration": {"HydrationValue": water}}}}), encoding="utf-8")
+    return path
+
+
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     """The outside world as fakes: the lock (its own, released only on ClaudeDev), the dev server, the switch, the
@@ -66,6 +73,8 @@ def world(tmp_path, monkeypatch):
         return {"journey": j["id"], "from": "a", "to": "b", "ok": True, "s": 1.0, "spl": 1.0, "end_dist_m": 0.5,
                 "walked_m": 1.0, "straight_m": 1.0}
 
+    monkeypatch.setattr(quest_clone, "SAVE_DIR", tmp_path)
+    w["save"] = save(tmp_path / "ClaudeDev.json", 90.0, 90.0)  # what a fork would copy
     monkeypatch.delenv("DW_LIVE_OWNER", raising=False)
     monkeypatch.setattr(live_lock, "read", lambda: None)
     monkeypatch.setattr(live_lock, "held", held)
@@ -176,3 +185,22 @@ def test_one_pass_and_no_fork_stay_on_claudedev_without_supply(world, monkeypatc
     assert {on for _, on in world["legs"]} == {"ClaudeDev"}
     run(monkeypatch, "--fork")  # one pass, asked for
     assert len(world["forked"]) == 1 and len(world["supplied"]) == 1 and world["sw"].on == "ClaudeDev"
+
+
+def test_a_fork_of_a_save_under_the_bar_is_refused_before_the_lock(world, monkeypatch, capsys):
+    # live 2026-11-17 21:05Z: the live body was rescued, the save was not yet rewritten, and the forks (copies of the
+    # save) started unfit. The refusal names the save and the command that waits for a save carrying the rescue.
+    save(world["save"], 35.0, 12.0)
+    with pytest.raises(SystemExit) as e:
+        run(monkeypatch, "--repeat", "2")
+    assert e.value.code == 3
+    assert world["forked"] == [] and world["lock"] == [] and world["legs"] == [] and world["sw"].seen == []
+    out = capsys.readouterr().out
+    assert "not running: ClaudeDev's save unfit: food 35 of 100, water 12 of 100" in out
+    assert "-m tools.vitals_rescue" in out
+
+
+def test_no_fork_does_not_read_the_save(world, monkeypatch):
+    save(world["save"], 35.0, 12.0)  # the live body (Cli: fit) is what a no-fork pass plays
+    run(monkeypatch, "--only", "leg1", "--no-fork")
+    assert world["legs"] and {on for _, on in world["legs"]} == {"ClaudeDev"} and world["forked"] == []
