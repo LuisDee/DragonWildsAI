@@ -279,6 +279,9 @@ function M.state_extras(api)
     return v
 end
 function M._reset_cache() CACHE.at, CACHE.v = nil, nil end
+-- client_bridge calls this when an action ends (a talk, a kill, a craft may have moved a quest on): the next state
+-- reads the quest log anew instead of showing the step from before it
+function M.action_ended() M._reset_cache() end
 
 M.HANDLERS = { quests = function(log, args) return quests_tool(log, args or {}) end }
 M.NEEDS = { quests = { { "sense", "local_pc" } } }

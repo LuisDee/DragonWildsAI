@@ -225,6 +225,21 @@ local function call(name, fn, ...)
 end
 M._call = call
 
+-- What a module keeps for get_state (quests.lua: the steps and their markers, 5 s) is from before an action that just
+-- ended (in the action slot or as a waiter): a module that exports action_ended(kind) drops it, so the state read
+-- after the result shows what the action changed. (Windows s14 and s15, 2026-11-17: 18 of 20 observations after a
+-- talk that moved a quest on still showed the old step and its marker; run 024233 looked and explored 62 s for a
+-- step whose marker he had not been shown.)
+local function tell_ended(kind)
+    for _, name in ipairs(M.MODULES or {}) do
+        local mod = M.module(name)
+        if type(mod) == "table" and type(mod.action_ended) == "function" then
+            local oke, err = pcall(mod.action_ended, kind)
+            if not oke then ev("client_module_error", { module = name, fn = "action_ended", err = tostring(err) }) end
+        end
+    end
+end
+
 -- ------------------------------------------------------------------ the action slot
 -- a = {kind, id, poll = fn(a) -> nil | result, cancel = fn(a), quiet_preempt, replied, timeout_s}
 local function finish(a, res)
@@ -234,6 +249,7 @@ local function finish(a, res)
     local cur = rawget(_G, "__dwc_act")
     if type(cur) == "table" and cur.act == a.id then rawset(_G, "__dwc_act", nil) end
     ev("client_action_end", { kind = a.kind, id = a.id, ep = a.ep, call = a.call, ok = res.ok, reason = res.reason })
+    tell_ended(a.kind)
     -- the general stray-screen guard (input.after_action, BUGS B-stuck-focused-ui): an action that left a HUD
     -- screen open (a Campfire's Processing + Inventory panels) must not leave him in DIM_FocussedInGameUI
     local inp = not rawget(_G, "DW_PAUSE") and M.module("input") or nil
@@ -311,7 +327,11 @@ local function tick_waiters()
         local ok, res = pcall(w.poll, w)
         if not ok then res = fail("body_error", { detail = tostring(res) }) end
         if not res and t >= w.deadline then res = w.expire(w) end
-        if res then (w.chan or S.bridge).reply(w.id, res) else keep[#keep + 1] = w end
+        if res then
+            tell_ended(w.kind)
+            local ch = w.chan or S.bridge
+            ch.reply(w.id, res)
+        else keep[#keep + 1] = w end
     end
     S.waiters = keep
 end

@@ -2416,6 +2416,8 @@ end
 -- station that burns fuel; others_left = the inputs in it that he did not load himself (craft answers station_busy
 -- for a station named by id that holds them): what a player sees at the fire before he chooses it.
 M.cfg.extras_ttl_s = 5
+-- client_bridge calls this when an action ends (it may have changed what a station holds): the next state reads anew
+function M.action_ended() state().extras_at = nil end
 function M.state_extras(api, data)
     local st = state()
     local now = api.now()

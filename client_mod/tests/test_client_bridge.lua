@@ -425,6 +425,31 @@ test("drop waits for the inventory to shrink; resolved item id; never-confirmed 
     assert(rpc("drop", { item = "oak", count = 1, at = "luis" }).reason == "not_implemented")
 end)
 
+test("an action's end tells the modules, so the state read after it holds nothing cached from before it", function()
+    -- windows s14 and s15 (2026-11-17): 18 of 20 observations after a talk that moved a quest on still showed the old
+    -- step and its marker (quests.lua keeps its get_state extras 5 s)
+    install("quests", [[
+local M = {}
+function M.state_extras()
+    M.kept = M.kept or { quests = { step = _G.__TEST_STEP } }
+    return M.kept
+end
+function M.action_ended(kind) M.kept, _G.__TEST_ENDED = nil, kind end
+return M
+]])
+    _G.__TEST_STEP = "Speak to Vannaka near the windmill."
+    assert(rpc("get_state").data.quests.step == "Speak to Vannaka near the windmill.")
+    _G.__TEST_STEP = "Kill rats and successfully cook one rat roast from their meat."
+    assert(rpc("get_state").data.quests.step == "Speak to Vannaka near the windmill.", "the module's own cache holds between actions")
+    local r = rpc("drop", { item = "oak", count = 1 })
+    assert(r and r.ok, r and r.reason)
+    assert(_G.__TEST_ENDED == "drop", "told which action ended: " .. tostring(_G.__TEST_ENDED))
+    local step_now = rpc("get_state").data.quests.step
+    assert(step_now == "Kill rats and successfully cook one rat roast from their meat.", tostring(step_now))
+    uninstall("quests")
+    _G.__TEST_STEP, _G.__TEST_ENDED = nil, nil
+end)
+
 test("look: every census category as things, ranked by match, matched flag, radius cap", function()
     FAKE.move.position = nil -- the go_to tests left him elsewhere
     local r = rpc("look", { about = "sticks" })

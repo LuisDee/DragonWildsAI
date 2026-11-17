@@ -974,6 +974,14 @@ do -- get_state extras: stations nearby with the furnace's state, from the censu
     check("extras: two stations", ex.stations_nearby and #ex.stations_nearby == 2)
     check("extras: furnace contents", fu and fu.contents and fu.contents[1] == "Iron Ore x3", fu and fu.contents and fu.contents[1])
     check("extras: cached", C.state_extras(api, { interactables = {} }) == ex)
+    -- an action that ended may have changed what a station holds: the state after it is read anew
+    check("extras: an action's end is told to the module", type(C.action_ended) == "function")
+    if C.action_ended then C.action_ended("craft") end
+    local ex2 = C.state_extras(api, { interactables = rows })
+    check("extras: read anew after an action ended", ex2 ~= ex and ex2.stations_nearby and #ex2.stations_nearby == 2)
+    ex = ex2
+    fu = nil
+    for _, s in ipairs(ex.stations_nearby or {}) do if s.station == "Furnace" then fu = s end end
     -- what a player sees at the fire before he walks to it: no fuel in it, and things in it that are not his
     -- (quest chain 094732, Ratcatcher: the row said only name, id and distance; he named a campfire holding another
     -- player's Dirty Water -> station_busy, then one with no fuel -> missing_materials: two of the run's three misses)

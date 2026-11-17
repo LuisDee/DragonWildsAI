@@ -72,6 +72,15 @@ check("extras: quests in get_state", ex.quests and ex.quests.active[1].quest == 
 QUESTS[1].CurrentObjective = "Objective1"
 check("extras cached for ttl", Qm.state_extras({ now = function() return 2 end }).quests.active[1].step == "Gather 50 Ash Logs")
 check("extras refresh after ttl", Qm.state_extras({ now = function() return 10 end }).quests.active[1].step == "Speak to Zanik")
+-- an action that ended may have moved a quest on (a talk, a kill, a craft): the state after it is read anew
+QUESTS[1].CurrentObjective = "Objective2"
+check("extras: still the kept copy inside the ttl", Qm.state_extras({ now = function() return 11 end }).quests.active[1].step == "Speak to Zanik")
+check("extras: an action's end is told to the module", type(Qm.action_ended) == "function")
+if Qm.action_ended then Qm.action_ended("talk") end
+check("extras: read anew after an action ended", Qm.state_extras({ now = function() return 11 end }).quests.active[1].step == "Gather 50 Ash Logs",
+    Qm.state_extras({ now = function() return 11 end }).quests.active[1].step)
+QUESTS[1].CurrentObjective = "Objective1"
+Qm._reset_cache()
 
 _G.DW_PAUSE = true
 check("paused: no reads", Qm.HANDLERS.quests(nil, {}).reason == "companion_down")
