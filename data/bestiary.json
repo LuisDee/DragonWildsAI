@@ -1,6 +1,6 @@
 {
  "schema": "dw_bestiary/1",
- "built_at": "2026-11-17T22:33:06Z",
+ "built_at": "2026-11-17T23:01:07Z",
  "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids. Named src tags: 'metabot.gg' = https://metabot.gg/en/dragonwilds/bestiary (snapshot data/bestiary_external.json), 'own fights' = his client's combat memory (data/skills/*/combat_*.json), 'game' = the game's own tables read on his client (client_mod/commands/bestiary_tables_probe.lua, merged with --from-probe)",
  "creatures": {
   "Abyssal Demon": {
@@ -215,6 +215,102 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Abyssal Spine",
+         "id": "ITEM_Resources_Abyssal_Spine",
+         "min": 1,
+         "max": 1,
+         "chance": 45.0
+        },
+        {
+         "item": "Abyssal Ashes",
+         "id": "ITEM_Resources_Abyssal_Ashes",
+         "min": 3,
+         "max": 3,
+         "chance": 100.0
+        },
+        {
+         "item": "Abyssal Ashes",
+         "id": "ITEM_Resources_Abyssal_Ashes",
+         "min": 3,
+         "max": 3,
+         "chance": 75.0
+        },
+        {
+         "item": "Abyssal Ashes",
+         "id": "ITEM_Resources_Abyssal_Ashes",
+         "min": 3,
+         "max": 3,
+         "chance": 25.0
+        },
+        {
+         "item": "Monstrous Fang",
+         "id": "ITEM_Resources_Monstrous_Fang",
+         "min": 3,
+         "max": 3,
+         "chance": 100.0
+        },
+        {
+         "item": "Monstrous Fang",
+         "id": "ITEM_Resources_Monstrous_Fang",
+         "min": 3,
+         "max": 3,
+         "chance": 75.0
+        },
+        {
+         "item": "Monstrous Fang",
+         "id": "ITEM_Resources_Monstrous_Fang",
+         "min": 3,
+         "max": 3,
+         "chance": 25.0
+        },
+        {
+         "item": "Hard Leather",
+         "id": "ITEM_Resources_Leather_Hard",
+         "min": 5,
+         "max": 5,
+         "chance": 100.0
+        },
+        {
+         "item": "Hard Leather",
+         "id": "ITEM_Resources_Leather_Hard",
+         "min": 5,
+         "max": 5,
+         "chance": 75.0
+        },
+        {
+         "item": "Hard Leather",
+         "id": "ITEM_Resources_Leather_Hard",
+         "min": 5,
+         "max": 5,
+         "chance": 25.0
+        },
+        {
+         "item": "Abyssal Remains",
+         "id": "DA_Consumable_Vestige_Weapon_Whip_Abysmal",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Ascension Shard 4",
+         "id": "ITEM_Resources_T4_Upgrade_Shard",
+         "min": 12,
+         "max": 19,
+         "chance": 40.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "role": [
     "mini boss"
    ],
@@ -254,9 +350,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Abyssal Demon: creature, mini boss.\nAn abyssal demon is a power level 4 mini boss monster that can be found wandering the Whispering Swamp, Fractured Plains and Bloodblight Swamp.\nPower level 4, health 1,500. Power level 7, health 64,350 (bugged). Power level 9, health 6,250.\nRace: Chthonian Demon. Weak to Slash. Resistant to Air. Aggressive: Yes. Respawn: 7 days.\nLives in: Whispering Swamp, Fractured Plains, Bloodblight Swamp, Nightmare Crucible, Scorned Wilderness.\nAttacks in the game's data (base damage before armour): AbyssalDemonAbyssalSlash1 (18 damage); AbyssalDemonAbyssalSlash2 (18 damage); AbyssalDemonAbyssalSlash3 (43 damage); AbyssalDemonAftershock (26 damage); AbyssalDemonFinisher (43 damage); AbyssalDemonFrenzy (12 damage); AbyssalDemonSeeker (18 damage); AbyssalDemonSlashLeft (18 damage); AbyssalDemonSlashRight (18 damage); AbyssalDemonWarpFinisher (0 damage); AbyssalDemonWarpSlashLeft (0 damage); AbyssalDemonWarpSlashRight (0 damage).\nDrops: Abyssal Ashes 3 (always), Monstrous Fang 3 (always), Hard Leather 5 (always), Abyssal Remains 1 (always), Abyssal Ashes 3 (75/100), Abyssal Ashes 3 (25/100), Abyssal Spine 1 (45/100), Hard Leather 5 (75/100), Hard Leather 5 (25/100), Monstrous Fang 3 (75/100), Monstrous Fang 3 (25/100), Ascension Shard (Power Level 4) 12-19 (40/100).\nSources: wiki pages 1032, 2128; the game's own data on his client (journal, attacks)."
+   "text": "Abyssal Demon: creature, mini boss.\nAn abyssal demon is a power level 4 mini boss monster that can be found wandering the Whispering Swamp, Fractured Plains and Bloodblight Swamp.\nPower level 4, health 1,500. Power level 7, health 64,350 (bugged). Power level 9, health 6,250.\nRace: Chthonian Demon. Weak to Slash. Resistant to Air. Aggressive: Yes. Respawn: 7 days.\nLives in: Whispering Swamp, Fractured Plains, Bloodblight Swamp, Nightmare Crucible, Scorned Wilderness.\nAttacks in the game's data (base damage before armour): AbyssalDemonAbyssalSlash1 (18 damage); AbyssalDemonAbyssalSlash2 (18 damage); AbyssalDemonAbyssalSlash3 (43 damage); AbyssalDemonAftershock (26 damage); AbyssalDemonFinisher (43 damage); AbyssalDemonFrenzy (12 damage); AbyssalDemonSeeker (18 damage); AbyssalDemonSlashLeft (18 damage); AbyssalDemonSlashRight (18 damage); AbyssalDemonWarpFinisher (0 damage); AbyssalDemonWarpSlashLeft (0 damage); AbyssalDemonWarpSlashRight (0 damage).\nDrops in the game's tables: from power level 0: Abyssal Spine 1 (always), Abyssal Ashes 3 (always), Abyssal Ashes 3 (always), Abyssal Ashes 3 (always), Monstrous Fang 3 (always), Monstrous Fang 3 (always), Monstrous Fang 3 (always), Hard Leather 5 (always), and more.\nSources: wiki pages 1032, 2128; the game's own data on his client (journal, attacks, drops)."
   },
   "Aggressive Terrorbird": {
    "kind": "creature",
@@ -1188,6 +1287,60 @@
      "group": "Drops"
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Carved Bone Animal Lure",
+         "id": "DA_Consumable_Vestige_Trinket_Ring_of_Pursuit",
+         "min": 1,
+         "max": 1,
+         "chance": 2.5
+        },
+        {
+         "item": "Cracked Bronze Vanity Mirror",
+         "id": "DA_Consumable_Vestige_Trinket_Ring_of_Recoil",
+         "min": 1,
+         "max": 1,
+         "chance": 2.5
+        },
+        {
+         "item": "Dragon Tooth",
+         "id": "ITEM_Resources_Dragon_Tooth",
+         "min": 3,
+         "max": 5,
+         "chance": 100.0
+        },
+        {
+         "item": "Soul Fragment",
+         "id": "ITEM_Currency_SoulFragment",
+         "min": 40,
+         "max": 50,
+         "chance": 100.0
+        },
+        {
+         "item": "Dragon Blood",
+         "id": "ITEM_Resources_DragonBlood",
+         "min": 8,
+         "max": 8,
+         "chance": 100.0
+        },
+        {
+         "item": "Green Dragon Hide",
+         "id": "ITEM_Resources_Skin_Dragon_Green_Lesser",
+         "min": 6,
+         "max": 8,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      10633
@@ -1221,9 +1374,12 @@
     ],
     "drops": [
      10633
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Blightscale the Lesser Green Dragon: creature.\nBlightscale the lesser green dragon is a power level 5 green dragon located at the south side of the cliffs leading up to the Silverthorn Keep, north-east of the ominous gateway.\nPower level 5, health 2800.\nRace: Dragon. Weak to Water. Resistant to Fire. Immune to Burning and Poison. Aggressive: Yes. Respawn: Up to 4 in-game days.\nLives in: Fellhollow.\nBlightscale has the same attacks and drops as a normal green dragon.\nDrops: Dragon Blood 8 (always), Green Dragon Hide 6-8 (always), Dragon Tooth 3-5 (always), Soul Fragment 40-50 (always), A Cracked Bronze Vanity Mirror 1 (1/40), Carved Bone Animal Lure 1 (1/40).\nSources: wiki pages 10633."
+   "text": "Blightscale the Lesser Green Dragon: creature.\nBlightscale the lesser green dragon is a power level 5 green dragon located at the south side of the cliffs leading up to the Silverthorn Keep, north-east of the ominous gateway.\nPower level 5, health 2800.\nRace: Dragon. Weak to Water. Resistant to Fire. Immune to Burning and Poison. Aggressive: Yes. Respawn: Up to 4 in-game days.\nLives in: Fellhollow.\nBlightscale has the same attacks and drops as a normal green dragon.\nDrops in the game's tables: from power level 0: Carved Bone Animal Lure 1 (always), Cracked Bronze Vanity Mirror 1 (always), Dragon Tooth 3-5 (always), Soul Fragment 40-50 (always), Dragon Blood 8 (always), Green Dragon Hide 6-8 (always).\nDrops: Dragon Blood 8 (always), Green Dragon Hide 6-8 (always), Dragon Tooth 3-5 (always), Soul Fragment 40-50 (always), A Cracked Bronze Vanity Mirror 1 (1/40), Carved Bone Animal Lure 1 (1/40).\nSources: wiki pages 10633; the game's own data on his client (drops)."
   },
   "Blue Dragon": {
    "kind": "creature",
@@ -1739,6 +1895,39 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Bird Meat",
+         "id": "ITEM_Resources_Meat_Bird",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Feathers",
+         "id": "ITEM_Resources_Feathers",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Egg",
+         "id": "ITEM_Resources_Egg",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      469
@@ -1769,9 +1958,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Chicken: creature.\nChickens are power level 1 creatures found in the Temple Woods, Bramblemead Valley, and Dowdun Reach.\nPower level 1, health 20.\nRace: Chicken. Weak to Fire. Resistant to Air. Aggressive: no.\nLives in: Temple Woods, Bramblemead Valley, Dowdun Reach.\nAttacks in the game's data (base damage before armour): ChickenPeck (8 damage).\nDrops: Raw Bird Meat 1 (always), Egg 1 (always), Feathers 1 (always).\nSources: wiki pages 469; the game's own data on his client (journal, attacks)."
+   "text": "Chicken: creature.\nChickens are power level 1 creatures found in the Temple Woods, Bramblemead Valley, and Dowdun Reach.\nPower level 1, health 20.\nRace: Chicken. Weak to Fire. Resistant to Air. Aggressive: no.\nLives in: Temple Woods, Bramblemead Valley, Dowdun Reach.\nAttacks in the game's data (base damage before armour): ChickenPeck (8 damage).\nDrops in the game's tables: from power level 0: Raw Bird Meat 1 (always), Feathers 1 (always), Egg 1 (always).\nDrops: Raw Bird Meat 1 (always), Egg 1 (always), Feathers 1 (always).\nSources: wiki pages 469; the game's own data on his client (journal, attacks, drops)."
   },
   "Chinchompa": {
    "kind": "creature",
@@ -1834,6 +2026,39 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Rat Meat",
+         "id": "ITEM_Resources_Raw_Stringy_Meat",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Soft Animal Fur",
+         "id": "ITEM_Resources_Soft_Animal_Fur",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide Scraps",
+         "id": "ITEM_Resources_Skin_Scraps",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      1117
@@ -1864,9 +2089,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Chinchompa: creature.\nChinchompas are power level 3 NPCs that will explode upon death.\nPower level 3, health 60.\nRace: Chinchompa. Weak to Ranged. Resistant to Fire. Aggressive: yes.\nLives in: Fractured Plains, Stormtouched Highlands.\nAttacks in the game's data (base damage before armour): ChinchompaExplosion (43 damage).\nDrops: Raw Rat Meat 2 (always), Soft Animal Fur 1 (always), Animal Hide Scraps 2 (always).\nSources: wiki pages 1117; the game's own data on his client (journal, attacks)."
+   "text": "Chinchompa: creature.\nChinchompas are power level 3 NPCs that will explode upon death.\nPower level 3, health 60.\nRace: Chinchompa. Weak to Ranged. Resistant to Fire. Aggressive: yes.\nLives in: Fractured Plains, Stormtouched Highlands.\nAttacks in the game's data (base damage before armour): ChinchompaExplosion (43 damage).\nDrops in the game's tables: from power level 0: Raw Rat Meat 2 (always), Soft Animal Fur 1 (always), Animal Hide Scraps 2 (always).\nDrops: Raw Rat Meat 2 (always), Soft Animal Fur 1 (always), Animal Hide Scraps 2 (always).\nSources: wiki pages 1117; the game's own data on his client (journal, attacks, drops)."
   },
   "Corrupted Raven": {
    "kind": "creature",
@@ -2046,6 +2274,67 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Farm Meat",
+         "id": "ITEM_Resources_Meat_Farm",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Raw Farm Meat",
+         "id": "ITEM_Resources_Meat_Farm",
+         "min": 1,
+         "max": 1,
+         "chance": 75.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 1,
+         "max": 1,
+         "chance": 75.0
+        },
+        {
+         "item": "Animal Bone",
+         "id": "ITEM_Resources_AnimalBone",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Bone",
+         "id": "ITEM_Resources_AnimalBone",
+         "min": 2,
+         "max": 2,
+         "chance": 50.0
+        },
+        {
+         "item": "Weeds",
+         "id": "ITEM_Resources_Weeds",
+         "min": 1,
+         "max": 1,
+         "chance": 15.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      472
@@ -2079,9 +2368,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Cow: creature.\nCows are power level 2 creatures that roam around Bramblemead Valley and Dowdun Reach.\nPower level 2, health 120. Power level 4, health 270.\nRace: Cow. Weak to None. Resistant to None. Aggressive: no.\nLives in: Bramblemead Valley, The Pastures.\nAttacks in the game's data (base damage before armour): CowAttack1 (18 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01 (seen 8, impact 0.78 s after the wind-up, lunge 2.1 m, about 36 damage to him per hit).\nDrops: Raw Farm Meat 2 (always), Animal Hide 2 (always), Animal Bone 2 (always), Raw Farm Meat 1 (75/100), Animal Hide 1 (75/100), Animal Bone 2 (50/100), Weeds 2 (15/100).\nSources: wiki pages 472; his own fights (attacks seen); the game's own data on his client (journal, attacks)."
+   "text": "Cow: creature.\nCows are power level 2 creatures that roam around Bramblemead Valley and Dowdun Reach.\nPower level 2, health 120. Power level 4, health 270.\nRace: Cow. Weak to None. Resistant to None. Aggressive: no.\nLives in: Bramblemead Valley, The Pastures.\nAttacks in the game's data (base damage before armour): CowAttack1 (18 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01 (seen 8, impact 0.78 s after the wind-up, lunge 2.1 m, about 36 damage to him per hit).\nDrops in the game's tables: from power level 0: Raw Farm Meat 2 (always), Raw Farm Meat 1 (always), Animal Hide 2 (always), Animal Hide 1 (always), Animal Bone 2 (always), Animal Bone 2 (always), Weeds 1 (always).\nDrops: Raw Farm Meat 2 (always), Animal Hide 2 (always), Animal Bone 2 (always), Raw Farm Meat 1 (75/100), Animal Hide 1 (75/100), Animal Bone 2 (50/100), Weeds 2 (15/100).\nSources: wiki pages 472; his own fights (attacks seen); the game's own data on his client (journal, attacks, drops)."
   },
   "Curly": {
    "kind": "creature",
@@ -2238,6 +2530,53 @@
      "Ghornfell"
     ]
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Game Meat",
+         "id": "ITEM_Resources_Meat_Game",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Antler",
+         "id": "ITEM_Resources_Animal_Horn",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 1,
+         "max": 1,
+         "chance": 20.0
+        },
+        {
+         "item": "Animal Bone",
+         "id": "ITEM_Resources_AnimalBone",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      184
@@ -2271,9 +2610,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Deer: creature.\nDeer are power level 1 and 5 creatures that are non-aggressive and too fast to keep up with on foot.\nBrynmoor: power level 1, health 30. Ghornfell: power level 2, health 172. Dowdun Reach: power level 5, health 220.\nRace: Deer. Weak to Ranged. Resistant to None. Aggressive: no. Respawn: 1-2 days.\nLives in: Bramblemead Valley, Temple Woods, Fractured Plains, Stormtouched Highlands, Dowdun Reach.\nDeer can be alerted and will flee if the player is within 50 metres, and/or if a monster within 50 metres is hit with either ranged or magic attacks.\nDrops: Raw Game Meat 1 (always), Antler 1 (always), Animal Hide 1 (always), Animal Bone 2 (always), Animal Hide 1 (20/100).\nSources: wiki pages 184; the game's own data on his client (journal)."
+   "text": "Deer: creature.\nDeer are power level 1 and 5 creatures that are non-aggressive and too fast to keep up with on foot.\nBrynmoor: power level 1, health 30. Ghornfell: power level 2, health 172. Dowdun Reach: power level 5, health 220.\nRace: Deer. Weak to Ranged. Resistant to None. Aggressive: no. Respawn: 1-2 days.\nLives in: Bramblemead Valley, Temple Woods, Fractured Plains, Stormtouched Highlands, Dowdun Reach.\nDeer can be alerted and will flee if the player is within 50 metres, and/or if a monster within 50 metres is hit with either ranged or magic attacks.\nDrops in the game's tables: from power level 0: Raw Game Meat 1 (always), Antler 1 (always), Animal Hide 1 (always), Animal Hide 1 (always), Animal Bone 2 (always).\nDrops: Raw Game Meat 1 (always), Antler 1 (always), Animal Hide 1 (always), Animal Bone 2 (always), Animal Hide 1 (20/100).\nSources: wiki pages 184; the game's own data on his client (journal, drops)."
   },
   "Delrom": {
    "kind": "creature",
@@ -2684,6 +3026,39 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Dragonwolf Hide",
+         "id": "ITEM_Resources_Skin_Dragonwolf",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Dragon Blood",
+         "id": "ITEM_Resources_DragonBlood",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Naphtha",
+         "id": "ITEM_Resources_Naptha",
+         "min": 1,
+         "max": 1,
+         "chance": 33.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Vekchenven Kara (5, power level 5)"
    ],
@@ -2723,9 +3098,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Dragon Wolf: creature.\nDragon wolves are level 5 aggressive NPCs in Ashenfall, located within the region of Fellhollow.\nPower level 5, health 460.\nRace: Dragon Wolf. Weak to Water. Resistant to Fire. Aggressive: Yes.\nLives in: Fellhollow.\nIn vaults or dungeons: Vekchenven Kara (5, power level 5).\nAttacks: Lunge: The dragon wolf lunges at the player. Breathe Fire: After a wind up with blue flame in their mouth, the dragon wolf breathes fire onto the player.\nAttacks in the game's data (base damage before armour): DragonWolfBite (18 damage); DragonWolfFlashFire (0 damage); DragonWolfLungeBite (18 damage); DragonWolfRunningAttack (18 damage).\nDrops: Dragon Blood 2 (always), Dragonwolf Hide 1 (always), Naptha 1 (33/100).\nSources: wiki pages 8887, 9387; the game's own data on his client (journal, attacks)."
+   "text": "Dragon Wolf: creature.\nDragon wolves are level 5 aggressive NPCs in Ashenfall, located within the region of Fellhollow.\nPower level 5, health 460.\nRace: Dragon Wolf. Weak to Water. Resistant to Fire. Aggressive: Yes.\nLives in: Fellhollow.\nIn vaults or dungeons: Vekchenven Kara (5, power level 5).\nAttacks: Lunge: The dragon wolf lunges at the player. Breathe Fire: After a wind up with blue flame in their mouth, the dragon wolf breathes fire onto the player.\nAttacks in the game's data (base damage before armour): DragonWolfBite (18 damage); DragonWolfFlashFire (0 damage); DragonWolfLungeBite (18 damage); DragonWolfRunningAttack (18 damage).\nDrops in the game's tables: from power level 0: Dragonwolf Hide 1 (always), Dragon Blood 2 (always), Naphtha 1 (always).\nDrops: Dragon Blood 2 (always), Dragonwolf Hide 1 (always), Naptha 1 (33/100).\nSources: wiki pages 8887, 9387; the game's own data on his client (journal, attacks, drops)."
   },
   "Elite Black Knight": {
    "kind": "creature",
@@ -2978,6 +3356,54 @@
     "entry": "JOURNAL_World_Factions_Fuzan",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Fuzan's Head",
+         "id": "ITEM_Resources_Fuzan_Head",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0,
+         "damagers_only": true
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 25.0
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 25.0
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 25.0
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 25.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Fight Cave"
    ],
@@ -3028,9 +3454,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Fuzan: creature, world boss and boss of Fight Cave.\nFuzan is a giant red dragon and one of Kuldra's youngest generals and also the fiercest.\nPower level 7, health 16,000.\nRace: Dragon. Weak to None. Resistant to Fire. Immune to Poison, Bleed and Burn. Aggressive: Yes. Respawn: Wave 10 (Fuzan Trials); Wave 30 (Fight Cave).\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nAttacks: Claw sweep: He raises his hand and slashes backwards for those close range. Stomps, like Velgar and Imaru: His stomp causes spikes of lava to launch towards you from the ground launching a lava fire imbued earth spike at you. Lava Stomp: He will use both hands to slam the ground and cause a pool of lava to over his feet to temporarily avoid close range attacks. Fire breath, Like Imaru, would breath fire across the entire arena. Fire Rain, which he looks up in the sky and spits 4 fire around the arena, like Velgar's poison spits.\nDrops: Fuzan's Head 1 (always), Crucible Engram of Humiliation 1 (1/4), Crucible Engram of Helplessness 1 (1/4), Crucible Engram of Betrayal 1 (1/4), Crucible Engram of the Hounded 1 (1/4).\nSources: wiki pages 2128, 6564, 13309, 14369; the game's own data on his client (journal)."
+   "text": "Fuzan: creature, world boss and boss of Fight Cave.\nFuzan is a giant red dragon and one of Kuldra's youngest generals and also the fiercest.\nPower level 7, health 16,000.\nRace: Dragon. Weak to None. Resistant to Fire. Immune to Poison, Bleed and Burn. Aggressive: Yes. Respawn: Wave 10 (Fuzan Trials); Wave 30 (Fight Cave).\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nAttacks: Claw sweep: He raises his hand and slashes backwards for those close range. Stomps, like Velgar and Imaru: His stomp causes spikes of lava to launch towards you from the ground launching a lava fire imbued earth spike at you. Lava Stomp: He will use both hands to slam the ground and cause a pool of lava to over his feet to temporarily avoid close range attacks. Fire breath, Like Imaru, would breath fire across the entire arena. Fire Rain, which he looks up in the sky and spits 4 fire around the arena, like Velgar's poison spits.\nDrops in the game's tables: from power level 0: Fuzan's Head 1 (always), Crucible Engram of Helplessness 1 (always), Crucible Engram of Betrayal 1 (always), Crucible Engram of the Hounded 1 (always), Crucible Engram of Humiliation 1 (always).\nDrops: Fuzan's Head 1 (always), Crucible Engram of Humiliation 1 (1/4), Crucible Engram of Helplessness 1 (1/4), Crucible Engram of Betrayal 1 (1/4), Crucible Engram of the Hounded 1 (1/4).\nSources: wiki pages 2128, 6564, 13309, 14369; the game's own data on his client (journal, drops)."
   },
   "Garou Berserker": {
    "kind": "creature",
@@ -3304,6 +3733,32 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Garou Pack",
+         "id": "ITEM_Consumable_GarouPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "A Mysterious Crescent Carving",
+         "id": "DA_Consumable_Vestige_Weapon_Staff_GrievingMoon",
+         "min": 1,
+         "max": 1,
+         "chance": 2.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      1114
@@ -3340,9 +3795,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Garou Druid: creature.\nGarou druids are power level 3 or 4 monsters.\nPower level 3, health 292. Power level 4, health 405.\nRace: Garou. Weak to Fire. Resistant to Crush. Immune to Poison. Aggressive: yes.\nLives in: Fractured Plains, Bloodblight Swamp, Druid's Cave in the Whispering Swamp, Stormtouched Highlands.\nAttacks: Nature Fang: A homing projectile that inflicts direct damage and applies a poisonous effect upon striking it's target. Poisonous Gas: An area-of-effect attack where the druid slams their staff into the ground, creating a small poison field that damages enemies at close range. This will deal 4 poison damage over 15 seconds. Regeneration: A supportive spell that gradually restores 20 health over 12 seconds to both the druid and nearby allied garou over time.\nAttacks in the game's data (base damage before armour): GarouDruidNatureBolt (26 damage); GarouDruidVenomFang (18 damage).\nDrops: A Mysterious Crescent Carving 1 (2/100).\nSources: wiki pages 1114; the game's own data on his client (journal, attacks)."
+   "text": "Garou Druid: creature.\nGarou druids are power level 3 or 4 monsters.\nPower level 3, health 292. Power level 4, health 405.\nRace: Garou. Weak to Fire. Resistant to Crush. Immune to Poison. Aggressive: yes.\nLives in: Fractured Plains, Bloodblight Swamp, Druid's Cave in the Whispering Swamp, Stormtouched Highlands.\nAttacks: Nature Fang: A homing projectile that inflicts direct damage and applies a poisonous effect upon striking it's target. Poisonous Gas: An area-of-effect attack where the druid slams their staff into the ground, creating a small poison field that damages enemies at close range. This will deal 4 poison damage over 15 seconds. Regeneration: A supportive spell that gradually restores 20 health over 12 seconds to both the druid and nearby allied garou over time.\nAttacks in the game's data (base damage before armour): GarouDruidNatureBolt (26 damage); GarouDruidVenomFang (18 damage).\nDrops in the game's tables: from power level 0: Garou Pack 1 (always), A Mysterious Crescent Carving 1 (always).\nDrops: A Mysterious Crescent Carving 1 (2/100).\nSources: wiki pages 1114; the game's own data on his client (journal, attacks, drops)."
   },
   "Garou Exile": {
    "kind": "creature",
@@ -3819,6 +4277,32 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Garou Pack",
+         "id": "ITEM_Consumable_GarouPack",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "A Brutal Bladehead",
+         "id": "DA_Consumable_Vestige_Weapon_Greataxe_Thane",
+         "min": 1,
+         "max": 1,
+         "chance": 5.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      1115
@@ -3852,9 +4336,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Garou Thane: creature.\nGarou thanes are power level 3, 4 and 8 monsters with a large tower shield to protect themselves.\nPower level 3, health 585. Power level 4, health 810. Power level 8, health 1,485. Power level 8, health 1,710.\nRace: Garou. Weak to Crush. Resistant to Stab. Aggressive: yes.\nLives in: Fractured Plains, Bloodblight Swamp, Stormtouched Highlands, Nightmare Crucible, Scorned Wilderness.\nWhen attacked, they will block all attacks until their stance is broken, staggering them for three seconds.\nTheir stance breaks after three seconds, and they will attack and be immune to getting staggered.\nAttacks in the game's data (base damage before armour): GarouThaneCombo1 (43 damage); GarouThaneCombo2 (43 damage); GarouThaneHeavyAttack (70 damage); GarouThaneQuickAttack (26 damage).\nDrops: Garou Pack 2 (always), A Brutal Bladehead 1 (1/20).\nSources: wiki pages 1115; the game's own data on his client (journal, attacks)."
+   "text": "Garou Thane: creature.\nGarou thanes are power level 3, 4 and 8 monsters with a large tower shield to protect themselves.\nPower level 3, health 585. Power level 4, health 810. Power level 8, health 1,485. Power level 8, health 1,710.\nRace: Garou. Weak to Crush. Resistant to Stab. Aggressive: yes.\nLives in: Fractured Plains, Bloodblight Swamp, Stormtouched Highlands, Nightmare Crucible, Scorned Wilderness.\nWhen attacked, they will block all attacks until their stance is broken, staggering them for three seconds.\nTheir stance breaks after three seconds, and they will attack and be immune to getting staggered.\nAttacks in the game's data (base damage before armour): GarouThaneCombo1 (43 damage); GarouThaneCombo2 (43 damage); GarouThaneHeavyAttack (70 damage); GarouThaneQuickAttack (26 damage).\nDrops in the game's tables: from power level 0: Garou Pack 2 (always), A Brutal Bladehead 1 (always).\nDrops: Garou Pack 2 (always), A Brutal Bladehead 1 (1/20).\nSources: wiki pages 1115; the game's own data on his client (journal, attacks, drops)."
   },
   "Ghost Wolf": {
    "kind": "creature",
@@ -4000,20 +4487,20 @@
     {
      "name": "Attack 01",
      "asset": "ATK_GiantRat_Attack_01",
-     "seen": 140,
+     "seen": 141,
      "hits_on_him": 24,
-     "impact_s": 1.05,
-     "lunge_m": 1.6,
+     "impact_s": 1.2,
+     "lunge_m": 2.1,
      "damage_to_him": 13.0,
      "build": "26574764"
     },
     {
      "name": "Attack 02",
      "asset": "ATK_GiantRat_Attack_02",
-     "seen": 107,
+     "seen": 108,
      "hits_on_him": 16,
-     "impact_s": 2.11,
-     "lunge_m": 2.2,
+     "impact_s": 2.09,
+     "lunge_m": 1.9,
      "damage_to_him": 18.0,
      "build": "26574764"
     },
@@ -4055,6 +4542,46 @@
      "row": "DT_AIAttackDamage_BG:GiantRatQuickBite",
      "damage": [
       10.0
+     ]
+    }
+   ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Rat Meat",
+         "id": "ITEM_Resources_Raw_Stringy_Meat",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Coarse Animal Fur",
+         "id": "ITEM_Resources_Coarse_Animal_Fur",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide Scraps",
+         "id": "ITEM_Resources_Skin_Scraps",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Small Animal Fang",
+         "id": "ITEM_Resources_Fang",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
      ]
     }
    ],
@@ -4111,9 +4638,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Giant Rat: creature.\nGiant rats are power level 1-5 creatures found in a variety of areas within Temple Woods, Bramblemead Valley, Fractured Plains and certain dragonkin vaults.\nPower level 1, health 50. Power level 2, health 100. Power level 3, health 162. Power level 4, health 225. Power level 5, health 288.\nRace: Rat. Weak to Stab. Resistant to Crush. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Fractured Plains, Some Dragonkin Vaults.\nIn vaults or dungeons: Chaktan Kara (7, power level 4); Crasorak Kara (9, power level 2); Kalistrakthen Kara (9, power level 5); Kalistrakthen Kara (3, power level 4); Skekven Kara (4, power level 5); Takla Kara (5, power level 3); Thishepen Kara (16, power level 2); Thishepen Kara (5, power level 1); Vertentis Kara (12, power level 2).\nAttacks in the game's data (base damage before armour): GiantRatBite (26 damage); GiantRatLunge (18 damage); GiantRatQuickBite (10 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01; Attack 02; Attack 03.\nDrops: Raw Rat Meat 1 (always), Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (always), Small Animal Fang 1 (always).\nSources: wiki pages 169, 3515, 3516, 3517, 3518, 3521, 9234, 9412; his own fights (attacks seen); the game's own data on his client (journal, attacks)."
+   "text": "Giant Rat: creature.\nGiant rats are power level 1-5 creatures found in a variety of areas within Temple Woods, Bramblemead Valley, Fractured Plains and certain dragonkin vaults.\nPower level 1, health 50. Power level 2, health 100. Power level 3, health 162. Power level 4, health 225. Power level 5, health 288.\nRace: Rat. Weak to Stab. Resistant to Crush. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Fractured Plains, Some Dragonkin Vaults.\nIn vaults or dungeons: Chaktan Kara (7, power level 4); Crasorak Kara (9, power level 2); Kalistrakthen Kara (9, power level 5); Kalistrakthen Kara (3, power level 4); Skekven Kara (4, power level 5); Takla Kara (5, power level 3); Thishepen Kara (16, power level 2); Thishepen Kara (5, power level 1); Vertentis Kara (12, power level 2).\nAttacks in the game's data (base damage before armour): GiantRatBite (26 damage); GiantRatLunge (18 damage); GiantRatQuickBite (10 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01; Attack 02; Attack 03.\nDrops in the game's tables: from power level 0: Raw Rat Meat 1 (always), Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (always), Small Animal Fang 1 (always).\nSources: wiki pages 169, 3515, 3516, 3517, 3518, 3521, 9234, 9412; his own fights (attacks seen); the game's own data on his client (journal, attacks, drops)."
   },
   "Gnasher": {
    "kind": "creature",
@@ -4235,6 +4765,46 @@
     "entry": "JOURNAL_World_Fauna_DesertGoat",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Farm Meat",
+         "id": "ITEM_Resources_Meat_Farm",
+         "min": 2,
+         "max": 3,
+         "chance": 75.0
+        },
+        {
+         "item": "Fleece",
+         "id": "ITEM_Resources_Skin_Fleece",
+         "min": 1,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 1,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Ram Horn",
+         "id": "ITEM_Resources_Large_Animal_Horn",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      14588
@@ -4265,9 +4835,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Goat: creature.\nGoat are power level 7 creatures found in Umbral Sands.\nPower level 7.\nRace: Goat. Weak to Slash. Resistant to Fire. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops: Fleece 1-2 (always), Animal Hide 1-2 (always), Ram Horn 1 (always), Raw Farm Meat 2-3 (75/100).\nSources: wiki pages 14588; metabot.gg datamined bestiary (weak to, resistant to); the game's own data on his client (journal)."
+   "text": "Goat: creature.\nGoat are power level 7 creatures found in Umbral Sands.\nPower level 7.\nRace: Goat. Weak to Slash. Resistant to Fire. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Raw Farm Meat 2-3 (always), Fleece 1-2 (always), Animal Hide 1-2 (always), Ram Horn 1 (always).\nDrops: Fleece 1-2 (always), Animal Hide 1-2 (always), Ram Horn 1 (always), Raw Farm Meat 2-3 (75/100).\nSources: wiki pages 14588; metabot.gg datamined bestiary (weak to, resistant to); the game's own data on his client (journal, drops)."
   },
   "Goblin Archer": {
    "kind": "creature",
@@ -4328,6 +4901,25 @@
      "Brynmoor"
     ]
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Goblin Pack",
+         "id": "ITEM_Consumable_GoblinPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      182
@@ -4355,9 +4947,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Goblin Archer: creature.\nGoblin archers are power level 2, 6 and 8 monsters located in Brynmoor, Dowdun Reach and the Scorned Wilderness raid.\nPower level 2, health 120. Power level 6, health 420. Power level 8, health 570.\nRace: Goblin. Weak to Stab. Resistant to None. Aggressive: yes.\nLives in: Bramblemead Valley, Whispering Swamp, Dowdun Reach, Scorned Wilderness.\nAttacks: not in the mirror.\nDrops: Goblin Pack 1 (always).\nSources: wiki pages 182; the game's own data on his client (journal)."
+   "text": "Goblin Archer: creature.\nGoblin archers are power level 2, 6 and 8 monsters located in Brynmoor, Dowdun Reach and the Scorned Wilderness raid.\nPower level 2, health 120. Power level 6, health 420. Power level 8, health 570.\nRace: Goblin. Weak to Stab. Resistant to None. Aggressive: yes.\nLives in: Bramblemead Valley, Whispering Swamp, Dowdun Reach, Scorned Wilderness.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Goblin Pack 1 (always).\nDrops: Goblin Pack 1 (always).\nSources: wiki pages 182; the game's own data on his client (journal, drops)."
   },
   "Goblin Bruiser": {
    "kind": "creature",
@@ -4711,6 +5306,25 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Goblin Pack",
+         "id": "ITEM_Consumable_GoblinPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Crasorak Kara (2, power level 2)"
    ],
@@ -4750,9 +5364,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Goblin Runt: creature.\nGoblin runts areare power level 1, 3 and 6 monsters located in Brynmoor, Bloodblight Swamp and Dowdun Reach.\nPower level 1, health 60. Power level 3, health 195. Power level 6, health 420.\nRace: Goblin. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Bloodblight Swamp, Dowdun Reach.\nIn vaults or dungeons: Crasorak Kara (2, power level 2).\nAttacks in the game's data (base damage before armour): GoblinRuntAttack1 (22 damage); GoblinRuntAttack2 (22 damage); GoblinRuntSlowAttack (30 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack1 (seen 78, impact 0.95 s after the wind-up, lunge 1.0 m, about 18 damage to him per hit); Attack2 (seen 80, impact 0.87 s after the wind-up, lunge 1.1 m, about 18 damage to him per hit); SlowAttack (seen 43, impact 1.28 s after the wind-up, lunge 0.6 m, about 16 damage to him per hit).\nDrops: Goblin Pack 1 (always).\nSources: wiki pages 1323, 3515; his own fights (attacks seen); the game's own data on his client (journal, attacks)."
+   "text": "Goblin Runt: creature.\nGoblin runts areare power level 1, 3 and 6 monsters located in Brynmoor, Bloodblight Swamp and Dowdun Reach.\nPower level 1, health 60. Power level 3, health 195. Power level 6, health 420.\nRace: Goblin. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Temple Woods, Bramblemead Valley, Bloodblight Swamp, Dowdun Reach.\nIn vaults or dungeons: Crasorak Kara (2, power level 2).\nAttacks in the game's data (base damage before armour): GoblinRuntAttack1 (22 damage); GoblinRuntAttack2 (22 damage); GoblinRuntSlowAttack (30 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack1 (seen 78, impact 0.95 s after the wind-up, lunge 1.0 m, about 18 damage to him per hit); Attack2 (seen 80, impact 0.87 s after the wind-up, lunge 1.1 m, about 18 damage to him per hit); SlowAttack (seen 43, impact 1.28 s after the wind-up, lunge 0.6 m, about 16 damage to him per hit).\nDrops in the game's tables: from power level 0: Goblin Pack 1 (always).\nDrops: Goblin Pack 1 (always).\nSources: wiki pages 1323, 3515; his own fights (attacks seen); the game's own data on his client (journal, attacks, drops)."
   },
   "Goblin Thug": {
    "kind": "creature",
@@ -5625,6 +6242,42 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Imaru's Head",
+         "id": "ITEM_Resources_Imaru_Head",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0,
+         "damagers_only": true
+        },
+        {
+         "item": "Serrated Claw",
+         "id": "DA_Consumable_Vestige_Weapon_Scimitar_Imaru",
+         "min": 1,
+         "max": 1,
+         "chance": 10.0,
+         "damagers_only": true
+        },
+        {
+         "item": "Ascension Shard 5",
+         "id": "ITEM_Resources_T5_Upgrade_Shard",
+         "min": 30,
+         "max": 40,
+         "chance": 100.0,
+         "damagers_only": true
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "role": [
     "world boss"
    ],
@@ -5671,9 +6324,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Imaru, the Soul-Eater: creature, world boss.\nImaru the Soul-Eater is an undead blue dragon infused with the wild anima of Ashenfall and the energy of the Underworld by drinking from the River Noumenon.\nPower level 5, health 14,000.\nRace: Undead Dragon. Weak to None. Resistant to None. Immune to Poison, Burn and Bleed. Aggressive: Yes. Respawn: Every new boss instance started.\nLives in: Fellhollow.\nUnlike Velgar's world events, Imaru only attacks the player out in the world if they are soul-rifting for too long.\nImaru's main attacks are energy bolts that launch towards you when flying, fire-breathing sweeps when she is on the platform, and foot stomps, which can launch a rot, earth spike-like attack towards the player, which fills up the Wither status.\nAttacks in the game's data (base damage before armour): DragonImaruDragonfireBreath (18 damage); DragonImaruGroundProjectile (22 damage); DragonImaruGroundProjectileTracer (18 damage); DragonImaruLandingDamage (50 damage); DragonImaruNecroticBlast (80 damage); DragonImaruNecroticBlastDeath (100 damage); DragonImaruNecroticProjectile (10 damage); DragonImaruNecroticProjectileAoE (24 damage); DragonImaruShatterDamage (40 damage); DragonImaruShockwaveDamage (40 damage); DragonImaruStompDamage (26 damage).\nDrops: Imaru's Head 1 (always), Ascension Shard (Power Level 5) 30-40 (always), Serrated Claw 1 (1/10).\nSources: wiki pages 2128, 3647, 9706; the game's own data on his client (journal, attacks)."
+   "text": "Imaru, the Soul-Eater: creature, world boss.\nImaru the Soul-Eater is an undead blue dragon infused with the wild anima of Ashenfall and the energy of the Underworld by drinking from the River Noumenon.\nPower level 5, health 14,000.\nRace: Undead Dragon. Weak to None. Resistant to None. Immune to Poison, Burn and Bleed. Aggressive: Yes. Respawn: Every new boss instance started.\nLives in: Fellhollow.\nUnlike Velgar's world events, Imaru only attacks the player out in the world if they are soul-rifting for too long.\nAttacks in the game's data (base damage before armour): DragonImaruDragonfireBreath (18 damage); DragonImaruGroundProjectile (22 damage); DragonImaruGroundProjectileTracer (18 damage); DragonImaruLandingDamage (50 damage); DragonImaruNecroticBlast (80 damage); DragonImaruNecroticBlastDeath (100 damage); DragonImaruNecroticProjectile (10 damage); DragonImaruNecroticProjectileAoE (24 damage); DragonImaruShatterDamage (40 damage); DragonImaruShockwaveDamage (40 damage); DragonImaruStompDamage (26 damage).\nDrops in the game's tables: from power level 0: Imaru's Head 1 (always), Serrated Claw 1 (always), Ascension Shard 5 30-40 (always).\nSources: wiki pages 2128, 3647, 9706; the game's own data on his client (journal, attacks, drops)."
   },
   "Kalphite Guardian": {
    "kind": "creature",
@@ -5793,6 +6449,95 @@
     "entry": "JOURNAL_World_Factions_KalphiteGuardian",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Greater Kalphite Wing",
+         "id": "ITEM_Resources_Wing_Kalphite_Alpha",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Kalphite Ichor",
+         "id": "ITEM_Resources_Ichor_Kalphite",
+         "min": 3,
+         "max": 3,
+         "chance": 50.0
+        },
+        {
+         "item": "Kalphite Shell Fragments",
+         "id": "ITEM_Resources_Shell_Kalphite_Fragments",
+         "min": 3,
+         "max": 6,
+         "chance": 100.0
+        },
+        {
+         "item": "Kalphite Shell",
+         "id": "ITEM_Resources_Shell_Kalphite",
+         "min": 2,
+         "max": 4,
+         "chance": 50.0
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "MOUNT: Scorchsummer Ashbeak",
+         "id": "DA_Consumabe_Mount_TerrorBird_03_02",
+         "min": 1,
+         "max": 1,
+         "chance": 1.0
+        },
+        {
+         "item": "MOUNT: Applefeather Mosstail",
+         "id": "DA_Consumabe_Mount_TerrorBird_03_03",
+         "min": 1,
+         "max": 1,
+         "chance": 1.0
+        },
+        {
+         "item": "MOUNT: Crimson Crybaby",
+         "id": "DA_Consumabe_Mount_TerrorBird_03_04",
+         "min": 1,
+         "max": 1,
+         "chance": 1.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      13951
@@ -5823,9 +6568,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Kalphite Guardian: creature.\nKalphite guardians are a larger defensive variant of kalphites in Umbral Sands, and will periodically change to red, blue, and green shades, making them immune to melee, magic, and ranged damage, respectively.\nPower level 7, health 2475.\nRace: Kalphite. Weak to: not in the mirror. Resistant to Crush, Slash, Stab, Range, Air and Water. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: Red shade: This blocks all incoming Attack damage. Blue shade: This blocks all incoming Magic damage. Green shade: This blocks all incoming Ranged damage.\nDrops: Greater Kalphite Wing 1 (always), Kalphite Shell Fragments 3-6 (always), Kalphite Ichor 3 (50/100), Kalphite Shell 2-4 (50/100), MOUNT: Scorchsummer Ashbeak 1 (1/100), MOUNT: Applefeather Mosstail 1 (1/100), MOUNT: Crimson Crybaby 1 (1/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13951; the game's own data on his client (journal)."
+   "text": "Kalphite Guardian: creature.\nKalphite guardians are a larger defensive variant of kalphites in Umbral Sands, and will periodically change to red, blue, and green shades, making them immune to melee, magic, and ranged damage, respectively.\nPower level 7, health 2475.\nRace: Kalphite. Weak to: not in the mirror. Resistant to Crush, Slash, Stab, Range, Air and Water. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: Red shade; Blue shade; Green shade.\nDrops in the game's tables: from power level 0: Greater Kalphite Wing 1 (always), Kalphite Ichor 3 (always), Kalphite Shell Fragments 3-6 (always), Kalphite Shell 2-4 (always), Crucible Engram of Helplessness 1 (25 %), Crucible Engram of Betrayal 1 (25 %), Crucible Engram of the Hounded 1 (25 %), Crucible Engram of Humiliation 1 (25 %), MOUNT: Scorchsummer Ashbeak 1 (always), MOUNT: Applefeather Mosstail 1 (always), MOUNT: Crimson Crybaby 1 (always).\nDrops: Greater Kalphite Wing 1 (always), Kalphite Shell Fragments 3-6 (always), Kalphite Ichor 3 (50/100), Kalphite Shell 2-4 (50/100), MOUNT: Scorchsummer Ashbeak 1 (1/100), MOUNT: Applefeather Mosstail 1 (1/100), MOUNT: Crimson Crybaby 1 (1/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13951; the game's own data on his client (journal, drops)."
   },
   "Kalphite Queen": {
    "kind": "creature",
@@ -5945,6 +6693,88 @@
     "entry": "JOURNAL_World_Factions_KalphiteQueen",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Greater Kalphite Wing",
+         "id": "ITEM_Resources_Wing_Kalphite_Alpha",
+         "min": 2,
+         "max": 4,
+         "chance": 100.0
+        },
+        {
+         "item": "Kalphite Ichor",
+         "id": "ITEM_Resources_Ichor_Kalphite",
+         "min": 6,
+         "max": 12,
+         "chance": 100.0
+        },
+        {
+         "item": "Kalphite Shell",
+         "id": "ITEM_Resources_Shell_Kalphite",
+         "min": 5,
+         "max": 8,
+         "chance": 100.0
+        },
+        {
+         "item": "Ornate Golden Scarab",
+         "id": "DA_Consumable_Vestige_Weapon_Staff_Scarab",
+         "min": 1,
+         "max": 1,
+         "chance": 5.0
+        },
+        {
+         "item": "Poison Ichor",
+         "id": "ITEM_Herb_Poison_Ichor",
+         "min": 3,
+         "max": 6,
+         "chance": 100.0
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 2.5
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 2.5
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 2.5
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 2.5
+        },
+        {
+         "item": "MOUNT: Moonsilk Weave",
+         "id": "DA_Consumabe_Mount_FlyingCarpet_01_02",
+         "min": 1,
+         "max": 1,
+         "chance": 5.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "role": [
     "mini boss"
    ],
@@ -5981,9 +6811,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Kalphite Queen: creature, mini boss.\nKalphite queens are the ruling heart of kalphite hives in the Umbral Sands, creating soldiers, workers, and guardians as needed to ensure the hive survives and thrives.\nFirst form: power level 7, health 5500. Second form: power level 7, health 5500.\nRace: Kalphite. Weak to: not in the mirror. Immune: Can be immune to any attack style. Aggressive: Yes. Respawn: 2 Days.\nLives in: Umbral Sands.\nAttacks: Red shade: This blocks all incoming Attack damage. Blue shade: This blocks all incoming Magic damage. (NOTE: This includes Attack or Ranged attacks with elemental components, such as Enchant Weapon spells, Fire Arrows, or the Bow of Elidinis. All damage made from these attacks are considered Magic damage as well as their normal damage type and is therefore blocked.). Green shade: This blocks all incoming Ranged damage.\nDrops: Greater Kalphite Wing 2-4 (always), Kalphite Shell 5-8 (always), Kalphite Ichor 6-12 (always), Poison Ichor 3-6 (always), Ornate Golden Scarab 1 (5/100), MOUNT: Moonsilk Weave 1 (5/100), Crucible Engram of Helplessness 1 (1/40), Crucible Engram of Betrayal 1 (1/40), Crucible Engram of the Hounded 1 (1/40), Crucible Engram of Humiliation 1 (1/40).\nSources: wiki pages 2128, 13941; the game's own data on his client (journal)."
+   "text": "Kalphite Queen: creature, mini boss.\nKalphite queens are the ruling heart of kalphite hives in the Umbral Sands, creating soldiers, workers, and guardians as needed to ensure the hive survives and thrives.\nFirst form: power level 7, health 5500. Second form: power level 7, health 5500.\nRace: Kalphite. Weak to: not in the mirror. Immune: Can be immune to any attack style. Aggressive: Yes. Respawn: 2 Days.\nLives in: Umbral Sands.\nAttacks: Red shade; Blue shade; Green shade.\nDrops in the game's tables: from power level 0: Greater Kalphite Wing 2-4 (always), Kalphite Ichor 6-12 (always), Kalphite Shell 5-8 (always), Ornate Golden Scarab 1 (always), Poison Ichor 3-6 (always), Crucible Engram of Helplessness 1 (always), Crucible Engram of Betrayal 1 (always), Crucible Engram of the Hounded 1 (always), Crucible Engram of Humiliation 1 (always), MOUNT: Moonsilk Weave 1 (always).\nDrops: Greater Kalphite Wing 2-4 (always), Kalphite Shell 5-8 (always), Kalphite Ichor 6-12 (always), Poison Ichor 3-6 (always), Ornate Golden Scarab 1 (5/100), MOUNT: Moonsilk Weave 1 (5/100), Crucible Engram of Helplessness 1 (1/40), Crucible Engram of Betrayal 1 (1/40), Crucible Engram of the Hounded 1 (1/40), Crucible Engram of Humiliation 1 (1/40).\nSources: wiki pages 2128, 13941; the game's own data on his client (journal, drops)."
   },
   "Kalphite Soldier": {
    "kind": "creature",
@@ -6073,6 +6906,74 @@
     "entry": "JOURNAL_World_Factions_KalphiteSoldier",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Kalphite Wing",
+         "id": "ITEM_Resources_Wing_Kalphite",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Kalphite Ichor",
+         "id": "ITEM_Resources_Ichor_Kalphite",
+         "min": 2,
+         "max": 2,
+         "chance": 50.0
+        },
+        {
+         "item": "Kalphite Shell Fragments",
+         "id": "ITEM_Resources_Shell_Kalphite_Fragments",
+         "min": 2,
+         "max": 4,
+         "chance": 100.0
+        },
+        {
+         "item": "Kalphite Shell",
+         "id": "ITEM_Resources_Shell_Kalphite",
+         "min": 1,
+         "max": 2,
+         "chance": 25.0
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      13949
@@ -6100,9 +7001,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Kalphite Soldier: creature.\nKalphite soldiers are a militant variant of kalphite native to the Umbral Sands region, bred specifically to defend their hive.\nPower level 7, health 825.\nRace: Kalphite. Weak to: not in the mirror. Resistant to Crush, Slash, Stab, Range, Air and Water. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops: Kalphite Wing 1 (always), Kalphite Shell Fragments 2-4 (always), Kalphite Ichor 2 (50/100), Kalphite Shell 1-2 (25/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13949; the game's own data on his client (journal)."
+   "text": "Kalphite Soldier: creature.\nKalphite soldiers are a militant variant of kalphite native to the Umbral Sands region, bred specifically to defend their hive.\nPower level 7, health 825.\nRace: Kalphite. Weak to: not in the mirror. Resistant to Crush, Slash, Stab, Range, Air and Water. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Kalphite Wing 1 (always), Kalphite Ichor 2 (always), Kalphite Shell Fragments 2-4 (always), Kalphite Shell 1-2 (always), Crucible Engram of Helplessness 1 (25 %), Crucible Engram of Betrayal 1 (25 %), Crucible Engram of the Hounded 1 (25 %), Crucible Engram of Humiliation 1 (25 %).\nDrops: Kalphite Wing 1 (always), Kalphite Shell Fragments 2-4 (always), Kalphite Ichor 2 (50/100), Kalphite Shell 1-2 (25/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13949; the game's own data on his client (journal, drops)."
   },
   "Kalphite Worker": {
    "kind": "creature",
@@ -6184,6 +7088,67 @@
     "entry": "JOURNAL_World_Factions_KalphiteWorker",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Stunted Kalphite Wing",
+         "id": "ITEM_Resources_Wing_Kalphite_Stunted",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Kalphite Ichor",
+         "id": "ITEM_Resources_Ichor_Kalphite",
+         "min": 1,
+         "max": 1,
+         "chance": 50.0
+        },
+        {
+         "item": "Kalphite Shell Fragments",
+         "id": "ITEM_Resources_Shell_Kalphite_Fragments",
+         "min": 1,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      13948
@@ -6211,9 +7176,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Kalphite Worker: creature.\nKalphite workers are the lowest caste of kalphite, tasked with gathering food, harvesting materials, and constructing and expanding the hive for the queen.\nPower level 7, health 495.\nRace: Kalphite. Weak to: not in the mirror. Resistant to Crush, Slash, Stab, Range, Air and Water. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops: Stunted Kalphite Wing 1 (always), Kalphite Shell Fragments 1-2 (always), Kalphite Ichor 1 (50/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13948; the game's own data on his client (journal)."
+   "text": "Kalphite Worker: creature.\nKalphite workers are the lowest caste of kalphite, tasked with gathering food, harvesting materials, and constructing and expanding the hive for the queen.\nPower level 7, health 495.\nRace: Kalphite. Weak to: not in the mirror. Resistant to Crush, Slash, Stab, Range, Air and Water. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Stunted Kalphite Wing 1 (always), Kalphite Ichor 1 (always), Kalphite Shell Fragments 1-2 (always), Crucible Engram of Helplessness 1 (25 %), Crucible Engram of Betrayal 1 (25 %), Crucible Engram of the Hounded 1 (25 %), Crucible Engram of Humiliation 1 (25 %).\nDrops: Stunted Kalphite Wing 1 (always), Kalphite Shell Fragments 1-2 (always), Kalphite Ichor 1 (50/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13948; the game's own data on his client (journal, drops)."
   },
   "Kebbit": {
    "kind": "creature",
@@ -6285,6 +7253,39 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Coarse Animal Fur",
+         "id": "ITEM_Resources_Coarse_Animal_Fur",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide Scraps",
+         "id": "ITEM_Resources_Skin_Scraps",
+         "min": 1,
+         "max": 1,
+         "chance": 50.0
+        },
+        {
+         "item": "Weeds",
+         "id": "ITEM_Resources_Weeds",
+         "min": 1,
+         "max": 1,
+         "chance": 15.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      465
@@ -6321,9 +7322,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Kebbit: creature.\nKebbits are a power level 1 animal that resides near kebbit burrows throughout Ashenfall, and are passive creatures unless attacked.\nPower level 1, health 30.\nRace: Kebbit. Weak to None. Resistant to None. Aggressive: no. Respawn: 1 Day.\nLives in: Kebbit burrows around Ashenfall.\nAttacks in the game's data (base damage before armour): KebbitAttack1 (18 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01 (seen 156, impact 1.31 s after the wind-up, lunge 1.8 m, about 13 damage to him per hit).\nDrops: Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (1/2).\nSources: wiki pages 465; his own fights (attacks seen); the game's own data on his client (journal, attacks)."
+   "text": "Kebbit: creature.\nKebbits are a power level 1 animal that resides near kebbit burrows throughout Ashenfall, and are passive creatures unless attacked.\nPower level 1, health 30.\nRace: Kebbit. Weak to None. Resistant to None. Aggressive: no. Respawn: 1 Day.\nLives in: Kebbit burrows around Ashenfall.\nAttacks in the game's data (base damage before armour): KebbitAttack1 (18 damage).\nAttacks seen in his own fights (the game's attack names; damage is what he took through his armour): Attack 01 (seen 156, impact 1.31 s after the wind-up, lunge 1.8 m, about 13 damage to him per hit).\nDrops in the game's tables: from power level 0: Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (always), Weeds 1 (always).\nDrops: Coarse Animal Fur 1 (always), Animal Hide Scraps 1 (1/2).\nSources: wiki pages 465; his own fights (attacks seen); the game's own data on his client (journal, attacks, drops)."
   },
   "KotHaar-Hur": {
    "kind": "creature",
@@ -6402,6 +7406,60 @@
     "entry": "JOURNAL_World_Factions_KotHaar_KotHaarHur",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Kot Pack",
+         "id": "ITEM_Consumable_KutPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Elongated Obsidian Construct",
+         "id": "DA_Consumable_Vestige_Weapon_Staff_ToktzMejTal",
+         "min": 1,
+         "max": 1,
+         "chance": 2.0
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Fight Cave"
    ],
@@ -6444,9 +7502,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "KotHaar-Hur: creature.\nKotHaar-Hur are a power level 7 monsters that are found throughout Umbral Sands.\nPower level 7, health 660.\nRace: KotHaar. Weak to Water. Resistant to Range. Immune to Fire and Burn. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nThe following is their attack set:.\nDrops: Kot Pack 1 (always), Elongated Obsidian Construct 1 (2/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13309, 14162; the game's own data on his client (journal)."
+   "text": "KotHaar-Hur: creature.\nKotHaar-Hur are a power level 7 monsters that are found throughout Umbral Sands.\nPower level 7, health 660.\nRace: KotHaar. Weak to Water. Resistant to Range. Immune to Fire and Burn. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nThe following is their attack set:.\nDrops in the game's tables: from power level 0: Kot Pack 1 (always), Elongated Obsidian Construct 1 (always), Crucible Engram of Helplessness 1 (25 %), Crucible Engram of Betrayal 1 (25 %), Crucible Engram of the Hounded 1 (25 %), Crucible Engram of Humiliation 1 (25 %).\nDrops: Kot Pack 1 (always), Elongated Obsidian Construct 1 (2/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13309, 14162; the game's own data on his client (journal, drops)."
   },
   "KotHaar-Kal": {
    "kind": "creature",
@@ -6668,6 +7729,60 @@
     "entry": "JOURNAL_World_Factions_KotHaar_KotHaarKet",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Kot Pack",
+         "id": "ITEM_Consumable_KutPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Bludgeoning Obsidian Construct",
+         "id": "DA_Consumable_Vestige_Weapon_Hammer_TzhaarKetOm",
+         "min": 1,
+         "max": 1,
+         "chance": 2.0
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Fight Cave"
    ],
@@ -6710,9 +7825,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "KotHaar-Ket: creature.\nKotHaar-Ket is found in Umbral Sands.\nPower level 7, health 990.\nRace: KotHaar. Weak to Water. Resistant to Range. Immune to Fire and Burn. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nAt below 50% health, they will put up a fire shield that blocks all attacks and then explodes after a short time; however, this can be broken with water damage.\nThe KotHaar-Ket has three types of attacks:.\nDrops: Kot Pack 1 (always), Bludgeoning Obsidian Construct 1 (2/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13309, 13947; the game's own data on his client (journal)."
+   "text": "KotHaar-Ket: creature.\nKotHaar-Ket is found in Umbral Sands.\nPower level 7, health 990.\nRace: KotHaar. Weak to Water. Resistant to Range. Immune to Fire and Burn. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nAt below 50% health, they will put up a fire shield that blocks all attacks and then explodes after a short time; however, this can be broken with water damage.\nThe KotHaar-Ket has three types of attacks:.\nDrops in the game's tables: from power level 0: Kot Pack 1 (always), Bludgeoning Obsidian Construct 1 (always), Crucible Engram of Helplessness 1 (25 %), Crucible Engram of Betrayal 1 (25 %), Crucible Engram of the Hounded 1 (25 %), Crucible Engram of Humiliation 1 (25 %).\nDrops: Kot Pack 1 (always), Bludgeoning Obsidian Construct 1 (2/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13309, 13947; the game's own data on his client (journal, drops)."
   },
   "KotHaar-Xil": {
    "kind": "creature",
@@ -6789,6 +7907,81 @@
     "entry": "JOURNAL_World_Factions_KotHaar_KotHaarXil",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Kot Pack",
+         "id": "ITEM_Consumable_KutPack",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Shattered Black Blade",
+         "id": "DA_Consumable_Vestige_Weapon_Swords_ToktzXilAk",
+         "min": 1,
+         "max": 1,
+         "chance": 2.0
+        },
+        {
+         "item": "Crucible Engram of Helplessness",
+         "id": "ITEM_Resources_Key_NC_UmS_01",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Betrayal",
+         "id": "ITEM_Resources_Key_NC_UmS_02",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of the Hounded",
+         "id": "ITEM_Resources_Key_NC_UmS_03",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "Crucible Engram of Humiliation",
+         "id": "ITEM_Resources_Key_NC_UmS_04",
+         "min": 1,
+         "max": 1,
+         "chance": 0.25
+        },
+        {
+         "item": "MOUNT: Scorchsummer Ashbeak",
+         "id": "DA_Consumabe_Mount_TerrorBird_03_02",
+         "min": 1,
+         "max": 1,
+         "chance": 1.0
+        },
+        {
+         "item": "MOUNT: Applefeather Mosstail",
+         "id": "DA_Consumabe_Mount_TerrorBird_03_03",
+         "min": 1,
+         "max": 1,
+         "chance": 1.0
+        },
+        {
+         "item": "MOUNT: Crimson Crybaby",
+         "id": "DA_Consumabe_Mount_TerrorBird_03_04",
+         "min": 1,
+         "max": 1,
+         "chance": 1.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Fight Cave"
    ],
@@ -6828,9 +8021,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "KotHaar-Xil: creature.\nThe KotHaar-Xil are KotHaar monsters that are found in Umbral Sands.\nPower level 7, health 660.\nRace: KotHaar. Weak to Water. Resistant to Range. Immune to Fire and Burn. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nAttacks: not in the mirror.\nDrops: Kot Pack 1 (always), Elongated Obsidian Construct 1 (2/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13309, 13944; the game's own data on his client (journal)."
+   "text": "KotHaar-Xil: creature.\nThe KotHaar-Xil are KotHaar monsters that are found in Umbral Sands.\nPower level 7, health 660.\nRace: KotHaar. Weak to Water. Resistant to Range. Immune to Fire and Burn. Aggressive: Yes. Respawn: 1 Day.\nLives in: Umbral Sands.\nIn vaults or dungeons: Fight Cave.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Kot Pack 2 (always), Shattered Black Blade 1 (always), Crucible Engram of Helplessness 1 (25 %), Crucible Engram of Betrayal 1 (25 %), Crucible Engram of the Hounded 1 (25 %), Crucible Engram of Humiliation 1 (25 %), MOUNT: Scorchsummer Ashbeak 1 (always), MOUNT: Applefeather Mosstail 1 (always), MOUNT: Crimson Crybaby 1 (always).\nDrops: Kot Pack 1 (always), Elongated Obsidian Construct 1 (2/100), Crucible Engram of Helplessness 1 (1/400), Crucible Engram of Betrayal 1 (1/400), Crucible Engram of the Hounded 1 (1/400), Crucible Engram of Humiliation 1 (1/400).\nSources: wiki pages 13309, 13944; the game's own data on his client (journal, drops)."
   },
   "Kuldra": {
    "kind": "creature",
@@ -7372,6 +8568,25 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Zamorakian Mage Pack",
+         "id": "ITEM_Consumable_Pack_Zamorak_Mage",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      10707
@@ -7405,9 +8620,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Mage of Zamorak: creature.\nMages of Zamorak are power level 6 monsters located within Dowdun Reach.\nPower level 6, health 840.\nRace: Human. Weak to Slash and Ranged. Resistant to Air and Fire. Aggressive: Yes. Respawn: 2 in-game days.\nLives in: Dowdun Reach.\nAttacks in the game's data (base damage before armour): MageofZamorakFlamesofZamorak (43 damage); MageofZamorakHealthDrain (2 damage); MageofZamorakRangedAttack (18 damage).\nDrops: Zamorakian Mage Pack 2 (always).\nSources: wiki pages 10707; the game's own data on his client (journal, attacks)."
+   "text": "Mage of Zamorak: creature.\nMages of Zamorak are power level 6 monsters located within Dowdun Reach.\nPower level 6, health 840.\nRace: Human. Weak to Slash and Ranged. Resistant to Air and Fire. Aggressive: Yes. Respawn: 2 in-game days.\nLives in: Dowdun Reach.\nAttacks in the game's data (base damage before armour): MageofZamorakFlamesofZamorak (43 damage); MageofZamorakHealthDrain (2 damage); MageofZamorakRangedAttack (18 damage).\nDrops in the game's tables: from power level 0: Zamorakian Mage Pack 2 (always).\nDrops: Zamorakian Mage Pack 2 (always).\nSources: wiki pages 10707; the game's own data on his client (journal, attacks, drops)."
   },
   "Magpie": {
    "kind": "creature",
@@ -8172,6 +9390,74 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Farm Meat",
+         "id": "ITEM_Resources_Meat_Farm",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Raw Farm Meat",
+         "id": "ITEM_Resources_Meat_Farm",
+         "min": 1,
+         "max": 1,
+         "chance": 75.0
+        },
+        {
+         "item": "Fleece",
+         "id": "ITEM_Resources_Skin_Fleece",
+         "min": 2,
+         "max": 3,
+         "chance": 100.0
+        },
+        {
+         "item": "Fleece",
+         "id": "ITEM_Resources_Skin_Fleece",
+         "min": 1,
+         "max": 1,
+         "chance": 75.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 1,
+         "max": 1,
+         "chance": 50.0
+        },
+        {
+         "item": "Ram Horn",
+         "id": "ITEM_Resources_Large_Animal_Horn",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Ram Horn",
+         "id": "ITEM_Resources_Large_Animal_Horn",
+         "min": 1,
+         "max": 1,
+         "chance": 75.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      1124
@@ -8205,9 +9491,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Ram: creature.\nRams are power level 3 or 4 NPCs that are found in the Fractured Plains and Stormtouched Highlands.\nPower level 3, 4, health 50.\nRace: Sheep. Weak to Slash. Resistant to Fire. Aggressive: yes.\nLives in: Fractured Plains, Stormtouched Highlands.\nBefore attacking, rams will lower their horns before charging at the player.\nIf the attack is successful, this will fill up the Bleed bar and inflict 30-32 damage to the player.\nAttacks in the game's data (base damage before armour): RamHeadbutt (18 damage); RamJumpAttack (18 damage); RamRunningAttack (18 damage).\nDrops: Raw Farm Meat 1 (always), Fleece 2–3 (always), Animal Hide 1 (always), Ram Horn 1 (always), Raw Farm Meat 1 (75/100), Fleece 1 (75/100), Animal Hide 1 (50/100), Ram Horn 1 (75/100).\nSources: wiki pages 1124; the game's own data on his client (journal, attacks)."
+   "text": "Ram: creature.\nRams are power level 3 or 4 NPCs that are found in the Fractured Plains and Stormtouched Highlands.\nPower level 3, 4, health 50.\nRace: Sheep. Weak to Slash. Resistant to Fire. Aggressive: yes.\nLives in: Fractured Plains, Stormtouched Highlands.\nBefore attacking, rams will lower their horns before charging at the player.\nIf the attack is successful, this will fill up the Bleed bar and inflict 30-32 damage to the player.\nAttacks in the game's data (base damage before armour): RamHeadbutt (18 damage); RamJumpAttack (18 damage); RamRunningAttack (18 damage).\nDrops in the game's tables: from power level 0: Raw Farm Meat 1 (always), Raw Farm Meat 1 (always), Fleece 2-3 (always), Fleece 1 (always), Animal Hide 1 (always), Animal Hide 1 (always), Ram Horn 1 (always), Ram Horn 1 (always).\nDrops: Raw Farm Meat 1 (always), Fleece 2–3 (always), Animal Hide 1 (always), Ram Horn 1 (always), Raw Farm Meat 1 (75/100), Fleece 1 (75/100), Animal Hide 1 (50/100), Ram Horn 1 (75/100).\nSources: wiki pages 1124; the game's own data on his client (journal, attacks, drops)."
   },
   "Rat King": {
    "kind": "creature",
@@ -8435,6 +9724,25 @@
     "entry": "JOURNAL_World_Fauna_Raven",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Feathers",
+         "id": "ITEM_Resources_Feathers",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      10836
@@ -8465,9 +9773,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Raven: creature.\nRavens are power level 1 birds found all over Dowdun Reach.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: No. Respawn: 1 Day.\nLives in: Dowdun Reach.\nAttacks: not in the mirror.\nDrops: Feathers 1 (always).\nSources: wiki pages 10836; the game's own data on his client (journal)."
+   "text": "Raven: creature.\nRavens are power level 1 birds found all over Dowdun Reach.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: No. Respawn: 1 Day.\nLives in: Dowdun Reach.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Feathers 1 (always).\nDrops: Feathers 1 (always).\nSources: wiki pages 10836; the game's own data on his client (journal, drops)."
   },
   "Razlem, the Deranged": {
    "kind": "creature",
@@ -9231,6 +10542,53 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Soul Fragment",
+         "id": "ITEM_Currency_SoulFragment",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Soul Fragment",
+         "id": "ITEM_Currency_SoulFragment",
+         "min": 3,
+         "max": 5,
+         "chance": 25.0
+        },
+        {
+         "item": "Skeleton Pack",
+         "id": "ITEM_Consumable_SkeletonPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Undead Bone",
+         "id": "ITEM_Resources_Bone_Undead",
+         "min": 1,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Withered Heart",
+         "id": "ITEM_Resources_Heart_Withered",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Vekchenven Kara (1, power level 5)"
    ],
@@ -9267,9 +10625,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Rotsworn Necromancer: creature.\nRotsworn necromancers are power level 5 aggressive NPCs found in Fellhollow.\nPower level 5, health 632.\nRace: Undead. Weak to Crush. Resistant to Fire, Air and Water. Aggressive: yes.\nLives in: Fellhollow.\nIn vaults or dungeons: Vekchenven Kara (1, power level 5).\nAttacks in the game's data (base damage before armour): RotswornNecromancerBlast (70 damage); RotswornNecromancerRangedAttack (43 damage).\nDrops: Skeleton Pack 1 (always), Undead Bone 1-2 (always), Withered Heart 1 (always), Soul Fragment 1 (always), Soul Fragment 3-5 (25/100).\nSources: wiki pages 9171, 9387; the game's own data on his client (journal, attacks)."
+   "text": "Rotsworn Necromancer: creature.\nRotsworn necromancers are power level 5 aggressive NPCs found in Fellhollow.\nPower level 5, health 632.\nRace: Undead. Weak to Crush. Resistant to Fire, Air and Water. Aggressive: yes.\nLives in: Fellhollow.\nIn vaults or dungeons: Vekchenven Kara (1, power level 5).\nAttacks in the game's data (base damage before armour): RotswornNecromancerBlast (70 damage); RotswornNecromancerRangedAttack (43 damage).\nDrops in the game's tables: from power level 0: Soul Fragment 1 (always), Soul Fragment 3-5 (always), Skeleton Pack 1 (always), Undead Bone 1-2 (always), Withered Heart 1 (always).\nDrops: Skeleton Pack 1 (always), Undead Bone 1-2 (always), Withered Heart 1 (always), Soul Fragment 1 (always), Soul Fragment 3-5 (25/100).\nSources: wiki pages 9171, 9387; the game's own data on his client (journal, attacks, drops)."
   },
   "Rotsworn Reanimator": {
    "kind": "creature",
@@ -9520,6 +10881,53 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Soul Fragment",
+         "id": "ITEM_Currency_SoulFragment",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Soul Fragment",
+         "id": "ITEM_Currency_SoulFragment",
+         "min": 3,
+         "max": 5,
+         "chance": 25.0
+        },
+        {
+         "item": "Skeleton Pack",
+         "id": "ITEM_Consumable_SkeletonPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Undead Bone",
+         "id": "ITEM_Resources_Bone_Undead",
+         "min": 1,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Withered Heart",
+         "id": "ITEM_Resources_Heart_Withered",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      9168
@@ -9547,9 +10955,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Rotsworn Warrior: creature.\nRotsworn warriors are power level 5 aggressive NPCs in Ashenfall, located within the region of Fellhollow near withered areas.\nPower level 5, health 518.\nRace: Undead. Weak to Stab and Air. Resistant to Fire.\nLives in: Fellhollow.\nAttacks in the game's data (base damage before armour): RotswornWarriorCombo1Attack1 (26 damage); RotswornWarriorCombo1Attack2 (26 damage); RotswornWarriorCombo2Attack1 (26 damage); RotswornWarriorCombo2Attack2 (26 damage); RotswornWarriorCombo3Attack1 (26 damage); RotswornWarriorCombo3Attack2 (26 damage); RotswornWarriorCombo3Attack3 (26 damage); RotswornWarriorSlash1 (26 damage); RotswornWarriorSlash2 (26 damage); RotswornWarriorSlash3 (26 damage).\nDrops: Skeleton Pack 1 (always), Undead Bone 1-2 (always), Withered Heart 1 (always), Soul Fragment 1 (always), Soul Fragment 3-5 (25/100).\nSources: wiki pages 9168; the game's own data on his client (journal, attacks)."
+   "text": "Rotsworn Warrior: creature.\nRotsworn warriors are power level 5 aggressive NPCs in Ashenfall, located within the region of Fellhollow near withered areas.\nPower level 5, health 518.\nRace: Undead. Weak to Stab and Air. Resistant to Fire.\nLives in: Fellhollow.\nAttacks in the game's data (base damage before armour): RotswornWarriorCombo1Attack1 (26 damage); RotswornWarriorCombo1Attack2 (26 damage); RotswornWarriorCombo2Attack1 (26 damage); RotswornWarriorCombo2Attack2 (26 damage); RotswornWarriorCombo3Attack1 (26 damage); RotswornWarriorCombo3Attack2 (26 damage); RotswornWarriorCombo3Attack3 (26 damage); RotswornWarriorSlash1 (26 damage); RotswornWarriorSlash2 (26 damage); RotswornWarriorSlash3 (26 damage).\nDrops in the game's tables: from power level 0: Soul Fragment 1 (always), Soul Fragment 3-5 (always), Skeleton Pack 1 (always), Undead Bone 1-2 (always), Withered Heart 1 (always).\nDrops: Skeleton Pack 1 (always), Undead Bone 1-2 (always), Withered Heart 1 (always), Soul Fragment 1 (always), Soul Fragment 3-5 (25/100).\nSources: wiki pages 9168; the game's own data on his client (journal, attacks, drops)."
   },
   "Rotsworn Zombie": {
    "kind": "creature",
@@ -9952,6 +11363,39 @@
      "Ghornfell"
     ]
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Fleece",
+         "id": "ITEM_Resources_Skin_Fleece",
+         "min": 2,
+         "max": 3,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Bone",
+         "id": "ITEM_Resources_AnimalBone",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Raw Farm Meat",
+         "id": "ITEM_Resources_Meat_Farm",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      1123
@@ -9979,9 +11423,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Sheep: creature.\nSheep are Amalgamated creatures that will run away from the player if approached too closely.\nPower level 2, 3, health 40.\nRace: Sheep. Weak to Slash. Resistant to None. Aggressive: No.\nLives in: Fractured Plains, Stormtouched Highlands.\nAttacks: not in the mirror.\nDrops: Fleece 2–3 (always), Animal Bone 2 (always), Raw Farm Meat 1 (always).\nSources: wiki pages 1123; the game's own data on his client (journal)."
+   "text": "Sheep: creature.\nSheep are Amalgamated creatures that will run away from the player if approached too closely.\nPower level 2, 3, health 40.\nRace: Sheep. Weak to Slash. Resistant to None. Aggressive: No.\nLives in: Fractured Plains, Stormtouched Highlands.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Fleece 2-3 (always), Animal Bone 2 (always), Raw Farm Meat 1 (always).\nDrops: Fleece 2–3 (always), Animal Bone 2 (always), Raw Farm Meat 1 (always).\nSources: wiki pages 1123; the game's own data on his client (journal, drops)."
   },
   "Skeletal Archer": {
    "kind": "creature",
@@ -10077,6 +11524,60 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Soul Fragment",
+         "id": "ITEM_Currency_SoulFragment",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Soul Fragment",
+         "id": "ITEM_Currency_SoulFragment",
+         "min": 3,
+         "max": 5,
+         "chance": 25.0
+        },
+        {
+         "item": "Skeleton Pack",
+         "id": "ITEM_Consumable_SkeletonPack",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Bronze Arrow",
+         "id": "ITEM_Ammo_Arrows_Bronze_Bodkin",
+         "min": 1,
+         "max": 5,
+         "chance": 100.0
+        },
+        {
+         "item": "Undead Bone",
+         "id": "ITEM_Resources_Bone_Undead",
+         "min": 1,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Cloying Damp Cowl",
+         "id": "DA_Consumable_Vestige_Armour_Head_SkeletonRanger",
+         "min": 1,
+         "max": 1,
+         "chance": 1.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "vaults": [
     "Skekven Kara (5, power level 5)"
    ],
@@ -10113,9 +11614,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Skeletal Archer: creature.\nSkeletal archers are power level 5, 6, and 8 monsters found in Fellhollow, Dowdun Reach and the Scorned Wilderness raid.\nPower level 5, health 460. Power level 6, health 600. Power level 8, health 760.\nRace: Undead. Weak to Stab and Air. Resistant to Fire and Ranged. Aggressive: Yes.\nLives in: Fellhollow, Dowdun Reach, Scorned Wilderness.\nIn vaults or dungeons: Skekven Kara (5, power level 5).\nAttacks in the game's data (base damage before armour): SkeletalArcherLongshot (18 damage).\nDrops: Skeleton Pack 1 (always), Undead Bone 1-2 (always), Soul Fragment 3-5 (25/100), Soul Fragment 1 (always), Bronze Arrow 1-5 (always), Cloying Damp Cowl 1 (1/100).\nSources: wiki pages 8666, 9412; the game's own data on his client (journal, attacks)."
+   "text": "Skeletal Archer: creature.\nSkeletal archers are power level 5, 6, and 8 monsters found in Fellhollow, Dowdun Reach and the Scorned Wilderness raid.\nPower level 5, health 460. Power level 6, health 600. Power level 8, health 760.\nRace: Undead. Weak to Stab and Air. Resistant to Fire and Ranged. Aggressive: Yes.\nLives in: Fellhollow, Dowdun Reach, Scorned Wilderness.\nIn vaults or dungeons: Skekven Kara (5, power level 5).\nAttacks in the game's data (base damage before armour): SkeletalArcherLongshot (18 damage).\nDrops in the game's tables: from power level 0: Soul Fragment 1 (always), Soul Fragment 3-5 (always), Skeleton Pack 1 (always), Bronze Arrow 1-5 (always), Undead Bone 1-2 (always), Cloying Damp Cowl 1 (always).\nDrops: Skeleton Pack 1 (always), Undead Bone 1-2 (always), Soul Fragment 3-5 (25/100), Soul Fragment 1 (always), Bronze Arrow 1-5 (always), Cloying Damp Cowl 1 (1/100).\nSources: wiki pages 8666, 9412; the game's own data on his client (journal, attacks, drops)."
   },
   "Skeletal Blightshot": {
    "kind": "creature",
@@ -11300,6 +12804,60 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Bird Meat",
+         "id": "ITEM_Resources_Meat_Bird",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Raw Bird Meat",
+         "id": "ITEM_Resources_Meat_Bird",
+         "min": 1,
+         "max": 2,
+         "chance": 50.0
+        },
+        {
+         "item": "Feathers",
+         "id": "ITEM_Resources_Feathers",
+         "min": 3,
+         "max": 3,
+         "chance": 100.0
+        },
+        {
+         "item": "Feathers",
+         "id": "ITEM_Resources_Feathers",
+         "min": 1,
+         "max": 3,
+         "chance": 50.0
+        },
+        {
+         "item": "Shrapnel",
+         "id": "ITEM_Resources_Shrapnel",
+         "min": 1,
+         "max": 1,
+         "chance": 25.0
+        },
+        {
+         "item": "Egg",
+         "id": "ITEM_Resources_Egg",
+         "min": 1,
+         "max": 3,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      1118
@@ -11339,9 +12897,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Terrorbird: creature.\nTerrorbirds are power level 3 and 8 monsters found within the Fractured Plains and Scorned Wilderness that will shriek when the player is at least 5–10 metres away.\nPower level 3, health 195. Power level 8, health 570.\nRace: Bird. Weak to Stab. Resistant to Air. Immune to None. Aggressive: Yes.\nLives in: Fractured Plains, Scorned Wilderness.\nAttacks: The terrorbird will attack two to three strikes at a time with its beak, inflicting the Bleed effect on the player. If players wear no armour, the terrorbird will damage players 15-20 hitpoints per strike. The terrorbird will raise its head and strike down on the player, also inflicting the Bleed effect on the player. If players wear no armour, the terrorbird will damage players up to 40 hitpoints.\nThe terrorbird will also attack the player with five quick attacks with its beak that knock back the player if within five metres of the terrorbird.\nAttacks in the game's data (base damage before armour): TerrorbirdFlurry (5 damage); TerrorbirdPeck (18 damage).\nDrops: Raw Bird Meat 2 (always), Egg 1 (always), Feathers 3 (always), Raw Bird Meat 2 (50/100), Feathers 3 (50/100), Shrapnel 1 (25/100).\nSources: wiki pages 1118; the game's own data on his client (journal, attacks)."
+   "text": "Terrorbird: creature.\nTerrorbirds are power level 3 and 8 monsters found within the Fractured Plains and Scorned Wilderness that will shriek when the player is at least 5–10 metres away.\nPower level 3, health 195. Power level 8, health 570.\nRace: Bird. Weak to Stab. Resistant to Air. Immune to None. Aggressive: Yes.\nLives in: Fractured Plains, Scorned Wilderness.\nAttacks: The terrorbird will attack two to three strikes at a time with its beak, inflicting the Bleed effect on the player. If players wear no armour, the terrorbird will damage players 15-20 hitpoints per strike. The terrorbird will raise its head and strike down on the player, also inflicting the Bleed effect on the player. If players wear no armour, the terrorbird will damage players up to 40 hitpoints.\nThe terrorbird will also attack the player with five quick attacks with its beak that knock back the player if within five metres of the terrorbird.\nAttacks in the game's data (base damage before armour): TerrorbirdFlurry (5 damage); TerrorbirdPeck (18 damage).\nDrops in the game's tables: from power level 0: Raw Bird Meat 2 (always), Raw Bird Meat 1-2 (always), Feathers 3 (always), Feathers 1-3 (always), Shrapnel 1 (always), Egg 1-3 (always).\nDrops: Raw Bird Meat 2 (always), Egg 1 (always), Feathers 3 (always), Raw Bird Meat 2 (50/100), Feathers 3 (50/100), Shrapnel 1 (25/100).\nSources: wiki pages 1118; the game's own data on his client (journal, attacks, drops)."
   },
   "Tiny": {
    "kind": "creature",
@@ -12895,6 +14456,34 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Velgar's Head",
+         "id": "ITEM_Resources_Velgar_Head",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0,
+         "damagers_only": true
+        },
+        {
+         "item": "Ascension Shard 4",
+         "id": "ITEM_Resources_T4_Upgrade_Shard",
+         "min": 30,
+         "max": 40,
+         "chance": 100.0,
+         "damagers_only": true
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "role": [
     "world boss"
    ],
@@ -12941,9 +14530,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Velgar: creature, world boss.\nGeneral Velgar, also known as the Big High War God by the goblins after witnessing Bandos retreat from Velgar, is one of Queen Kuldra's generals and most feared disciples.\nPower level 4, health 6,000.\nRace: Dragon. Weak to None. Resistant to None. Immune to Poison and Burning. Aggressive: yes. Respawn: With each new instance created using the challenge horn/rejoined.\nLives in: Fractured Plains.\nVelgar will occasionally attack the adventurer in the wild, spraying poison breath or meteor barrages on the ground.\nHis main attacks are Claw Slam, Claw Strike, Bite, Head Swing, and Dragon Breath (Poison).\nAttacks in the game's data (base damage before armour): VelgarBite (30 damage); VelgarClaw (30 damage); VelgarHeadSwipe (30 damage).\nDrops: Velgar's Head 1 (always), Ascension Shard (Power Level 4) 30-40 (always).\nSources: wiki pages 795, 2128, 10114; the game's own data on his client (journal, attacks)."
+   "text": "Velgar: creature, world boss.\nGeneral Velgar, also known as the Big High War God by the goblins after witnessing Bandos retreat from Velgar, is one of Queen Kuldra's generals and most feared disciples.\nPower level 4, health 6,000.\nRace: Dragon. Weak to None. Resistant to None. Immune to Poison and Burning. Aggressive: yes. Respawn: With each new instance created using the challenge horn/rejoined.\nLives in: Fractured Plains.\nVelgar will occasionally attack the adventurer in the wild, spraying poison breath or meteor barrages on the ground.\nHis main attacks are Claw Slam, Claw Strike, Bite, Head Swing, and Dragon Breath (Poison).\nAttacks in the game's data (base damage before armour): VelgarBite (30 damage); VelgarClaw (30 damage); VelgarHeadSwipe (30 damage).\nDrops in the game's tables: from power level 0: Velgar's Head 1 (always), Ascension Shard 4 30-40 (always).\nDrops: Velgar's Head 1 (always), Ascension Shard (Power Level 4) 30-40 (always).\nSources: wiki pages 795, 2128, 10114; the game's own data on his client (journal, attacks, drops)."
   },
   "Vulture": {
    "kind": "creature",
@@ -12994,6 +14586,39 @@
     "entry": "JOURNAL_World_Fauna_Vulture",
     "power_level": -1
    },
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Bird Meat",
+         "id": "ITEM_Resources_Meat_Bird",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Feathers",
+         "id": "ITEM_Resources_Feathers",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Egg",
+         "id": "ITEM_Resources_Egg",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      15006
@@ -13024,9 +14649,12 @@
     ],
     "journal": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Vulture: creature.\nVulture are power level 1 birds found all over Umbral Sands.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: No. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops: Egg 1 (always), Feathers 1 (always), Raw Bird Meat 1 (always).\nSources: wiki pages 15006; the game's own data on his client (journal)."
+   "text": "Vulture: creature.\nVulture are power level 1 birds found all over Umbral Sands.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: No. Respawn: 1 Day.\nLives in: Umbral Sands.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Raw Bird Meat 1 (always), Feathers 1 (always), Egg 1 (always).\nDrops: Egg 1 (always), Feathers 1 (always), Raw Bird Meat 1 (always).\nSources: wiki pages 15006; the game's own data on his client (journal, drops)."
   },
   "Wild Jade Vine": {
    "kind": "creature",
@@ -13586,6 +15214,67 @@
      ]
     }
    ],
+   "game_drops": [
+    {
+     "min_power_level": 0,
+     "drops": [
+      {
+       "chance": 100.0,
+       "items": [
+        {
+         "item": "Raw Bestial Meat",
+         "id": "ITEM_Resources_Meat_Bestial",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Raw Bestial Meat",
+         "id": "ITEM_Resources_Meat_Bestial",
+         "min": 1,
+         "max": 1,
+         "chance": 50.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        },
+        {
+         "item": "Animal Hide",
+         "id": "ITEM_Resources_Animal_Hide",
+         "min": 1,
+         "max": 1,
+         "chance": 50.0
+        },
+        {
+         "item": "Soft Animal Fur",
+         "id": "ITEM_Resources_Soft_Animal_Fur",
+         "min": 1,
+         "max": 1,
+         "chance": 100.0
+        },
+        {
+         "item": "Soft Animal Fur",
+         "id": "ITEM_Resources_Soft_Animal_Fur",
+         "min": 1,
+         "max": 1,
+         "chance": 50.0
+        },
+        {
+         "item": "Small Animal Fang",
+         "id": "ITEM_Resources_Fang",
+         "min": 2,
+         "max": 2,
+         "chance": 100.0
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "src": {
     "variants": [
      1119
@@ -13616,9 +15305,12 @@
     ],
     "game_attacks": [
      "game"
+    ],
+    "game_drops": [
+     "game"
     ]
    },
-   "text": "Wolf: creature.\nWolves are power level 3 monsters.\nPower level 3, health 195.\nRace: Wolf. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Fractured Plains, Stormtouched Highlands.\nAttacks in the game's data (base damage before armour): WolfAlphaBite (18 damage); WolfAlphaLungeBite (26 damage); WolfAlphaRunningAttack (26 damage); WolfBite (18 damage); WolfLungeBite (18 damage); WolfRunningAttack (18 damage).\nDrops: Raw Bestial Meat 1 (always), Animal Hide 2 (always), Soft Animal Fur 1 (always), Small Animal Fang 2 (always), Raw Bestial Meat 1 (50/100), Animal Hide 1 (50/100), Soft Animal Fur 1 (50/100).\nSources: wiki pages 1119; the game's own data on his client (journal, attacks)."
+   "text": "Wolf: creature.\nWolves are power level 3 monsters.\nPower level 3, health 195.\nRace: Wolf. Weak to Fire. Resistant to None. Aggressive: yes.\nLives in: Fractured Plains, Stormtouched Highlands.\nAttacks in the game's data (base damage before armour): WolfAlphaBite (18 damage); WolfAlphaLungeBite (26 damage); WolfAlphaRunningAttack (26 damage); WolfBite (18 damage); WolfLungeBite (18 damage); WolfRunningAttack (18 damage).\nDrops in the game's tables: from power level 0: Raw Bestial Meat 1 (always), Raw Bestial Meat 1 (always), Animal Hide 2 (always), Animal Hide 1 (always), Soft Animal Fur 1 (always), Soft Animal Fur 1 (always), Small Animal Fang 2 (always).\nDrops: Raw Bestial Meat 1 (always), Animal Hide 2 (always), Soft Animal Fur 1 (always), Small Animal Fang 2 (always), Raw Bestial Meat 1 (50/100), Animal Hide 1 (50/100), Soft Animal Fur 1 (50/100).\nSources: wiki pages 1119; the game's own data on his client (journal, attacks, drops)."
   },
   "Zamorakian Acolyte": {
    "kind": "creature",
@@ -19984,27 +21676,295 @@
  },
  "probe": {
   "files": [
-   "data\\bestiary_probe_20261117.json"
+   "data\\bestiary_probe_20261117.json",
+   "data\\probe\\bestiary_probe_enemy_loot_20261117.json",
+   "data\\probe\\bestiary_probe_attack_damage_20261117.json",
+   "data\\probe\\bestiary_probe_ai_data_20261117.json"
   ],
   "journal_matched": 103,
   "affinity_fields": 0,
   "replaced": 0,
   "attacks_matched": 212,
-  "drops_matched": 0,
+  "drops_matched": 68,
   "chests_placed": 0,
   "unmatched": {
    "journal": [],
    "attacks": [],
-   "enemy_loot": [],
+   "enemy_loot": [
+    "AbyssalDemon_Child",
+    "Biped_Base",
+    "Biped_Faction_Melee_Base",
+    "Biped_Faction_Ranged_Base",
+    "Chinchompa_Carnivorous",
+    "Cow_Withered",
+    "Cow_Zombie",
+    "Deer_03",
+    "Demon_Hellhound",
+    "Demon_Hellhound_Fido",
+    "Demon_Hellhound_Gnasher",
+    "Demon_Hellrat",
+    "Demon_Hellrat_Boggs",
+    "Demon_Hellrat_Curly",
+    "Demon_Hellrat_Nosey",
+    "Demon_Hellrat_Patch",
+    "Demon_Hellrat_Pip",
+    "Demon_Hellrat_Reek",
+    "Demon_Lesser",
+    "Demon_Lesser_Aberforth",
+    "Demon_Lesser_Clarence",
+    "DragonFuzan_ChallengeMode",
+    "DragonVelgar_Prototype",
+    "Dragon_Lesser_Blue",
+    "Dragon_Lesser_Green",
+    "Dragon_Lesser_Red",
+    "Dragon_Lesser_Red_UmS_MQ",
+    "Elite_BlackKnight_Axe_Fire",
+    "Elite_BlackKnight_Sword_Fire",
+    "Elite_Demon_Lesser_Shock",
+    "Elite_Garou_Berserker_Spinning",
+    "Elite_Garou_Mage_BirdKing",
+    "Elite_Goblin_Ranged_Poison",
+    "Elite_Goblin_Runt_Boss",
+    "Elite_Skeleton_Ranger_Poison",
+    "Elite_Terrorbird_BirdKing",
+    "Elite_Zombie_Respawning",
+    "EmptyDrop",
+    "Enemy_GF_Garou_Base",
+    "Enemy_WildJadeVine_Fire",
+    "Enemy_WildJadeVine_Poison",
+    "Enemy_WildJadeVine_Shock",
+    "Ghost_GhostWolf",
+    "Ghost_LostSoul",
+    "Ghost_SoulstoneGuardian",
+    "GiantRat_02",
+    "GiganticTEST",
+    "Kebbit.Raider",
+    "Kebbit.Raider.Boss",
+    "Kebbit_DesertDevil",
+    "Knight_Black_1H",
+    "Knight_Black_2H",
+    "Knight_Black_Blister",
+    "Knight_Black_Houndmaster",
+    "Knight_Black_Titan",
+    "KotHaar_Mej",
+    "MagicBeast_Quest_GD",
+    "MeleeGoblin",
+    "Melee_VaultGuardian",
+    "Miniboss_Gigantic_Base",
+    "Ogre_Kot_Xil",
+    "Ram_02",
+    "Ranged_VaultGuardian",
+    "Ranger_Black",
+    "Rat_Giant_Colossal",
+    "Rat_Giant_Poison",
+    "Rat_Giant_Poison_Colossal",
+    "Rat_Giant_Withered",
+    "Rat_Giant_Zombie",
+    "Raven_Magical",
+    "Razlem",
+    "Rotsworn_Axe",
+    "SW_Raid_AbyssalDemon",
+    "SW_Raid_Chinchompa",
+    "SW_Raid_Dragon_Hatchling_Black",
+    "SW_Raid_Dragon_Hatchling_Blue",
+    "SW_Raid_Dragon_Hatchling_Green",
+    "SW_Raid_Dragon_Hatchling_Red",
+    "SW_Raid_Dragon_Lesser_Black",
+    "SW_Raid_Garou_Berserker",
+    "SW_Raid_Garou_Mage",
+    "SW_Raid_Garou_Ranger",
+    "SW_Raid_Garou_Thane",
+    "SW_Raid_Goblin_Bruiser",
+    "SW_Raid_Goblin_Ranger",
+    "SW_Raid_Goblin_Warrior",
+    "SW_Raid_Guardian_Giant_Melee",
+    "SW_Raid_Guardian_Giant_Ranged",
+    "SW_Raid_Guardian_Melee",
+    "SW_Raid_Guardian_Ranged",
+    "SW_Raid_JadeVine_Fire",
+    "SW_Raid_JadeVine_Hookworm",
+    "SW_Raid_JadeVine_Shock",
+    "SW_Raid_Kuldra",
+    "SW_Raid_Rat_Giant",
+    "SW_Raid_Rat_Giant_Poison",
+    "SW_Raid_Revenant",
+    "SW_Raid_Skeleton_Archer",
+    "SW_Raid_Skeleton_Hoplite",
+    "SW_Raid_Skeleton_Marauder",
+    "SW_Raid_Skeleton_Necromancer",
+    "SW_Raid_Skeleton_Warrior",
+    "SW_Raid_Zombie",
+    "SW_Raid_Zombie_Ogre",
+    "SW_Raid_Zombie_Rotsworn",
+    "SentryRangedGoblin",
+    "Skeleton_Axe",
+    "Skeleton_DR_1H",
+    "Skeleton_DR_2H",
+    "Skeleton_DR_Archer",
+    "Skeleton_Necromancer",
+    "Skeleton_Spear",
+    "Skeleton_Sword",
+    "Skeleton_Sword_Fire",
+    "Skeleton_Sword_Shock",
+    "Spectral_Bird_Quest",
+    "Spectral_Chinchompa_Quest",
+    "Thane_MiniBoss",
+    "Ulgo_Zombie_Ogre",
+    "VaultGuardian_Melee_Colossal",
+    "VaultGuardian_Ranged_Colossal",
+    "Wildlife_BM_Bird",
+    "Wildlife_GF_Bird",
+    "WitherBeast_QuestNPC",
+    "Wolf_Elite",
+    "Zamorak_Accolyte",
+    "Zamorak_DemonMaster",
+    "Zamorak_RatMaster",
+    "Zombie_DR_Ogre",
+    "Zombie_DR_Zombie",
+    "Zombie_Ogre",
+    "Zombie_Putrid",
+    "Zombie_Zombie",
+    "AbyssalDemon_Child",
+    "Biped_Base",
+    "Biped_Faction_Melee_Base",
+    "Biped_Faction_Ranged_Base",
+    "Cow_Withered",
+    "Cow_Zombie",
+    "Deer_03",
+    "DragonFuzan_ChallengeMode",
+    "DragonVelgar_Prototype",
+    "Dragon_Lesser_Green",
+    "Dragon_Lesser_Red",
+    "Dragon_Lesser_Red_UmS_MQ",
+    "Elite_BlackKnight_Axe_Fire",
+    "Elite_BlackKnight_Sword_Fire",
+    "Elite_Demon_Lesser_Shock",
+    "Elite_Garou_Berserker_Spinning",
+    "Elite_Garou_Mage_BirdKing",
+    "Elite_Goblin_Ranged_Poison",
+    "Elite_Goblin_Runt_Boss",
+    "Elite_Skeleton_Ranger_Poison",
+    "Elite_Terrorbird_BirdKing",
+    "Elite_Zombie_Respawning",
+    "EmptyDrop",
+    "Enemy_GF_Garou_Base",
+    "Enemy_WildJadeVine_Fire",
+    "Enemy_WildJadeVine_Poison",
+    "Enemy_WildJadeVine_Shock",
+    "Ghost_GhostWolf",
+    "Ghost_LostSoul",
+    "Ghost_SoulstoneGuardian",
+    "GiantRat_02",
+    "GiganticTEST",
+    "Kebbit.Raider",
+    "Kebbit.Raider.Boss",
+    "Kebbit_DesertDevil",
+    "KotHaar_Mej",
+    "MagicBeast_Quest_GD",
+    "MeleeGoblin",
+    "Melee_VaultGuardian",
+    "Miniboss_Gigantic_Base",
+    "Ogre_Kot_Xil",
+    "Ram_02",
+    "Ranged_VaultGuardian",
+    "Rat_Giant_Colossal",
+    "Rat_Giant_Poison",
+    "Rat_Giant_Poison_Colossal",
+    "Rat_Giant_Withered",
+    "Rat_Giant_Zombie",
+    "Razlem",
+    "Rotsworn_Axe",
+    "SW_Raid_AbyssalDemon",
+    "SW_Raid_Chinchompa",
+    "SW_Raid_Dragon_Hatchling_Black",
+    "SW_Raid_Dragon_Hatchling_Blue",
+    "SW_Raid_Dragon_Hatchling_Green",
+    "SW_Raid_Dragon_Hatchling_Red",
+    "SW_Raid_Dragon_Lesser_Black",
+    "SW_Raid_Garou_Berserker",
+    "SW_Raid_Garou_Mage",
+    "SW_Raid_Garou_Ranger",
+    "SW_Raid_Garou_Thane",
+    "SW_Raid_Goblin_Bruiser",
+    "SW_Raid_Goblin_Ranger",
+    "SW_Raid_Goblin_Warrior",
+    "SW_Raid_Guardian_Giant_Melee",
+    "SW_Raid_Guardian_Giant_Ranged",
+    "SW_Raid_Guardian_Melee",
+    "SW_Raid_Guardian_Ranged",
+    "SW_Raid_JadeVine_Fire",
+    "SW_Raid_JadeVine_Hookworm",
+    "SW_Raid_JadeVine_Shock",
+    "SW_Raid_Kuldra",
+    "SW_Raid_Rat_Giant",
+    "SW_Raid_Rat_Giant_Poison",
+    "SW_Raid_Revenant",
+    "SW_Raid_Skeleton_Archer",
+    "SW_Raid_Skeleton_Hoplite",
+    "SW_Raid_Skeleton_Marauder",
+    "SW_Raid_Skeleton_Necromancer",
+    "SW_Raid_Skeleton_Warrior",
+    "SW_Raid_Zombie",
+    "SW_Raid_Zombie_Ogre",
+    "SW_Raid_Zombie_Rotsworn",
+    "SentryRangedGoblin",
+    "Skeleton_Axe",
+    "Skeleton_DR_1H",
+    "Skeleton_DR_2H",
+    "Skeleton_DR_Archer",
+    "Skeleton_Necromancer",
+    "Skeleton_Spear",
+    "Skeleton_Sword",
+    "Skeleton_Sword_Fire",
+    "Skeleton_Sword_Shock",
+    "Spectral_Bird_Quest",
+    "Spectral_Chinchompa_Quest",
+    "Thane_MiniBoss",
+    "Ulgo_Zombie_Ogre",
+    "VaultGuardian_Melee_Colossal",
+    "VaultGuardian_Ranged_Colossal",
+    "Wildlife_BM_Bird",
+    "Wildlife_GF_Bird",
+    "WitherBeast_QuestNPC",
+    "Wolf_Elite",
+    "Zombie_DR_Ogre",
+    "Zombie_DR_Zombie",
+    "Zombie_Ogre",
+    "Zombie_Putrid",
+    "Zombie_Zombie",
+    "Chinchompa_Carnivorous",
+    "Demon_Hellhound",
+    "Demon_Hellhound_Fido",
+    "Demon_Hellhound_Gnasher",
+    "Demon_Hellrat",
+    "Demon_Hellrat_Boggs",
+    "Demon_Hellrat_Curly",
+    "Demon_Hellrat_Nosey",
+    "Demon_Hellrat_Patch",
+    "Demon_Hellrat_Pip",
+    "Demon_Hellrat_Reek",
+    "Demon_Lesser",
+    "Demon_Lesser_Aberforth",
+    "Demon_Lesser_Clarence",
+    "Dragon_Lesser_Blue",
+    "Knight_Black_1H",
+    "Knight_Black_2H",
+    "Knight_Black_Blister",
+    "Knight_Black_Houndmaster",
+    "Knight_Black_Titan",
+    "Ranger_Black",
+    "Raven_Magical",
+    "Zamorak_Accolyte",
+    "Zamorak_DemonMaster",
+    "Zamorak_RatMaster"
+   ],
    "chests": []
   },
   "unread": [
    "bestiary_probe_20261117.json: attacks:find: time cap in the registry walk",
    "bestiary_probe_20261117.json: attacks: no ATK_* class loaded (no creature spawned near him yet)",
    "bestiary_probe_20261117.json: attacks:read: time cap reached before it started",
-   "bestiary_probe_20261117.json: enemy_loot:DT_CompositeEnemyLootDropTable: time cap reached before it started",
-   "bestiary_probe_20261117.json: enemy_loot:DT_EnemyLootDropTable_DowdunReach: time cap reached before it started",
-   "bestiary_probe_20261117.json: enemy_loot:DT_EnemyLootDropTable: time cap reached before it started",
+   "bestiary_probe_enemy_loot_20261117.json: loot row DT_LootDropTable:KotHaar_Mej: FindRow found nothing",
    "bestiary_probe_20261117.json: chests: time cap reached before it started"
   ]
  },
@@ -20029,7 +21989,7 @@
    "observed_attacks": 124,
    "journal": 26,
    "game_attacks": 88,
-   "game_drops": 129
+   "game_drops": 95
   },
   "vaults_missing": {
    "area": 0,
