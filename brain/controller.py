@@ -442,6 +442,8 @@ class Controller:
         self.status_provider: Callable[[], list[str]] | None = None  # body_status lines (broker.digest)
         # recent_activity lines (broker.activity_lines): completed body episodes, whoever started them
         self.activity_provider: Callable[[], list[str]] | None = None
+        # DW_ASYNC_PLAN=1 (agent._plan_fact): a plan being made now, or one that landed since his last turn
+        self.plan_provider: Callable[[], dict | None] | None = None
 
     # ---------------------------------------------------------------- tools offered (fixed per session)
 
@@ -619,6 +621,11 @@ class Controller:
                 ctx["recent_activity"] = self.activity_provider()
             except Exception as exc:  # context is best effort
                 self.log.log("recent_activity_error", error=repr(exc))
+        if self.plan_provider:
+            try:
+                ctx["planner"] = self.plan_provider()
+            except Exception as exc:  # context is best effort
+                self.log.log("planner_fact_error", error=repr(exc))
         if body_event:
             ctx["body_event"] = model_view(body_event)
         if self._open_request_shown(body_event):  # the open ask and what the game told him about it (agent sets it)

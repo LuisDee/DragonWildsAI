@@ -277,3 +277,66 @@ def test_report_cli_runs_on_a_sample(tmp_path, monkeypatch, capsys):
 
     assert T.main(["ask", "20261115-235756-19752/chat-0001-52b5"]) == 0
     assert "composition planner" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------ DW_ASYNC_PLAN (brain/plan_async.py)
+def test_an_async_composition_runs_from_plan_started_to_the_workers_end_and_his_turns_do_not_end_it():
+    """The quest shape with the flag on: start_goal, plan_started, his turn walks while the Planner composes, the plan
+    lands (composed_s), his chain ends, the plan's first act. The gap is the longest stand, not the whole stretch."""
+    ep = "chat-0001-aaaa"
+    rows = [*_heard(100.0, ep, "claude, go and see Zanik and do her quest"),
+            _row(102.3, "tool_call", ep, tool="go_to", task_id="t1", args={"target": "Zanik"}),
+            _row(130.0, "tool_result", ep, tool="go_to", task_id="t1", ok=True),
+            _row(131.0, "prompt", ep, component="controller"),
+            _row(133.0, "llm_response", ep, component="controller", usage={"latency_ms": 2000}),
+            _row(133.5, "plan_started", ep, plan_kind="plan", goal="chop 5 ash"),
+            _row(133.6, "prompt", ep, component="planner"),
+            _row(134.0, "prompt", ep, component="controller"),                       # his turn while it composes
+            _row(135.5, "llm_response", ep, component="controller", usage={"latency_ms": 1500}),
+            _row(135.6, "tool_call", ep, tool="go_to", task_id="t2", args={"target": "Ash Tree"}),
+            _row(138.6, "llm_response", ep, component="planner", usage={"latency_ms": 5000, "cost_usd": 0.04}),
+            _row(141.0, "tool_result", ep, tool="go_to", task_id="t2", ok=True),
+            _row(141.2, "prompt", ep, component="controller"),
+            _row(142.2, "llm_response", ep, component="controller", usage={"latency_ms": 1000}),
+            _row(142.4, "acted_while_planning", ep, n=1, tools=["go_to"]),
+            _row(142.5, "plan_arrived", ep, plan_kind="plan", age_s=9.0, composed_s=5.1, stale=False, why=[],
+                 applied=True, ok=True),
+            _row(142.7, "tool_call", ep, tool="gather", task_id="t3", args={"resource": "ash", "count": 5}),
+            _row(160.0, "tool_result", ep, tool="gather", task_id="t3", ok=True)]
+    res = T.analyse(rows)
+    (c,) = res["compositions"]
+    assert c["async"] and c["outcome"] == "plan" and c["applied"] and c["acted"] == 1 and len(c["calls"]) == 1
+    assert c["secs"] == pytest.approx(5.1) and c["taken_s"] == pytest.approx(9.0)
+    assert c["stand"] == pytest.approx(2.1)                  # 133.5 to 135.6; the walk covers the rest
+    assert c["gap_s"] == pytest.approx(5.6)                  # 130.0 to 135.6, the longest stand before the gather
+    assert c["stale"] == [] and c["basis_known"]
+    agg = T.aggregate([res])["compositions"]
+    assert agg["async"] == 1 and agg["async_acted"] == 1 and agg["applied"] == 1 and agg["stale"] == 0
+    (a,) = res["asks"]
+    assert a["first_act_s"] == pytest.approx(2.3)
+
+
+def test_an_async_plan_marked_stale_by_the_brain_and_an_abandoned_one():
+    ep = "chat-0001-bbbb"
+    rows = [*_heard(0.0, ep),
+            _row(3.0, "plan_started", ep, plan_kind="replan"),
+            _row(3.1, "tool_call", ep, tool="gather", task_id="g", args={"resource": "log", "count": 2}),
+            _row(6.0, "tool_result", ep, tool="gather", task_id="g", ok=True),
+            _row(8.0, "acted_while_planning", ep, n=1),
+            _row(8.1, "plan_arrived", ep, plan_kind="replan", composed_s=4.0, stale=True, applied=False, ok=True,
+                 why=["its first step (gather 2 log) is done"]),
+            _row(20.0, "plan_started", ep, plan_kind="plan"),
+            _row(22.0, "acted_while_planning", ep, n=0),
+            _row(22.1, "plan_abandoned", ep, plan_kind="plan", age_s=2.1)]
+    gs: set = set()
+    assert T.slim({"ts": 1.0, "kind": "plan_arrived", "why": ["x"], "stale": True, "composed_s": 2}, gs)["why"] == ["x"]
+    s, ab = T.analyse(rows)["compositions"]
+    assert s["decision"] == "replan" and s["stale"] == ["its first step (gather 2 log) is done"] and not s["applied"]
+    assert ab["outcome"] == "abandoned" and ab["secs"] == pytest.approx(2.1)
+    assert T.aggregate([T.analyse(rows)])["compositions"]["stale"] == 1
+
+
+def test_longest_idle():
+    assert T.longest_idle(0.0, 10.0, [(2.0, 3.0), (7.0, 8.0)]) == pytest.approx(4.0)
+    assert T.longest_idle(0.0, 10.0, []) == pytest.approx(10.0)
+    assert T.longest_idle(0.0, 10.0, [(-1.0, 11.0)]) == pytest.approx(0.0)

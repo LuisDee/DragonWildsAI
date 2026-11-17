@@ -112,6 +112,13 @@ The repo already has most of it in the board and the Director: an ask stored in 
 
 No framework is adopted. The parts that carry the result are small and are ours already; a second state store beside `goals.json` is the thing the earlier note warned against.
 
+### Built for item 3, on the default path (2026-11-17, behind `DW_ASYNC_PLAN=1`, default off)
+
+- Where: `brain/plan_async.py`, `brain/agent.py` `_plan_in_background` (plan and replan), the context key `planner` (`brain/controller.py`). Tests: `tests/test_async_plan.py` (a FakeLLM Planner that blocks on a gate).
+- How: the Planner call goes to a worker (`ThreadPoolExecutor`, as the Director's); the agent loop keeps pumping, so body events and chat are heard, and the Controller gets one turn in the goal's own episode with the fact `plan_pending` (patterns 1 and 2). A plan that lands while his chain runs is told on his next turn (pattern 7) and starts when the chain ends. At the start it is checked on fresh state: stale only when he died since its state was read or its first step's own effect is already true (PlanFence, arXiv 2609.03340: check what the next action depends on, not freshness). A stale plan is not started; it is shown to him with its steps and why, and he chooses. Moving, bag changes and a fight are reported as drift.
+- Rows: `plan_started {plan_kind, goal, basis}`, `acted_while_planning {n, tools}`, `plan_arrived {age_s, composed_s, stale, why, drift, applied, shown}`, `plan_abandoned {age_s}` (the job replaced meanwhile). `tools/think_act.py` reads them: an async composition runs from `plan_started` to `plan_started + composed_s`; its gap is the longest stand from the last command's end before it to the first command after it.
+- The window that judges it: the gap around a plan over 5 s, 99 % in the waiting arm; `tools.ab need 0.99 0.5` = 12 compositions per side (24 for 99 % against 70 %). Misses per job are counted on both arms beside it (Talker-Reasoner's warning).
+
 ## Not taken
 
 - **Stopping the world while he thinks** (Voyager, Cradle). The server is live and Luis is on it.

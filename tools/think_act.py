@@ -32,6 +32,11 @@ Definitions (the rows each one reads, with the line that writes them, are in the
   stand          seconds of a composition with no body running.
   stale          a composition that landed when the state it was made on had changed in a way that matters
                  (rule in stale_reasons()).
+  async          DW_ASYNC_PLAN=1 (brain/plan_async.py): a composition is plan_started to the worker's end
+                 (plan_arrived ts and composed_s) or plan_abandoned; his acts meanwhile are acted_while_planning n;
+                 stale is the brain's own verdict at landing (plan_arrived why), not inferred. Its gap is the
+                 longest stretch with no body running from the last command's end before it to the first command
+                 after it (the waiting arm's gap is that whole stretch, as no body runs inside it).
 """
 from __future__ import annotations
 
@@ -64,7 +69,7 @@ _KIND = re.compile(rb'^\{"ts": ([0-9.]+), "kind": "([a-z_]+)"')
 KEEP = {"session_start", "event", "chat_decision", "prompt", "llm_response", "tool_call", "tool_result", "say",
         "say_result", "bridge_send", "bridge_recv", "action_left_running", "bridge_late_result", "plan_invalid",
         "director_dispatch", "director_decision", "director_discarded", "director_decision_failed",
-        "director_timeout", "request_state"}
+        "director_timeout", "request_state", "plan_started", "plan_arrived", "plan_abandoned", "acted_while_planning"}
 
 
 # ------------------------------------------------------------------ reading
@@ -137,6 +142,15 @@ def slim(d: dict, gs_ids: set) -> dict | None:
         r.update(task=d.get("task"), decision=d.get("decision"))
     elif k == "request_state":
         r.update(ended=d.get("ended"))
+    elif k == "plan_started":
+        r.update(plan_kind=d.get("plan_kind"), goal=d.get("goal"))
+    elif k == "plan_arrived":
+        r.update(plan_kind=d.get("plan_kind"), age_s=d.get("age_s"), composed_s=d.get("composed_s"),
+                 stale=d.get("stale"), why=list(d.get("why") or []), applied=d.get("applied"), ok=d.get("ok"))
+    elif k == "plan_abandoned":
+        r.update(plan_kind=d.get("plan_kind"), age_s=d.get("age_s"))
+    elif k == "acted_while_planning":
+        r.update(n=d.get("n"), tools=list(d.get("tools") or []))
     return r
 
 
@@ -178,6 +192,18 @@ def union(iv: Iterable[tuple[float, float]]) -> list[tuple[float, float]]:
 def overlap(a: float, b: float, iv: list[tuple[float, float]]) -> float:
     """Seconds of [a, b] covered by the (unioned) intervals."""
     return sum(max(0.0, min(b, y) - max(a, x)) for x, y in iv)
+
+
+def longest_idle(a: float, b: float, iv: list[tuple[float, float]]) -> float:
+    """The longest stretch of [a, b] that no (unioned) interval covers."""
+    gaps, at = [], a
+    for x, y in iv:
+        if y <= a or x >= b:
+            continue
+        gaps.append(max(0.0, x - at))
+        at = max(at, y)
+    gaps.append(max(0.0, b - at))
+    return round(max(gaps), 2)
 
 
 def clip(iv: list[tuple[float, float]], a: float, b: float) -> list[tuple[float, float]]:
@@ -331,9 +357,34 @@ def analyse(rows: list[dict], source: str = "") -> dict:
     # --- compositions
     comps: list[dict] = []
     open_plan: dict[str | None, dict] = {}
+    open_async: dict[str | None, dict] = {}
     open_dir: dict | None = None
     for r in rows:
         k, ts, ep = r["kind"], r["ts"], r.get("ep")
+        if k == "plan_started":
+            if ep in open_async:
+                comps.append({**open_async.pop(ep), "outcome": "cut"})
+            open_async[ep] = {"kind": "planner", "async": True, "start": ts, "end": ts, "ep": ep, "calls": [],
+                              "outcome": None, "decision": r.get("plan_kind") or "plan", "acted": None}
+            continue
+        if ep in open_async:  # the Planner on the worker: his own rows in this episode do not end it
+            c = open_async[ep]
+            if k == "llm_response" and r.get("component") == "planner":
+                c["calls"].append(r.get("usage") or {})
+                c["end"] = ts
+            elif k == "plan_invalid":
+                c["invalid"] = c.get("invalid", 0) + 1
+            elif k == "acted_while_planning":
+                c["acted"] = r.get("n")
+            elif k in ("plan_arrived", "plan_abandoned"):
+                comp = r.get("composed_s")
+                c["end"] = c["start"] + float(comp) if isinstance(comp, (int, float)) else ts
+                c["taken_s"] = round(ts - c["start"], 2)
+                c["outcome"] = "abandoned" if k == "plan_abandoned" else "plan" if r.get("ok") else "no_plan"
+                c["applied"] = bool(r.get("applied"))
+                c["stale_logged"] = [w for w in r.get("why") or [] if r.get("stale")]
+                comps.append(open_async.pop(ep))
+            continue
         if k == "prompt" and r.get("component") == "planner":
             if ep in open_plan:
                 comps.append(open_plan.pop(ep))
@@ -366,6 +417,9 @@ def analyse(rows: list[dict], source: str = "") -> dict:
     for c in open_plan.values():
         c["outcome"] = c["outcome"] or ("plan" if c["calls"] else "cut")
         comps.append(c)
+    for c in open_async.values():
+        c.update(outcome="cut", end=max(c["end"], c["start"]))
+        comps.append(c)
     if open_dir:
         open_dir.update(end=last_ts, outcome="cut")
         comps.append(open_dir)
@@ -382,14 +436,20 @@ def analyse(rows: list[dict], source: str = "") -> dict:
         c["next"] = ({"tool": nxt["tool"], "args": nxt["args"], "after_s": round(nxt["start"] - c["end"], 2),
                       "ok": nxt.get("ok"), "reason": nxt.get("reason")} if nxt else None)
         c["basis_known"] = bool(basis and land)
-        c["stale"] = stale_reasons(c, basis, land, fights, nxt if c["outcome"] == "plan" else None) \
-            if c["outcome"] == "plan" else []
+        if c.get("async"):  # the brain's own verdict at landing (plan_async.stale_reasons), not inferred here
+            c["basis_known"] = True
+            c["stale"] = list(c.get("stale_logged") or [])
+        else:
+            c["stale"] = stale_reasons(c, basis, land, fights, nxt if c["outcome"] == "plan" else None) \
+                if c["outcome"] == "plan" else []
         c["body_during"] = round(overlap(c["start"], c["end"], body_iv), 2)
         # the whole stand the plan sits in: from the end of the body work before it to the first command after it
         last_end = max((y for x, y in body_iv if y <= c["start"] + 0.01), default=None)
         c["idle_before_s"] = round(c["start"] - last_end, 2) if last_end is not None else None
         c["gap_s"] = round(nxt["start"] - last_end, 2) if (nxt and last_end is not None and c["body_during"] < 0.5) \
             else None
+        if c.get("async") and nxt and last_end is not None:  # the longest stand inside that stretch
+            c["gap_s"] = longest_idle(last_end, nxt["start"], body_iv)
         c["source"] = source
 
     # --- asks
@@ -529,6 +589,11 @@ def aggregate(results: list[dict]) -> dict:
         "stand_over_5s": sum(1 for c in comps if c["stand"] > 5.0),
         "idle_before_s": summ(c["idle_before_s"] for c in comps), "gap_s": summ(c["gap_s"] for c in comps),
         "body_during_any": sum(1 for c in comps if c["body_during"] > 0.5),
+        "async": sum(1 for c in comps if c.get("async")),
+        "async_acted": sum(1 for c in comps if c.get("async") and (c.get("acted") or 0) > 0),
+        "acted_while_planning": summ(c.get("acted") for c in comps if c.get("async")),
+        "gap_over_5s": sum(1 for c in comps if c["gap_s"] is not None and c["gap_s"] > 5.0),
+        "applied": sum(1 for c in comps if c.get("async") and c.get("applied")),
         "landed": len(landed), "basis_known": len(known), "stale": len(stale), "stale_reasons": reasons,
         "usd": summ(c["usd"] for c in comps)}
     out["planner_api"] = {"n": len(papi), "latency_s": summ((c["usage"].get("latency_ms") or 0) / 1000 for c in papi
@@ -626,7 +691,10 @@ def render(agg: dict) -> str:
     L += [f"\n[compositions] n={c['n']} {c['by_kind']} {c['by_decision']} outcomes {c['outcomes']}",
           f"  wall s {_s(c['secs'])}", f"  stand s {_s(c['stand'])}  (over 5 s: {c['stand_over_5s']} of {c['n']}; "
                                        f"body ran during {c['body_during_any']})",
-          f"  idle before it s {_s(c['idle_before_s'])}; whole gap last command end to next command s {_s(c['gap_s'])}",
+          f"  idle before it s {_s(c['idle_before_s'])}; whole gap last command end to next command s {_s(c['gap_s'])}"
+          f" (over 5 s: {c['gap_over_5s']})",
+          f"  async (DW_ASYNC_PLAN): {c['async']} compositions, he acted during {c['async_acted']}; acts each "
+          f"{_s(c['acted_while_planning'])}; plans started {c['applied']}",
           f"  4 stale: {c['stale']} of {c['landed']} landed (state known for {c['basis_known']}); reasons {c['stale_reasons']}",
           f"[planner API] n={agg['planner_api']['n']} latency s {_s(agg['planner_api']['latency_s'])} ${agg['planner_api']['usd']}",
           f"[controller API] n={agg['controller_api']['n']} latency s {_s(agg['controller_api']['latency_s'])} ${agg['controller_api']['usd']}",
