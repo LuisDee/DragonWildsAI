@@ -3349,5 +3349,45 @@ do -- the fight: the one behind him swings; the camera goes on it, the block tur
     PERKS.unlocked = {}
 end
 
+-- threat_seen (fight study 2026-11-18, run 20261118-010135 at 458.9 s: a goblin camp, pack 5, Goblin Archer PL 2
+-- "too_strong", met on explore leg 5; the model heard of it only after he died): hostiles in sight, not in combat yet,
+-- that the body's odds do not rate a likely win (the pack counted) are reported once; the reflex does nothing for them
+reset_world()
+do
+    Cm.guard_start(nil)
+    local emitted, emit = {}, Cm.emit_activity
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    local function seen() local out = {}; for _, e in ipairs(emitted) do if e.kind == "threat_seen" then out[#out + 1] = e end end; return out end
+    -- one weak hostile far off: a likely win, nothing reported
+    new_creature("BP_AI_RuntGoblin_Character_C_1", "Goblin Runt", { X = 2500, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0, alert = 0 })
+    step(300)
+    check("threat_seen: a lone likely win is not reported", #seen() == 0, #seen())
+    -- the camp: a strong archer and two warriors at 18-25 m, none of them aggroed
+    reset_world(); Cm.guard_start(nil); emitted = {}
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    new_creature("BP_AI_RangedGoblin_Character_C_2", "Goblin Archer", { X = 1800, Y = 0, Z = 0 }, { hp = 570, pl = 8, arch = 0, alert = 0 })
+    new_creature("BP_AI_MeleeGoblin_Character_C_3", "Goblin Warrior", { X = 2200, Y = 300, Z = 0 }, { hp = 140, pl = 2, arch = 0, alert = 0 })
+    new_creature("BP_AI_MeleeGoblin_Character_C_4", "Goblin Warrior", { X = 2500, Y = -300, Z = 0 }, { hp = 140, pl = 2, arch = 0, alert = 0 })
+    step(300)
+    local s = seen()
+    check("threat_seen: a camp in sight is reported once, before any fight", #s == 1 and Cm._state().fight == nil, #s)
+    local e = s[1] or {}
+    check("threat_seen: names the nearest, the pack and the body's verdict", e.target == "Goblin Archer" and e.pack == 3
+        and e.verdict ~= nil and e.verdict ~= "likely_win" and e.hostiles == "Goblin Archer, Goblin Warrior x2" and e.distance_m == 18,
+        tostring(e.target) .. " " .. tostring(e.pack) .. " " .. tostring(e.verdict) .. " " .. tostring(e.hostiles) .. " " .. tostring(e.distance_m))
+    step(1000)
+    check("threat_seen: not repeated for the same hostiles", #seen() == 1, #seen())
+    -- three weak runts: each a likely win alone, the pack is not
+    reset_world(); Cm.guard_start(nil); emitted = {}
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    for i = 1, 3 do new_creature("BP_AI_RuntGoblin_Character_C_1" .. i, "Goblin Runt", { X = 2000 + i * 200, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0, alert = 0 }) end
+    step(300)
+    s = seen()
+    check("threat_seen: a pack of likely wins is reported as the pack", #s == 1 and s[1].pack == 3 and s[1].verdict == "outnumbered",
+        s[1] and tostring(s[1].verdict))
+    Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
+    reset_world()
+end
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

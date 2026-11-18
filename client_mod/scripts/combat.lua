@@ -68,6 +68,7 @@ M.cfg = {
     trend_s = 6, trend_min_s = 3, danger_ttl_s = 15, danger_win_margin = 0.8, -- losing fast: ttl < 15 s and win > 0.8 x ttl
     tool_jobs = { fishing = "fish", gather = "gather", farm = "tend", agility = "agility" }, -- module -> its arbiter name prefix
     ambient = nil, ambient_status_s = 2.0, -- out-of-fight hazards/cures: nil = env DW_COMBAT_AMBIENT ("1" = on); off by default -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
+    threat_scan_s = 2, threat_repeat_s = 60, -- threat_seen: hostiles in sight not rated a likely win (pack counted), out of a fight
     odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, world_id_s = 60, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
@@ -4441,7 +4442,11 @@ local function guard_tick(log)
         local fl = c.fled_from and c.fled_from[x.id]
         if not (fl and t - fl <= (cfg.refled_s or 30) and x.why ~= "attacked_me" and x.why ~= "attacking_me") then th = x; break end
     end
-    if not th then return end
+    if not th then
+        local okw, werr = pcall(M.threat_watch, pawn, pc, origin, t)
+        if not okw then c.threat_err = tostring(werr) end
+        return
+    end
     -- (a swing near him may be at someone else: passive waits for a hit that lands)
     if M.orders.stance == "passive" and th.why ~= "attacked_me" then return end
     if th.why == "attacked_ally" and M.orders.stance == "passive" then return end
@@ -4456,6 +4461,64 @@ local function guard_tick(log)
     if not r.ok then say(log, "reflex could not start: " .. tostring(r.reason)) end
 end
 M._guard_tick = guard_tick
+
+-- threat_seen (fight study 2026-11-18): hostiles in sight, out of a fight, that the body's own odds do not rate a
+-- likely win, the PACK counted (two deaths came from packs met on one creature's odds; a goblin camp met during an
+-- explore reached the model only after he died). One activity when a hostile not reported in threat_repeat_s joins
+-- the group; the brain gives the model a turn. Facts only: it never moves, presses or vetoes anything.
+-- Reads only the census rows (already read for the reflex), his HP and power level (read_me) and held items' data.
+function M.threat_watch(pawn, pc, origin, t)
+    local cfg, c = M.cfg, C()
+    if c.threat_t and t - c.threat_t < (cfg.threat_scan_s or 2) and t >= c.threat_t then return end
+    c.threat_t = t
+    local pack = {}
+    for _, r in ipairs(creatures_near(origin, cfg.odds_m)) do
+        if not r.dead and not r.follower and r.archetype == 0 and not (M.orders.avoid or {})[(r.name or ""):lower()] then
+            pack[#pack + 1] = r
+        end
+    end
+    if #pack == 0 then return end
+    table.sort(pack, function(a, b) return (a.distance_m or 1e9) < (b.distance_m or 1e9) end)
+    c.threat_said = c.threat_said or {}
+    local new
+    for _, r in ipairs(pack) do
+        local s = c.threat_said[r.id]
+        if not s or t - s >= (cfg.threat_repeat_s or 60) or t < s then new = true end
+    end
+    if not new then return end
+    local me = read_me(pawn, pc)
+    if me.dead or not me.hp then return end
+    if not (c.threat_dps and t - c.threat_dps.t < 5 and t >= c.threat_dps.t) then
+        local eq = U.try(function() return pawn.PlayerEquipmentComponent end)
+        local rk = U.valid(eq) and U.short(U.try(function() return eq:GetHeldEquipmentDataRight() end)) or ""
+        local lk = U.valid(eq) and U.short(U.try(function() return eq:GetHeldEquipmentDataLeft() end)) or ""
+        local items = M.weapons().items or {}
+        local w = items[rk] or items[lk]
+        c.threat_dps = { t = t, v = (w and w.role == "weapon" and M.dps(w)) or 12 }
+    end
+    local en = {}
+    for i, r in ipairs(pack) do
+        if i > (cfg.odds_max or 6) then break end
+        en[#en + 1] = { name = r.name, hp = r.hp, max_hp = r.max_hp, pl = r.pl, boss = r.boss == true, dps_obs = M.enemy_dps(r.name) }
+    end
+    local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = c.threat_dps.v }, en, { reflexonly = true }, nil, cfg)
+    if not (a and a.verdict) or a.verdict == "likely_win" then return end
+    local names, order = {}, {}
+    for _, r in ipairs(pack) do
+        c.threat_said[r.id] = t
+        local n = r.name or "?"
+        if not names[n] then names[n] = 0; order[#order + 1] = n end
+        names[n] = names[n] + 1
+    end
+    local words = {}
+    for _, n in ipairs(order) do words[#words + 1] = names[n] > 1 and (n .. " x" .. names[n]) or n end
+    local near = pack[1]
+    M.emit_activity({ kind = "threat_seen", by = "reflex", target = near.name, target_id = near.id,
+        distance_m = near.distance_m and math.floor(near.distance_m) or nil, target_pl = near.pl, target_hp = near.hp,
+        pack = #pack, hostiles = table.concat(words, ", "), verdict = a.verdict, pl_gap = a.pl_gap,
+        est_s_to_die = a.their_ttk and math.floor(a.their_ttk), est_s_to_kill = a.my_ttk and math.floor(a.my_ttk),
+        hp = me.hp, max_hp = me.max_hp, aggro_m = cfg.aggro_m })
+end
 
 function M.guard_start(log, opts)
     local c = C()

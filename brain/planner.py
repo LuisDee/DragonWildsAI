@@ -22,6 +22,7 @@ from pydantic import BaseModel, ValidationError
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient
 from .llm_json import DecisionError, extract_json, json_decision
+from .situation import _creature_note as creature_note
 from .situation import asked_line, bases_line, quest_rows
 from .state_store import SkillRegistry, Task, TaskTree
 
@@ -78,11 +79,32 @@ class PlanError(Exception):
     pass
 
 
+def creature_rows(state: dict) -> list[dict]:
+    """The creatures in sight as the Controller sees them: id, name, where, hostile, and the body's own odds line
+    ("PL 2, odds now: much stronger (PL +2; kills you ~6 s; you it ~15 s)"), with how many hostiles are in sight.
+    Fight study 2026-11-18, run 20261118-010135 at 953.7 s: the Planner saw a Goblin Archer 18 m off only as a raw
+    row (power_level 2) and planned an explore from there; he died to it. Facts only."""
+    odds = state.get("fight_odds") if isinstance(state.get("fight_odds"), dict) else {}
+    rows = [e for e in state.get("nearby_entities") or [] if isinstance(e, dict) and e.get("alive", True)]
+    hostile = sum(1 for e in rows if e.get("hostile"))
+    out = []
+    for e in rows:
+        row = {k: e[k] for k in ("id", "name", "distance", "up_m", "position", "hostile") if e.get(k) is not None}
+        if note := creature_note(e, odds):
+            row["note"] = note
+        if e.get("hostile") and hostile > 1:
+            row["hostiles_in_sight"] = hostile  # the body's odds are for this one alone
+        out.append(row)
+    return out
+
+
 def _trim_state(state: dict) -> dict:
     keep = ("position", "health", "inventory", "following", "players", "nearby_entities",
             "nearby_resources", "nearby_items", "structures", "places",
             "further_off")  # kinds in sight that the nearby_* lists (the N nearest of a category) have no row of
     out = {k: state[k] for k in keep if k in state}
+    if isinstance(state.get("nearby_entities"), list):
+        out["nearby_entities"] = creature_rows(state)
     # his quest log: each active step in the game's words with its map markers (the places a plan can name). Run
     # 20261116-222242: only the Controller had it, and the plan explored for a marker's name as a thing to see
     q = state.get("quests") if isinstance(state.get("quests"), dict) else {}

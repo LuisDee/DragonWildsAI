@@ -59,7 +59,13 @@ ACCEPTED_AFTER_S = 2.0
 # response is pending). A wait shorter than this never detaches (a get_state, a look): it answers first.
 DETACH_AFTER_S = 2.0
 NO_DETACH = {"ping", "get_state", "say", "move_status", protocol.CAPABILITIES}  # quick reads the brain needs itself
-MOVE_STATUS_TOOLS = {"go_to", "follow", "come_to"}  # a detached move reports the body's move status (metres to go)
+MOVE_STATUS_TOOLS = {"go_to", "follow", "come_to"}
+DETACH_WORDS = {  # data.detail of a detached wait, by what took the floor
+    "chat": "the player spoke, so you stopped waiting; your body is still doing it",
+    "fight": "a fight started on you, so you stopped waiting; your body is still doing it (its combat reflex has "
+             "your legs while the fight lasts)",
+    "threat": "hostiles your body doesn't rate a likely win came into sight, so you stopped waiting; your body is "
+              "still doing it"}  # a detached move reports the body's move status (metres to go)
 KEEP_IDS = 200
 
 
@@ -86,8 +92,9 @@ class BridgeClient(GameInterface):
         self._late: dict[str, ActionResult] = {}  # id -> the result of a detached wait, when it came
         self._late_evented: set[str] = set()  # detached ids whose TaskDone/TaskFailed event went to the agent
         self._started = None  # the body bridge's start epoch, from the last ping that carried one
-        # L2(a): set by the agent: True for an event that must get the floor now (an addressed chat line)
-        self.interrupt_check: Callable[[Event], bool] | None = None
+        # L2(a): set by the agent: truthy for an event that must get the floor now (an addressed chat line: True or
+        # "chat"; a fight on him or strong hostiles in sight during the call: "fight" / "threat", brain/fight_news.py)
+        self.interrupt_check: Callable[[Event], bool | str | None] | None = None
         # set by the agent: called once with (tool, request id) when a watched action has been accepted
         self.on_long_action: Callable[[str, str], None] | None = None
         self._announcing = False
@@ -249,12 +256,14 @@ class BridgeClient(GameInterface):
                     continue
                 # L2(a): an addressed chat line gets the floor; the body keeps working on the command (detached)
                 if self.interrupt_check and detach_at is not None and time.monotonic() >= detach_at:
-                    if any(self._safe_check(e) for e in self._events[seen:]):
+                    hit = next((r for r in (self._safe_check(e) for e in self._events[seen:]) if r), None)
+                    if hit:
                         if accepted_at is not None:  # it has run this long: accepted (its held line is true)
                             accepted_at = None
                             self._accepted(tool, req_id)
                         left = None if req_id in self._parked else \
-                            self._detach(req_id, tool, args, sent_at, deadline, started0)
+                            self._detach(req_id, tool, args, sent_at, deadline, started0,
+                                         by=hit if isinstance(hit, str) else "chat")
                         if left is not None:
                             return left
                         continue  # its result came in meanwhile (read off the wire by a nested request)
@@ -303,7 +312,7 @@ class BridgeClient(GameInterface):
         return fail(Reason.TIMEOUT, tool=tool, id=req_id)
 
     def _detach(self, req_id: str, tool: str, args: dict, sent_at: float, deadline: float,
-                started0) -> ActionResult | None:
+                started0, by: str = "chat") -> ActionResult | None:
         """Stop waiting (the player spoke) without failing the action: the body keeps doing it. Its result,
         when it comes, is a late result (``_late_arrived``); the same call again re-attaches (``reattach``).
         None: its result arrived during the move-status read (the caller returns that instead)."""
@@ -317,11 +326,12 @@ class BridgeClient(GameInterface):
         for coll in (self._abandoned, self._late_evented):
             while len(coll) > KEEP_IDS:
                 coll.discard(next(iter(coll)))
-        data = {"tool": tool, "id": req_id, "by": "chat", "running": True, "running_s": round(now - sent_at, 1),
-                "detail": "the player spoke, so you stopped waiting; your body is still doing it"}
+        data = {"tool": tool, "id": req_id, "by": by, "running": True, "running_s": round(now - sent_at, 1),
+                "detail": DETACH_WORDS.get(by, DETACH_WORDS["chat"])}
         if prog:
             data["progress"] = prog
-        self.log.log("bridge_wait_interrupted", id=req_id, tool=tool, why="addressed chat", detached=True,
+        self.log.log("bridge_wait_interrupted", id=req_id, tool=tool, why="addressed chat" if by == "chat" else by,
+                     detached=True,
                      running_s=data["running_s"], progress=data.get("progress"))
         return fail(Reason.STILL_RUNNING, **data)
 
@@ -398,9 +408,10 @@ class BridgeClient(GameInterface):
         finally:
             self._announcing = False
 
-    def _safe_check(self, ev: Event) -> bool:
+    def _safe_check(self, ev: Event) -> bool | str:
         try:
-            return bool(self.interrupt_check(ev))
+            r = self.interrupt_check(ev)
+            return r if isinstance(r, str) and r else bool(r)
         except Exception as exc:  # never let a predicate bug block the wait
             self.log.log("interrupt_check_error", error=repr(exc))
             return False

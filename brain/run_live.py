@@ -140,11 +140,11 @@ class LiveAgent(Agent):
         if hasattr(self.game, "interrupt_check"):  # L2(a): the player's addressed line gets the floor at once
             self.game.interrupt_check = self._addressed_line
 
-    def _addressed_line(self, event: Event) -> bool:
+    def _addressed_line(self, event: Event) -> bool | str | None:
         if isinstance(event, CommandReceived):
             return True
-        if not isinstance(event, ChatHeard):
-            return False
+        if not isinstance(event, ChatHeard):  # a fight on him during the call takes the floor too (fight_news)
+            return self._interrupt_for(event)
         # the same "addressed" the chat decision uses: named, or from the player he is with (live 2026-11-01: Luis's
         # unnamed "come to me urgently" waited 142-162 s for a 678 m go_to to end; p90 of his unnamed lines 42 s)
         return chat_route(event.text, self.prefixes, self.controller.name)[0] in ("command", "ping") or \

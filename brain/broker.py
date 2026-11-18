@@ -177,6 +177,12 @@ def facts(state: dict) -> dict[str, Any]:
     return out
 
 
+def _by_words(by) -> str:
+    """When the brain stopped waiting for a running call (data.by of its still_running result)."""
+    from .fight_news import BY_WORDS  # lazy: fight_news imports this module's facts()
+    return BY_WORDS.get(str(by or "chat"), BY_WORDS["chat"])
+
+
 def fallback_line(events: list[dict]) -> str | None:
     """The template line for a situation (model call failed, or dry run)."""
     lines, needs = [], []
@@ -199,6 +205,9 @@ def fallback_line(events: list[dict]) -> str | None:
             lines.append(line)
         elif e.get("type") == "resumed":
             lines.append("Found you.")
+        elif e.get("type") == "fight" and e.get("who"):  # brain/fight_news.py (budget out, or the model call failed)
+            lines.append(f"{e['who']} {'is on me' if e.get('by') == 'fight' else 'ahead, looks too much for me'}"
+                         + (f", HP {e['your_hp']}" if e.get("your_hp") else "") + ".")
         elif e.get("type") == RUNNING_RESULT and e.get("ok") is False:  # it ran on after he spoke, then failed
             why = human_detail(e.get("detail")) or str(e.get("reason") or "it stopped").replace("_", " ")
             lines.append(f"That didn't work out: {why}.")
@@ -351,7 +360,7 @@ class EventBroker:
                         data: dict | None = None) -> None:
         if reason == Reason.STILL_RUNNING and isinstance(data, dict) and data.get("id"):
             # the player spoke: the brain stopped waiting, the body goes on (no result yet, no failure)
-            self.running = {"id": str(data["id"]), "tool": tool, "args": dict(args or {}),
+            self.running = {"id": str(data["id"]), "tool": tool, "args": dict(args or {}), "by": data.get("by"),
                             "name": self.name_of((args or {}).get("target")),
                             "started": self._action_at or self.clock(), "detached": self.clock(),
                             "progress": data.get("progress") if isinstance(data.get("progress"), dict) else None}
@@ -534,7 +543,7 @@ class EventBroker:
         target = args.get("player") or args.get("target") or args.get("resource") or args.get("item")
         event = {"type": RUNNING_RESULT, "tool": tool, "target": run.get("name") or target, "args": args, "ok": ok,
                  "reason": reason, "detail": why, "ran_s": round(now - run["started"]),
-                 "note": "you stopped waiting for it when the player spoke; it kept running and has now ended"}
+                 "note": f"you stopped waiting for it {_by_words(run.get('by'))}; it kept running and has now ended"}
         self._running_results[rid] = {k: v for k, v in event.items() if v is not None and v != ""}
         return None
 
@@ -949,7 +958,7 @@ class EventBroker:
         if "action" in st and not st.get("action") and self._track and self._track[-1][0] > run["detached"]:
             bits.append("your body reports no action now: it may have just ended")
         return (f"Still running in your body: {run['tool']} {arg_text(run['args'], run.get('name'))} "
-                f"({'; '.join(bits)}). You stopped waiting for it when the player spoke; it goes on. The same call "
+                f"({'; '.join(bits)}). You stopped waiting for it {_by_words(run.get('by'))}; it goes on. The same call "
                 "again keeps it going without restarting it; another action replaces it.")
 
     def digest(self) -> list[str]:

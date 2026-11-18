@@ -18,12 +18,12 @@ import json
 import time
 from typing import Literal
 
-from . import item_stats, needs
+from . import fight_news, item_stats, needs
 from . import open_ask as oa
 from . import result_knowledge
 from . import situation as sit
 from .consume_order import interleave
-from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
+from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, RUNNING_RESULT, EventBroker, facts, fallback_line
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
 from .interface import (PROGRESS_EVENTS, RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event,
@@ -269,6 +269,10 @@ class Agent:
         self._held: dict | None = None
         if hasattr(game, "on_long_action"):
             game.on_long_action = self._long_action
+        # a fight on him (or strong hostiles in sight) during a body call gives the model the floor at once, the way a
+        # player's line does (LiveAgent adds the line); the body keeps going (grave study 2026-11-18)
+        if hasattr(game, "interrupt_check") and getattr(game, "interrupt_check", None) is None:
+            game.interrupt_check = self._interrupt_for
         # True when the body runs its own self-defence reflex (client combat.lua guard): an attacked
         # event then needs no brain-side attack (it would fight the body's reflex for the pawn).
         self.body_self_defends = False
@@ -415,9 +419,19 @@ class Agent:
         return state
 
     def _body_situation(self, event: Event) -> None:
-        v = self.broker.assess(event, self._fresh_state(reuse=True))
+        state = self._fresh_state(reuse=True)
+        v = self.broker.assess(event, state)
         if v.action == "decide":
-            self._situations.append(v.event)
+            e = v.event
+            if isinstance(e, dict) and e.get("type") == RUNNING_RESULT and e.get("ok") is False and \
+                    e.get("reason") not in fight_news.NOT_RUN:  # it ran on and then failed: did he die meanwhile?
+                died = fight_news.died_during(self._fresh_state(), float(e.get("ran_s") or 0) + 2.0)  # fresh: a death
+                if died is not None:
+                    e = {**e, "reason": Reason.COMPANION_DOWN, "body_reason": e.get("reason"), "died": died,
+                         "detail": fight_news.death_detail(str(e.get("tool")), died, e.get("reason"), e.get("detail"))}
+                    self.log.log("death_during_call", tool=e.get("tool"), body_reason=e["body_reason"],
+                                 cause=died["cause"], ago_s=died["ago_s"], late=True)
+            self._situations.append(e)
 
     def _chat_waiting(self) -> bool:
         """True while chat lines wait for a Controller run that will take the situations along."""
@@ -547,13 +561,62 @@ class Agent:
             self._keep_ask_fact(f"craft:{item}", f"craft {item} {outcome.reason}",
                                 ". ".join(x for x in (short, line) if x), raw=line or short)
 
+    @staticmethod
+    def _interrupt_for(event: Event) -> str | None:
+        """The bridge's interrupt check for body events: "fight" / "threat" take the floor during a body call."""
+        return fight_news.interrupt_reason(event)
+
+    def _death_truth(self, task: Task, outcome: Outcome, started: float) -> None:
+        """A call that failed while he died says so, with what killed him (grave study 2026-11-18: explore answered
+        nothing_in_range 0.6 s after his death, run 20261116-062404; go_to "interrupted (stopped)", run
+        20261118-010135 at 668.5 s). The game's own death row (get_state.last_death) is the evidence; the call's own
+        reason and words are kept beside it."""
+        if outcome.ok or outcome.reason in fight_news.NOT_RUN:
+            return
+        try:
+            state = self.executor.state(max_age=POST_ACTION_REUSE_S)
+        except Exception:  # unreadable: the call's own reason stands
+            return
+        died = fight_news.died_during(state, time.monotonic() - started)
+        if died is None:
+            return
+        data = outcome.data if isinstance(outcome.data, dict) else {}
+        own_reason, own = outcome.reason, data.get("detail") or data.get("why")
+        data.update(detail=fight_news.death_detail(task.skill, died, own_reason, own), died=died,
+                    body_reason=own_reason)
+        outcome.data, outcome.reason = data, Reason.COMPANION_DOWN
+        task.last_reason = Reason.COMPANION_DOWN
+        self.log.log("death_during_call", tool=task.skill, args=task.args, body_reason=own_reason, cause=died["cause"],
+                     ago_s=died["ago_s"])
+
+    def _fight_turn(self, task: Task, outcome: Outcome, started: float) -> None:
+        """The wait was detached for a fight (or strong hostiles in sight): queue the situation that gives the model a
+        turn now, with the fight shown. The model decides; nothing here fights, flees or stops anything."""
+        data = outcome.data if isinstance(outcome.data, dict) else {}
+        self._stash.extend(self.game.poll_events())  # the events that took the floor (handled by the next pump too)
+        events = [e for e in self._stash if isinstance(e, Activity) and e.kind in fight_news.SHOWN_KINDS]
+        try:
+            state = self.executor.state(max_age=POST_ACTION_REUSE_S)
+        except Exception:
+            state = {}
+        ran = data.get("running_s") if isinstance(data.get("running_s"), (int, float)) else time.monotonic() - started
+        sit_ = fight_news.fight_situation(events, state, {"tool": task.skill, "args": task.args, "ran_s": ran},
+                                          str(data.get("by")))
+        if self.active_goal and not self._quiet_goal:
+            sit_["job"] = self.active_goal
+        self._situations = [e for e in self._situations if e.get("type") != "fight"] + [sit_]  # the newest only
+        self.log.log("fight_turn", by=data.get("by"), tool=task.skill, who=sit_.get("who"), odds=sit_.get("odds"),
+                     your_hp=sit_.get("your_hp"), events=[e.kind for e in events])
+
     def _run_task(self, task: Task) -> Outcome:
         """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""
         # the same call as the action the body is still doing since the player spoke: the executor re-attaches to it
         continues = getattr(self.executor, "continues", None)
         self.broker.action_started(task.skill, task.args, continuing=bool(continues and continues(task)))
         self.broker.note_busy()
+        started = time.monotonic()
         outcome = self.executor.run_task(task)
+        self._death_truth(task, outcome, started)
         detail = (outcome.data or {}).get("detail") if isinstance(outcome.data, dict) else None
         task.detail = str(detail)[:TASK_DETAIL_CHARS] if detail else None
         if not outcome.ok:  # not found, or gather's wrong_tool: what his own knowledge says about where it is and the
@@ -579,6 +642,9 @@ class Agent:
             self._craft_sources(task, outcome)
         self._killed_note(task, outcome)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
+        if outcome.reason == Reason.STILL_RUNNING and isinstance(outcome.data, dict) and \
+                outcome.data.get("by") in ("fight", "threat"):
+            self._fight_turn(task, outcome, started)
         if self._directed is not None:
             rec = {"tool": task.skill, "args": dict(task.args), "ok": outcome.ok, "reason": outcome.reason,
                    "data": outcome.data, "interrupt": outcome.interrupt, "origin": self._directed_origin}
@@ -1564,7 +1630,8 @@ class Agent:
         while (task := tree.next_task()) is not None:
             outcome = self._run_task(task)
             if outcome.interrupt:
-                interrupts += 1
+                # a fight on him is bounded by the game, not by chat: it never makes the job "interrupted too often"
+                interrupts += 0 if isinstance(outcome.data, dict) and outcome.data.get("by") in ("fight", "threat") else 1
                 self.pump()
                 if self._cancelled:
                     break
