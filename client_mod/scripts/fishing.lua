@@ -934,8 +934,12 @@ function M.start(log, args, ctx)
     local me = W.loc(pawn)
     local inv0, list = W.counts()
     if not inv0 then return { ok = false, reason = "body_error", data = { detail = "inventory unreadable" } } end
-    if list.empty_slots == 0 then
-        return { ok = false, reason = "inventory_full", data = { why = "inventory_full", detail = "My bags are full; I need to drop something first." } }
+    -- the pages a catch lands in (item page + hotbar, inventory.list room); never empty_slots, which counts the rune,
+    -- ammo and quest pages too (164 live with a full item page)
+    local room = type(list.room) == "table" and tonumber(list.room.total) or nil
+    if room == 0 then
+        return { ok = false, reason = "inventory_full", data = { why = "inventory_full", room = list.room,
+                 detail = "My bag is full (no free slot on my item page or hotbar); I need to store or drop something first." } }
     end
     local rows = W.nodes()
     local radius_m = math.min(tonumber(args.radius) or M.cfg.radius_m, M.cfg.max_radius_m)

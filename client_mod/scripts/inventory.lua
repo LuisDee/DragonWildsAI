@@ -95,6 +95,22 @@ function M.pages(inv)
     return pages
 end
 
+-- Free slots on the pages a picked-up item lands in: the hotbar (QuickAction; picked-up gear and food went to the
+-- first free hotbar slots, DISCOVERIES "Collect = the interact key") and the item page (InventoryItems), each page's
+-- NumSlots less the rows listed on it. The rune, ammo and quest pages are left out (GetNumEmptySlots counts them:
+-- 164 live with a full item page). The same rule as tools/job_run.py bag_room and get_state.bag (item page only).
+-- {items, items_slots, hotbar, hotbar_slots, total}, or nil when either page was not read (never a guessed 0).
+function M.room_of(pages, hotbar, bag)
+    local size = {}
+    for _, p in ipairs(pages or {}) do size[p.type_name] = p.n end
+    local qn, inn = tonumber(size.QuickAction), tonumber(size.InventoryItems)
+    if not (qn and inn) then return nil end
+    local on_items = 0
+    for _, d in ipairs(bag or {}) do if (d.slot_type or "InventoryItems") == "InventoryItems" then on_items = on_items + 1 end end
+    local hot, items = math.max(0, qn - #(hotbar or {})), math.max(0, inn - on_items)
+    return { items = items, items_slots = inn, hotbar = hot, hotbar_slots = qn, total = items + hot }
+end
+
 -- raw ItemSlots index -> slot type, index within that page (the UI's SlotNum).
 local function page_of(pages, raw)
     for _, p in ipairs(pages) do
@@ -247,7 +263,10 @@ function M.list(log)
             d.raw, d.slot_type, d.slot = raw, M.SLOT_TYPES[t], s
             table.insert(t == 0 and out.hotbar or out.bag, d)
         end)
+        -- the game's count over EVERY page (runes 32, ammo 32, quest 72 too: 164 live with a full item page), so never
+        -- a test of whether a pickup fits; that is out.room, the free slots on the pages a pickup lands in
         out.empty_slots = num(U.try(function() return inv:GetNumEmptySlots() end))
+        out.room = M.room_of(pages, out.hotbar, out.bag)
         out.weight = num(U.try(function() return inv:ComputeCurrentWeight() end))
     end
     local lo = U.try(function() return pc.LoadoutComponent end)

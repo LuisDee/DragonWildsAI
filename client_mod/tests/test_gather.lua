@@ -144,7 +144,7 @@ local function step_world(dt)
     -- undamaged converted trees revert to foliage after 6 s when Claude is > 3 m away
     -- item magnet: drops older than 1 s within 3.5 m fly in and are granted (unless the bags are full)
     for _, w in ipairs(Wd.drops) do
-        if w._alive and T - w.born > 1.0 and d2(Wd.pawn.pos, w.pos) <= 350 and not Wd.full and not Wd.no_magnet then
+        if w._alive and T - w.born > 1.0 and d2(Wd.pawn.pos, w.pos) <= 350 and not Wd.no_magnet and _G.__gather_can_take(w.item) then
             w._alive = false
             Wd.inv[w.item] = (Wd.inv[w.item] or 0) + 1
         end
@@ -152,6 +152,18 @@ local function step_world(dt)
     -- stamina regen
     Wd.pawn.stamina = math.min(80, Wd.pawn.stamina + (Wd.regen_rate or 5) * dt)
 end
+
+-- Wd.stacks: the game's own rule (as modelled; unverified live): a unit merges into a stack of its kind with room (99),
+-- else it needs a free slot on the item page / hotbar (Wd.empty), which it then takes
+local function can_take(item)
+    if Wd.full then return false end
+    if not Wd.stacks then return true end
+    local n = Wd.inv[item] or 0
+    if n > 0 and n % 99 ~= 0 then return true end
+    if Wd.empty > 0 then Wd.empty = Wd.empty - 1; return true end
+    return false
+end
+_G.__gather_can_take = can_take
 
 -- ---------------------------------------------------------------- fake modules
 local MV = { mode = "idle" }
@@ -214,11 +226,16 @@ local fake_inv = {}
 function fake_inv.list()
     local hotbar, slot = {}, 0
     for item, n in pairs(Wd.inv) do
-        hotbar[#hotbar + 1] = { item = item, name = (TOOLS[item] or {}).name or (Wd.names or {})[item] or item, count = n, slot = slot }
+        hotbar[#hotbar + 1] = { item = item, name = (TOOLS[item] or {}).name or (Wd.names or {})[item] or item, count = n, slot = slot,
+                                max_stack = TOOLS[item] and 1 or 99 }
         slot = slot + 1
     end
     table.sort(hotbar, function(a, b) return a.item < b.item end)
-    return { ok = true, hotbar = hotbar, bag = {}, loadout = {}, empty_slots = Wd.empty, held = {} }
+    -- empty_slots is the game's GetNumEmptySlots over EVERY page (the empty rune, ammo and quest pages too: 132 more,
+    -- 164 live with a full item page); room is the item page + hotbar (inventory.room_of). Wd.room_unread: pages unread
+    local room = not Wd.room_unread and { items = Wd.empty, items_slots = 32, hotbar = 0, hotbar_slots = 8, total = Wd.empty } or nil
+    -- Wd.bag: other kinds filling the bag (bag rows: item page, rune page ...)
+    return { ok = true, hotbar = hotbar, bag = Wd.bag or {}, loadout = {}, empty_slots = Wd.empty + 132, room = room, held = {} }
 end
 function fake_inv.held() return { right_item = nil, left_item = Wd.held } end
 function fake_inv.equip(log, what)
@@ -251,7 +268,8 @@ function fake_inv.interact_target() local t = near_interactable(); return t or {
 function fake_inv.press_interact(log, opts)
     Wd.presses = Wd.presses + 1
     local t = near_interactable()
-    if not t or Wd.full then return { ok = true } end
+    local kind = (t and t.w and t.w.item) or (t and t.a and t.a.item)
+    if not t or Wd.full or (kind and not can_take(kind)) then return { ok = true } end
     if type(opts) == "table" and opts.secondary then
         -- the game's collect-all (Wd.collect_all = its radius, cm): every world item of that kind around the one targeted
         Wd.secondary = (Wd.secondary or 0) + 1
@@ -663,6 +681,94 @@ do
     fake_pc.Pawn = Wd.pawn
     local r = G.HANDLERS.gather(nil, { resource = "oak", count = 3 }, { id = "t9" })
     check("full bags up front", r.ok == false and r.reason == "inventory_full", r.reason)
+end
+
+-- ================================================================ 9b. a full ITEM PAGE: the game's empty-slot count (164 live) is no room
+do
+    -- stones on the ground; item page and hotbar full of other kinds (no stone stack): the game's GetNumEmptySlots still
+    -- reads 132 (rune/ammo/quest pages). Up front the gather refuses with what fills the bag.
+    local function fillers()
+        local b = {}
+        for i = 1, 20 do b[#b + 1] = { item = "ITEM_Resources_Wood_Ash", name = "Ash Logs", count = 99, max_stack = 99, slot_type = "InventoryItems", slot = i } end
+        for i = 21, 30 do b[#b + 1] = { item = "ITEM_Resources_Weeds", name = "Weeds", count = 50, max_stack = 99, slot_type = "InventoryItems", slot = i } end
+        for i = 31, 32 do b[#b + 1] = { item = "ITEM_FishingNet_CoarseNet", name = "Coarse Net", count = 1, max_stack = 1, slot_type = "InventoryItems", slot = i } end
+        b[#b + 1] = { item = "ITEM_Rune_Air", name = "Air Rune", count = 900, max_stack = 9999, slot_type = "InventoryRunes", slot = 0 }
+        return b
+    end
+    local function stones(n, x0)
+        for i = 1, n do
+            Wd.foliage[#Wd.foliage + 1] = { id = "fol:Full:" .. i, class = "BP_Spawner_Stone_C", _pos = { X = (x0 or 400) + 300 * i, Y = 100, Z = 0 },
+                                            name = "Stone", kind = "pickup", visible = true, item = "ITEM_Resources_Stone" }
+        end
+    end
+    reset({ empty = 0, inv = { ITEM_Logging_Axe_Mithril = 1 } })
+    Wd.stacks, Wd.bag = true, fillers()
+    fake_pc.Pawn = Wd.pawn
+    stones(3)
+    local r = G.HANDLERS.gather(nil, { resource = "loose stones", count = 2 }, { id = "t9b" })
+    check("full item page (empty_slots 132): refused up front as inventory_full", r.ok == false and r.reason == "inventory_full", r.reason)
+    local d = r.data or {}
+    check("inventory_full names what fills the bag, most slots first", type(d.fills) == "table" and d.fills[1] and d.fills[1].name == "Ash Logs"
+          and d.fills[1].slots == 20 and d.fills[2] and d.fills[2].name == "Weeds", d.fills and d.fills[1] and d.fills[1].name)
+    check("the rune page is not what fills the bag", not tostring(d.detail):find("Air Rune", 1, true), d.detail)
+    check("inventory_full carries the room read (0 on item page and hotbar)", d.room and d.room.items == 0 and d.room.hotbar == 0, d.room and d.room.items)
+    check("the detail says it and what to do", tostring(d.detail):find("My bag is full", 1, true) and tostring(d.detail):find("Ash Logs x1980", 1, true)
+          and tostring(d.detail):find("store or drop", 1, true), d.detail)
+
+    -- mid-job: one stone stack with 1 unit of room; the first stone merges, the second needs a new slot the game has not
+    -- got: the job ends inventory_full (not "interact had no effect" / nothing_in_range), the target not marked bad
+    reset({ empty = 0, inv = { ITEM_Resources_Stone = 98 } })
+    Wd.stacks, Wd.bag = true, fillers()
+    Wd.names = { ITEM_Resources_Stone = "Stone" }
+    fake_pc.Pawn = Wd.pawn
+    stones(4)
+    local mlines = {}
+    print_log = function(m) mlines[#mlines + 1] = string.format("%.1f %s", T, m) end
+    local res = run_job({ resource = "loose stones", count = 3 }, 200)
+    print_log = nil
+    if os.getenv("GDEBUG") then print(table.concat(mlines, "\n")) end
+    local why = tostring(res.reason) .. " " .. tostring(res.data and res.data.why) .. " " .. tostring(res.data and res.data.detail)
+    check("mid-job full bag: inventory_full", res.ok == false and res.reason == "inventory_full", why)
+    check("mid-job full bag: the one unit that fit was taken", res.data and res.data.gathered == 1, res.data and res.data.gathered)
+    check("mid-job full bag: the detail names the item and the fillers", tostring(res.data and res.data.detail):find("no Stone stack with room", 1, true)
+          and res.data.fills and res.data.fills[1].name == "Ash Logs", res.data and res.data.detail)
+    local bad = 0
+    for k, why2 in pairs((G._state().bad_why) or {}) do if G._state().bad[k] and G._state().bad[k] > T and tostring(why2):find("no effect") then bad = bad + 1 end end
+    check("mid-job full bag: the refused stone is not marked bad", bad == 0, bad)
+
+    -- the item page full but a stone stack with room: never inventory_full up front (the unit merges)
+    reset({ empty = 0, inv = { ITEM_Resources_Stone = 40 } })
+    Wd.stacks, Wd.bag = true, fillers()
+    fake_pc.Pawn = Wd.pawn
+    stones(3)
+    res = run_job({ resource = "loose stones", count = 2 }, 120)
+    check("full page, stack with room: the stones merge (ok)", res.ok == true, tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
+
+    -- a full 99 stack and no room: inventory_full up front (the old test let any held unit through)
+    reset({ empty = 0, inv = { ITEM_Resources_Stone = 99 } })
+    Wd.stacks, Wd.bag = true, fillers()
+    fake_pc.Pawn = Wd.pawn
+    stones(2)
+    r = G.HANDLERS.gather(nil, { resource = "loose stones", count = 1 }, { id = "t9c" })
+    check("full 99 stack, no slot: inventory_full up front", r.ok == false and r.reason == "inventory_full", r.reason)
+
+    -- the pages unread (room nil): never a claimed full bag
+    reset({ empty = 0, inv = { ITEM_Logging_Axe_Mithril = 1 } })
+    Wd.room_unread = true
+    fake_pc.Pawn = Wd.pawn
+    stones(2)
+    r = G.HANDLERS.gather(nil, { resource = "loose stones", count = 1 }, { id = "t9d" })
+    check("room unread: no inventory_full claimed", r.reason ~= "inventory_full", r.reason)
+    if r.pending then pump(200, function() return r.pending.poll() ~= nil end) end
+
+    -- pure helpers
+    local l = { hotbar = { { item = "A", count = 99, max_stack = 99 } }, bag = { { item = "A", count = 5, max_stack = 99, slot_type = "InventoryItems" } },
+                room = { total = 0 } }
+    check("stack_room sums each stack's own room", G.stack_room(l, "A") == 94 and G.stack_room(l, "B") == 0, G.stack_room(l, "A"))
+    check("full_for: no room but a stack with room is not full", G.full_for(l, "A") == false and G.full_for(l, "B") == true)
+    l.bag[1].max_stack = nil
+    check("stack_room: an unread stack size is unknown (never full)", G.stack_room(l, "A") == nil and G.full_for(l, "A") == false)
+    check("pickup_room: nil when pages unread", G.pickup_room({ empty_slots = 164 }) == nil)
 end
 
 -- ================================================================ 10. drops the magnet ignores -> interact key

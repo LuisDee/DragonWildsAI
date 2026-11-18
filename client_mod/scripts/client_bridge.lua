@@ -852,7 +852,9 @@ function M.compact_inventory(d)
     for _, it in ipairs(d.bag or {}) do bag[#bag + 1] = slim(it, false) end
     local held = type(d.held) == "table" and d.held or {}
     return { worn = S.bridge.object(worn), held = S.bridge.object({ right = held.right, left = held.left }),
-             hotbar = hotbar, bag = bag, weight = d.weight, empty_slots = d.empty_slots }
+             hotbar = hotbar, bag = bag, weight = d.weight, empty_slots = d.empty_slots,
+             -- free slots a pickup can land in (item page + hotbar); empty_slots counts the rune/ammo/quest pages too
+             room = type(d.room) == "table" and d.room.total or nil }
 end
 R.inventory = { needs = { { "inventory", "list" } }, fn = function(args)
     local r = call("inventory", "list")

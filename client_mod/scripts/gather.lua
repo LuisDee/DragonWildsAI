@@ -334,6 +334,76 @@ local function counts_of(list)
 end
 M.counts_of = counts_of
 
+-- Free slots on the pages a pickup lands in (item page + hotbar: inventory.list room.total, inventory.room_of). Never
+-- list.empty_slots: GetNumEmptySlots counts the rune, ammo and quest pages too (164 live with a full item page), so a
+-- full bag never read 0 and a refused pickup ended "interact had no effect". nil = the pages were not read.
+function M.pickup_room(list)
+    local r = type(list) == "table" and list.room
+    return type(r) == "table" and tonumber(r.total) or nil
+end
+-- Units of an item his own stacks still take (each stack's MaxStackSize less its count, any page); nil when a stack's
+-- size is unread (then nobody can say the pickup won't merge).
+function M.stack_room(list, item)
+    if not item then return 0 end
+    local n = 0
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs((list or {})[where] or {}) do
+            if e.item == item then
+                local max = tonumber(e.max_stack)
+                if not max then return nil end
+                n = n + math.max(0, max - (tonumber(e.count) or 1))
+            end
+        end
+    end
+    return n
+end
+-- Full for this item: no free slot on the item page or hotbar AND no stack of it with room left.
+function M.full_for(list, item)
+    return M.pickup_room(list) == 0 and M.stack_room(list, item) == 0
+end
+-- What fills the pages a pickup lands in, by kind: {item, name, slots, count}, most slots first (top k).
+function M.fills(list, k)
+    local by, order = {}, {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs((list or {})[where] or {}) do
+            if e.item and (where == "hotbar" or (e.slot_type or "InventoryItems") == "InventoryItems") then
+                local f = by[e.item]
+                if not f then f = { item = e.item, name = e.name or e.item, slots = 0, count = 0 }; by[e.item] = f; order[#order + 1] = f end
+                f.slots, f.count = f.slots + 1, f.count + (tonumber(e.count) or 1)
+            end
+        end
+    end
+    table.sort(order, function(a, b)
+        if a.slots ~= b.slots then return a.slots > b.slots end
+        if a.count ~= b.count then return a.count > b.count end
+        return a.item < b.item
+    end)
+    local out = {}
+    for i = 1, math.min(k or 4, #order) do out[i] = order[i] end
+    return out
+end
+-- The inventory_full result's data: the room read, what fills the bag (top kinds) and a true sentence, so the brain
+-- can choose what to store or drop. Also the log line (unseen signature "gather: bag full for").
+function M.full_data(list, item, name, log, at)
+    local fills, words = M.fills(list, 4), {}
+    for _, f in ipairs(fills) do
+        words[#words + 1] = string.format("%s x%d (%d slot%s)", tostring(f.name), f.count, f.slots, f.slots == 1 and "" or "s")
+    end
+    local r = list.room or {}
+    local what = name and (tostring(name):gsub("_", " ")) or item -- a resource key reads as words ("loose stones")
+    local detail = string.format("My bag is full: no free slot on my item page (%s/%s used) or hotbar (%s/%s)%s, so the game "
+        .. "won't take %s. It's mostly %s. I need to store or drop something to pick up more.",
+        tostring((r.items_slots or 0) - (r.items or 0)), tostring(r.items_slots or "?"),
+        tostring((r.hotbar_slots or 0) - (r.hotbar or 0)), tostring(r.hotbar_slots or "?"),
+        what and string.format(" and no %s stack with room", tostring(what)) or "", what and ("any more " .. tostring(what)) or "any more",
+        #words > 0 and table.concat(words, ", ") or "nothing I can read")
+    say(log, string.format("bag full for %s (%s): room 0 (item page %s/%s, hotbar %s/%s free), no stack with room; fills: %s",
+        tostring(item), tostring(at), tostring(r.items), tostring(r.items_slots), tostring(r.hotbar), tostring(r.hotbar_slots),
+        table.concat(words, ", ")))
+    return { why = "inventory_full", detail = detail, item = item, fills = fills,
+             room = { items = r.items, items_slots = r.items_slots, hotbar = r.hotbar, hotbar_slots = r.hotbar_slots } }
+end
+
 -- The best tool he OWNS for a profile: {entry, tier, where} | nil, plus the best tier seen.
 -- tools = weapons_data.items (cat "axe"/"pickaxe", tier). Highest tier first (fewer swings).
 function M.best_tool(list, profile, tools)
@@ -515,7 +585,7 @@ local function refresh_count(J, force)
     J.count_t = J.t
     local list = mcall("inventory", "list", J.log)
     if type(list) ~= "table" or list.ok == false then return end
-    J.empty_slots = list.empty_slots
+    J.room, J.inv_list = M.pickup_room(list), list
     local now_counts = counts_of(list)
     J.now_counts, J.names = now_counts, J.names or {}
     for _, where in ipairs({ "hotbar", "bag" }) do
@@ -544,6 +614,17 @@ local function refresh_count(J, force)
         pcall(W.emit, { type = "gather_progress", task_id = J.task_id, resource = J.key, item = J.item, have = math.max(gained, 0), want = J.want })
     end
     J.have = have
+end
+
+-- A pickup the game did not take while the bag reads full for the item (fresh read): the job ends inventory_full with
+-- what fills the bag, never "interact had no effect" / nothing_in_range. true when it ended the job.
+local function fail_if_full(J, item, at)
+    refresh_count(J, true)
+    item = item or J.item
+    if not M.full_for(J.inv_list, item) then return false end
+    local d = M.full_data(J.inv_list, item, (item and (J.names or {})[item]) or J.key, J.log, at)
+    finish(J, result_of(J, false, "inventory_full", d))
+    return true
 end
 
 -- A pickup sweep's presses not yet answered by a gain (the client's inventory lags a press by 0.4-1.2 s live) already
@@ -1293,10 +1374,11 @@ local function step_sweep(J, pawn, me)
     local tg = sweep_press(J, pawn)
     if tg and (tg.actor == T.key or tg.actor == T.alias) then T.press_t, T.presses = J.t, (T.presses or 0) + 1 end
     if (T.presses or 0) >= cfg.collect_presses and J.t - T.press_t > cfg.sweep_repress_s then
+        -- the bag first: a pile the game refused for want of room is not a bad target (it stays for after a store)
+        local full = fail_if_full(J, J.item or T.item, "sweep")
+        if full then return end
         mark_bad(J, T, "interact had no effect")
         J.T = nil
-        refresh_count(J, true)
-        if J.empty_slots == 0 then return fail(J, "inventory_full", "inventory_full", "My bags are full, so I can't pick up any more.") end
         return set_phase(J, "scan", "interact no effect")
     end
     local d = U.dist2d(me, T.pos)
@@ -1670,6 +1752,8 @@ local function step_collect(J, pawn, me)
     T.pos = W.loc(T.actor) or T.pos
     local d = U.dist2d(me, T.pos)
     if J.t - J.phase_t > cfg.collect_max_s then
+        local full = fail_if_full(J, J.item or T.item, "collect")
+        if full then return end
         mark_bad(J, T, "could not collect")
         -- the rest of a pile the game kept offering other things in (other items lying on it) is skipped with it:
         -- one try per pile, not one per stack (live 2026-11-02 04:07Z: 9 stacks x 12 s on a mixed pile)
@@ -1679,10 +1763,6 @@ local function step_collect(J, pawn, me)
         end
         if n > 0 then say(J.log, string.format("skipping %d more stacks in that pile (the game kept offering %s)", n, tostring(T.other))) end
         J.T = nil
-        refresh_count(J, true)
-        if J.empty_slots == 0 then
-            return fail(J, "inventory_full", "inventory_full", "My bags are full, so I can't pick up any more.")
-        end
         return set_phase(J, "scan", "drop skipped")
     end
     T.presses = T.presses or 0
@@ -1791,10 +1871,10 @@ local function step_pick(J, pawn, me)
     end
     T.press_t, T.presses = J.t, (T.presses or 0) + 1
     if T.presses > M.cfg.collect_presses then
+        local full = fail_if_full(J, J.item or T.item or (type(tg) == "table" and tg.item or nil), "pick")
+        if full then return end
         mark_bad(J, T, "interact had no effect")
         J.T = nil
-        refresh_count(J, true)
-        if J.empty_slots == 0 then return fail(J, "inventory_full", "inventory_full", "My bags are full, so I can't pick up any more.") end
         return set_phase(J, "scan", "interact no effect")
     end
     if J.sweep_on and J.sweep then
@@ -2058,8 +2138,8 @@ function M.start(log, args, ctx)
                      detail = string.format("I can't see a %s piece called %s (a log or stump lying here).", key, args.target) } }
         end
     end
-    if list.empty_slots == 0 and M.count_in(list, profile.item) == 0 then
-        return { ok = false, reason = "inventory_full", data = { why = "inventory_full", detail = "My bags are full; I need to drop something first." } }
+    if M.full_for(list, profile.item) then
+        return { ok = false, reason = "inventory_full", data = M.full_data(list, profile.item, key, log, "start") }
     end
     local c = C()
     if c.job then finish(c.job, result_of(c.job, false, "interrupted", { why = "new_gather", detail = "A new gather started." })) end

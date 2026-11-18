@@ -2441,19 +2441,24 @@ function M.state_extras(api, data)
         if okt and type(tod) == "table" then out.time_of_day = tod end
     end
     local inv_rows = data.inventory_items or {}
-    local used = 0
+    local used, hot_rows, bag_rows = 0, {}, {}
     -- the InventoryItems page only: runes, ammo and quest items have pages of their own (live 00:31Z: "bag 40/32")
     for _, r in ipairs(inv_rows) do
         if r.where == "bag" and (r.slot_type or "InventoryItems") == "InventoryItems" then used = used + 1 end
+        if r.where == "hotbar" then hot_rows[#hot_rows + 1] = r elseif r.where == "bag" then bag_rows[#bag_rows + 1] = r end
     end
     if inv and type(inv.pages) == "function" and type(inv.pc) == "function" then
-        local okc, cap = pcall(function()
+        local okc, cap, room = pcall(function()
             local pc = inv.pc()
             local ic = pc and pc.InventoryComponent
             if not (ic and ic:IsValid()) then return nil end
-            for _, pg in ipairs(inv.pages(ic)) do if pg.type_name == "InventoryItems" then return pg.n end end
+            local pages = inv.pages(ic)
+            -- room: free slots a pickup can land in (item page + hotbar, inventory.room_of: the rule gather's
+            -- inventory_full test uses), so capacity - used is always room.items
+            local rm = type(inv.room_of) == "function" and inv.room_of(pages, hot_rows, bag_rows) or nil
+            for _, pg in ipairs(pages) do if pg.type_name == "InventoryItems" then return pg.n, rm end end
         end)
-        out.bag = { used = used, capacity = okc and cap or nil }
+        out.bag = { used = used, capacity = okc and cap or nil, room = okc and room and room.total or nil }
     end
     -- how heavy he is (the game's PlayerEncumbranceComponent, via move.encumbrance): a player knows he is overloaded
     -- (live 00:24Z: 403/400 = walk only, no sprint or jumps, and the model never knew)

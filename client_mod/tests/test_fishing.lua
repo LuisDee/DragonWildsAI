@@ -41,7 +41,10 @@ local function reset(o)
 end
 
 local function inv_list()
-    local l = { ok = true, hotbar = {}, bag = {}, loadout = {}, empty_slots = Wd.empty }
+    -- empty_slots is the game's count over every page (the empty rune, ammo and quest pages too: 132 more), room the
+    -- free slots on the item page + hotbar (inventory.room_of): a full bag reads empty_slots 132, room 0
+    local l = { ok = true, hotbar = {}, bag = {}, loadout = {}, empty_slots = Wd.empty + 132,
+                room = { items = Wd.empty, items_slots = 32, hotbar = 0, hotbar_slots = 8, total = Wd.empty } }
     for item, n in pairs(Wd.inv) do
         local cat
         if item:find("Net") then cat = NET_TAG elseif item:find("Rod") then cat = ROD_TAG end
