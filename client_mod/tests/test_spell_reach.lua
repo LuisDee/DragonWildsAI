@@ -108,6 +108,71 @@ job, goes = open_with(st, 7.5)
 check("approach: trace 9 m, view 7.5 m -> opens", job.phase == "open" and goes == 0)
 for k, v in pairs(saved) do W[k] = v end
 
+-- ---- the aim and the reach from where the camera WILL stand (camrig; Bark to Bones 2026-11-18, 12 live casts: the
+-- aim from the camera before its swing missed trees 1.1-1.4 m from him, and trees 16-18 m from the turned camera were
+-- judged in reach). A fake orbit camera: the boom puts the camera 7 m behind the pivot for the current rotation.
+local CR = assert(loadfile(root .. "/client_mod/scripts/camrig.lua"))()
+local function cm(x, y, z) return { X = x * 100, Y = y * 100, Z = z * 100 } end
+local function view(feet, yaw, no_boom)
+    local E = { ctl = { 0, yaw }, sets = 0, rig = { pivot = { feet[1], feet[2], feet[3] + 1.2 }, arm_m = 7, socket = { 0, 0.2, 0 }, k = 1 } }
+    local boom = obj("DominionSpringArmComponent /x.P:CameraBoom", { TargetArmLength = 700, TargetOffset = cm(0, 0, 1.2), SocketOffset = cm(0, 0.2, 0) })
+    boom.K2_GetComponentLocation = function() return cm(feet[1], feet[2], feet[3]) end
+    E.pawn = obj("BP_PlayerCharacter_C /x.P", { CameraBoom = (not no_boom) and boom or nil })
+    E.pawn.K2_GetActorLocation = function() return cm(feet[1], feet[2], feet[3]) end
+    local pcm = obj("PlayerCameraManager /x.PCM")
+    pcm.GetCameraLocation = function() local c = CR.camera(E.rig, E.ctl[1], E.ctl[2]); return cm(c[1], c[2], c[3]) end
+    E.pc = obj("BP_PlayerController_C /x.PC", { PlayerCameraManager = pcm })
+    E.pc.SetControlRotation = function(_, r) E.ctl, E.sets = { r.Pitch, r.Yaw }, E.sets + 1 end
+    E.api = { module = function(n) if n == "sense" then return { local_pc = function() return E.pc end, local_pawn = function() return E.pawn end } end end,
+              my_position = function() return feet end, aim_at = function() end, now = function() return 0 end }
+    return E
+end
+local function dist3(a, b) return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2 + (a[3] - b[3]) ^ 2) end
+
+-- a near tree: 1.2 m to his side, the camera behind him looking ahead; the trunk aim point 1.2 m up
+local E = view({ 0, 0, 0 }, 0)
+local A = { 0, 1.2, 1.2 }
+local d = W.aim(E.api, A)
+local miss = CR.miss(E.rig, E.ctl[1], E.ctl[2], A)
+check("aim: a near tree 1.2 m to the side -> the centre ray meets the trunk after the swing", E.sets == 1 and miss < 0.05, miss)
+local after = CR.camera(E.rig, E.ctl[1], E.ctl[2])
+check("aim: returns the distance from the turned camera", d and math.abs(d - dist3(after, A)) < 0.05, tostring(d) .. " vs " .. dist3(after, A))
+local la = SP.mem().last_aim or {}
+check("aim: last_aim says camrig, with the turned camera", la.via == "camrig" and la.cam and dist3(la.cam, after) < 0.02
+      and math.abs(la.dist_m - d) < 0.01, json.encode(la))
+
+-- a tree 9 m away with the camera looking away from it: 2 m from the camera now, about 16 m once it has turned
+E = view({ 0, 0, 0 }, 180)
+local T = { 9, 0, 0 }
+local now_d = dist3(CR.camera(E.rig, 0, 180), T)
+local cd = W.cam_dist(E.api, T)
+check("cam_dist: from the turned camera (past 15 m), not the camera now (" .. string.format("%.1f", now_d) .. " m)",
+      cd and cd > 15.5 and cd < 16.5 and now_d < 3, tostring(cd))
+check("cam_dist: reads only (no rotation set)", E.sets == 0 and E.ctl[2] == 180)
+saved = { move_go_to = W.move_go_to, inject = W.inject, snapshot = W.snapshot }
+local goes2 = 0
+W.move_go_to = function() goes2 = goes2 + 1; return true end
+W.inject = function() return true end
+W.snapshot = function() return { position = { 0, 0, 0 }, place_max_m = 15 } end
+job = { api = E.api, st = unread, d = {}, presses = {}, acts = {}, row = { name = "Bark to Bones" },
+        target = { kind = "point", position = T } }
+SP.begin_open(job, 0, { position = { 0, 0, 0 }, place_max_m = 15 })
+check("approach: 9 m tree, 16 m from the turned camera -> walks closer first", job.phase == "approach" and goes2 == 1, job.phase)
+-- the same tree from 3 m: about 10 m from the turned camera -> opens at once
+E = view({ 6, 0, 0 }, 180)
+job = { api = E.api, st = unread, d = {}, presses = {}, acts = {}, row = { name = "Bark to Bones" },
+        target = { kind = "point", position = T } }
+SP.begin_open(job, 0, { position = { 6, 0, 0 }, place_max_m = 15 })
+check("approach: in reach of the turned camera -> opens", job.phase == "open" and goes2 == 1, job.phase)
+for k, v in pairs(saved) do W[k] = v end
+
+-- no boom to read: the old aim from the camera as it stands (and it says so)
+E = view({ 0, 0, 0 }, 180, true)
+cd = W.cam_dist(E.api, T)
+check("cam_dist: no boom -> the camera now", cd and math.abs(cd - now_d) < 0.01, tostring(cd))
+d = W.aim(E.api, A)
+check("aim: no boom -> the old aim, last_aim says camera", d and E.sets == 1 and (SP.mem().last_aim or {}).via == "camera")
+
 -- ---- the probe over a fake engine
 local logs = {}
 local comp = obj("SpellcastingComponent /Script/x.SC", { MinDistanceFromCameraToPlaceSpell = 500, MaxDistanceFromCameraToPlaceSpell = 1500,

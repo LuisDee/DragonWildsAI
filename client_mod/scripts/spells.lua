@@ -617,12 +617,33 @@ function W.inject(api, action)
     return s ~= nil and pcall(function() s:InjectInputVectorForAction(action, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end)
 end
 
--- Aim the camera at a point (metres): control rotation from the camera location, as the mouse does.
--- -> distance camera->point in metres, or nil
+-- The shared camera rig (camrig.lua, issue B16; build.lua aims through it): the player camera orbits the boom's
+-- pivot, so a new control rotation MOVES the camera about 7 m round him. Loaded once, a field (not a chunk local).
+function W.camrig()
+    W._cr = W._cr or assert(loadfile((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/") .. "/client_mod/scripts/camrig.lua"))()
+    return W._cr
+end
+local function r2(x) return math.floor(x * 100 + 0.5) / 100 end
+
+-- Aim the camera at a point (metres). Solved from the boom's pivot (camrig.aim): the centre ray passes through the
+-- point once the camera has swung. The old aim from where the camera stood BEFORE the swing missed thin trunks
+-- (Bark to Bones 2026-11-18: first reads 1.7-4.1 m behind trees 1.1-1.4 m from him, or nothing hit at 15 m).
+-- mem().last_aim = { via, cam (where the camera stands after the swing), dist_m } for the reply.
+-- -> distance camera->point in metres after the swing, or nil
 function W.aim(api, pos)
     local u = U()
     local pc = W.pc(api)
     if not (u.valid(pc) and pos) then return nil end
+    local pawn = W.pawn(api)
+    if u.valid(pawn) then
+        local okr, dist, rig = pcall(function() return W.camrig().aim(u, pc, pawn, pos) end)
+        if okr and dist and rig then
+            local c = W.camrig().camera(rig, rig.pitch, rig.yaw)
+            mem().last_aim = { via = "camrig", cam = { r2(c[1]), r2(c[2]), r2(c[3]) }, dist_m = r2(dist) }
+            return dist
+        end
+    end
+    mem().last_aim = { via = "camera" }
     local cam = to_m(u.try(function() return pc.PlayerCameraManager:GetCameraLocation() end))
     if not cam then
         api.aim_at(pos)
@@ -715,11 +736,24 @@ function W.spots(api, center, opts)
     return out
 end
 
--- Camera-to-point distance in metres (the placement reach is measured from the camera).
+-- Camera-to-point distance in metres (the placement reach is measured from the camera), from where the camera WILL
+-- stand once I aim at pos (camrig.solve), not where it is now: live 2026-11-18 trees 16-18 m from the turned camera
+-- were judged in reach from the camera before the swing, and the casts ended no_valid_aim with no walk.
 function W.cam_dist(api, pos)
     local u = U()
     local pc = W.pc(api)
     if not (pos and u.valid(pc)) then return nil end
+    local pawn = W.pawn(api)
+    if u.valid(pawn) then
+        local okr, dist = pcall(function()
+            local C = W.camrig()
+            local rig = C.rig(u, pc, pawn)
+            if not rig then return nil end
+            local _, _, d = C.solve(rig, { pos[1], pos[2], pos[3] or rig.pivot[3] })
+            return d
+        end)
+        if okr and dist then return dist end
+    end
     local cam = to_m(u.try(function() return pc.PlayerCameraManager:GetCameraLocation() end))
     if not cam then local me = api.my_position(); return me and d3(me, pos) end
     return d3(cam, pos)
@@ -1785,6 +1819,9 @@ local function step(job)
                 on_reject = function(rej, ch)
                     local sp = ch.spots[ch.i]
                     rej.game, rej.height_m = rej.why, sp and sp.height_m
+                    -- where the camera stood after the swing and how far the aim point was from it (the reach is from there)
+                    local la = mem().last_aim or {}
+                    rej.cam, rej.cam_to_aim_m = la.cam, la.dist_m
                     job.rejects[#job.rejects + 1] = rej
                     -- the game's verdict decides the search: a ground complaint brings in flat-ground spots
                     if job.ground_ok and not job.ground_added and M.ground_tag(rej.why) then M.add_ground_spots(job, api) end
@@ -1803,6 +1840,7 @@ local function step(job)
         end
         local r = job.checker:step(t)
         if not r then return nil end
+        job.d.aim_via = (mem().last_aim or {}).via -- camrig: solved from the boom's pivot; camera: the old fallback
         if r.press then
             local sp = r.spot or {}
             if r.preview == "unreadable" then
