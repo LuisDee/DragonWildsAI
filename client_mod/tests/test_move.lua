@@ -3977,6 +3977,60 @@ do
     raised = {}; _G.DW_LP_CACHE = nil
 end
 
+-- A LOCAL PLAN BEGUN IN THE AIR (window jumpcourse_1118b, 2026-11-18 00:40Z): two plans begun 84 and 94 cm up in a hop
+-- took his feet in flight as the start floor, offered single jumps of 122 and 143 cm that rose 216 and 227 cm from the
+-- floor he came down on, and he fell back twice. A plan begun while falling starts on the floor under him. Here: a
+-- ledge 2.4 m up from x = 0.6 m (under the measured 2.6 m double jump); from x = -1.5 m until the first plan begins
+-- (at most 1.5 s) he is in the air 90 cm over the floor. From his feet in flight the ledge is a 1.5 m rise; from the
+-- floor, 2.4 m.
+do
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; sprinting = false; oracle = nil; pump_oracle()
+    GEAR = false
+    local dj0 = HAS_DJ
+    HAS_DJ = true
+    do local f = io.open(envf, "w"); f:write('{"character":"Claude","measured":"test","jump_up_m":{"stand":1.05},"dj_up_m":2.6,"dj_delay_s":0.33,"measurement_provenance":{"jump_up_m.stand":{"verified":true},"dj_up_m":{"verified":true}}}'); f:close() end
+    local M = dofile(MOVE)
+    local cm = pawn.CharacterMovement
+    local function airplan(lift)
+        M.stop(log); air = 0; pawn.loc = { X = -200, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil
+        raised = { { 60, 800, -400, 400, 240, 240 } }
+        local l0 = #logs
+        cm.IsFalling = function() return air > 0 end
+        -- once he walks (x > -1.5 m) and until the first plan begins, he is in the air (a hop), then lands
+        local held, t_up = lift ~= nil, nil
+        frame_hook = function()
+            if held and pawn.loc.X > -150 then
+                t_up = t_up or T
+                if T - t_up > 1.5 then held = false end
+                for i = l0 + 1, #logs do if logs[i]:find("move: local plan #", 1, true) then held = false end end
+                if held then air = 0.5; pawn.loc.Z = (wall_top(pawn.loc.X, pawn.loc.Y) or FLOOR) + 90 + lift
+                else air = 0; pawn.loc.Z = (wall_top(pawn.loc.X, pawn.loc.Y) or FLOOR) + 90 end
+            end
+        end
+        M.go_to(log, { 3.0, 0, 2.4 }, { tolerance_m = 0.3, nav = false, stand = true, timeout_s = 20 })
+        run(200)
+        frame_hook = nil; cm.IsFalling = nil
+        local first, said
+        for i = l0 + 1, #logs do
+            local acts, pts = logs[i]:match("move: local path %d+ pts %[(%a+)%].- pts=(%S+)")
+            if acts and not first then first = { acts = acts, start = pts } end
+            if logs[i]:find("move: local plan begun in the air", 1, true) then said = logs[i] end
+        end
+        if os.getenv("AIRPLAN_DEBUG") then for i = l0 + 1, #logs do print("  | " .. logs[i]) end end
+        M.stop(log)
+        return first, said
+    end
+    local first, said = airplan(90)
+    check("plan begun in the air: it starts on the floor under him (-0.9 m), not at his feet in flight (0.0)",
+        first ~= nil and first.start:match(",%-0%.9$") ~= nil, first and (first.acts .. " start=" .. first.start) or "no path")
+    check("plan begun in the air: the mover says so, with the drop", said ~= nil and said:find("90 cm", 1, true) ~= nil, tostring(said))
+    -- the control: the same plan begun on the ground starts at his feet and says nothing
+    first, said = airplan(nil)
+    check("plan begun on the ground: starts at his feet, a double jump, nothing said", first ~= nil and first.start:match(",%-0%.9$") ~= nil
+        and first.acts:find("d") ~= nil and said == nil, first and (first.acts .. " start=" .. first.start) or "no path")
+    M.stop(log); os.remove(envf); raised = {}; _G.DW_LP_CACHE = nil; HAS_DJ = dj0
+end
+
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

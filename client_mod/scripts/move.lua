@@ -1587,6 +1587,24 @@ function M.encumbrance()
     return ok and e or nil
 end
 
+-- The floor a local plan starts from (cm). The planner takes the cells round him at his feet height untraced
+-- (localplan LP:sample, self_r), so a plan begun in the air (a hop over a low obstacle, a stuck jump) starts on a floor
+-- that is not there. Window jumpcourse_1118b, 2026-11-18 00:40Z: two plans begun 84 and 94 cm up offered single jumps
+-- of 122 and 143 cm; from the floor he came down on they rose 216 and 227 cm, he topped out at the single jump's 180
+-- and fell back (both real falls; since 17 Nov 18:18Z a takeoff 45 cm or more under the start cell missed 7 of 9).
+-- Falling (CharacterMovement:IsFalling): the floor under him, one trace, as jump_landing_line reads it; else his feet.
+-- a field, not a local: the main chunk is at Lua's 200-local limit
+function M._plan_feet(pawn, me, hh, log)
+    local feet = me.Z - hh
+    local okf, falling = pcall(function() return pawn.CharacterMovement:IsFalling() end)
+    if not (okf and falling == true) then return feet end
+    local okt, hit, out = pcall(raw_trace, pawn, { X = me.X, Y = me.Y, Z = me.Z }, { X = me.X, Y = me.Y, Z = feet - 400 })
+    local z = okt and hit and type(out) == "table" and out.ImpactPoint and tonumber(out.ImpactPoint.Z) or nil
+    if not z or z >= feet - 10 then return feet end
+    if log then log(string.format("move: local plan begun in the air: it starts on the floor %.0f cm under my feet", feet - z)) end
+    return z
+end
+
 local function lp_begin(st, pawn, me, far, why, log, observe)
     local LP = lp_module()
     if not LP then return false end
@@ -1612,8 +1630,10 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
         for k, x in pairs(st.env) do penv[k] = x end
         penv.jump, penv.djump, penv.superjump = 0, 0, nil
     end
-    local up_near = far and d2(me, far) < 1500 and (far.Z - (me.Z - hh)) > 300
-    local planner = LP.new({ trace = trace, center = v(me), feet_z = me.Z - hh,
+    local feet_z = M._plan_feet(pawn, me, hh, log)
+    if not valid() then return false end
+    local up_near = far and d2(me, far) < 1500 and (far.Z - feet_z) > 300
+    local planner = LP.new({ trace = trace, center = v(me), feet_z = feet_z,
         radius_m = up_near and M.cfg.lp_grid_up_m or M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = penv,
         cache = not observe and lp_cache() or nil, now = function() return now(pawn) end, self_pos = v(me), avoid = st.jump_fail,
         -- a jump's landing cell must hold his capsule (localplan LP:footing): its radius, and the log for a refused cell
