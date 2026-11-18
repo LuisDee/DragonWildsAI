@@ -2253,3 +2253,17 @@ Window now: `n1_i5_1118p`, the own-chest checkpoint then 4 restart trials. Spend
 **Merged:** 5bfc2d4 (fork knows it is ClaudeDev's copy, harness) and f967b7d (a station build's missing things get their sources). The merge queue (thread, bark, jump, lookup, vault, bag, async) is rebased on main, all tests passing, one per window.
 
 Window now: `thread_1118t`, L2 V1 ×4 then N1 I5 ×4. Named first: a bone pickaxe made in a V1 trial, 0 of 8 so far, target 2 of 4; I5 resumed 4 of 4 with no crate refusal. Unseen: 8 open (the cap), so this is a confirm window. Spend 18 Nov at 13:20Z: $5.40.
+
+## 2026-11-18 13:20Z-15:50Z: the restart holds (I5 4 of 4), copper stops at bones, the Bark to Bones aim found, the jump course holds
+
+**Window thread_1118t** (f967b7d, plus the fork line 5bfc2d4).
+- **N1 I5: 4 of 4** resumed after the brain restart (4.4, 5.9, 10.5 and 6.7 s), every job done with 0 misses and no crate refusal (before: 2 of 4, the misses all the fork's crate ownership). Both fixes confirmed.
+- **L2 V1: 0 of 3** (the window's time cap cut trial 4). One trial made Coarse Thread at the wheel for the first time, then stopped 3 Animal Bone short for leather. One claimed copper needs a bronze pickaxe "first" and parked. The tools had said bone (tier 2), but the Bronze Pickaxe plan listed "gather copper 9" with no tool tier (study). Fix 4798ac1 (worktree): each gather step carries its node's tier and the best tool he carries; replay tomorrow (10 a side, about $0.36). One lost the deer: deer outrun him on foot and the wiki says to use ranged or magic; cows, kebbits and rats worked 5 of 5. The fix for the truthful chase report is being built.
+
+**Window bark_1118u** (5e8adc2, a 3 s settle before reading the preview): V1 0 of 3. Bark to Bones still failed both casts with the preview 3.7 m off the tree: binned. The live reach probe (7e74152, merged) read the placement limits (DISCOVERIES). A study of all 12 casts found the cause: `W.aim` aimed from the camera before it swung (first reads hit nothing, or landed 1.7-4.1 m behind near trees), and reach was judged from the pre-turn camera. Fix 8ccc3d8 aims through camrig, as building already does. Live check on ClaudeDev: the first cast done via camrig; the second on cooldown. That cast spent 10 Earth and 10 Nature runes from his save.
+
+**Jumps (body only).** d1c17e7 (why=next) merged. The ford leg planned no jumps (5 of 5 reached), so it was not exercised. The whole course, 3 passes: 23 of 24 legs reached, 2 of 29 paths with a jump up had a strike (7 %, as at the last course run). Real play in this afternoon's job windows: 5 of 28 paths with a landing judged missed (18 %), 2 of 28 real falls (7 %), 0 of 15 attacks ended by a missed landing. The bar (under 10 %) is not met.
+
+**Also:** the patch pipeline now scans client_mod (360 files, BROKEN 0); H3 is gradable (grader only, c9a0f43); the unseen ledger scans the watchdog log; the client smoke walk is 5 m.
+
+Spend 18 Nov: $8.96; no more model windows today. Unseen 8 open (cap): tomorrow's first window is a confirm window (V1 with the camrig aim and the gather tiers after their replay).
