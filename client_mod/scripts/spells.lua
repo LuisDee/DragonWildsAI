@@ -75,6 +75,8 @@ M.cfg = {
     landed_tolerance_m = 3, -- a targeted spell that lands farther than max(this, its radius) is reported as a miss
     preview_wait_s = 0.35,  -- after aiming at a spot: let the game's placement preview follow the camera
     preview_match_m = 2.5,  -- the preview must sit this close to the spot aimed at
+    preview_settle_s = 3.0, -- a preview read while it still glides onto the spot is not a spent check, up to this long after
+                            -- the aim (placement.lua settle_s; build.lua uses 4.0 for the same visualizer; Bark to Bones 2026-11-18)
     placed_point_match_m = 4, -- ... for a placed spell at an asked point (live: the shelter preview centres 3.2 m off the aim point)
     max_spots = 10,
     spot_rings_m = { 3, 4.5, 6, 7.5, 9 }, -- (live: 11 m spots were beyond the camera's 15 m reach)
@@ -1746,6 +1748,7 @@ local function step(job)
                     return sp.aim and cfg.aim_match_m or (sp.exact and job.row.cast_type == "placed" and cfg.placed_point_match_m) or cfg.preview_match_m
                 end,
                 checks = cfg.preview_checks, wait_s = cfg.preview_wait_s, budget_s = cfg.place_budget_s, on_unreadable = "press_once",
+                settle_s = cfg.preview_settle_s,
                 on_reject = function(rej, ch)
                     local sp = ch.spots[ch.i]
                     rej.game, rej.height_m = rej.why, sp and sp.height_m

@@ -1096,5 +1096,41 @@ do
     check("spells read: a row carries its mechanics `how`", wrow and type(wrow.how) == "string" and #wrow.how > 10, wrow and tostring(wrow.how))
 end
 
+-- Bark to Bones 2026-11-18 (Ash 09:46:15): the game's placed preview GLIDES onto the trunk after each aim (position
+-- steps ~0.5 s apart) and only reads valid once it is on it. Two reads 0.35 s apart per candidate judged it while it
+-- was still closing, so every candidate was rejected ("requires tree"). With preview_settle_s a read while it still
+-- closes is not a spent check: the cast waits for it to arrive (1.5 s here) and places.
+do
+    local BARK = spell({ asset = "USD_TestBark", name = "Bark to Bones", desc = "Cast on a tree.", cast_type = 1,
+                         cost = { { item = EARTH, name = "Earth Rune", count = 5 } }, perk = { level = 3, skill = "SKILL_Woodcutting", skill_name = "Woodcutting" } })
+    local real_aim, real_preview = W.aim, W.preview
+    local GL = { arrive_s = 1.5, step_s = 0.5 }
+    local function glide_pos()
+        if not GL.to then return GL.from, false end
+        local k = math.min(1, math.floor((T - GL.t0) / GL.step_s + 1e-6) * GL.step_s / GL.arrive_s)
+        return { GL.from[1] + (GL.to[1] - GL.from[1]) * k, GL.from[2] + (GL.to[2] - GL.from[2]) * k, GL.from[3] + (GL.to[3] - GL.from[3]) * k }, k >= 1
+    end
+    W.aim = function(a, pos)
+        local cur = glide_pos()
+        local moved = not GL.to or math.abs(GL.to[1] - pos[1]) + math.abs(GL.to[2] - pos[2]) + math.abs(GL.to[3] - (pos[3] or 0)) > 0.1
+        if moved then GL.from, GL.to, GL.t0 = cur, { pos[1], pos[2], pos[3] or 0 }, T end -- a new aim point: glide from where it is
+        return real_aim(a, pos)
+    end
+    W.preview = function()
+        if G.mode ~= "DIM_SpellPlacementMode" then return nil end
+        local p, arrived = glide_pos()
+        return { valid = arrived == true, tag = not arrived and "UI.Notification.SpellPlacement.NoTarget.RequiresTree" or nil, position = p }
+    end
+    GL.from = { 0, 0, 0 }
+    reset({ unlocked = { BARK }, wheel = { "USD_TestBark" },
+            foliage = { ["fol:Tree_Ash_01:3"] = { id = "fol:Tree_Ash_01:3", name = "Ash Tree", position = { 6, 0, 0 } } } })
+    local res = run_cast({ spell = "Bark to Bones", target = "fol:Tree_Ash_01:3" })
+    check("placed preview gliding onto the tree for 1.5 s: waits for it, then places (not no_valid_aim)",
+          res.ok and presses() == "menu,quick0,place", tostring(res.reason) .. " " .. tostring(res.data and res.data.why) .. " " .. presses())
+    check("placed preview glide: the press came once it arrived (aim_s >= 1.5)", res.ok and ((res.data.timing or {}).aim_s or 0) >= 1.4 or false,
+          tostring(res.data and res.data.timing and res.data.timing.aim_s))
+    W.aim, W.preview = real_aim, real_preview
+end
+
 print(string.format("test_spells: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)
