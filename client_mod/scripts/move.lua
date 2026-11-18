@@ -1748,8 +1748,8 @@ local function lp_work(st, t, log)
             if log then
                 local at = {}
                 for _, p in ipairs(st.lpath) do at[#at + 1] = string.format("%.0f,%.0f,%.1f", p.X / 100, p.Y / 100, p.Z / 100) end
-                log(string.format("move: local path %d pts [%s] traces=%d cache_hits=%d replans=%d stand=%.2fs end=%s pts=%s",
-                    #st.lpath, table.concat(acts), P.traces, P.cache_hits or 0, st.lp_rounds, st.lp_stand_s, fmt(st.lpath[#st.lpath]),
+                log(string.format("move: local path %d pts [%s] traces=%d cache_hits=%d replans=%d stand=%.2fs narrow=%d end=%s pts=%s",
+                    #st.lpath, table.concat(acts), P.traces, P.cache_hits or 0, st.lp_rounds, st.lp_stand_s, P.narrow_tops or 0, fmt(st.lpath[#st.lpath]),
                     table.concat(at, " ")))
             end
             st.lp = nil

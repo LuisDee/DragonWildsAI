@@ -389,5 +389,47 @@ do
     check("an even rise he can stand on is still walked", a3 == "walk" and r3 == "ok", tostring(a3) .. " " .. tostring(r3))
 end
 
+-- A ONE-CELL ROCK is walked round, a real LEDGE is still jumped (jump_real_1118 cause B: over one-cell rocks 1-3 m tall
+-- he jumped up and dropped off, 15 of 15 missed on the course rock legs 2026-11-18 22:15-22:21Z; "jump 2 + drop 1" beat
+-- the walk round). Floor 0; heights per cell (i, j) from fn. Plans from (0,0) to the goal; returns the path's acts.
+do
+    local function plan_on(height, goal)
+        local function g(x, y) return height(math.floor(x / 100 + 0.5), math.floor(y / 100 + 0.5)) end
+        local function tr(a, b, horizontal)
+            if horizontal then return nil end
+            local gz = g(a.X, a.Y)
+            return gz, a.Z < gz, 1.0
+        end
+        local R = LP.new({ trace = tr, center = { X = 0, Y = 0, Z = 90 }, radius_m = 8,
+            env = { step = 45, jump = 250, djump = 250, drop = 600 } })
+        while R:step(50) ~= "ready" do end
+        local p, why = R:plan(goal)
+        local acts, top = {}, -math.huge
+        for _, q in ipairs(p or {}) do acts[#acts + 1] = q.act:sub(1, 1); top = math.max(top, q.Z) end
+        return table.concat(acts), top, why, R
+    end
+    -- a 2 m rock in the middle of a line of 6 m boulders five cells long across x = 1 (j = -2..2): over the rock is
+    -- 2 m, round the boulders 6.8 m (4.8 m more)
+    local function rock_line(i, j)
+        if i == 1 and j == 0 then return 200 end
+        if i == 1 and math.abs(j) <= 2 then return 600 end
+        return 0
+    end
+    local acts, top, why, R = plan_on(rock_line, { X = 200, Y = 0, Z = 0 })
+    check("a one-cell 2 m rock with a walk round: walked round, not climbed and dropped off",
+        acts ~= "" and not acts:find("[jd]") and top < 45, acts .. " top=" .. tostring(top) .. " " .. tostring(why))
+    check("the one-cell rock was costed as a top with no runout", (R.narrow_tops or 0) > 0, R.narrow_tops)
+    -- a real ledge: 2 m up across the whole window (no way round): still jumped
+    local acts2, top2, why2 = plan_on(function(i) return i >= 2 and 200 or 0 end, { X = 400, Y = 0, Z = 200 })
+    check("a real 2 m ledge with no way round is still jumped", acts2:find("j") ~= nil and top2 == 200, acts2 .. " " .. tostring(why2))
+    -- a one-cell top that IS the goal, nothing else at its height: still jumped (the risk is a cost, never a veto)
+    local acts3, top3, why3 = plan_on(function(i, j) return (i == 2 and j == 0) and 200 or 0 end, { X = 200, Y = 0, Z = 200 })
+    check("a one-cell 2 m top that is the goal is still jumped onto", acts3:find("j") ~= nil and top3 == 200, acts3 .. " " .. tostring(why3))
+    -- a drop costs its fall's time (Baritone's WALK_OFF_BLOCK_COST + FALL_N_BLOCKS_COST), at least the flat 1 it had
+    local _, x250 = R:edge({ i = 0, j = 0, z = 250 }, { i = 1, j = 0, z = 0 })
+    local _, x100 = R:edge({ i = 0, j = 0, z = 100 }, { i = 1, j = 0, z = 0 })
+    check("a 2.5 m drop costs its fall time (more than 1.5 cells); a 1 m one about 1", x250 > 1.5 and x100 >= 1 and x100 < 1.1, tostring(x250) .. " " .. tostring(x100))
+end
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

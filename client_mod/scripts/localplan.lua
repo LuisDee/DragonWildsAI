@@ -219,6 +219,54 @@ local function can_probe_hop(env)
     return type(env.jump) == "number" and env.jump > 80
 end
 
+-- COSTS are in cells of walking (1 = one 1 m cell walked), so a move costs what it takes in TIME and RISK, as Baritone
+-- costs every movement in ticks (ActionCosts: WALK_ONE_BLOCK_COST 20/4.317, a descend = WALK_OFF_BLOCK_COST + the fall's
+-- own FALL_N_BLOCKS_COST, a jump = JUMP_ONE_BLOCK_COST + jumpPenalty) and Recast/Detour costs an off-mesh link by its
+-- length times its area cost (dtQueryFilter::setAreaCost), so a jump link only wins where nothing walkable is as cheap.
+-- mineflayer-pathfinder's flat numbers (jump up 2, drop 1: movements.js getMoveJumpUp/getMoveDropDown) assume a jump
+-- that never fails; it leaves out the jumps that do ("4 blocks forward 1 block up is very difficult and fails often"),
+-- and Baritone turns parkour off by default because "it overshoots the landing pretty much always".
+-- His numbers (client.log 'jump verdict' lines to 2026-11-18): walking ~2.2 m/s (0.45 s a cell); a jump's air 0.73 s
+-- (440 jumps), a double jump's 1.20 s (184) after a standstill; he overshoots by 1.3-1.9 m along the jump
+-- (verdict at=/off=). So a jump up onto a top with no floor at its level straight AHEAD (a one-cell rock, a narrow
+-- ridge crossed) is a top he passes over and falls off: 15 of 15 on the course rock legs 2026-11-18 22:15-22:21Z, 6 of
+-- the 8 real-play falls since 8adf80f (jump_real_1118). Before, "jump 2 + drop 1" made climbing such a rock to drop off
+-- it cheaper than a walk round of 4 cells or so.
+local COST = {
+    walk_cell_s = 0.45,  -- s per 1 m cell walked (trips 2.1-2.5 m/s)
+    recover_s = 0.5,     -- s after a missed landing: the re-plan's standstill before the next try
+    narrow_miss_p = 0.5, -- a jump onto a top with no runout ahead misses at least this often (15/15 live, see above)
+    gravity = 980,       -- cm/s^2 (UE default; his fall time for a drop's cost)
+}
+LP.COST = COST
+
+-- True when a jump up from a onto b lands on a top with no floor straight ahead at b's level: the cell b+d (d the jump's
+-- direction) and, for a diagonal jump, the two cardinal cells (b+(dx,0), b+(0,dy)) between which he would land. A cell
+-- not sampled counts as runout (unknown is no reason to cost a jump more than before).
+function LP:narrow_top(a, b)
+    local di, dj = b.i - a.i, b.j - a.j
+    local ahead = { { di, dj } }
+    if di ~= 0 and dj ~= 0 then ahead[2], ahead[3] = { di, 0 }, { 0, dj } end
+    local step = self.env.step
+    for _, d in ipairs(ahead) do
+        local L = self.nodes[key(b.i + d[1], b.j + d[2])]
+        if L == nil then return false end
+        for _, n in ipairs(L) do
+            if math.abs(n.z - b.z) <= step then return false end
+        end
+    end
+    return true
+end
+
+-- the extra (cells) for a jump up of base cost `base` (cells, the walk and the jump's own time) onto b: with a miss
+-- chance p each try costs the jump again plus the recovery, so the expected extra is p/(1-p) * (base + recover)
+function LP:top_risk(a, b, base)
+    if not self:narrow_top(a, b) then return 0 end
+    self.narrow_tops = (self.narrow_tops or 0) + 1
+    local p = COST.narrow_miss_p
+    return p / (1 - p) * (base + COST.recover_s / COST.walk_cell_s)
+end
+
 function LP:edge(a, b)
     if can_probe_hop(self.env) and self.hop[ekey(a, b)] then return "jump", 2 end
     local dz = b.z - a.z
@@ -227,15 +275,21 @@ function LP:edge(a, b)
     local run = math.sqrt(((b.i - a.i) * self.cell) ^ 2 + ((b.j - a.j) * self.cell) ^ 2)
     if math.abs(dz) <= (e.slope_k or 0.9) * run and not self.steep[ekey(a, b)] then return "walk", 0.3 end
     if dz > 0 then
-        if dz <= e.jump then return "jump", 2 end
-        if dz <= e.djump then return "djump", 4 end
+        -- a jump's own extra is at least its air time in cells (0.73 s = 1.6, a double jump's 1.20 s plus its
+        -- standstill = 2.7 or more); the extras 2 and 4 already hold that. A top with no runout adds its risk.
+        local kind, extra
+        if dz <= e.jump then kind, extra = "jump", 2
+        elseif dz <= e.djump then kind, extra = "djump", 4
         -- a Windstep super-jump: only when move.lua found it castable AND its rise was measured
-        if e.superjump and dz <= e.superjump then return "superjump", e.superjump_cost or 8 end
+        elseif e.superjump and dz <= e.superjump then kind, extra = "superjump", e.superjump_cost or 8 end
+        if kind then return kind, extra + self:top_risk(a, b, run / self.cell + extra) end
         -- too high for every move we have: remember the lowest such rise (an honest "what would it take")
         if not self.too_high_cm or dz < self.too_high_cm then self.too_high_cm = dz end
         return nil
     end
-    if -dz <= e.drop then return "drop", 1 end
+    -- a drop: walking off the edge and the fall's own time (Baritone: WALK_OFF_BLOCK_COST + FALL_N_BLOCKS_COST), at
+    -- least the flat 1 it had (a 2.5 m fall is 0.71 s = 1.6 cells)
+    if -dz <= e.drop then return "drop", math.max(1, math.sqrt(2 * -dz / COST.gravity) / COST.walk_cell_s) end
     return nil
 end
 
