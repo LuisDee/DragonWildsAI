@@ -169,6 +169,8 @@ def snapshot(data: dict | None) -> dict:
     cons = {"food": 0, "drink": 0}
     left_out: dict[str, str] = {}
     worn: dict[str, str] = {}
+    worn_detail: dict[str, dict] = {}
+    instances: dict[str, list] = {}
     on_him = {r.get("item") or r.get("name") for r in rows or [] if r.get("where") != "loadout"}
     for r in rows or []:
         item = r.get("item") or r.get("name")
@@ -177,8 +179,11 @@ def snapshot(data: dict | None) -> dict:
         loadout = r.get("where") == "loadout"
         if item and not (loadout and slot.startswith(REF_SLOTS) and item in on_him):
             carried[item] = carried.get(item, 0) + n
+            instances.setdefault(item, []).append(r.get("guid") or None)  # UItem.Guid (describe_item); None: unread
         if loadout and slot and item:
             worn[slot] = item
+            worn_detail[slot] = {"item": item, "guid": r.get("guid") or None, "durability": r.get("durability"),
+                                 "max_durability": r.get("max_durability"), "broken": bool(r.get("broken"))}
         elif not loadout and r.get("consumable") in cons:
             harm = _consumable_harm(item, r["consumable"])
             if harm is None:
@@ -200,7 +205,8 @@ def snapshot(data: dict | None) -> dict:
     pl = d.get("power_level")
     unread = d.get("unread") or (None if rows is not None or d.get("inventory") or d.get("position") is not None
                                  else "the read carried no position and no inventory")
-    out = {"carried": carried, "worn": worn, "consumables": cons, "position": d.get("position"),
+    out = {"carried": carried, "worn": worn, "worn_detail": worn_detail, "instances": instances,
+           "consumables": cons, "position": d.get("position"),
            "dead": bool(d.get("dead")), "own_containers": sorted(own), "container_kinds": kinds, "container_where": where,
            "empty_slots": d.get("empty_slots"), "bag_room": bag_room(d),
            "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
@@ -485,19 +491,57 @@ def _crafted(end: dict, pattern: str) -> int:
     return count_of(end.get("crafted") or {}, pattern)
 
 
-def p_worn_made_in_run(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
-    """Each slot holds one of its items, made in this run: a craft of it confirmed in the run, and he has more of it
-    than at the start (no crafted-by mark exists on an item instance: inventory.describe_item has none)."""
-    short = []
+def broken(detail: dict | None) -> bool:
+    """A worn piece the game reads as broken (UItem:IsBroken, or durability 0 of a piece that has durability): it
+    gives nothing (a broken tunic reads PL 0 in the game, docs/research/2026-11-17-job-end-readability.md)."""
+    d = detail or {}
+    dur = d.get("durability")
+    return bool(d.get("broken")) or (isinstance(dur, (int, float)) and not isinstance(dur, bool) and dur <= 0
+                                     and d.get("max_durability") is not None)
+
+
+def made_here(item: str, guid: str | None, start: dict) -> tuple[bool | None, str]:
+    """Whether the worn instance of item is not one he held at the start, from the game's reads only: the start read
+    holds none of the item (then any instance of it is new), or the worn instance's UItem.Guid is not among the
+    start's instances of it (every one of them read). Else None: the reads cannot tell (a guid unread)."""
+    had = (start.get("instances") or {}).get(item)
+    if had is None and not count_of(start.get("carried") or {}, item):
+        return True, "he held none at the start"
+    had = had or [None]
+    if not guid or any(g is None for g in had):
+        return None, f"cannot tell the worn {item} from the {len(had)} he had at the start (no instance guid read)"
+    if guid in had:
+        return False, f"the {item} worn is the one he had at the start"
+    return True, "a new instance"
+
+
+def p_worn_made_in_run(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """Each slot holds one of its items, not broken, made in this run: a craft of it confirmed in the run, and the
+    worn instance is not one he held at the start (made_here: by UItem.Guid, or the start read holding none of it).
+    A piece carried but not in its loadout slot is not worn. No crafted-by mark exists on an item instance
+    (inventory.describe_item has none), and his words are never read. Before 2026-11-18 the rule was 'he holds more
+    of it than at the start': a new cowl in the bag and his old one still on passed."""
+    short, unread = [], []
     for slot, items in spec.items():
         on = (end.get("worn") or {}).get(slot)
+        det = (end.get("worn_detail") or {}).get(slot) or {}
         if not on or on not in items:
             short.append(f"{slot}: {on or 'nothing'} worn")
+        elif broken(det):
+            short.append(f"{slot}: {on} worn but broken ({det.get('durability')} of {det.get('max_durability')})")
         elif not _crafted(end, on):
             short.append(f"{slot}: {on} worn but no craft of it in this run")
-        elif _gain(start, end, on) <= 0:
-            short.append(f"{slot}: {on} worn but he held as many at the start")
-    return (not short), ("all worn and made in the run" if not short else "; ".join(short))
+        else:
+            new, why = made_here(on, det.get("guid"), start)
+            if new is False:
+                short.append(f"{slot}: {why} (had at the start)")
+            elif new is None:
+                unread.append(f"{slot}: {why}")
+    if short:
+        return False, "; ".join(short + unread)
+    if unread:
+        return None, "; ".join(unread)
+    return True, "all worn, whole and made in the run"
 
 
 def _want_count(items: dict, want: dict) -> int:

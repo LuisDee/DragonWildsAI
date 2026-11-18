@@ -22,7 +22,8 @@
           "Legs": ["ITEM_Armour_T2_Legs_Leather", "ITEM_Armour_T3_Legs_HardLeather", "ITEM_Armour_T4_Legs_StuddedLeather"]
         }
       },
-      "not_carried_at_start": ["ITEM_Resources_Animal_Hide", "ITEM_Resources_Leather", "ITEM_Armour_T*_*Leather"],
+      "not_carried_at_start": ["ITEM_Resources_Animal_Hide", "ITEM_Resources_Leather"],
+      "not_carried_note": "2026-11-18: leather armour he carries in is no head start any more (it made every trial from ClaudeDev, who wears a Leather Cowl, NOT COUNTED): worn_made_in_run tells a piece made in the run from a carried-in one by its item instance (UItem.Guid, get_state inventory_items[].guid), else by the start read holding none of it, else unread; a broken worn piece and one carried but not worn never count. ClaudeDev holds 7 Animal Hide Scraps and 7 Coarse Animal Fur (2 leather, 2 thread at most): not hides, so allowed.",
       "bar": {
         "parts": [
           {"task": "kill cow", "x": 1.4667, "why": "22 hides for 22 leather (Body 10, Chaps 8, Cowl 4): his 'kill cow' window gave 15"},

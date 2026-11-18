@@ -195,6 +195,10 @@ function M.describe_item(it)
     if mw and mw > 0 then d.masterwork = mw end
     if U.try(function() return it:IsEnchanted() end) == true then d.enchanted = true end
     if U.try(function() return it:IsBroken() end) == true then d.broken = true end
+    -- the instance: UItem.Guid (Dominion.hpp UItem +0x88, an FGuid property; read as its four numbers, as the chat
+    -- and map reads do), so a piece made in a run is told from one carried in (tools/job_run.py made_here, job L1)
+    local g = U.guid_hex and U.guid_hex(U.try(function() return it.Guid end))
+    if g and g ~= "00000000000000000000000000000000" then d.guid = g end
     return d
 end
 

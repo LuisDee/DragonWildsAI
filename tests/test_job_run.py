@@ -115,12 +115,12 @@ def test_l1_done_when_all_three_are_worn_and_made_in_the_run(doc):
     end["crafted"].pop(LEATHER["Legs"])
     ok, why = j.done(job, start, end)
     assert not ok and "Legs" in why and "no craft" in why
-    held = snap(carried={LEATHER["Legs"]: 1})  # he had the chaps before the run: not made in it
+    held = snap(carried={LEATHER["Legs"]: 1})  # he had chaps before the run, and no instance guid was read
     end["crafted"] = {v: 1 for v in LEATHER.values()}
-    end2 = snap(worn=LEATHER)  # one pair of chaps at the start, one (worn) at the end
+    end2 = snap(worn=LEATHER)  # chaps at the start, chaps (worn) at the end: the same pair or a new one?
     end2["crafted"] = end["crafted"]
     ok, why = j.done(job, held, end2)
-    assert not ok and "held as many" in why
+    assert ok is None and "Legs" in why and "cannot tell" in why  # unread, never a pass (tests/test_job_run_l1.py)
 
 
 def test_l1_not_counted_when_he_starts_with_hides(doc):
@@ -799,12 +799,13 @@ def test_a_failed_get_state_is_unread_never_an_empty_character(doc):
     assert ok is None and "start get_state" in why
 
 
-def test_l1_the_cowl_he_wears_is_the_jobs_own_head_start_rule(doc):
-    # not a reading fault: the cowl is read once (the loadout), and L1's not_carried_at_start names worn leather
+def test_l1_the_cowl_he_wears_is_no_head_start(doc):
+    # the cowl is read once (the loadout); since 2026-11-18 the end read tells it from a new one by its instance
+    # (worn_made_in_run), so it no longer leaves every L1 trial from ClaudeDev not counted
     job = j.job_of("L1", doc)
     start = j.snapshot(_gs([{"item": "ITEM_Armour_T2_Head_Leather", "count": 1, "where": "loadout", "loadout_slot": "Head"}]))
     assert start["carried"] == {"ITEM_Armour_T2_Head_Leather": 1}
-    assert j.not_counted(job, start) == "held at the start: ITEM_Armour_T2_Head_Leather x1"
+    assert j.not_counted(job, start) is None
 
 
 def test_a_door_he_built_is_not_left_unread_as_a_chest():
