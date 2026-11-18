@@ -179,8 +179,8 @@
       "held_out": true,
       "end": {
         "in_own_chest": [
-          {"made_at": ["Campfire", "Grill", "RangeStone", "RangeBronze"], "category": "Item.Food", "exclude": "*Burnt*", "count": 10, "label": "cooked meals (burnt ones left out)"},
-          {"item": "ITEM_Consumable_Water_Clean", "count": 10}
+          {"made_at": ["Campfire", "Grill", "RangeStone", "RangeBronze"], "category": "Item.Food", "exclude": "*Burnt*", "count": 10, "gained": true, "label": "cooked meals put in during the run (burnt ones left out)"},
+          {"item": "ITEM_Consumable_Water_Clean", "count": 10, "gained": true, "label": "clean water put in during the run"}
         ]
       },
       "not_carried_at_start": [],
