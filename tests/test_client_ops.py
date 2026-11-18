@@ -125,7 +125,8 @@ def rig(tmp_path):
                DW_CLIENT_GAME_LOG=str(game_log), DW_CLIENT_MOD_LOG=str(mod_log), DW_CLIENT_DUMP_DIR=str(tmp_path / "dumps"),
                DW_CLIENT_HOLD=str(tmp_path / "client.stopped"), DW_CLIENT_WD_EVENTS=str(tmp_path / "wd.jsonl"),
                DW_CLIENT_BOOT_LOG=str(tmp_path / "boot.log"), DW_CLIENT_SMOKE_DIR=str(tmp_path),
-               DW_CLIENT_STEAM="logged_in", DW_CLIENT_CDB=str(cdb))  # fake Steam/debugger, never the host's
+               DW_CLIENT_STEAM="logged_in", DW_CLIENT_CDB=str(cdb),  # fake Steam/debugger, never the host's
+               DW_CLIENT_BRAIN_PATTERN="no-such-brain-process-zq9")  # a brain running on the host never counts
     for k in ("DW_CLIENT_DEFAULT_TARGET", "DW_CLIENT_FORBID_TARGETS"):  # per-machine settings never leak in
         env.pop(k, None)
     r = type("Rig", (), {})()
@@ -633,3 +634,133 @@ def test_watchdog_disconnect_after_two_returns_reports_relaunch(rig):
     rig.ps("client_watchdog.ps1", *WD, "-Loops", "4", "-DisconnectS", "1")
     boot = [e for e in rig.events() if e["event"] == "boot_start"][0]
     assert boot["why"] == "disconnect" and boot["relaunch"] is True and boot["fe_returns"] == 2
+
+
+# ------------------------------------------------------------------ park (docs/research/2026-11-17-idle-starvation.md)
+# Nobody playing him on the dev world -> the watchdog logs him off (his bars drain on the server, not off it); while
+# parked the menu or no process is not a fault; a lock, waiter or brain brings him back. Always -DryRun here.
+def on_dev(rig):
+    dev_target(rig)
+    (rig.tmp / "state" / "client_default_target.txt").write_text("dev\n", encoding="utf-8")
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("5.6.7.8:7777"))
+
+
+def lock_held(rig, owner="quests", pid=None):
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    (rig.tmp / "state" / "live_owner.txt").write_text(f"{owner} {stamp} pid={pid or os.getpid()}", encoding="utf-8")
+
+
+def parked(rig, mode="menu"):
+    (rig.tmp / "state" / "client_park.json").write_text(json.dumps({"mode": mode, "since": "2026-11-18T01:00:00Z"}),
+                                                       encoding="utf-8")
+
+
+PARK0 = ("-ParkAfterS", "0")
+
+
+def test_watchdog_parks_an_idle_client_on_dev(rig):
+    on_dev(rig)
+    rig.start(in_world())
+    rig.ps("client_watchdog.ps1", *WD, *PARK0, "-Loops", "1")
+    park = [e for e in rig.events() if e["event"] == "park"]
+    assert park and park[0]["mode"] == "menu", names(rig.events())
+    assert not (rig.tmp / "state" / "client_park.json").exists()  # dry run: decided, nothing done
+
+
+def test_watchdog_parks_by_closing_when_the_front_end_returns_are_used(rig):
+    on_dev(rig)
+    rig.start(in_world())
+    record_returns(rig, 2)  # a 3rd return to the menu crashes the game (BUGS L24)
+    rig.ps("client_watchdog.ps1", *WD, *PARK0, "-Loops", "1")
+    park = [e for e in rig.events() if e["event"] == "park"]
+    assert park and park[0]["mode"] == "off", names(rig.events())
+
+
+@pytest.mark.parametrize("need", ["lock", "waiter", "stay", "brain", "shockbyte", "noparks"])
+def test_watchdog_keeps_him_in_the_world_while_someone_needs_it(rig, need):
+    on_dev(rig)
+    extra = []
+    if need == "lock":
+        lock_held(rig)
+    elif need == "waiter":
+        q = rig.tmp / "state" / "live_queue"
+        q.mkdir()
+        (q / f"{time.time_ns()}_rung1_{os.getpid()}").write_text("rung1", encoding="utf-8")
+    elif need == "stay":
+        (rig.tmp / "state" / "client_stay").write_text("", encoding="utf-8")
+    elif need == "brain":
+        rig.env["DW_CLIENT_BRAIN_PATTERN"] = "pytest"  # this test run's own python.exe plays the brain
+    elif need == "shockbyte":
+        (rig.tmp / "state" / "client_default_target.txt").write_text("shockbyte\n", encoding="utf-8")
+    else:
+        extra = ["-NoPark"]
+    rig.start(in_world())
+    rig.ps("client_watchdog.ps1", *WD, *PARK0, *extra, "-Loops", "2")
+    assert "park" not in names(rig.events()), names(rig.events())
+
+
+def test_watchdog_parks_past_a_stale_lock(rig):
+    on_dev(rig)
+    lock_held(rig, pid=999999)  # pid gone and unrefreshed for over STALE_S: live_lock.read calls it stale
+    old = time.time() - 400
+    os.utime(rig.tmp / "state" / "live_owner.txt", (old, old))
+    rig.start(in_world())
+    rig.ps("client_watchdog.ps1", *WD, *PARK0, "-Loops", "1")
+    assert "park" in names(rig.events())
+
+
+def test_watchdog_leaves_a_parked_client_at_the_menu(rig):
+    on_dev(rig)
+    parked(rig)
+    rig.start(at_menu())
+    rig.ps("client_watchdog.ps1", *WD, "-Loops", "4", "-DisconnectS", "1")
+    ev = names(rig.events())
+    assert not {"client_disconnected", "boot_start", "unpark"} & set(ev), ev
+    assert status(rig)["state"] == "parked" and status(rig)["parked"] == "menu"
+
+
+def test_watchdog_leaves_a_parked_client_down(rig):
+    on_dev(rig)
+    parked(rig, "off")
+    rig.proc.kill()
+    rig.proc.wait()
+    rig.ps("client_watchdog.ps1", *WD, "-Loops", "2")
+    ev = names(rig.events())
+    assert not {"client_gone", "boot_start", "unpark"} & set(ev), ev
+    assert status(rig)["state"] == "parked"
+
+
+def test_watchdog_kills_a_crashed_parked_client_and_does_not_boot_it(rig):
+    on_dev(rig)
+    parked(rig)
+    rig.start(at_menu())
+    p = subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(TOOLS / "client_watchdog.ps1"),
+                          *WD, "-Loops", "6"], env=rig.env)
+    time.sleep(4)
+    (rig.tmp / "dumps" / "crash_1.dmp").write_bytes(b"x")
+    p.wait(timeout=120)
+    ev = names(rig.events())
+    assert "client_kill" in ev and "boot_skipped" in ev and "boot_start" not in ev, ev
+
+
+@pytest.mark.parametrize("down", [False, True])
+def test_watchdog_unparks_when_a_window_takes_the_lock(rig, down):
+    on_dev(rig)
+    parked(rig, "off" if down else "menu")
+    lock_held(rig, "movement")
+    if down:
+        rig.proc.kill()
+        rig.proc.wait()
+    else:
+        rig.start(at_menu())
+    rig.ps("client_watchdog.ps1", *WD, "-Loops", "1")
+    up = [e for e in rig.events() if e["event"] == "unpark"]
+    assert up and up[0]["need"] == "live lock: movement", names(rig.events())
+
+def test_boot_that_ends_in_the_world_clears_the_park_marker(rig):
+    parked(rig)
+    rig.start(in_world())
+    p = rig.ps("client_boot.ps1", "-NoLaunch")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert not (rig.tmp / "state" / "client_park.json").exists()

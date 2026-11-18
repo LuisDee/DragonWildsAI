@@ -395,6 +395,7 @@ try {
     }
     $res.ts = (Get-Date).ToUniversalTime().ToString('o')
     if (-not $DryRun) { Write-ClientStatus @{ source = 'client_boot'; state = $res.state; last_boot = $res } }
+    if ($res.ok -and -not $DryRun -and (Get-ClientPark)) { Clear-ClientPark; BLog 'park: back in the world (park marker cleared)' }
     BLog ("boot_and_join end: ok=$($res.ok) state=$($res.state) reason=$($res.reason) actions=$($res.actions.Count) in $($res.duration_s)s")
     Write-Output ([pscustomobject]$res)
     if ($res.ok) { exit 0 } else { exit 1 }

@@ -16,6 +16,14 @@
 #               joins the target. An unknown joined server (no LoadMap line) is never acted on.
 #   L24         a client process that has already returned to the menu twice is never sent back a 3rd time
 #               (the game crashes): client_boot relaunches it instead of a disconnect/rejoin (boot_start relaunch=true).
+#   park        (docs/research/2026-11-17-idle-starvation.md) in the world on the dev target, not held, with nobody
+#               playing him (Get-WorldNeed: no live-lock owner or waiter, no brain, no logs/state/client_stay) for
+#               ParkAfterS -> log off: disconnect.lua to the menu, or close the process when its front-end returns
+#               are used (BUGS L24); logs/state/client_park.json says so. His bars drain on the server on a clock and
+#               not off it, and nothing feeds him while nobody plays him. While parked, the menu (or no process) is
+#               not a fault: no rejoin, no relaunch (a crash or hang there is killed, not booted). When a lock,
+#               waiter or brain appears -> unpark (client_boot); live_lock.held and start_brain unpark on their own
+#               first. Never on Shockbyte or any other target. -NoPark turns it off.
 #   low memory  free RAM < WarnFreeMB -> warn event; < CritFreeMB -> critical event with the top
 #               processes. Nothing is killed for memory (report only); boot refuses to LAUNCH below
 #               its own MinLaunchFreeMB.
@@ -36,6 +44,9 @@ param(
     [int]$RestartWindowMin = 30,
     [int]$WarnFreeMB = 700,
     [int]$CritFreeMB = 350,
+    [int]$ParkAfterS = 120,       # in the world with nobody playing him this long -> log off (about 11 water points)
+    [int]$MaxUnparks = 8,         # unpark boots per RestartWindowMin (their own budget: not the crash restarts')
+    [switch]$NoPark,
     [switch]$NoDevServer,
     [switch]$NoNavOracle,
     [switch]$DryRun,
@@ -118,6 +129,14 @@ $script:bootFails = 0
 $script:inWorldPid = $null   # pid a probe last saw in the world (ends the boot grace early)
 function Recover-Client([string]$why, [switch]$Kill, $proc) {
     if (Get-ClientHold) { return }
+    # parked with nobody needing the world: a crashed or hung client is killed and stays down (off the server is
+    # what parked means; the next unpark launches it). No restart is counted.
+    if ((Get-ClientPark) -and -not (Get-WorldNeed)) {
+        if ($Kill) { Stop-Client "$why (parked: no relaunch)" }
+        Ev 'boot_skipped' @{ why = $why; reason = 'parked: nobody needs the world' }
+        if (-not $DryRun) { Set-ClientPark 'off' "parked; client $why" }
+        return
+    }
     if (-not (Allow-Restart $why)) {
         # BUGS L38: a crashed process sits in UE4SS's crash MessageBox forever; always kill it, the rate limit
         # only gates the relaunch (a dead client must never look alive to the hang detector).
@@ -138,6 +157,59 @@ function Recover-Client([string]$why, [switch]$Kill, $proc) {
     Ev 'boot_result' @{ ok = [bool]($r -and $r.ok); state = $r.state; reason = $r.reason; actions = $r.actions;
                         duration_s = $r.duration_s; attempt = $r.attempt; consecutive_fails = $script:bootFails
                         steam_dialog = $r.steam_dialog }
+    $script:notWorldSince = $null; $script:probeFails = 0; $script:lastProbe = Get-Date
+}
+
+# ------------------------------------------------------------------ park / unpark (header: park)
+$script:idleSince = $null
+$script:unparks = New-Object System.Collections.ArrayList
+# In the world: log him off once nobody has needed the world for ParkAfterS. Only on the dev target and the dev server.
+function Check-Park($proc, [bool]$held, [bool]$bootBusy) {
+    if ($NoPark -or $held -or $bootBusy) { $script:idleSince = $null; return }
+    if ((Resolve-ClientTarget '').name -ne 'dev') { $script:idleSince = $null; return }
+    $devAddr = Get-TargetAddress 'dev'
+    if (-not $devAddr -or (Get-JoinedServer) -ne $devAddr) { $script:idleSince = $null; return }
+    if (Get-WorldNeed) { $script:idleSince = $null; return }
+    if (-not $script:idleSince) { $script:idleSince = Get-Date }
+    $idle = ((Get-Date) - $script:idleSince).TotalSeconds
+    if ($idle -lt $ParkAfterS) { return }
+    # a process that has used its front-end returns would crash on a 3rd (BUGS L24): close it instead
+    $fe = Get-FrontEndReturns $proc
+    $mode = if ($fe.needs_relaunch) { 'off' } else { 'menu' }
+    $why = 'nobody playing him: no live-lock owner or waiter, no brain'
+    Ev 'park' @{ mode = $mode; idle_s = [math]::Round($idle); fe_returns = $fe.returns; pid = $proc.Id; why = $why }
+    $script:idleSince = $null
+    if ($DryRun) { return }
+    Set-ClientPark $mode $why
+    # read again AFTER the marker: a window that claims the lock from here on reads the marker and unparks him
+    $need = Get-WorldNeed
+    if ($need) { Clear-ClientPark; Ev 'park_aborted' @{ need = $need }; return }
+    if ($mode -eq 'menu') {
+        $r = Invoke-ClientCmd -Path (Join-Path $ClientCmds 'disconnect.lua') -Name 'wd_park_disconnect' -TimeoutS 20
+        if (-not $r) { Clear-ClientCmd 'wd_park_disconnect' }
+        [void](Register-FrontEndReturn 'park: logged off, nobody playing him')
+        Ev 'park_result' @{ mode = $mode; sent = [bool]($r -and $r.ok) }
+    } else {
+        Stop-Client 'park: logged off (front-end returns used, so closed rather than to the menu)'
+        Ev 'park_result' @{ mode = $mode; sent = $true }
+    }
+    $script:notWorldSince = $null
+}
+# Parked and someone needs the world: boot him back in (its own budget, so parking never eats the crash restarts).
+function Unpark-Client([string]$need) {
+    $cut = (Get-Date).AddMinutes(-$RestartWindowMin)
+    @($script:unparks | Where-Object { $_ -lt $cut }) | ForEach-Object { [void]$script:unparks.Remove($_) }
+    if ($script:unparks.Count -ge $MaxUnparks) {
+        if (-not $script:unparkLimited -or $script:unparkLimited -lt $cut) {
+            $script:unparkLimited = Get-Date; Ev 'unpark_rate_limited' @{ need = $need; unparks = $script:unparks.Count }
+        }
+        return
+    }
+    [void]$script:unparks.Add((Get-Date))
+    Ev 'unpark' @{ need = $need; mode = (Get-ClientPark).mode }
+    if ($DryRun) { return }
+    $r = & "$PSScriptRoot\client_boot.ps1" -Quiet | Select-Object -Last 1
+    Ev 'unpark_result' @{ ok = [bool]($r -and $r.ok); state = $r.state; reason = $r.reason; duration_s = $r.duration_s }
     $script:notWorldSince = $null; $script:probeFails = 0; $script:lastProbe = Get-Date
 }
 
@@ -209,7 +281,8 @@ $script:lastProbe = [datetime]::MinValue; $script:probeFails = 0; $script:notWor
 $script:lastCpu = $null; $script:lastMemEv = [datetime]::MinValue; $script:holdLogged = $false
 $script:p = $null
 Ev 'watchdog_start' @{ pid = $PID; poll_s = $PollS; dry_run = [bool]$DryRun; last_client_dump = $script:clientDump;
-                       dev_server = -not $NoDevServer; nav_oracle = -not $NoNavOracle }
+                       dev_server = -not $NoDevServer; nav_oracle = -not $NoNavOracle
+                       park_after_s = if ($NoPark) { $null } else { $ParkAfterS } }
 
 while ($true) {
     try {
@@ -235,6 +308,7 @@ while ($true) {
         }
 
         $proc = Get-ClientProcess
+        $park = Get-ClientPark
         $state = 'unknown'; $cpu = $null
         if (-not $proc) {
             $state = 'down'
@@ -242,7 +316,11 @@ while ($true) {
             if ($gone_dump -and $gone_dump.FullName -ne $script:clientDump -and $gone_dump.Length -gt 0) {
                 $script:clientDump = $gone_dump.FullName; Save-CrashLogs $gone_dump | Out-Null
             }
-            if (-not $held -and -not $bootBusy) { Ev 'client_gone' @{}; Recover-Client 'crash' }
+            if ($park) {
+                $state = 'parked'   # logged off on purpose: no process is not a crash
+                if (-not $held -and -not $bootBusy) { $need = Get-WorldNeed; if ($need) { Unpark-Client $need } }
+            }
+            elseif (-not $held -and -not $bootBusy) { Ev 'client_gone' @{}; Recover-Client 'crash' }
         } else {
             $ageProc = ((Get-Date) - $proc.StartTime).TotalSeconds
             if ($script:lastCpu -and $script:lastCpu.pid -eq $proc.Id) {
@@ -308,6 +386,15 @@ while ($true) {
                                     }
                                 }
                             } else { $script:deadSince = $null }
+                            if ($park) {   # someone booted him back in (client_boot clears it too)
+                                Ev 'park_cleared' @{ mode = $park.mode; since = $park.since }
+                                if (-not $DryRun) { Clear-ClientPark }
+                            } elseif ($script:p.dead -ne $true) { Check-Park $proc $held $bootBusy }
+                        }
+                        elseif ($park) {
+                            # logged off on purpose: the menu is not a disconnect; back in only when someone needs it
+                            $state = 'parked'; $script:notWorldSince = $null; $script:idleSince = $null
+                            if (-not $held) { $need = Get-WorldNeed; if ($need) { Unpark-Client $need } }
                         }
                         elseif (-not $script:notWorldSince) { $script:notWorldSince = Get-Date }
                         elseif (((Get-Date) - $script:notWorldSince).TotalSeconds -gt $DisconnectS -and $ageProc -gt $GraceS -and -not $held) {
@@ -327,7 +414,7 @@ while ($true) {
             game_log_age_s = AgeS $ClientGameLog; mod_log_age_s = AgeS $ClientModLog; probe_fails = $script:probeFails
             map = $pp.map; pawn = $pp.pawn; pos_m = $pp.pos_m; logged_in = $pp.logged_in
             services = if ($pp -and $pp.bridge) { $pp.bridge.services } else { $null }
-            held = $held; restarts_in_window = $script:restarts.Count; build = Get-ClientBuildId
+            held = $held; parked = (Get-ClientPark).mode; restarts_in_window = $script:restarts.Count; build = Get-ClientBuildId
             nav_oracle_age_s = AgeS $navAlive; dev_server = [bool](Get-ServerProcess)
         }
     } catch {

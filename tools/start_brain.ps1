@@ -18,4 +18,7 @@ $py = Join-Path $RepoRoot '.venv\Scripts\python.exe'
 $runArgs = @('-m', 'brain.run_live', '--body', $Body)
 if ($DryRun) { $runArgs += '--dry-run' }
 Set-Location $RepoRoot
+# The client watchdog logs him off the dev world while nobody plays him (tools/client_park.py): back in before the brain
+# drives him (a no-op when he is not parked; the watchdog also sees the brain and would unpark him a little later)
+if ($Body -eq 'client') { & $py -m tools.client_park unpark }
 & $py @runArgs

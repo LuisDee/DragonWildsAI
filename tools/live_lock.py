@@ -8,7 +8,8 @@ collided with it). Hold it with `run`, which refreshes it every REFRESH_S while 
     .venv\\Scripts\\python.exe -m tools.live_lock run chat-ladder -- .venv\\Scripts\\python.exe -m tools.chat_ladder run --confirm
     .venv\\Scripts\\python.exe -m tools.live_lock status
 
-Taking the lock sends the body a `stop` first and gets him up out of any bed or shelter (clean=True; --no-clean to
+Taking the lock first boots him back into the world if the client watchdog parked him (logged off while nobody played
+him: tools/client_park.py), then sends the body a `stop` and gets him up out of any bed or shelter (clean=True; --no-clean to
 skip), so no job or rest is left over from the last owner. Release it only after your own brain is stopped: a brain
 left running keeps driving him under the next owner.
 
@@ -31,7 +32,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-LOCK = Path(__file__).resolve().parents[1] / "logs" / "state" / "live_owner.txt"
+from tools import client_park
+
+LOCK =Path(__file__).resolve().parents[1] / "logs" / "state" / "live_owner.txt"
 QUEUE = LOCK.parent / "live_queue"
 AUDIT = LOCK.parent / "live_lock.log"  # one line per claim / release / stale takeover: who drove him when
 PRIORITY = LOCK.parent / "live_priority.json"
@@ -203,8 +206,13 @@ def queue(qdir: Path | None = None) -> list[dict]:
     return sorted(out, key=lambda x: (rank.get(x["owner"], DEFAULT_RANK) - (now - x["ns"]) / 1e9 / AGE_S, x["ns"]))
 
 
+def unpark() -> str:
+    return client_park.unpark()
+
+
 @contextmanager
-def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, clean: bool = True):
+def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, clean: bool = True,
+         unpark_first: bool = True):
     t0 = time.time()
     os.environ.setdefault("DW_LIVE_OWNER", owner)  # bridge commands sent from here (and children) carry it as src
     ticket = _ticket(owner)
@@ -222,7 +230,11 @@ def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, 
             ticket.unlink()
         except OSError:
             pass
-    log(f"live lock: {owner} holds it" + (f"; stop left-over jobs: {stop_body()}; {get_up()}" if clean else ""))
+    # parked (the watchdog logged him off while nobody played him: tools/client_park.py): back into the world before
+    # anything is sent to the body; the marker is read after the claim, which the watchdog's park checks after writing
+    parked_note = f"; park: {unpark()}" if unpark_first and client_park.parked() else ""
+    log(f"live lock: {owner} holds it{parked_note}" +
+        (f"; stop left-over jobs: {stop_body()}; {get_up()}" if clean else ""))
     stop = threading.Event()
 
     def beat():

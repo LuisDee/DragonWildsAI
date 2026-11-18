@@ -376,3 +376,51 @@ function Stop-ClientProcess {
     $tree | ForEach-Object { try { $_.WaitForExit(30000) | Out-Null } catch {} }
     @($tree | ForEach-Object { "$($_.ProcessName)($($_.Id))" })
 }
+
+# ------------------------------------------------------------------ parking (docs/research/2026-11-17-idle-starvation.md)
+# On the server his food and water drain on a clock (5.5 and 4.15 per minute, idle or not); off it they do not. With
+# nobody playing him (no live-lock owner or waiter, no brain), the watchdog logs him off the dev world the way a
+# player walks away: back to the menu (or the process closed when its front-end returns are used, BUGS L24), and
+# writes logs/state/client_park.json. Whoever needs the world unparks him: tools/live_lock.py held() (every window
+# and the vitals rescue), tools/start_brain.ps1 -Body client, or the watchdog itself when a lock, waiter or brain
+# appears. A client_boot that ends in the world clears the marker. logs/state/client_stay keeps him in the world.
+$ClientParkFile = Join-Path $ClientStateDir 'client_park.json'
+$ClientStayFile = Join-Path $ClientStateDir 'client_stay'
+$ClientLiveOwnerFile = Join-Path $ClientStateDir 'live_owner.txt'   # tools/live_lock.py LOCK
+$ClientLiveQueueDir = Join-Path $ClientStateDir 'live_queue'        # tools/live_lock.py QUEUE
+$ClientLiveStaleS = 300                                             # tools/live_lock.py STALE_S
+# tools/scenario_run.py Ops.brain_running: the brain module itself (a bare "run_live" also matched pytest)
+$ClientBrainPattern = if ($env:DW_CLIENT_BRAIN_PATTERN) { $env:DW_CLIENT_BRAIN_PATTERN } else { 'brain[./\\]run_live' }
+function Get-ClientPark {
+    if (-not (Test-Path $ClientParkFile)) { return $null }
+    try { Get-Content $ClientParkFile -Raw -ErrorAction Stop | ConvertFrom-Json } catch { [pscustomobject]@{ mode = 'unknown' } }
+}
+function Set-ClientPark([string]$Mode, [string]$Why) {
+    New-Item -ItemType Directory -Force $ClientStateDir | Out-Null
+    $o = [ordered]@{ mode = $Mode; why = $Why; since = (Get-Date).ToUniversalTime().ToString('o'); by_pid = $PID }
+    $tmp = "$ClientParkFile.tmp"
+    ($o | ConvertTo-Json -Compress) | Set-Content -Encoding utf8 $tmp
+    Move-Item $tmp $ClientParkFile -Force
+}
+function Clear-ClientPark { Remove-Item $ClientParkFile -ErrorAction SilentlyContinue }
+function Test-PidAlive([int]$Id) { $Id -gt 0 -and [bool](Get-Process -Id $Id -ErrorAction SilentlyContinue) }
+# Who needs him in the world now (a string), or $null: the stay file, a live-lock owner (not stale the way
+# live_lock.read judges it: unrefreshed > STALE_S AND its pid gone), a live waiter's ticket, or a running brain.
+function Get-WorldNeed {
+    if (Test-Path $ClientStayFile) { return 'stay file' }
+    if (Test-Path $ClientLiveOwnerFile) {
+        $t = [string](Get-Content $ClientLiveOwnerFile -TotalCount 1 -ErrorAction SilentlyContinue)
+        $lpid = if ($t -match 'pid=(\d+)') { [int]$Matches[1] } else { 0 }
+        $age = ((Get-Date).ToUniversalTime() - (Get-Item $ClientLiveOwnerFile).LastWriteTimeUtc).TotalSeconds
+        if ((Test-PidAlive $lpid) -or $age -le $ClientLiveStaleS) { return "live lock: $(($t.Trim() -split '\s+')[0])" }
+    }
+    if (Test-Path $ClientLiveQueueDir) {
+        foreach ($f in Get-ChildItem $ClientLiveQueueDir -File -ErrorAction SilentlyContinue) {
+            if ($f.Name -match '^\d+_(.+)_(\d+)$' -and (Test-PidAlive ([int]$Matches[2]))) { return "live lock waiter: $($Matches[1])" }
+        }
+    }
+    $brain = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match $ClientBrainPattern })
+    if ($brain.Count) { return "brain running (pid $($brain[0].ProcessId))" }
+    $null
+}
