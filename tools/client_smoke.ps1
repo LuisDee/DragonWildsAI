@@ -1,11 +1,11 @@
 # Client smoke test (route R2, task R2.16): run after every game patch (docs/RUNBOOK-patch.md,
-# "Claude's game client"), or whenever the client was reinstalled. Read-only apart from a 2 m walk
+# "Claude's game client"), or whenever the client was reinstalled. Read-only apart from a 5 m walk
 # and one jump (only with -AllowMove: the locomotion owner/main must clear moving the pawn) and one
 # chat line (only with -Chat: it is Luis's shared world).
 #
 #   boot      tools\client_boot.ps1 (idempotent; in the world with the pawn)   [-NoBoot: probe only]
 #   services  bridge services chat / vitals / fed_reflex running
-#   walk      move.lua go_to 2 m along the facing; displacement >= 1.3 m          [-AllowMove]
+#   walk      move.lua go_to 5 m along the facing; displacement >= 3.4 m (arrival circle) [-AllowMove]
 #   jump      Jump(); height rises >= 30 cm                                     [-AllowMove]
 #   chat      say one line; the server echoes it back into chat.jsonl           [-Chat]
 #   inventory inventory.list answers hotbar/bag/loadout
@@ -56,19 +56,26 @@ if (-not $inWorld) {
     elseif ($bad.Count) { Step 'services' 'fail' ("not running: " + ($bad -join ', ')) }
     else { Step 'services' 'pass' 'chat, vitals, fed_reflex running' }
 
-    # 3. walk 2 m
+    # 3. walk 5 m (client_mod/commands/smoke_walk.lua). go_to "arrives" inside a circle round the goal: tolerance_m
+    # (0.6 in smoke_walk.lua; move.lua:5169 st.tol_cm) on land, and that plus 1 m when he is in water over the goal
+    # (move.lua:2849). A 2 m walk was inside that circle after 0.5 m in a pond (2026-11-18T12:29:08Z), so the walk
+    # is 5 m and the pass is the displacement any arrival needs: 5 - (0.6 + 1.0) = 3.4 m.
+    $walkM = 5; $tolM = 0.6; $waterSlackM = 1.0
+    $needM = $walkM - ($tolM + $waterSlackM)
     if (-not $AllowMove) { Step 'walk' 'skip' 'needs -AllowMove (moves the pawn)' }
     else {
         $w = Cmd 'smoke_walk.lua'
         if (-not $w -or -not $w.ok -or -not $w.result.ok) { Step 'walk' 'fail' ("go_to did not start: " + ($w | ConvertTo-Json -Compress -Depth 4)) }
         else {
-            $start = $w.result.start; $st = $null; $d = (Get-Date).AddSeconds(20)
+            $start = $w.result.start; $goal = $w.result.goal; $st = $null; $d = (Get-Date).AddSeconds(25)
             do { Start-Sleep -Milliseconds 700; $st = (Cmd 'smoke_move_status.lua').result }
             while ((Get-Date) -lt $d -and $st -and $st.mode -ne 'idle' -and -not ($st.result -and $st.result.status))
             $moved = if ($st -and $st.pos_m) { [math]::Round((Dist $st.pos_m $start), 2) } else { $null }
+            $left = if ($st -and $st.pos_m) { [math]::Round((Dist $st.pos_m $goal), 2) } else { $null }
             $rs = if ($st -and $st.result) { $st.result.status } else { $st.status }
-            if ($moved -ge 1.3) { Step 'walk' 'pass' "moved $moved m ($rs)" }
-            else { Step 'walk' 'fail' "moved $moved m, status=$rs reason=$($st.result.reason)" }
+            $water = if ($st -and $st.result -and $st.result.in_water) { ', in water' } else { '' }
+            if ($null -ne $moved -and $moved -ge $needM) { Step 'walk' 'pass' "moved $moved m of $walkM, $left m from the goal ($rs$water)" }
+            else { Step 'walk' 'fail' "moved $moved m of $walkM (needs $needM), $left m from the goal, status=$rs$water reason=$($st.result.reason)" }
         }
     }
 

@@ -49,10 +49,10 @@ class FakeRunner(threading.Thread):
         elif name in ("boot_chat_start", "boot_sense_vitals_start", "boot_inv_reflex_start"):
             svc = {"boot_chat_start": "chat", "boot_sense_vitals_start": "vitals", "boot_inv_reflex_start": "fed_reflex"}[name]
             s["bridge"]["services"][svc] = {"state": "running", "starts": 1}
-        elif name == "smk_smoke_walk":
-            return {"ok": True, "result": {"ok": True, "start": [1, 2, 3], "goal": [3, 2, 3], "go_to": {"ok": True}}}
-        elif name == "smk_smoke_move_status":
-            return {"ok": True, "result": {"mode": "idle", "result": {"status": "arrived"}, "pos_m": [2.9, 2.1, 3]}}
+        elif name == "smk_smoke_walk":  # smoke_walk.lua: 5 m along the facing
+            return {"ok": True, "result": {"ok": True, "start": [1, 2, 3], "goal": [6, 2, 3], "go_to": {"ok": True}}}
+        elif name == "smk_smoke_move_status":  # walk_end: where the walk ended and how (default: on land, 0.4 m short)
+            return {"ok": True, "result": s.get("walk_end") or {"mode": "idle", "result": {"status": "arrived"}, "pos_m": [5.6, 2.1, 3]}}
         elif name == "smk_smoke_jump":
             return {"ok": True, "result": {"ok": True, "z0_cm": 300}}
         elif name == "smk_smoke_jump_read":
@@ -458,6 +458,18 @@ def test_smoke_walk_and_jump_with_allow_move(rig):
     assert p.returncode == 0, p.stdout + p.stderr
     res = {s["step"]: s["result"] for s in smoke_report(rig)["steps"]}
     assert res["walk"] == "pass" and res["jump"] == "pass"
+
+
+def test_smoke_walk_fails_an_arrival_that_did_not_walk_past_the_arrival_circle(rig):
+    """2026-11-18T12:29:08Z: in a pond, go_to arrives within tolerance + 1 m of a goal under him (move.lua:2849); a
+    2 m walk 'arrived' after 0.5 m. 1.5 m of a 5 m walk is no walk, whatever the status says."""
+    s = in_world()
+    s["walk_end"] = {"mode": "idle", "result": {"status": "arrived", "in_water": True}, "pos_m": [2.5, 2, 3]}
+    rig.start(s)
+    p = rig.ps("client_smoke.ps1", "-NoBoot", "-AllowMove")
+    assert p.returncode == 1
+    (walk,) = [x for x in smoke_report(rig)["steps"] if x["step"] == "walk"]
+    assert walk["result"] == "fail" and "moved 1.5 m of 5 (needs 3.4)" in walk["detail"] and "in water" in walk["detail"]
 
 
 def test_smoke_fails_when_not_in_world(rig):

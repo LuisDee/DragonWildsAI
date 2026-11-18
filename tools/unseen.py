@@ -1,8 +1,8 @@
 """The unseen-fix ledger: every fix committed on tests alone gets ONE row with a log signature, a regex that shows up
-in the client log or the brain log only when the changed path ran. `scan` counts the log lines after the commit that
+in the client, brain or watchdog log only when the changed path ran. `scan` counts the log lines after the commit that
 match it, so a fix nobody has seen run in a live window stays visible until someone confirms or bins it.
 
-    .venv\\Scripts\\python.exe -m tools.unseen add HASH --look REGEX --log client|brain [--note TEXT]
+    .venv\\Scripts\\python.exe -m tools.unseen add HASH --look REGEX --log client|brain|watchdog [--note TEXT]
     .venv\\Scripts\\python.exe -m tools.unseen scan                       # hits per open row since its commit
     .venv\\Scripts\\python.exe -m tools.unseen confirm HASH --evidence "PROGRESS 2026-11-17, window s31"
     .venv\\Scripts\\python.exe -m tools.unseen bin HASH --why "reverted in abc1234"
@@ -21,6 +21,10 @@ The logs and their clocks (read from the data, 2026-11-17):
 A body result is in the brain log several times (bridge_recv, tool_result, then every prompt that repeats it), so one
 run of a path can be several hits. Anchor a signature for a body result on the row every reply arrives in once
 ("kind": "bridge_recv".*the words) to count runs and not echoes.
+- watchdog: logs/client_watchdog.jsonl (the client watchdog's events) and logs/client/boot.log (client_boot.ps1's
+  lines), and any rotated sibling of either. Both are PowerShell's, with a BOM at the top. An event row starts with
+  "ts", an ISO time in UTC with 7 decimals ({"ts":"2026-11-18T13:08:58.5908977Z",...}); a boot line starts with an
+  ISO time with the VM's offset (2026-11-18T14:13:57.5024686+01:00). A boot line with no time takes the one above.
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ import json
 import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from brain import childproc
@@ -39,12 +44,14 @@ ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "unseen_fixes.jsonl"
 CLIENT_DIR = ROOT / "logs" / "client"
 BRAIN_DIR = ROOT / "logs"
-LOGS = ("client", "brain")
+LOGS = ("client", "brain", "watchdog")
 CAP = 8  # more open rows than this: confirm or bin before a new fix
 SAMPLE = 200  # a sample line is cut to this many characters
 
 _STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")  # a client line's own time (UTC)
 _TS = re.compile(r'\{\s*"ts":\s*(\d+(?:\.\d+)?)')  # a brain row's own time (epoch seconds)
+# a watchdog event's "ts" or a boot line's head: an ISO time with decimals and a zone (Z or an offset)
+_ISO = re.compile(r'(?:\{\s*"ts":\s*")?(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d))')
 
 
 def rows(path: Path | None = None) -> list[dict]:
@@ -115,18 +122,21 @@ def settle(ref: str, state: str, text: str, path: Path | None = None, today: str
 def log_files(log: str, client_dir: Path | None = None, brain_dir: Path | None = None) -> list[Path]:
     if log == "client":
         return sorted((client_dir or CLIENT_DIR).glob("client*.log*"))  # client.log and its rotated siblings
+    if log == "watchdog":  # BRAIN_DIR is logs/, where the watchdog's events are written too
+        return (sorted((brain_dir or BRAIN_DIR).glob("client_watchdog*.jsonl*"))
+                + sorted((client_dir or CLIENT_DIR).glob("boot*.log*")))
     return sorted((brain_dir or BRAIN_DIR).glob("brain-*.jsonl"))
 
 
 def _open(p: Path):
     if p.suffix == ".gz":
-        return gzip.open(p, "rt", encoding="utf-8", errors="replace")
-    return p.open("r", encoding="utf-8", errors="replace")
+        return gzip.open(p, "rt", encoding="utf-8-sig", errors="replace")
+    return p.open("r", encoding="utf-8-sig", errors="replace")  # -sig: PowerShell's logs begin with a BOM
 
 
 def lines(p: Path, log: str):
     """(epoch seconds, line) for each line of a log, one at a time: the file is never held whole. A client line's
-    stamp is kept as text and turned to seconds once per new stamp."""
+    or watchdog line's stamp is kept as text and turned to seconds once per new stamp."""
     with _open(p) as f:
         if log == "brain":
             for line in f:
@@ -134,11 +144,13 @@ def lines(p: Path, log: str):
                 if m:
                     yield float(m.group(1)), line
             return
+        rx = _ISO if log == "watchdog" else _STAMP
         stamp, at = None, None
         for line in f:
-            m = _STAMP.match(line)
-            if m and m.group(0) != stamp:
-                stamp, at = m.group(0), epoch(m.group(0))
+            m = rx.match(line)
+            if m and m.group(m.lastindex or 0) != stamp:
+                stamp = m.group(m.lastindex or 0)
+                at = datetime.fromisoformat(stamp).timestamp() if log == "watchdog" else epoch(stamp)
             if at is not None:
                 yield at, line
 
@@ -222,9 +234,9 @@ def main(argv: list[str] | None = None) -> int:
         rs = rows()
         by = {r["hash"]: r for r in rs}
         res = scan(rs)
-        print(f"{'hash':<8} {'log':<6} {'hits':>5}  {'first':<20} {'last':<20} subject")
+        print(f"{'hash':<8} {'log':<8} {'hits':>5}  {'first':<20} {'last':<20} subject")
         for t in res:
-            print(f"{t['hash']:<8} {t['log']:<6} {t['hits']:>5}  {t['first'] or '-':<20} {t['last'] or '-':<20} "
+            print(f"{t['hash']:<8} {t['log']:<8} {t['hits']:>5}  {t['first'] or '-':<20} {t['last'] or '-':<20} "
                   f"{by[t['hash']]['subject'][:70]}")
             if t["sample"]:
                 print(f"{'':<8} {t['sample']}")
@@ -236,9 +248,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{r['hash']} {r['state']} {r['date']}: {r.get('evidence') or r.get('why')}")
     else:
         opened, counts, over = report(rows())
-        print(f"{'age_h':>6}  {'hash':<8} {'log':<6} subject")
+        print(f"{'age_h':>6}  {'hash':<8} {'log':<8} subject")
         for r in opened:
-            print(f"{r['age_h']:>6}  {r['hash']:<8} {r['log']:<6} {r['subject'][:90]}")
+            print(f"{r['age_h']:>6}  {r['hash']:<8} {r['log']:<8} {r['subject'][:90]}")
             if r.get("note"):
                 print(f"{'':>6}  {'':<8} note: {r['note'][:SAMPLE]}")
         print(f"{counts['open']} open (cap {CAP}), {counts['confirmed']} confirmed, {counts['binned']} binned")

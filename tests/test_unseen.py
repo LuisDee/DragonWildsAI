@@ -112,6 +112,34 @@ def test_scan_goes_by_a_brain_rows_own_time_not_by_the_files_name(led):
     assert (t["hits"], t["first"], t["last"], t["files"]) == (2, "2026-11-17T13:01:40Z", "2026-11-17T14:00:00Z", 2)
 
 
+def test_scan_reads_the_watchdog_events_and_the_boot_log_by_their_own_iso_times(led):
+    """The watchdog log: logs/client_watchdog.jsonl ("ts" ISO with 7 decimals and Z) and logs/client/boot.log (an ISO
+    time with the VM's offset, +01:00). Both are written by PowerShell with a BOM; a boot line with no time (a stack
+    line) takes the one above."""
+    u.add("aaa1111", r"client_park|boot_and_join end", "watchdog")  # committed 12:00:00Z
+    (u.BRAIN_DIR / "client_watchdog.jsonl").write_text(
+        '﻿{"ts":"2026-11-17T11:59:59.9000000Z","event":"client_park"}\n'      # before the commit
+        '{"ts":"2026-11-17T12:10:00.5000000Z","event":"client_park","idle_s":131}\n'
+        '{"ts":"2026-11-17T12:11:00.0000000Z","event":"boot_result"}\n', encoding="utf-8")
+    (u.CLIENT_DIR / "boot.log").write_text(
+        "﻿2026-11-17T12:59:00.1234567+01:00 boot_and_join end: ok=True\n"      # 11:59:00Z: before the commit
+        "2026-11-17T13:20:00.0000000+01:00 boot_and_join start\n"
+        "  at a stack line: boot_and_join end\n"                                     # takes 12:20:00Z
+        "2026-11-17T13:30:00.0000000+01:00 boot_and_join end: ok=True\n", encoding="utf-8")
+    (u.CLIENT_DIR / "client.log").write_text("2026-11-17T12:30:00Z client_park in the client log\n", encoding="utf-8")
+    (t,) = u.scan(u.rows())
+    assert (t["log"], t["hits"], t["files"]) == ("watchdog", 3, 2)
+    assert (t["first"], t["last"]) == ("2026-11-17T12:10:00Z", "2026-11-17T12:30:00Z")
+    assert t["sample"].startswith('{"ts":"2026-11-17T12:10:00.5000000Z","event":"client_park"')
+    p = u.BRAIN_DIR / "client_watchdog.jsonl"
+    assert [at for at, _ in u.lines(p, "watchdog")] == [T0 - 0.1, T0 + 600.5, T0 + 660]
+
+
+def test_add_takes_the_watchdog_log(led, capsys):
+    assert u.main(["add", "aaa1111", "--look", "client_park", "--log", "watchdog"]) == 0
+    assert u.rows()[0]["log"] == "watchdog"
+
+
 def test_scan_skips_a_file_last_written_before_the_oldest_open_commit(led):
     u.add("aaa1111", "needle", "brain")
     old = u.BRAIN_DIR / "brain-live-20261101-090000-1.jsonl"
