@@ -80,6 +80,8 @@ class Ctx:
     data_dir: Path = field(default_factory=lambda: Path(os.environ.get("DW_DATA_DIR", REPO_ROOT / "data")))
     out_dir: Path = field(default_factory=lambda: Path(os.environ.get("DW_PATCH_DOCS_DIR", REPO_ROOT / "docs" / "patches")))
     mod_dir: Path = field(default_factory=lambda: REPO_ROOT / "mod")
+    # the game client's mod: it was never scanned, so a patch report's "BROKEN 0" said nothing about it (2026-11-18)
+    client_mod_dir: Path | None = field(default_factory=lambda: REPO_ROOT / "client_mod")
     protocol_md: Path = field(default_factory=lambda: REPO_ROOT / "brain" / "BRIDGE_PROTOCOL.md")
     py_sources: list = field(default_factory=lambda: [REPO_ROOT / "tools" / "build_catalog.py",
                                                       REPO_ROOT / "tools" / "gen_attack_data.py"])
@@ -674,6 +676,15 @@ def classify_path(raw: str) -> dict | None:
     return {"path": p, "kind": "asset"}
 
 
+def lua_sources(ctx: "Ctx"):
+    """(path, rel shown in the report, rel for tier_for) over the server mod, then the client mod (prefixed)."""
+    for p, rel in iter_lua_files(ctx.mod_dir):
+        yield p, rel, rel
+    if ctx.client_mod_dir and Path(ctx.client_mod_dir).is_dir():
+        for p, rel in iter_lua_files(Path(ctx.client_mod_dir)):
+            yield p, "client_mod/" + rel, rel
+
+
 def iter_lua_files(mod_dir: Path):
     for p in sorted(mod_dir.rglob("*.lua")):
         rel = p.relative_to(mod_dir).as_posix()
@@ -726,10 +737,10 @@ def extract_deps(ctx: Ctx, baseline: Index | None) -> dict:
         _add_use(rec, rel, line)
         _merge_tier(rec, tier)
 
-    for p, rel in iter_lua_files(ctx.mod_dir):
+    for p, rel, tier_rel in lua_sources(ctx):
         scanned.append(rel)
         src = p.read_text(encoding="utf-8", errors="replace")
-        tier = tier_for(rel)
+        tier = tier_for(tier_rel)
         lits, code = lex_lua(src)
         for line, text in lits:
             for m in PATH_RE.finditer(text):
@@ -1599,6 +1610,7 @@ def main(argv=None) -> int:
         ctx.out_dir = Path(a.out_dir)
     if a.mod_dir:
         ctx.mod_dir = Path(a.mod_dir)
+        ctx.client_mod_dir = None  # a mod folder given by hand is the whole set (tests)
     return a.fn(ctx, a)
 
 

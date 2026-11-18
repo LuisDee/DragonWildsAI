@@ -1,7 +1,7 @@
 {
  "old": "26574459",
  "new": "26670300",
- "generated_at": "2026-11-18T12:27:55Z",
+ "generated_at": "2026-11-18T13:25:49Z",
  "dump": {
   "old": "26574459",
   "new": "26670300",
@@ -473,18 +473,18 @@
  },
  "deps": {
   "counts": {
-   "paths": 1662,
-   "paths_asset": 1598,
+   "paths": 1784,
+   "paths_asset": 1654,
    "paths_asset_member": 1,
-   "paths_script_class": 22,
-   "paths_script_member": 40,
+   "paths_script_class": 43,
+   "paths_script_member": 85,
    "paths_script_module": 1,
-   "class_names": 13,
-   "members": 749,
+   "class_names": 38,
+   "members": 1562,
    "enums": 0,
    "enum_values": 16,
    "bridge_tools": 16,
-   "total": 2440
+   "total": 3400
   },
   "check": {
    "broken": [],
@@ -949,9 +949,19 @@
      "uses": [
       "body/sleep.lua:41"
      ]
+    },
+    {
+     "dep": "/Script/Dominion.ChanceToBurnFoodLevel",
+     "kind": "script_class",
+     "reason": "class not in baseline dump",
+     "tier": "core",
+     "uses": [
+      "client_mod/commands/burn_attr_probe.lua:22",
+      "client_mod/scripts/crafting.lua:829"
+     ]
     }
    ],
-   "ok": 2374,
+   "ok": 3333,
    "ambiguous_ignored": 0
   },
   "touched_classes": {},

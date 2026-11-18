@@ -145,7 +145,7 @@ def make_dump(root: Path, build: str, hpp: str, enums: str, obj: str) -> None:
 @pytest.fixture
 def ctx(tmp_path):
     c = pp.Ctx(dumps_dir=tmp_path / "dumps", data_dir=tmp_path / "data", out_dir=tmp_path / "out",
-               mod_dir=tmp_path / "mod", protocol_md=tmp_path / "PROTO.md", py_sources=[], use_py_enum_maps=False)
+               mod_dir=tmp_path / "mod", client_mod_dir=None, protocol_md=tmp_path / "PROTO.md", py_sources=[], use_py_enum_maps=False)
     make_dump(c.dumps_dir, "100", OLD_HPP, OLD_ENUMS, OBJ_OLD)
     make_dump(c.dumps_dir, "200", NEW_HPP, NEW_ENUMS, OBJ_NEW)
     write(c.mod_dir / "body" / "inv.lua", CORE_LUA)
