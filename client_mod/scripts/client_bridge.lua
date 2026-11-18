@@ -644,8 +644,13 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     local gts = type(target) == "string" and (target == "my_grave" and "" or target:match("^my_grave:(.+)$"))
     if gts then -- BUGS L19/L22: a remembered death spot (newest, or my_grave:<ts>), at any distance
         local sk = M.module("skills")
+        if sk and type(sk.my_character) == "function" then pcall(sk.my_character, M.API) end -- only his character's graves are his
         local d = sk and type(sk.death_memory) == "function" and sk.death_memory(gts ~= "" and gts or nil) or nil
-        if not (d and d.position) then return fail("unknown_target", { target = target, detail = "no remembered grave like that" }) end
+        if not (d and d.position) then
+            local whose = gts ~= "" and sk and type(sk.grave_not_mine) == "function" and sk.grave_not_mine(gts) or nil
+            return fail("unknown_target", { target = target, detail = whose and ("no remembered grave of mine like that: " .. whose)
+                or "no remembered grave like that" })
+        end
         if not has_z(d.position) then return fail("verification_failed", { detail = "destination height unavailable" }) end
         coords = to_m(d.position)
         local gt = d.grave_id and M.API.find_thing(d.grave_id, M.GOTO_FIND_M) -- the grave itself, once seen and bound

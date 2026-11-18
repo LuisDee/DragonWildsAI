@@ -65,6 +65,9 @@ end
 local PC = {}
 function PC:SetControlRotation(r) F.aims = (F.aims or 0) + 1; F.last_aim = r end
 function M.local_pc() return PC end
+-- the character he is playing (sense.my_char_guid / char_name): FAKE.char_guid (false = unreadable), FAKE.char_names
+function M.my_char_guid() if F.char_guid == false then return nil end return F.char_guid or "0A0B0C0D" end
+function M.char_name(hex) return (F.char_names or {})[hex] or (hex == "0A0B0C0D" and "ClaudeTest" or nil) end
 function M.local_pawn()
     if F.no_pawn then return nil end
     PAWN.position = here()

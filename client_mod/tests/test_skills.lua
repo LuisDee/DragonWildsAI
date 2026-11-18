@@ -1748,6 +1748,62 @@ test("BUGS L22: every unrecovered grave is kept (newest is not the only one); re
     assert(g and #g == 1 and g[1].position[1] == 80, "the other grave stays remembered: " .. json.encode(g))
 end)
 
+test("graves are his character's own: each record carries the character and guid; a fork is never offered another's (grave study 2026-11-18)", function()
+    reset()
+    local sk = B.module("skills")
+    local logged, log0 = {}, B.API.log
+    B.API.log = function(m) logged[#logged + 1] = tostring(m); return log0(m) end
+    -- ClaudeQ dies at (1,25): his record names him, from the game
+    F.char_guid, F.char_names = "0000000A", { ["0000000A"] = "ClaudeQ162115", ["0000000B"] = "ClaudeS162140a" }
+    F.move.position = { 1, 25, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    local tsq = T
+    local doc = json.decode(read(sk.DEATH_FILE))
+    assert(doc.deaths[1].character == "ClaudeQ162115" and doc.deaths[1].character_guid == "0000000A", json.encode(doc.deaths[1]))
+    local g = rpc("get_state").data.graves_remembered
+    assert(g and #g == 1 and g[1].go_to == "my_grave:" .. tostring(tsq), json.encode(g))
+    -- the next trial: a new fork (new guid) on a fresh client run; the file is shared
+    F.char_guid = "0000000B"
+    _G.DWSkills = nil
+    F.move.position = { 60, 60, 3 }
+    local s = rpc("get_state")
+    assert(s.data.graves_remembered == nil and s.data.death_memory == nil, "another character's grave offered: " .. json.encode(s.data.graves_remembered))
+    local r = rpc("go_to", { target = "my_grave:" .. tostring(tsq) })
+    assert(r and not r.ok and r.reason == "unknown_target" and tostring(r.data.detail):find("ClaudeQ162115", 1, true), json.encode(r))
+    r = rpc("go_to", { target = "my_grave" })
+    assert(r and not r.ok and r.reason == "unknown_target", json.encode(r))
+    local seen = false
+    for _, m in ipairs(logged) do if m:find("not offered as mine", 1, true) then seen = true end end
+    assert(seen, "the skip is logged: " .. table.concat(logged, " | "))
+    -- his own death is his, and the other's record stays for its owner (never marked recovered by him)
+    T = T + 50
+    F.move.position = { 80, 80, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    g = rpc("get_state").data.graves_remembered
+    assert(g and #g == 1 and g[1].position[1] == 80, json.encode(g))
+    F.char_guid = "0000000A"
+    g = rpc("get_state").data.graves_remembered
+    assert(g and #g == 1 and g[1].position[2] == 25, "ClaudeQ still has his: " .. json.encode(g))
+    -- the game does not say who he is: nothing is offered as his
+    F.char_guid = false
+    _G.DWSkills = nil
+    g = rpc("get_state").data.graves_remembered
+    assert(g == nil, "offered with no character read: " .. json.encode(g))
+    -- an old record with no character (before this change) is no one's: never offered as his
+    F.char_guid = "0000000A"
+    write(sk.DEATH_FILE, json.encode({ deaths = { { ts = T - 10, iso = "2026-11-17T22:00:00Z", position = { 5, 5, 3 },
+        lost = { { item = "ITEM_Pickaxe_Mithril", name = "Mithril Pickaxe", count = 1 } }, recovered = false } } }), "wb")
+    _G.DWSkills = nil
+    g = rpc("get_state").data.graves_remembered
+    B.API.log = log0
+    F.char_guid, F.char_names = nil, nil
+    assert(g == nil, "an unnamed record offered as his: " .. json.encode(g))
+end)
+
 test("recover_grave: the newest death's grave beats a nearer older one of his (live 2026-11-01 13:06)", function()
     reset()
     local sk = B.module("skills")

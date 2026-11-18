@@ -2009,17 +2009,65 @@ local function save_deaths()
     local f = io.open(M.DEATH_FILE, "wb")
     if f then f:write(j.encode({ deaths = deaths() })); f:close() end
 end
--- unrecovered deaths, newest first
+-- Whose deaths: every record carries the character that died (character, character_guid), read from the game
+-- (sense.my_char_guid: PlayerState.OwnerGuid.CharacterGuid, the read sense.owner_row uses; sense.char_name). One
+-- file serves every character on this client, and step trials fork ClaudeDev into a new character each (new name and
+-- guid): without the owner, a fork was offered an earlier fork's grave as his own (grave study 2026-11-18: ClaudeS162140a
+-- walked to ClaudeQ162115's grave, "unknown_target / not perceived within 80 m"). Only records of the character he is
+-- playing are his; a record with no character (written before this) is no one's, and with no character read nothing is.
+-- -> {guid, name} | nil; kept in memory() for a read that fails (cleared with it on a client restart)
+function M.my_character(api)
+    local mem = memory()
+    local s = api and type(api.module) == "function" and api.module("sense") or nil
+    if s and type(s.my_char_guid) == "function" then
+        local ok, g = pcall(s.my_char_guid)
+        if ok and type(g) == "string" and g ~= "" then
+            if not (mem.me and mem.me.guid == g and mem.me.name) then
+                local okn, n = pcall(function() return type(s.char_name) == "function" and s.char_name(g) or nil end)
+                mem.me = { guid = g, name = okn and type(n) == "string" and n ~= "" and n or nil }
+            end
+        end
+    end
+    return mem.me
+end
+local function is_mine(d)
+    local me = memory().me
+    return me ~= nil and d.character_guid ~= nil and tostring(d.character_guid) == me.guid
+end
+-- his character's unrecovered deaths, newest first
 function M.graves_remembered()
     local out = {}
-    for _, d in ipairs(deaths()) do if not d.recovered then out[#out + 1] = d end end
+    for _, d in ipairs(deaths()) do if not d.recovered and is_mine(d) then out[#out + 1] = d end end
     table.sort(out, function(a, b) return (a.ts or 0) > (b.ts or 0) end)
     return out
+end
+-- unrecovered deaths that are not his: {other = n (another character's), unnamed = n (no character recorded)}
+function M.graves_not_mine()
+    local n = { other = 0, unnamed = 0 }
+    for _, d in ipairs(deaths()) do
+        if not d.recovered and not is_mine(d) then
+            if d.character_guid ~= nil then n.other = n.other + 1 else n.unnamed = n.unnamed + 1 end
+        end
+    end
+    return n
 end
 -- the newest unrecovered death (go_to "my_grave"), or the one with that ts ("my_grave:<ts>")
 function M.death_memory(ts)
     for _, d in ipairs(M.graves_remembered()) do
         if not ts or tostring(d.ts) == tostring(ts) then return d end
+    end
+    return nil
+end
+-- a "my_grave:<ts>" that is not his: whose it is, in words (go_to's reason), or nil
+function M.grave_not_mine(ts)
+    if ts == nil then return nil end
+    for _, d in ipairs(deaths()) do
+        if tostring(d.ts) == tostring(ts) and not is_mine(d) then
+            if d.character_guid ~= nil then
+                return string.format("that grave is %s's (another character's), not mine", tostring(d.character or "an unnamed character"))
+            end
+            return "that death record names no character, so I can't say the grave is mine"
+        end
     end
     return nil
 end
@@ -2079,7 +2127,9 @@ function M.record_death(api, ts)
         end
     end
     local list = deaths()
+    local me = M.my_character(api) or {}
     list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, body_position = body,
+        character = me.name, character_guid = me.guid,
         lost = lost, kept_by_rule = #kept_rule > 0 and kept_rule or nil, lost_rule = keep and "bDropOnDeath" or nil, recovered = false,
         cause = fall and "fall" or nil, drop_m = fall and drop_m or nil, deaths_here = deaths_here }
     -- nothing on him that drops on death: no grave worth a walk (live 22:10/22:11Z, two deaths right after respawns
@@ -2088,7 +2138,12 @@ function M.record_death(api, ts)
         local d = list[#list]
         d.recovered, d.recovered_how, d.recovered_at = true, "nothing_lost", os.time()
     end
-    while #list > M.MAX_DEATHS do table.remove(list, 1) end
+    -- over the cap: a closed record or another character's goes first, then his oldest
+    while #list > M.MAX_DEATHS do
+        local drop = 1
+        for i, r in ipairs(list) do if r.recovered or not is_mine(r) then drop = i; break end end
+        table.remove(list, drop)
+    end
     save_deaths()
 end
 -- After the respawn: what really left him = his bag/hotbar at death minus his bag/hotbar now (the real inventory).
@@ -2099,6 +2154,7 @@ function M.death_reconcile(api, rows)
     local keep = M.keep_on_death()
     local list = deaths()
     local changed = false
+    M.my_character(api)
     if keep then
         for _, d in ipairs(list) do
             if not d.recovered and not d.lost_rule and type(d.lost) == "table" then
@@ -2109,7 +2165,8 @@ function M.death_reconcile(api, rows)
             end
         end
     end
-    local d = list[#list]
+    local d -- his newest death (the last record may be another character's, and his bag says nothing about theirs)
+    for i = #list, 1, -1 do if is_mine(list[i]) then d = list[i]; break end end
     if d and not d.reconciled and tonumber(life.respawned_at) and tonumber(d.ts) and life.respawned_at > tonumber(d.ts) then
         local now_c = {}
         for _, r in ipairs(rows) do now_c[r.item] = (now_c[r.item] or 0) + (tonumber(r.count) or 1) end
@@ -2316,7 +2373,16 @@ function M.state_extras(api, data)
             end
         end
     end
-    -- every unrecovered grave (BUGS L22), with distance and what he lost there; the newest is death_memory
+    -- every unrecovered grave (BUGS L22) of the character he is playing, with distance and what he lost there; the
+    -- newest is death_memory. Other characters' records (earlier forks) and unnamed ones are never offered as his.
+    local me = M.my_character(api)
+    local nm = M.graves_not_mine()
+    local nm_key = string.format("%s/%d/%d", tostring(me and me.guid), nm.other, nm.unnamed)
+    if (nm.other + nm.unnamed) > 0 and mem.graves_not_mine_logged ~= nm_key and api.log then
+        mem.graves_not_mine_logged = nm_key
+        api.log(string.format("grave: %d remembered grave(s) not offered as mine (%d of other characters, %d naming no character); I am %s (guid %s)",
+            nm.other + nm.unnamed, nm.other, nm.unnamed, tostring(me and me.name or "unknown"), tostring(me and me.guid or "unread")))
+    end
     local here = data.position
     local list = {}
     for _, dm in ipairs(M.graves_remembered()) do

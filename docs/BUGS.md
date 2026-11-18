@@ -118,7 +118,7 @@ Rows that only described bugs in code deleted on 2026-10-31 (walk guard, sampled
 | N12 | Haiku said "only 40 m" after walking 200 m | Reporting/context defect | — | open; board and route records are the truth |
 | N13 | `explore` matched substrings (`the` inside `gather`; "open flat ground" matched a chest's Open prompt; "rat" matched raw meat) | Lexical scorer | Whole-token matching (10-29) | open: lexical, not geometric |
 | N14 | Phase Dash diagnostics show no benefit | Base Air Dash (Agility 32) missing at Agility 22 | — | open |
-| N15 | Body death memory leaked across characters (friend trial) | `last_death` is global, not per character | — | open |
+| N15 | Body death memory leaked across characters (friend trial) | `last_death` is global, not per character | each record carries `character` + `character_guid` (sense.my_char_guid); only his character's graves are offered, unnamed records never (2026-11-18, client_mod/scripts/skills.lua `is_mine`) | fixed, unseen live |
 | N16 | Lodestone build near base rejected by the preview; go_to then failed `no_route` at a guessed floor Z | Exact-Z goal semantics | — | open |
 
 ## 2026-11-01 (dev world, build 26161880)
