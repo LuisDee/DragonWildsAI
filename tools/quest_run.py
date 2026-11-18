@@ -577,12 +577,21 @@ def _on_main(sw, cli, tries: int = 3) -> dict | None:
     return None
 
 
-@live_guard.live_entry("a lock window on forked characters (quest_run/job_run)")
+def window_faked() -> bool:
+    """Does a lock window here drive nothing live: the window itself replaced by a test, or both of its live parts
+    (the live lock's held, the character switch) are? tools/live_guard.py"""
+    from evals.bench import devchar
+    from tools import live_lock
+    return not live_guard.is_live(clone_window) or not (live_guard.is_live(live_lock.held)
+                                                        or live_guard.is_live(devchar.default_switch))
+
+
 @contextlib.contextmanager
 def clone_window(wait_s: float, out: dict, out_file: Path):
     """ONE lock window on other characters of Claude's own account (evals/bench/devchar.py, dev world): yields
     (switch, client, t0); whatever the body of the window does or raises, it ends back on ClaudeDev with his pawn seen
     and `out` appended to out_file. The lock is never released while the client is on another character."""
+    live_guard.check("a lock window on forked characters (quest_run/job_run)", fake=window_faked())
     from evals.bench.devchar import default_switch
     from evals.bench.devrun import default_dev
     from tools.live_lock import held
@@ -609,6 +618,9 @@ def clone_window(wait_s: float, out: dict, out_file: Path):
                 print("STUCK: the client is not back on ClaudeDev; keeping the lock and retrying every 2 min")
                 time.sleep(120)
                 back = _on_main(sw, cli, tries=1)
+
+
+live_guard.mark_live(clone_window, "a lock window on forked characters (quest_run/job_run)")
 
 
 def _last_run() -> dict:

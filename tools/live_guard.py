@@ -14,7 +14,6 @@ The PowerShell side is Assert-LiveAllowed in tools/config.ps1 (same rules, exit 
 """
 from __future__ import annotations
 
-import functools
 import os
 from pathlib import Path
 from typing import Callable, Mapping
@@ -56,18 +55,12 @@ def check(what: str, fake: bool = False) -> None:
         raise LiveRefused(why)
 
 
-def live_entry(what: str) -> Callable:
-    """Mark a function as a live entry point and check the guard on every call (before any of its work)."""
-    def deco(fn: Callable) -> Callable:
-        @functools.wraps(fn)
-        def wrapper(*a, **k):
-            check(what)
-            return fn(*a, **k)
-        wrapper.dw_live_entry = what
-        return wrapper
-    return deco
+def mark_live(fn: Callable, what: str) -> Callable:
+    """Mark the real `fn` as a live part, so a caller can tell it from a test's fake put in its place (is_live)."""
+    fn.dw_live_entry = what
+    return fn
 
 
 def is_live(fn) -> bool:
-    """Is `fn` a real live entry point (not a test's fake put in its place)?"""
+    """Is `fn` a real live part (not a test's fake put in its place)?"""
     return getattr(fn, "dw_live_entry", None) is not None

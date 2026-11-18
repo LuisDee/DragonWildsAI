@@ -263,6 +263,9 @@ def held(owner: str, wait_s: float = 1800.0, pid: int | None = None, log=print, 
         log(f"live lock: {owner} released it")
 
 
+live_guard.mark_live(held, "the live lock")  # quest_run.window_faked tells it from a test's fake
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)

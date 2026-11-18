@@ -116,19 +116,26 @@ def test_job_run_window_refuses_under_pytest_without_a_fake_window(no_spawn, cap
     assert "under pytest" in capsys.readouterr().out
 
 
-def test_job_run_window_runs_with_a_fake_window(monkeypatch):
-    from tools import live_guard
+def test_a_window_is_faked_by_replacing_it_or_both_of_its_live_parts(monkeypatch):
+    from evals.bench import devchar
+    from tools import live_lock
     from tools import quest_run as q
-    assert live_guard.is_live(q.clone_window)
-    monkeypatch.setattr(q, "clone_window", lambda *a, **k: None)
-    assert not live_guard.is_live(q.clone_window)
+    assert not q.window_faked()
+    with monkeypatch.context() as m:
+        m.setattr(q, "clone_window", lambda *a, **k: None)  # tests/test_job_run.py
+        assert q.window_faked()
+    monkeypatch.setattr(live_lock, "held", lambda owner, wait_s=0: None)
+    assert not q.window_faked()  # the character switch is still the real one
+    monkeypatch.setattr(devchar, "default_switch", lambda dev: None)  # tests/test_quest_workflow.py
+    assert q.window_faked()
 
 
 def test_the_real_lock_window_refuses_under_pytest(no_spawn, tmp_path):
     from tools import live_guard
     from tools import quest_run as q
     with pytest.raises(live_guard.LiveRefused):
-        q.clone_window(1.0, {}, tmp_path / "w.jsonl")
+        with q.clone_window(1.0, {}, tmp_path / "w.jsonl"):
+            pytest.fail("the window opened")
 
 
 def test_claiming_the_real_lock_refuses_under_pytest_and_a_temp_lock_does_not(no_spawn, monkeypatch, tmp_path):

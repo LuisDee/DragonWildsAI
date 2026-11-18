@@ -2208,8 +2208,8 @@ def cmd_window(a, step: str | None) -> int:
     if not a.confirm:
         print("refusing: a live trial relaunches the client on forked characters; pass --confirm")
         return 2
-    from tools import live_guard  # a test passes a fake lock window (q.clone_window); a worktree needs DW_LIVE_OK=1
-    why = live_guard.why_refused("a job_run window", fake=not live_guard.is_live(q.clone_window))
+    from tools import live_guard  # a test passes a fake lock window (q.window_faked); a worktree needs DW_LIVE_OK=1
+    why = live_guard.why_refused("a job_run window", fake=q.window_faked())
     if why:
         print(why)
         return live_guard.REFUSED_RC

@@ -149,3 +149,6 @@ def default_switch(dev) -> CharacterSwitch:
         r = dev.server_debug({"part": "referee", "action": "probe"})
         return ((r.get("data") or {}).get("result") or {}).get("players") or []
     return CharacterSwitch(server_players=players, client_cmd=run_client_cmd)
+
+
+default_switch.dw_live_entry = "the character switch (client relaunch)"  # tools/live_guard.is_live
