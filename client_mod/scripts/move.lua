@@ -122,6 +122,9 @@ M.cfg = {
                                -- past him: the Bramblemead Wise Old Man's switchback reaches 12 m out, 18:31Z)
     leap_land_cm = 130,
     jump_land_cm = 130,        -- a jump onto another level has landed within this of its point, at the point's height
+    jump_gravity_cms2 = 1813,  -- his gravity in flight (GetGravityZ -1813, DISCOVERIES jump envelope): time to fall to a level
+    jump_coast_brake_cms2 = nil, -- his horizontal deceleration with no stick in the air; nil = the read
+                               -- BrakingDecelerationFalling (move: jump physics), else 0 (the engine default)
     takeoff_blocked_cm = 75,   -- within this of a jump's start (inside its 1 m cell) and no nearer for
     takeoff_blocked_s = 0.6,   -- ... this long, on the ground: he takes off from where he stands
     run_up_fast_cms = 150,     -- faster than this at a jump's takeoff and moving under run_up_cos toward the landing:
@@ -3400,7 +3403,7 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
     local function yn(b) return b == nil and "-" or (b and "1" or "0") end
     log(string.format("move: jump verdict=%s why=%s act=%s rise=%.0f run=%.0f k=%s/%s from=%s to=%s takeoff=%s"
         .. " takeoff_off=%s v0=%s v0h=%s toward=%s air=%.2f apex=%s nearest=%s at=%s feet_dz=%.0f"
-        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s vh2=%s vhn=%s in=%s/%s/%s airin=%s",
+        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s vh2=%s vhn=%s in=%s/%s/%s airin=%s letgo=%s",
         verdict, why, p.leap and "leap" or tostring(p.act), p.Z - a.Z, el, tostring(st.lwp), tostring(st.lpath and #st.lpath),
         p3(a), p3(p), p3(tk, hh), tk.X and f0(math.sqrt((tk.X - a.X) ^ 2 + (tk.Y - a.Y) ^ 2)) or "-",
         p3(vv), f0(vh), toward and string.format("%.2f", toward) or "-", t - (j.started or t),
@@ -3416,7 +3419,9 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
         -- stick the frame before the first press, the second press and the nearest pass (1/0); airborne frames with
         -- input / all airborne frames (djump-drift study 2026-11-18: 16 of 16 rock-step double jumps drifted 2.6 m)
         f0(j.vh2), f0(j.vhn), yn(j.in0), yn(j.in2), yn(j.inn),
-        j.air_n and string.format("%d/%d", j.air_in or 0, j.air_n) or "-"))
+        j.air_n and string.format("%d/%d", j.air_in or 0, j.air_n) or "-",
+        -- s after the first press that the drift first carried him to the landing and he let go (M.air_let_go)
+        j.let_go and string.format("%.2f", j.let_go - (j.started or j.let_go)) or "-"))
 end
 
 -- once per load, at the first typed jump: the movement values that govern his flight, by property (nil reads "-").
@@ -3439,6 +3444,33 @@ function M.jump_physics_line(pawn, log)
     M.jump_phys = vals
     if log then log("move: jump physics " .. table.concat(parts, " ")) end
     return vals
+end
+
+-- In the air on a typed jump: does the drift still to come carry him to the landing with no stick? From his speed
+-- toward the landing (horizontal), the time left to fall to its level (vz, gravity) and his deceleration with no
+-- input, a coast of `along * t - a t^2 / 2` (or along^2 / 2a once stopped) is set against the horizontal distance
+-- left. True: let go (a held stick only adds speed toward and past a small top). Moving away from it, or never
+-- coming back down to its level, keeps the stick (toward it, it brakes him). A platformer's air brake: release or
+-- counter-steer once momentum reaches the target (UE CharacterMovementComponent: with no input in the air only
+-- BrakingDecelerationFalling and FallingLateralFriction slow him; AirControl scales input). djump-drift study
+-- 2026-11-18: on the one-cell rock top he pushed at the cell all flight and came down 1.25-1.5 m past it, 16 of 16.
+-- Returns hold, distance left, speed toward it, coast, time to its level. A field (the main chunk's 200-local limit).
+function M.air_let_go(st, pawn, me, p)
+    local ok, vx, vy, vz = pcall(function() local u = pawn.CharacterMovement.Velocity; return u.X, u.Y, u.Z end)
+    if not (ok and type(vx) == "number" and type(vy) == "number" and type(vz) == "number") then return false end
+    local ex, ey = p.X - me.X, p.Y - me.Y
+    local d = math.sqrt(ex * ex + ey * ey)
+    if d < 1 then return true, d, 0, 0, 0 end -- over it: a push only takes him off it
+    local along = (vx * ex + vy * ey) / d
+    if along <= 0 then return false, d, along end
+    local g = M.cfg.jump_gravity_cms2
+    local disc = vz * vz + 2 * g * ((me.Z - (st.half_h or 88)) - p.Z)
+    if disc < 0 then return false, d, along end -- he does not come back down to its level
+    local tdown = (vz + math.sqrt(disc)) / g
+    if tdown <= 0 then return false, d, along end -- under its level and falling
+    local a = M.cfg.jump_coast_brake_cms2 or (M.jump_phys and M.jump_phys.BrakingDecelerationFalling) or 0
+    local coast = (a > 0 and along / a < tdown) and along * along / (2 * a) or along * tdown - 0.5 * a * tdown * tdown
+    return coast >= d, d, along, coast, tdown
 end
 
 local function steer_typed_jump(f, p)
@@ -3566,6 +3598,19 @@ local function steer_typed_jump(f, p)
         j.air_n, j.air_in = (j.air_n or 0) + 1, (j.air_in or 0) + (pushed and 1 or 0)
         if not j.nearest or dn < j.nearest then
             j.nearest, j.nearest_dz, j.vhn, j.inn = dn, (me.Z - (st.half_h or 88)) - p.Z, h_speed(st, pawn), pushed
+        end
+        -- once his drift still to come covers the distance left, no stick this frame (steer_input's no-input frame);
+        -- not while a double jump's second press is still to come (it changes the flight)
+        if not st.jump_double then
+            local okh, hold, dl, along, coast, tdown = pcall(M.air_let_go, st, pawn, me, p)
+            if okh and hold then
+                st.hold_gap = true
+                if not j.let_go then
+                    j.let_go = t
+                    if log then log(string.format("move: jump air: letting go %.0f cm from the landing (coast %.0f cm at %.0f cm/s, %.2f s to its level)",
+                        dl, coast, along, tdown)) end
+                end
+            end
         end
     end
     if j.saw_air and grounded == true then

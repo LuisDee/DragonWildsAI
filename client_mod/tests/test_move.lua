@@ -3692,8 +3692,65 @@ do
     local again = false
     for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump physics ", 1, true) then again = true end end
     check("jump physics: not logged again in the same load", not again, "")
+    lines = {}
+    M.jump_landing_line(mv, pawn, pawn:K2_GetActorLocation(), mv.lpath[2], { previous = mv.lpath[1], started = T - 1, let_go = T - 0.75 },
+        "missed", "far", T, cap)
+    check("landing line: letgo= says when he let go of the stick", lines[1] ~= nil and lines[1]:find("letgo=0.25", 1, true) ~= nil, tostring(lines[1]))
     cm.Velocity, cm.AirControl, cm.BrakingDecelerationFalling, cm.JumpZVelocity = nil, nil, nil, nil
     cm.MinimumAccelerationForDirectionalDoubleJumpAndDash = nil
+    M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- In the air on a typed jump he lets go of the stick once the drift still to come (his speed toward the landing over
+-- the time left to fall to its level) covers the distance left (djump-drift study 2026-11-18: on a one-cell rock top
+-- he pushed at the cell all flight and came down 1.25-1.5 m past it, 16 of 16). A long gap jump still steers; moving
+-- away from the landing, he pushes back at it; with the second press of a double jump still to come he steers on.
+do
+    local cm = pawn.CharacterMovement
+    local function airborne(dist, vh, vz, above, rise, act, pending)
+        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(5)
+        local mv = _G.DW_MOVE
+        local here = pawn.loc
+        mv.env = mv.env or {}; mv.env.double_jump, mv.env.dj_measured = true, true
+        mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X + 600, Y = here.Y, Z = FLOOR + rise, act = act or "djump" },
+            { X = here.X + 700, Y = here.Y, Z = FLOOR + rise, act = "walk" } }
+        mv.lwp = 2; mv.lp_jumped = {}; mv.lp_runup = nil
+        mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
+                            started = T - 0.6, saw_air = true }
+        mv.jump_t, mv.jump_double, mv.jump_release, mv.jump_t2 = nil, pending or false, false, nil
+        mv.trav_fails, mv.lp_fail = nil, nil
+        pawn.loc = { X = here.X + 600 - dist, Y = here.Y, Z = here.Z + rise + above }
+        local inputs, real_add = 0, pawn.AddMovementInput
+        pawn.AddMovementInput = function(self, d, sc) inputs = inputs + 1; return real_add(self, d, sc) end
+        frame_hook = function() cm.Velocity = { X = vh, Y = 0, Z = vz } end
+        local n0 = #logs
+        air = 0.5
+        step(1)
+        frame_hook = nil; pawn.AddMovementInput = real_add
+        local said
+        for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump air: letting go", 1, true) then said = logs[i] end end
+        return inputs, said, mv
+    end
+    -- the rock step: 60 cm short of the cell, 250 cm/s toward it, 87 cm over its level and falling (0.26 s to it)
+    local inputs, said, mv = airborne(60, 250, -100, 87, 230)
+    check("air: 60 cm from a top's cell with drift to spare, no stick this frame", inputs == 0 and said ~= nil
+        and mv.lp_jump_exec and mv.lp_jump_exec.let_go ~= nil, "inputs=" .. inputs .. " " .. tostring(said))
+    -- a long gap jump on one level: 4 m left at 300 cm/s, 0.33 s of flight left: he steers on
+    inputs, said = airborne(400, 300, 300, 0, 0, "jump")
+    check("air: a long gap jump still steers", inputs == 1 and said == nil, "inputs=" .. inputs .. " " .. tostring(said))
+    -- past the cell and moving on away from it: he pushes back at it (the stick toward it brakes him)
+    inputs, said = airborne(-60, 250, -100, 87, 230)
+    check("air: past the cell, moving away, he pushes back at it", inputs == 1 and said == nil, "inputs=" .. inputs .. " " .. tostring(said))
+    -- a double jump with its second press still to come: the flight is not yet known, he steers on
+    inputs, said = airborne(60, 250, 100, -100, 230, "djump", true)
+    check("air: before a double jump's second press he steers on", said == nil, "inputs=" .. inputs .. " " .. tostring(said))
+    -- under the top's level and rising too slowly to reach it: no coast to its level, he steers on
+    inputs, said = airborne(60, 250, 100, -200, 230)
+    check("air: never back up to the top's level, he steers on", inputs == 1 and said == nil, "inputs=" .. inputs .. " " .. tostring(said))
+    cm.Velocity = nil
     M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
