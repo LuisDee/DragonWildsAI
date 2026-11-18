@@ -431,7 +431,9 @@ class LiveSession:
         # loop's) thread: in line they run at once; from a background plan (DW_ASYNC_PLAN) the loop serves them.
         from .tool_registry import BodyProxy, planner_research
         from .knowledge_memory import KnowledgeMemory
-        self.planner_proxy = BodyProxy(self.client.call)
+        from . import plan_sources
+        # (the agent is made below; a read runs only once it is: craft_plan gets the Controller's facts, plan_sources)
+        self.planner_proxy = BodyProxy(lambda tool, args: plan_sources.body_read(self.agent, tool, args, via="planner"))
         self.planner_proxy.owner = threading.get_ident()
         research = None if os.environ.get("DW_PLANNER_RESEARCH", "1") == "0" else planner_research(
             self.knowledge, self.planner_proxy, set(self.caps.tools) | set(self.caps.manifest), self.caps.manifest,

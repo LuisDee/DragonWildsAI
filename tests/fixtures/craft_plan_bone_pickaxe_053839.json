@@ -1,0 +1,200 @@
+{
+ "about": "craft_plan Bone Pickaxe as the Planner's research got it in the first plan of logs/brain-live-20261118-053839-17676.jsonl (bridge_recv row 38; the raw client answer, never enriched): missing 4 Animal Bone and 24 Garou Chit (Animal Hide from trader Iasadair)",
+ "result": {
+  "ok": true,
+  "reason": null,
+  "data": {
+   "ready": false,
+   "missing": [
+    {
+     "name": "Animal Bone",
+     "count": 4,
+     "item": "ITEM_Resources_AnimalBone"
+    },
+    {
+     "name": "Garou Chit",
+     "count": 24,
+     "item": "ITEM_Resources_Currency_Chit_Garou"
+    }
+   ],
+   "quantity_mode": "additional_output",
+   "root": {
+    "crafts": 1,
+    "item": "ITEM_Pickaxe_Bone",
+    "station": "CraftingTable",
+    "inputs": [
+     {
+      "have": 4,
+      "status": "obtain",
+      "item": "ITEM_Resources_AnimalBone",
+      "short": 4,
+      "need": 8,
+      "name": "Animal Bone"
+     },
+     {
+      "gather": "ash",
+      "have": 1,
+      "status": "gather",
+      "item": "ITEM_Resources_Wood_Ash",
+      "short": 5,
+      "alternatives": [
+       {
+        "station": "Beartach",
+        "status": "missing_input",
+        "recipe": "DA_Recipe_Vendor_UmS_Buy_Wood_Ash",
+        "detail": "I need 15 Garou Chit for that and I have 0",
+        "short_of": [
+         {
+          "have": 0,
+          "name": "Garou Chit",
+          "need": 15,
+          "item": "ITEM_Resources_Currency_Chit_Garou"
+         }
+        ]
+       }
+      ],
+      "need": 6,
+      "name": "Ash Logs"
+     },
+     {
+      "have": 0,
+      "item": "ITEM_Resources_Leather",
+      "station": "Tannery",
+      "alternatives": [
+       {
+        "station": "Tannery",
+        "status": "missing_input",
+        "recipe": "RECIPE_Process_Leather_From_scraps",
+        "detail": "I need 12 Animal Hide Scraps for that and I have 7",
+        "short_of": [
+         {
+          "have": 7,
+          "name": "Animal Hide Scraps",
+          "need": 12,
+          "item": "ITEM_Resources_Skin_Scraps"
+         }
+        ]
+       }
+      ],
+      "inputs": [
+       {
+        "have": 0,
+        "item": "ITEM_Resources_Animal_Hide",
+        "station": "UmS_Merchant_Hunter",
+        "inputs": [
+         {
+          "have": 0,
+          "status": "obtain",
+          "item": "ITEM_Resources_Currency_Chit_Garou",
+          "short": 24,
+          "need": 24,
+          "name": "Garou Chit"
+         }
+        ],
+        "detail": "I need 24 Garou Chit for that and I have 0",
+        "name": "Animal Hide",
+        "short": 4,
+        "kind": "crafting",
+        "station_name": "Iasadair",
+        "recipe": "DA_Recipe_Vendor_UmS_Buy_Hide_Animal",
+        "need": 4,
+        "crafts": 4,
+        "status": "no_station"
+       }
+      ],
+      "detail": "I need 4 Animal Hide for that and I have 0",
+      "name": "Leather",
+      "short": 4,
+      "kind": "processing",
+      "station_name": "Tannery",
+      "recipe": "RECIPE_Process_Leather_From_Hide",
+      "need": 4,
+      "crafts": 4,
+      "status": "no_station"
+     }
+    ],
+    "status": "craft_after",
+    "recipe": "RECIPE_Pickaxe_Bone",
+    "short": 1,
+    "kind": "crafting",
+    "station_name": "Crafting Table",
+    "station_id": "BP_Crafting_StartingBench_C_2147472798",
+    "name": "Bone Pickaxe",
+    "need": 1,
+    "have": 0
+   },
+   "steps": [
+    {
+     "count": 4,
+     "name": "Animal Bone",
+     "do": "obtain",
+     "item": "ITEM_Resources_AnimalBone"
+    },
+    {
+     "gathered_before": "Ash Logs you've gathered before: 118 about 5 m NE at (153, 1910), last 04:20Z (19 min ago); 1 about 25 m E at (173, 1916), last 22:50Z (389.8 h ago); 2 about 25 m NE at (167, 1896), last 21:20Z (7.3 h ago). Picked spots regrow: crops have taken over an hour, sticks and stones about 40 min.",
+     "name": "Ash Logs",
+     "do": "gather",
+     "resource": "ash",
+     "count": 5,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "count": 24,
+     "name": "Garou Chit",
+     "do": "obtain",
+     "item": "ITEM_Resources_Currency_Chit_Garou"
+    },
+    {
+     "station": "UmS_Merchant_Hunter",
+     "do": "find_station",
+     "recipe": "DA_Recipe_Vendor_UmS_Buy_Hide_Animal",
+     "build_unlocked": false,
+     "name": "Iasadair"
+    },
+    {
+     "name": "Animal Hide",
+     "do": "craft",
+     "item": "ITEM_Resources_Animal_Hide",
+     "count": 4,
+     "recipe": "DA_Recipe_Vendor_UmS_Buy_Hide_Animal",
+     "station_name": "Iasadair",
+     "station": "UmS_Merchant_Hunter",
+     "crafts": 4
+    },
+    {
+     "station": "Tannery",
+     "do": "find_station",
+     "recipe": "RECIPE_Process_Leather_From_Hide",
+     "build": {
+      "short": "11 Ash Logs + 2 Coarse Thread",
+      "text": "a Tannery is a piece I have unlocked and can build (12 Ash Logs + 4 Animal Bone + 2 Coarse Thread; I'm short of 11 Ash Logs + 2 Coarse Thread)",
+      "can_build_now": false,
+      "piece": "Tannery",
+      "cost": "12 Ash Logs + 4 Animal Bone + 2 Coarse Thread"
+     },
+     "name": "Tannery"
+    },
+    {
+     "name": "Leather",
+     "do": "craft",
+     "item": "ITEM_Resources_Leather",
+     "count": 4,
+     "recipe": "RECIPE_Process_Leather_From_Hide",
+     "station_name": "Tannery",
+     "station": "Tannery",
+     "crafts": 4
+    },
+    {
+     "name": "Bone Pickaxe",
+     "do": "craft",
+     "item": "ITEM_Pickaxe_Bone",
+     "count": 1,
+     "recipe": "RECIPE_Pickaxe_Bone",
+     "station_name": "Crafting Table",
+     "station": "CraftingTable",
+     "crafts": 1
+    }
+   ]
+  }
+ }
+}

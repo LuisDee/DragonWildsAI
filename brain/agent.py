@@ -283,6 +283,7 @@ class Agent:
         self._directed_end = "normal"
         self._directed_origin = "board"  # "chat" while a chat command runs nested inside a board run (re-check 2)
         self._quiet_goal = False  # run_goal(quiet=True) inside board runs: no goal situations, no Planner replans
+        self._plan_asked: set[str] = set()  # the plan questions said beside the running goal (_plan_question)
         game.set_progress_listener(self._on_progress)
 
     # ---------------------------------------------------------------- events
@@ -1531,6 +1532,24 @@ class Agent:
         self.flush_situations()
         return "stuck"
 
+    def _plan_question(self, goal: str, question: str, tasks: list[Task]) -> None:
+        """A plan that comes with steps AND a question for the player: the steps run, and the question is said once
+        beside them; his answer, when it comes, is a line like any other (it takes over the job if he acts on it).
+        Park study 2026-11-18 (window l2_facts_1118i, runs 051943, 053839, 054931): every ask_help ended the job, even
+        one that came with steps; the stuck event handed the Controller the question to relay, he asked and parked,
+        and with the player away the copper job was dead 3 of 3 (0 of 25 replayed samples went on). A plan with no
+        steps and only a question still stops (_stuck). Body run beside the job: no request of its own (run_asked)."""
+        q = (question or "").strip()
+        if not q or self._quiet_goal or q.lower() in self._plan_asked:
+            return
+        self._plan_asked.add(q.lower())
+        self.log.log("plan_question", goal=goal, question=q, tasks=[t.skill for t in tasks])
+        self._situations.append({"type": "plan_question", "goal": goal, "question": q,
+                                 "steps": [_task_label(t) for t in tasks][:8],
+                                 "about": "your job's plan has this question for the player; its steps are running "
+                                          "now and go on meanwhile; his answer, when it comes, is his next line"})
+        self.flush_situations()
+
     @staticmethod
     def _replaces_job(d, event) -> bool:
         """Does this decision end the job now running? A player's words do (what he asks for now takes over), and so
@@ -1614,6 +1633,7 @@ class Agent:
         # its steps act on that ask while it is the open one: what the game tells them is kept with it (oa.keep_fact)
         mine = (asked.get("player"), asked["request"]) if isinstance(asked, dict) and asked.get("request") else None
         self._serving_ask = mine if oa.same_ask(mine, self._open_request) else None
+        plan_q = None  # the plan's question beside its steps (_plan_question)
         if given is None:
             try:
                 state = self.executor.state()
@@ -1623,8 +1643,11 @@ class Agent:
                 return self._stuck(goal, None, str(exc))
             if not plan.tasks:
                 return self._stuck(goal, None, "no plan", plan.ask_help)
-            given = plan.tasks
+            given, plan_q = plan.tasks, plan.ask_help
         tree = self.store.set_goal(goal, given)
+        self._plan_asked = set()
+        if plan_q:
+            self._plan_question(goal, plan_q, given)
         interrupts = 0
 
         while (task := tree.next_task()) is not None:
@@ -1657,10 +1680,12 @@ class Agent:
             except PlanError as exc:
                 return self._stuck(goal, task, str(exc))
             self.store.progress("replanned", goal=goal, explanation=new.explanation, ask_help=new.ask_help)
-            if new.ask_help or not new.tasks:
+            if not new.tasks:  # only a question (or nothing): the job stops honestly with its reason and the question
                 return self._stuck(goal, task, outcome.reason, new.ask_help)
             tree.tasks = [t for t in tree.tasks if t.done or t is task] + new.tasks
             self.store.save_tree()
+            if new.ask_help:  # steps AND a question: the steps run, the question is said beside them (_plan_question)
+                self._plan_question(goal, new.ask_help, new.tasks)
 
         if self._cancelled:
             tree.status = "interrupted"

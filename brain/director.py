@@ -277,20 +277,9 @@ class AgentPort:
         self.agent.controller.say(text, kind="notice")
 
     def body_read(self, tool: str, args: dict) -> dict:
-        res = self.agent.game.call(tool, args)
-        if tool == "craft_plan" and isinstance(res, dict) and res.get("ok"):
-            # the same facts the Controller's craft_plan gets (brain/plan_sources.py): sources and station builds
-            from . import plan_sources
-            ctl = self.agent.controller
-            try:
-                state = self.agent._fresh_state(reuse=True)
-            except Exception:  # a state that can't be read leaves the facts that don't need it
-                state = {}
-            res = plan_sources.enrich_result(
-                res, state=state, knowledge=getattr(ctl, "knowledge", None), places=getattr(ctl, "places", None),
-                spells=ctl.castable_spells() if (ctl.has("spells") or ctl.has("cast")) else None,
-                log=getattr(self.agent, "log", None))
-        return res
+        # the same facts the Controller's craft_plan gets (brain/plan_sources.py): sources and station builds
+        from . import plan_sources
+        return plan_sources.body_read(self.agent, tool, args, via="director")
 
     def first_call(self, call: dict) -> dict:
         return self.agent.run_first_call(call, self.player)

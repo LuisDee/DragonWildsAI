@@ -985,9 +985,8 @@ class Controller:
             # where each thing the plan cannot craft comes from (his spells, creatures that drop it, nodes, traders) and
             # whether a station he lacks is his to build (brain/plan_sources.py; facts, he decides)
             from . import plan_sources
-            res = plan_sources.enrich_result(res, state=getattr(self, "_state_for_reads", None) or {},
-                                             spells=self.castable_spells() if (self.has("spells") or self.has("cast")) else None,
-                                             knowledge=self.knowledge, places=getattr(self, "places", None), log=self.log)
+            res = plan_sources.enrich_for(res, self, getattr(self, "_state_for_reads", None) or {}, log=self.log,
+                                          via="controller")
         if call.name == "inventory" and res.get("ok"):
             # item stats from game data + numeric deltas to what is equipped (the model judges)
             res = {**res, "data": item_stats.enrich_inventory(res["data"], getattr(self, "_state_for_reads", None) or {})}

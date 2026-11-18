@@ -215,6 +215,8 @@ def fallback_line(events: list[dict]) -> str | None:
             from .controller import Controller  # local import: controller imports broker indirectly
             lines.append(Controller.stuck_line(str(e.get("goal") or "the job"), e.get("failed"), e.get("reason"),
                                                e.get("question")))
+        elif e.get("type") == "plan_question" and e.get("question"):  # agent._plan_question: its steps run on
+            lines.append(str(e["question"]).strip())
         elif e.get("type") == "chain_budget":  # agent._hand_on: the request's turns ran out (model silent or failed)
             req = str(e.get("request") or "").strip()
             lines.append(f"I've stopped partway through{' ' + repr(req[:80]) if req else ' that'}: I ran out of steps "

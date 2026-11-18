@@ -269,7 +269,7 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
         crafted = [(rid, r) for rid, r in recs if not all(is_vendor(x) for x in r.get("stations") or [])]
         if not crafted:  # first: a player's way to a raw material is the world; a trader is the alternative (long-jobs
             # 2026-11-02 02:12Z: the Flax card led with "buy from Domri" and he asked for chits instead of picking flax)
-            parts.append("No crafting recipe makes it (gathered, dropped or found in the world)"
+            parts.append(NO_RECIPE + " (gathered, dropped or found in the world)"
                          + ("; a trader also sells it (below)" if recs else ""))
         if recs:
             represented = (crafted + [pair for pair in recs if pair not in crafted])[:4]
@@ -786,6 +786,8 @@ class Knowledge:
                     if r["heading"]:
                         item["section"] = r["heading"]
                     item["url"] = r["url"]
+                elif r["kind"] == "item" and NO_RECIPE in r["body"] and (node := self._node_line(r["title"])):
+                    item["wiki_node"] = node
                 out.append(item)
         data: dict[str, Any] = {"query": query, "results": out, "note": NOTE}
         quest = next((r["title"] for r in out if r.get("source") == "wiki" and r.get("kind") == "quest"
@@ -797,6 +799,20 @@ class Knowledge:
         if not out:
             data["note"] = "Nothing found in game data or the wiki. Say you don't know rather than guess."
         return {"ok": True, "reason": None, "data": data}
+
+    def _node_line(self, title: str) -> dict | None:
+        """The wiki's node for a gathered item, beside that item's game-data card: the tool it takes and where it
+        grows. Park study 2026-11-18 (runs 053839, 054931): lookup "copper ore" led with the game card ("buy from
+        Beartach"), no tool and no region; "bone pickaxe or better" was only in the 5th result, and the Planner made a
+        Stone Pickaxe. Labelled wiki: the card stays game data."""
+        try:
+            nf = self.node_facts(title)
+        except Exception:  # the card stands without it
+            return None
+        if not nf:
+            return None
+        out = {"source": "wiki", "node": nf["title"], "tool": nf.get("tool"), "found_in": nf.get("location")}
+        return {k: v for k, v in out.items() if v}
 
     def node_facts(self, query: str) -> dict | None:
         """Where the wiki says a resource node is found and the tool it takes, for a resource named in ``query``
@@ -862,6 +878,7 @@ class Knowledge:
                 "unlock": unlock, "url": recipe[3]}
 
 
+NO_RECIPE = "No crafting recipe makes it"  # an item card's line for a thing gathered, dropped or found
 NODE_GENERIC = frozenset({"ore", "node", "tree", "plant", "bush", "rock", "deposit"})
 
 

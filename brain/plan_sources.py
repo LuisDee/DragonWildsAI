@@ -332,7 +332,7 @@ def _to_obtain(data: dict, n: dict, lines: list[str]) -> None:
     n["alternatives"] = [alt, *(n.get("alternatives") or [])]
 
 
-def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, log=None) -> dict:
+def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, log=None, via: str | None = None) -> dict:
     """Add the sources of what the plan can't craft (on its obtain steps; ``sources`` for the rest) and find_station
     ``build`` facts to a craft_plan result's data (in place; returned). ``log``: a JsonlLogger for the plan_sources
     line (what was added), when anything was."""
@@ -375,7 +375,8 @@ def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, 
     builds = [st.get("name") for st in data.get("steps") or [] if isinstance(st, dict) and st.get("do") == "find_station"
               and isinstance(st.get("build"), dict) and "wiki" in st["build"]]
     if log is not None and (found or builds):
-        log.log("plan_sources", sources=sorted(found), trader_to_obtain=converted, wiki_builds=builds)
+        log.log("plan_sources", sources=sorted(found), trader_to_obtain=converted, wiki_builds=builds,
+                **({"via": via} if via else {}))
     return data
 
 
@@ -386,6 +387,34 @@ def enrich_result(res: dict, **kw) -> dict:
             enrich(res["data"], **kw)
         except Exception:  # never break a read on the facts it adds
             pass
+    return res
+
+
+def enrich_for(res: dict, ctl, state: dict | None, log=None, via: str | None = None) -> dict:
+    """``enrich_result`` with what the Controller ``ctl`` knows (its knowledge index, map names, castable spells): the
+    one way every brain caller of craft_plan gets these facts (the Controller's read, the Director's body read, the
+    Planner's research). Runs on the agent loop's thread (castable spells may read the body)."""
+    try:
+        spells = ctl.castable_spells() if (ctl.has("spells") or ctl.has("cast")) else None
+    except Exception:  # the facts that need no spells still come
+        spells = None
+    return enrich_result(res, state=state or {}, spells=spells, knowledge=getattr(ctl, "knowledge", None),
+                         places=getattr(ctl, "places", None), log=log, via=via)
+
+
+def body_read(agent, tool: str, args: dict, via: str | None = None) -> dict:
+    """A body read as a brain caller off the Controller's turn gets it (the Director's reads, the Planner's research
+    through its BodyProxy): the client's answer; a craft_plan's with ``enrich_for`` over fresh state. Park study
+    2026-11-18 (run 053839): the Planner's craft_plan Bone Pickaxe went through the raw client call and read "24 Garou
+    Chit, trader Iasadair", while the same read enriched showed Bark to Bones, Deer drops and a buildable Tannery; it
+    chose the Stone Pickaxe, which cannot mine copper. None of three windows had a plan_sources row."""
+    res = agent.game.call(tool, args)
+    if tool == "craft_plan" and isinstance(res, dict) and res.get("ok"):
+        try:
+            state = agent._fresh_state(reuse=True)
+        except Exception:  # a state that can't be read leaves the facts that don't need it
+            state = {}
+        res = enrich_for(res, agent.controller, state, log=getattr(agent, "log", None), via=via)
     return res
 
 

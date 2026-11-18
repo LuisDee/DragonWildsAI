@@ -183,3 +183,83 @@ def test_real_wiki_tannery_build_facts():
     assert f["cost"] == [("Ash Logs", 12), ("Animal Bone", 4), ("Coarse Thread", 2)] and f["skill"] == "Construction"
     assert "animal bone" in f["unlock"].lower()
     assert Knowledge().build_facts("Iasadair") is None
+
+
+# ------------------------------------------------------------------------------ every caller of craft_plan (park study)
+# Park study 2026-11-18 (window l2_facts_1118i, run 053839): the Planner's research read craft_plan Bone Pickaxe through
+# the raw client call (run_live's BodyProxy) and got "24 Garou Chit, trader Iasadair"; it made a Stone Pickaxe, which
+# cannot mine copper. None of three windows had a plan_sources row. Fixture: that read as the client answered it.
+
+LOGGED = json.loads((Path(__file__).parent / "fixtures" / "craft_plan_bone_pickaxe_053839.json").read_text(encoding="utf-8"))
+
+
+class _Ctl:
+    """What plan_sources.body_read takes from the Controller: has, castable spells, knowledge, places."""
+    knowledge, places = KB(), None
+
+    def has(self, tool):
+        return tool in ("spells", "cast")
+
+    def castable_spells(self):
+        return [BARK]
+
+
+class _Agent:
+    def __init__(self, log, answer):
+        self.log, self.controller, self.answer = log, _Ctl(), answer
+        self.game = self
+
+    def call(self, tool, args):
+        return copy.deepcopy(self.answer) if tool == "craft_plan" else {"ok": True, "data": {"tool": tool}}
+
+    def _fresh_state(self, reuse=False):
+        return {"inventory": {"ITEM_Resources_AnimalBone": 4}}
+
+
+def test_the_planners_craft_plan_research_carries_the_sources(tmp_path):
+    from brain.jsonl_log import JsonlLogger
+    from brain.llm import FakeLLM
+    from test_tool_registry import planner, rows as log_rows
+    agent = _Agent(JsonlLogger(tmp_path / "brain.jsonl"), LOGGED["result"])
+    p, llm, path, _ = planner(tmp_path, FakeLLM.say("", FakeLLM.call("craft_plan", item="Bone Pickaxe")),
+                              FakeLLM.plan([{"skill": "gather", "args": {"resource": "ash", "count": 5}}]),
+                              body=lambda t, a: ps.body_read(agent, t, a, via="planner"))
+    p.plan("mine copper", {}, {})
+    got = json.loads(next(m["content"] for m in llm.calls[1]["messages"] if m["role"] == "tool"))
+    bone = sources(got["data"], "Animal Bone")
+    assert bone[0].startswith("spell Bark to Bones") and "castable now" in bone[0], bone
+    hide = sources(got["data"], "Animal Hide")
+    assert any(s.startswith("drop: ") for s in hide), hide
+    tannery = next(s for s in got["data"]["steps"] if s.get("do") == "find_station" and s.get("name") == "Tannery")
+    assert tannery["build"]["cost"]
+    row = log_rows(path, "plan_sources")[0]
+    assert row["via"] == "planner" and "Animal Bone" in row["sources"]
+
+
+def test_a_body_read_that_is_not_a_craft_plan_is_the_clients_answer(tmp_path):
+    from brain.jsonl_log import JsonlLogger
+    agent = _Agent(JsonlLogger(tmp_path / "b.jsonl"), LOGGED["result"])
+    assert ps.body_read(agent, "buildables", {}) == {"ok": True, "data": {"tool": "buildables"}}
+    failed = {"ok": False, "reason": "ambiguous_target", "data": {"detail": "which one?"}}
+    agent.answer = failed
+    assert ps.body_read(agent, "craft_plan", {"item": "Pickaxe"}) == failed
+
+
+def test_the_director_reads_craft_plan_through_the_same_function(monkeypatch):
+    from brain.director import AgentPort
+    seen = []
+    monkeypatch.setattr(ps, "body_read", lambda agent, tool, args, via=None: seen.append((tool, via)) or {"ok": True})
+    AgentPort(object(), "Luis").body_read("craft_plan", {"item": "Bone Pickaxe"})
+    assert seen == [("craft_plan", "director")]
+
+
+@needs_wiki
+def test_lookup_puts_the_wiki_node_tool_beside_a_gathered_items_game_card():
+    """Park study: lookup "copper ore" led with the game card ("buy from Beartach"), no tool, no region; "bone pickaxe
+    or better" came only in the 5th (wiki) result."""
+    first = Knowledge().lookup("copper ore")["data"]["results"][0]
+    assert first["authoritative"] and first["title"] == "Copper Ore"
+    node = first["wiki_node"]
+    assert node["source"] == "wiki" and "bone pickaxe" in node["tool"].lower() and "Fractured Plains" in node["found_in"]
+    crafted = next(r for r in Knowledge().lookup("bone pickaxe")["data"]["results"] if r["authoritative"])
+    assert "wiki_node" not in crafted
