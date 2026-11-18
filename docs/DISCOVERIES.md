@@ -3652,3 +3652,8 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
 - **Intake per attacker ~ the game's mean attack damage (DT_AIAttackDamage) x 0.024 per s** (Giant Rat 18 -> 0.43/s; real 0.26-1.26/s per rat in long fights). defense.lua's per-attack rate read 2-3x low ("182 s to die" vs 80 s real).
 - **Spread (20th-80th percentile of real / estimate):** kill x0.85-x2.7, die x0.35-x1.6. Die times stay the weak half (x1.65-1.9 median error, 17-31 fights with a real time to die).
 - **Not modelled:** a ranged creature against his melee (he dealt 0 to archers in 3 fights), the first-seen pack vs the pack that joins, PL scaling of a creature's damage (the 100 HP rat hit no harder than the 50 HP one). Goblin Archer and Goblin Warrior have no matched game attack rows: "unknown" until 2 fights of his own.
+
+### Bark to Bones placement limits (live probe 2026-11-18 15:16Z, client build 26658295, spell_reach_probe.lua)
+- The spellcasting component places a spell between **750 and 1500 cm from the camera** (live; the class defaults are 500 and 2000), clamp 10000, step 50.
+- `USD_Treequipment`: placed, CameraTraceDistance 0, CameraTraceIgnoreDistance 400 cm, no max-distance override (1500), not snapped to a surface (`surface false`), no custom trace, trace profile **NoCollision**, no modules; reach 15 m from the component.
+- Live today, both casts with the 3 s settle still failed "requires tree" with the preview 3.7 m from the Ash Tree (runs 20261118-145610 and 150751-L2-V1). Hypothesis, not yet checked: with a NoCollision trace and no surface snap, the aim ray passes the trunk and the preview lands on the ground beyond it.
