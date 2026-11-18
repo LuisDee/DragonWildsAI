@@ -354,3 +354,42 @@ def test_restore_without_an_undo_and_a_half_way_stop_names_its_undo(tmp_path, mo
     with pytest.raises(ws.Refused, match="half way") as e:
         r.s.restore("base")
     assert e.value.undo == "undo-20261118T110740Z"
+
+
+def _ledger(path, pieces):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"v": 1, "world": "dev", "pieces": pieces, "left": []}), encoding="utf-8")
+
+
+def test_his_ledger_goes_with_the_world(tmp_path):
+    # 2026-11-18: restoring `base` removed the Spinning Wheel he built, while my_pieces.json still listed it
+    r = Rig(tmp_path)
+    led = tmp_path / "skills" / "dev" / "my_pieces.json"
+    r.s.ledgers = (led,)
+    _ledger(led, [{"piece": "Crate", "noted": "2026-11-01T00:00:00Z"}])
+    man = r.s.keep("base")
+    assert "dev__my_pieces.json" in man["side"] and r.s.verify("base")["ok"] is True
+    _ledger(led, [{"piece": "Crate", "noted": "2026-11-01T00:00:00Z"}, {"piece": "Wheel", "noted": "2026-11-18T12:00:00Z"}])
+    r.now += 60
+    res = r.s.restore("base")
+    assert [p["piece"] for p in json.loads(led.read_text())["pieces"]] == ["Crate"]
+    assert "copy kept with base" in res["ledgers"][0]
+    undo = res["undo"]  # the ledger as it stood is kept with the undo
+    assert "Wheel" in (r.root / undo / "side" / "dev__my_pieces.json").read_text()
+
+
+def test_a_snapshot_without_a_kept_ledger_cuts_it_back_to_its_time(tmp_path):
+    r = Rig(tmp_path)
+    r.s.keep("old")  # kept before ledgers went with the world
+    led = tmp_path / "skills" / "dev" / "my_pieces.json"
+    r.s.ledgers = (led,)
+    taken = r.s.manifest("old")["taken_at"]
+    _ledger(led, [{"piece": "Crate", "noted": "2026-11-01T00:00:00Z"}, {"piece": "Wheel", "noted": "2099-01-01T00:00:00Z"}])
+    r.now += 60
+    res = r.s.restore("old")
+    assert [p["piece"] for p in json.loads(led.read_text())["pieces"]] == ["Crate"]
+    assert f"1 entry noted after {taken} dropped" in res["ledgers"][0]
+
+
+def test_a_hand_built_store_touches_no_ledger():
+    assert ws.Store().ledgers == ()

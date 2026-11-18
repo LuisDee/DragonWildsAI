@@ -188,6 +188,12 @@ class Store:
     joins: Callable[[], tuple[list[tuple[str, str]], str | None]] = lambda: server_joins()
     own_names: tuple[str, ...] = OWN_NAMES
     clock: Callable[[], float] = time.time
+    # His own ledgers of the world (what he built, what he left): they describe THIS world, so they go with it. Kept
+    # beside the world under side/<name>; restored from there, or, from a snapshot that has none, cut back to the
+    # entries noted before it was taken (2026-11-18: restores of `base` removed the roofed house's Spinning Wheel he
+    # built at 10:48Z while my_pieces.json kept it, and he was told of a wheel that was not there). default_store()
+    # names the live one; a Store built by hand (tests) has none.
+    ledgers: tuple[Path, ...] = ()
 
     # ------------------------------------------------------------------------------------------------ reading
     def world_files(self) -> list[str]:
@@ -240,8 +246,16 @@ class Store:
                 missing.append(rel)
             elif p.stat().st_size != rec["size"] or sha256(p) != rec["sha256"]:
                 changed.append(rel)
+        side = man.get("side") or {}
+        for name, rec in side.items():
+            p = d / "side" / name
+            if not p.is_file():
+                missing.append(f"side/{name}")
+            elif sha256(p) != rec.get("sha256"):
+                changed.append(f"side/{name}")
         extra = sorted(p.relative_to(d).as_posix() for p in d.rglob("*")
-                       if p.is_file() and p.name != "manifest.json" and p.relative_to(d).as_posix() not in man["files"])
+                       if p.is_file() and p.name != "manifest.json" and p.relative_to(d).as_posix() not in man["files"]
+                       and p.relative_to(d).as_posix() not in {f"side/{n}" for n in side})
         return {"ok": not (missing or changed or extra), "label": label, "files": len(man["files"]),
                 "missing": missing, "changed": changed, "extra": extra}
 
@@ -306,10 +320,20 @@ class Store:
                 total += st.st_size
             if self.running() is not False or self.world_files() != files:
                 raise Refused("the server started, or the world's file list changed, during the copy: nothing kept")
+            side = {}
+            for led in self.ledgers:
+                if Path(led).is_file():
+                    name = f"{Path(led).parent.name}__{Path(led).name}"  # data/skills/dev/my_pieces.json -> dev__my_pieces.json
+                    to = tmp / "side" / name
+                    to.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(led, to)
+                    side[name] = {"path": str(led), "sha256": sha256(to), "size": to.stat().st_size}
             man = {"schema": SCHEMA, "label": label, "note": note,
                    "taken_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.clock())),
                    "build": self.build(), "source": str(self.saved), "dirs": list(self.dirs),
                    "total_bytes": total, "files": recs}
+            if side:
+                man["side"] = side
             if _undo_of is not None:
                 man["before_restore_of"] = _undo_of
             (tmp / "manifest.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
@@ -390,12 +414,43 @@ class Store:
         if bad or stray or self.running() is not False:
             raise torn(f"restore of {label} did not verify (wrong sha256: {bad}; files not in the snapshot: {stray}; "
                        f"server running: {self.running()}): do not start the server on it; {back}")
-        return {"restored": label, "files": len(man["files"]), "bytes": man.get("total_bytes"), "undo": undo_label,
-                "to": str(self.saved)}
+        out = {"restored": label, "files": len(man["files"]), "bytes": man.get("total_bytes"), "undo": undo_label,
+               "to": str(self.saved)}
+        if self.ledgers:
+            out["ledgers"] = [x for x in (self._ledger_back(led, label, man) for led in self.ledgers) if x]
+        return out
+
+    def _ledger_back(self, led: Path, label: str, man: dict) -> str | None:
+        """Put one ledger back as it was when `label` was taken: its kept copy, else its entries noted up to then."""
+        led = Path(led)
+        name = f"{led.parent.name}__{led.name}"
+        rec = (man.get("side") or {}).get(name)
+        if rec:
+            led.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.root / label / "side" / name, led)
+            return f"{led.name}: the copy kept with {label}"
+        if not led.is_file() or not man.get("taken_at"):
+            return None
+        try:
+            doc = json.loads(led.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return f"{led.name}: unreadable, left as it is"
+        cut, dropped = man["taken_at"], 0
+        for key in ("pieces", "left"):
+            rows = doc.get(key)
+            if isinstance(rows, list):
+                keep = [r for r in rows if not (isinstance(r, dict) and str(r.get("noted") or "") > cut)]
+                dropped += len(rows) - len(keep)
+                doc[key] = keep
+        if dropped:
+            tmp = led.with_suffix(led.suffix + ".tmp")
+            tmp.write_text(json.dumps(doc, indent=1), encoding="utf-8")
+            os.replace(tmp, led)
+        return f"{led.name}: {dropped} entr{'y' if dropped == 1 else 'ies'} noted after {cut} dropped (no copy kept with {label})"
 
 
 def default_store() -> Store:
-    return Store()
+    return Store(ledgers=(paths.LIVE_ROOT / "data" / "skills" / "dev" / "my_pieces.json",))
 
 
 def _print_plan(pl: dict, confirm: bool, out=print) -> None:
@@ -461,7 +516,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         res = s.restore(a.label, a.others_ok)
         print(f"restored {res['restored']}: {res['files']} files, {_mb(res['bytes'] or 0)}, every sha256 checked; "
-              f"the world before it is kept as {res['undo']}")
+              f"the world before it is kept as {res['undo']}"
+              + "".join(f"; ledger {x}" for x in res.get("ledgers") or []))
         return 0
     except Refused as exc:
         print(f"refused: {exc}")
