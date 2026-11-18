@@ -1763,6 +1763,11 @@ def build(mirror: Mirror | None = None, probe: dict | None = None) -> dict:
         add_sections(doc, mirror)
     except Exception as exc:  # a broken places file costs the regions, never the bestiary
         print(f"regions not added: {exc!r}", file=sys.stderr)
+    try:  # per vault: door (game or wiki map centre), province, entry, boss detail, metabot counts, Umbral Sands vaults
+        from tools.build_vaults import add_vaults
+        add_vaults(doc, mirror)
+    except Exception as exc:  # a broken vault step costs the vault fields, never the bestiary
+        print(f"vault fields not added: {exc!r}", file=sys.stderr)
     return doc
 
 

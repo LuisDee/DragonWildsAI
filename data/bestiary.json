@@ -6822,7 +6822,7 @@
      "game"
     ]
    },
-   "text": "Kalphite Queen: creature, mini boss.\nKalphite queens are the ruling heart of kalphite hives in the Umbral Sands, creating soldiers, workers, and guardians as needed to ensure the hive survives and thrives.\nFirst form: power level 7, health 5500. Second form: power level 7, health 5500.\nRace: Kalphite. Weak to: not in the mirror. Immune: Can be immune to any attack style. Aggressive: Yes. Respawn: 2 Days.\nLives in: Umbral Sands.\nAttacks: Red shade; Blue shade; Green shade.\nDrops in the game's tables: from power level 0: Greater Kalphite Wing 2-4 (always), Kalphite Ichor 6-12 (always), Kalphite Shell 5-8 (always), Ornate Golden Scarab 1 (always), Poison Ichor 3-6 (always), Crucible Engram of Helplessness 1 (always), Crucible Engram of Betrayal 1 (always), Crucible Engram of the Hounded 1 (always), Crucible Engram of Humiliation 1 (always), MOUNT: Moonsilk Weave 1 (always).\nDrops: Greater Kalphite Wing 2-4 (always), Kalphite Shell 5-8 (always), Kalphite Ichor 6-12 (always), Poison Ichor 3-6 (always), Ornate Golden Scarab 1 (5/100), MOUNT: Moonsilk Weave 1 (5/100), Crucible Engram of Helplessness 1 (1/40), Crucible Engram of Betrayal 1 (1/40), Crucible Engram of the Hounded 1 (1/40), Crucible Engram of Humiliation 1 (1/40).\nSources: wiki pages 2128, 13941; the game's own data on his client (journal, drops)."
+   "text": "Kalphite Queen: creature, mini boss.\nKalphite queens are the ruling heart of kalphite hives in the Umbral Sands, creating soldiers, workers, and guardians as needed to ensure the hive survives and thrives.\nFirst form: power level 7, health 5500. Second form: power level 7, health 5500.\nRace: Kalphite. Weak to: not in the mirror. Immune: Can be immune to any attack style. Aggressive: Yes. Respawn: 2 Days.\nLives in: Umbral Sands.\nAttacks: Red shade; Blue shade; Green shade.\nDrops in the game's tables: from power level 0: Greater Kalphite Wing 2-4 (always), Kalphite Ichor 6-12 (always), Kalphite Shell 5-8 (always), Ornate Golden Scarab 1 (always), Poison Ichor 3-6 (always), Crucible Engram of Helplessness 1 (always), Crucible Engram of Betrayal 1 (always), Crucible Engram of the Hounded 1 (always), Crucible Engram of Humiliation 1 (always), MOUNT: Moonsilk Weave 1 (always).\nDrops: Greater Kalphite Wing 2-4 (always), Kalphite Shell 5-8 (always), Kalphite Ichor 6-12 (always), Poison Ichor 3-6 (always), Ornate Golden Scarab 1 (5/100), MOUNT: Moonsilk Weave 1 (5/100), Crucible Engram of Helplessness 1 (1/40), Crucible Engram of Betrayal 1 (1/40), Crucible Engram of the Hounded 1 (1/40), Crucible Engram of Humiliation 1 (1/40).\nManafem Kara is in Umbral Sands (Umbral Sands).\nSources: wiki pages 2128, 13941; the game's own data on his client (journal, drops)."
   },
   "Kalphite Soldier": {
    "kind": "creature",
@@ -9141,7 +9141,7 @@
      "game"
     ]
    },
-   "text": "Plague King: creature, vault boss in Kletterbuja Kara.\nPlague kings are power level 2-3 monster, a bigger version of the putrid rats.\nWhispering Swamp: power level 2, health 300. Bloodblight Swamp: power level 3, health 488.\nRace: Rat. Weak to Crush. Resistant to Stab. Immune to Poison. Aggressive: yes.\nLives in: Whispering Swamp, Bloodblight Swamp, Vertentis Kara vault.\nIn vaults or dungeons: Kletterbuja Kara (1, power level 3); Vertentis Kara (Unknown, power level 2).\nAttacks: not in the mirror.\nDrops: Raw Rat Meat 3 (always), Swamp Tar 3 (always), Animal Hide Scraps 3 (always), Small Animal Fang 3 (always), Poison Ichor 1 (always).\nSources: wiki pages 1325, 2128, 3517, 3520; the game's own data on his client (journal)."
+   "text": "Plague King: creature, vault boss in Kletterbuja Kara.\nPlague kings are power level 2-3 monster, a bigger version of the putrid rats.\nWhispering Swamp: power level 2, health 300. Bloodblight Swamp: power level 3, health 488.\nRace: Rat. Weak to Crush. Resistant to Stab. Immune to Poison. Aggressive: yes.\nLives in: Whispering Swamp, Bloodblight Swamp, Vertentis Kara vault.\nIn vaults or dungeons: Kletterbuja Kara (1, power level 3); Vertentis Kara (Unknown, power level 2).\nAttacks: not in the mirror.\nDrops: Raw Rat Meat 3 (always), Swamp Tar 3 (always), Animal Hide Scraps 3 (always), Small Animal Fang 3 (always), Poison Ichor 1 (always).\nKletterbuja Kara is in Bloodblight Swamp (Ghornfell), door at (1170.0, 1680.0) m [wiki map centre].\nSources: wiki pages 1325, 2128, 3517, 3520; the game's own data on his client (journal)."
   },
   "Putrid Rat": {
    "kind": "creature",
@@ -9622,7 +9622,7 @@
      "game"
     ]
    },
-   "text": "Rat King: creature, vault boss in Vertentis Kara and Kalistrakthen Kara.\nRat kings are boss-like versions of the rat monster with higher attack accuracy and higher hitpoints.\nPower level 2, health 280. Power level 5, health 805. Power level 9, health 1,505.\nRace: Rat. Weak to Stab. Resistant to Crush. Aggressive: yes.\nLives in: Vertentis Kara, Kalistrakthen Kara, Scorned Wilderness.\nIn vaults or dungeons: Kalistrakthen Kara (1, power level 5); Vertentis Kara (1, power level 2).\nAttacks: not in the mirror.\nDrops: Raw Rat Meat 3 (always), Coarse Animal Fur 3 (always), Animal Hide Scraps 3 (always), Small Animal Fang 3 (always).\nSources: wiki pages 1327, 2128, 3517, 9234; the game's own data on his client (journal)."
+   "text": "Rat King: creature, vault boss in Vertentis Kara and Kalistrakthen Kara.\nRat kings are boss-like versions of the rat monster with higher attack accuracy and higher hitpoints.\nPower level 2, health 280. Power level 5, health 805. Power level 9, health 1,505.\nRace: Rat. Weak to Stab. Resistant to Crush. Aggressive: yes.\nLives in: Vertentis Kara, Kalistrakthen Kara, Scorned Wilderness.\nIn vaults or dungeons: Kalistrakthen Kara (1, power level 5); Vertentis Kara (1, power level 2).\nAttacks: not in the mirror.\nDrops: Raw Rat Meat 3 (always), Coarse Animal Fur 3 (always), Animal Hide Scraps 3 (always), Small Animal Fang 3 (always).\nKalistrakthen Kara is in Emberwood (Fellhollow), door at (343.8, -515.8) m [wiki map centre].\nVertentis Kara is in Whispering Swamp (Brynmoor), door at (1025.0, 1435.0) m [wiki map centre].\nSources: wiki pages 1327, 2128, 3517, 9234; the game's own data on his client (journal)."
   },
   "Rat Master Skrexis": {
    "kind": "creature",
@@ -13430,7 +13430,7 @@
      "game"
     ]
    },
-   "text": "Vault Archon: creature, vault boss in Thishepen Kara.\nVault archons are vault mini boss monsters that attack with Ranged styles.\nPower level 2, health 3100.\nRace: Vault Guardian. Weak to Crush. Resistant to None. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Thishepen Kara (1, power level 2).\nAttacks in the game's data (base damage before armour): VaultArchonEarthjavelinleft (26 damage); VaultArchonEarthjavelinright (26 damage); VaultArchonEarthshaker (18 damage); VaultArchonEarthshakerlarge (26 damage).\nDrops: Stone 5 (always), Stone 5 (25/100), Rune Essence 3 (75/100), Rune Essence 3 (46/100), Vault Shard 2 (25/100), Vault Shard 3 (15/100).\nSources: wiki pages 1328, 2128, 3516; metabot.gg datamined bestiary (weak to, resistant to, immune to); the game's own data on his client (journal, attacks)."
+   "text": "Vault Archon: creature, vault boss in Thishepen Kara.\nVault archons are vault mini boss monsters that attack with Ranged styles.\nPower level 2, health 3100.\nRace: Vault Guardian. Weak to Crush. Resistant to None. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Thishepen Kara (1, power level 2).\nAttacks in the game's data (base damage before armour): VaultArchonEarthjavelinleft (26 damage); VaultArchonEarthjavelinright (26 damage); VaultArchonEarthshaker (18 damage); VaultArchonEarthshakerlarge (26 damage).\nDrops: Stone 5 (always), Stone 5 (25/100), Rune Essence 3 (75/100), Rune Essence 3 (46/100), Vault Shard 2 (25/100), Vault Shard 3 (15/100).\nThishepen Kara is in Bramblemead Valley (Brynmoor), door at (250.0, 1495.0) m [wiki map centre].\nSources: wiki pages 1328, 2128, 3516; metabot.gg datamined bestiary (weak to, resistant to, immune to); the game's own data on his client (journal, attacks)."
   },
   "Vault Corruptor": {
    "kind": "creature",
@@ -13536,7 +13536,7 @@
      2128
     ]
    },
-   "text": "Vault Corruptor: creature, vault boss in Skeklac Kara.\nVault corruptors are vault monsters that attack with melee and poison.\nPower level 4, health 2925.\nRace: Vault Guardian. Weak to Water. Resistant to Fire. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Skeklac Kara (1, power level 4).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nSources: wiki pages 2128, 3519, 12229."
+   "text": "Vault Corruptor: creature, vault boss in Skeklac Kara.\nVault corruptors are vault monsters that attack with melee and poison.\nPower level 4, health 2925.\nRace: Vault Guardian. Weak to Water. Resistant to Fire. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Skeklac Kara (1, power level 4).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nSkeklac Kara is in Fractured Plains (Ghornfell), door at (1375.0, 757.0) m [wiki map centre].\nSources: wiki pages 2128, 3519, 12229."
   },
   "Vault Guardian Hulk": {
    "kind": "creature",
@@ -13968,7 +13968,7 @@
      2128
     ]
    },
-   "text": "Vault Incinerator: creature, vault boss in Takla Kara.\nVault incinerators are vault monsters that attack with melee and fire styles.\nPower level 3, health 2112.\nRace: Vault Guardian. Weak to Water. Resistant to Fire. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Takla Kara (1, power level 3).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nSources: wiki pages 2128, 3518, 10017."
+   "text": "Vault Incinerator: creature, vault boss in Takla Kara.\nVault incinerators are vault monsters that attack with melee and fire styles.\nPower level 3, health 2112.\nRace: Vault Guardian. Weak to Water. Resistant to Fire. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Takla Kara (1, power level 3).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nTakla Kara is in Fractured Plains (Ghornfell), door at (715.0, 1200.0) m [wiki map centre].\nSources: wiki pages 2128, 3518, 10017."
   },
   "Vault Overlord": {
    "kind": "creature",
@@ -14286,7 +14286,7 @@
      2128
     ]
    },
-   "text": "Vault Pyroclast: creature, vault boss in Chaktan Kara.\nVault pyroclasts are vault monsters that attack with melee and fire styles.\nPower level 4, health 2925.\nRace: Vault Guardian. Weak to Water. Resistant to Fire. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Chaktan Kara (1, power level 4).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nSources: wiki pages 2128, 3521, 12227."
+   "text": "Vault Pyroclast: creature, vault boss in Chaktan Kara.\nVault pyroclasts are vault monsters that attack with melee and fire styles.\nPower level 4, health 2925.\nRace: Vault Guardian. Weak to Water. Resistant to Fire. Immune to Poison, Bleed and Burning. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Chaktan Kara (1, power level 4).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nChaktan Kara is in Stormtouched Highlands (Ghornfell), door at (150.0, 800.0) m [wiki map centre].\nSources: wiki pages 2128, 3521, 12227."
   },
   "Vault Striker": {
    "kind": "creature",
@@ -14372,7 +14372,7 @@
      2128
     ]
    },
-   "text": "Vault Striker: creature, vault boss in Kalistrakthen Kara.\nVault strikers are vault mini-boss monsters that attack with melee and Shock styles.\nPower level 5, health 3738.\nRace: Vault Guardian. Weak to: not in the mirror. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Kalistrakthen Kara (1, power level 5).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nSources: wiki pages 2128, 9234, 12434."
+   "text": "Vault Striker: creature, vault boss in Kalistrakthen Kara.\nVault strikers are vault mini-boss monsters that attack with melee and Shock styles.\nPower level 5, health 3738.\nRace: Vault Guardian. Weak to: not in the mirror. Aggressive: yes.\nLives in: Vaults.\nIn vaults or dungeons: Kalistrakthen Kara (1, power level 5).\nAttacks: not in the mirror.\nDrops: Stone 30 (always), Stone 5 (), Rune Essence (), Rune Essence (), Vault Shard ().\nKalistrakthen Kara is in Emberwood (Fellhollow), door at (343.8, -515.8) m [wiki map centre].\nSources: wiki pages 2128, 9234, 12434."
   },
   "Velgar": {
    "kind": "creature",
@@ -16015,9 +16015,11 @@
    "aliases": [
     "Chaktan kara",
     "Highlands vault",
+    "Stormtouched Highlands dungeon",
     "Stormtouched Highlands vault",
     "Stormtouched highlands vault",
-    "Stormtouched vault"
+    "Stormtouched vault",
+    "vault in Stormtouched Highlands"
    ],
    "area": "Stormtouched Highlands",
    "power_level": "4",
@@ -16125,9 +16127,60 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     3521
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "entry": [
+     3521
+    ],
+    "levers": [
+     3521
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Chaktan Kara: dragonkin vault in Stormtouched Highlands, power level 4, number 7 in the wiki's standard order.\nChaktan Kara is the dragonkin vault found in the Stormtouched Highlands.\nOpens: Upon reaching the end of the river, there are vines that need to be cut through, and then stone boulders that need to be cleared. For the recipes click the dragonkin effigy statues holding a blue orb.\nEnemies: power level 4: Giant Rat 7, Vault Guardian Hulk 7, Vault Guardian Sentinel 4, Vault Pyroclast 1.\nBoss: Vault Pyroclast (power level 4; health 2925; weak to Water).\nNotable enemies (Dragonkin Vault list): Vault Pyroclast.\nChests: Always: rune essence, runes. Extra rolls: animal materials 10/100, mineral materials 25/100, weak potions 5/100, dragonkin decoration plans 10/100, lighting furniture plans 5/100, skill tomes 10/100. An additional 3-5 drops will be rolled. The items inside these tables are not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Dragonbone dagger, Dragonkin mage hood, Dragonkin mage robes, Dragonkin mage robe legs.\nResources: nodes: Anima vent, Granite deposit, Iron ore node, Rune essence (rock), Stone boulder; plants: Dwellberry bush; other: Chest (Chaktan Kara), Vault core.\nSources: wiki pages 1315, 2128, 3521, 5459."
+   "text": "Chaktan Kara: dragonkin vault in Stormtouched Highlands (Ghornfell), power level 4 [wiki]; power level of Stormtouched Highlands 4 [game].\nDoor: not read by the game yet; the wiki map centre is (150.0, 800.0) m (within about 50 m); the game's region at that point: Stormtouched Highlands (Ghornfell), power level 4.\nTo get in [wiki]: Upon reaching the end of the river, there are vines that need to be cut through, and then stone boulders that need to be cleared. For the recipes click the dragonkin effigy statues holding a blue orb. It can be reached by following the river upstream.\nLevers [wiki]: The Chaktan Kara Vault no longer remains sealed if the user leaves between lever pulls.\nInside [wiki]: power level 4: Giant Rat 7, Vault Guardian Hulk 7, Vault Guardian Sentinel 4, Vault Pyroclast 1.\nBoss [wiki + game]: Vault Pyroclast (power level 4, health 2925 here; weak to Water; resists Fire; immune to Poison, Bleed and Burning; attacks: not in the mirror).\nDatamined [metabot.gg, 2026-11-18]: 7 chests, 15 traps, floor plan 221x205 m.\nGives [wiki]: recipes learned here: Dragonbone dagger, Dragonkin mage hood, Dragonkin mage robes, Dragonkin mage robe legs.\nChests [wiki]: Always: rune essence, runes.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 3521, 5459; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     150.0,
+     800.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Chaktan_Kara {{Map}} centre (page 3521)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Stormtouched Highlands",
+    "province": "Ghornfell",
+    "power_level": 4,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Ghornfell",
+   "entry": [
+    "Upon reaching the end of the river, there are vines that need to be cut through, and then stone boulders that need to be cleared.",
+    "For the recipes click the dragonkin effigy statues holding a blue orb.",
+    "It can be reached by following the river upstream."
+   ],
+   "levers": [
+    "The Chaktan Kara Vault no longer remains sealed if the user leaves between lever pulls.",
+    "Boss areas inside Chaktan Kara can now be opened again with the nearby lever."
+   ],
+   "metabot": {
+    "size": "221x205 m",
+    "chests": 7,
+    "traps": 15,
+    "boss": "Vault Pyroclast",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Crasorak Kara": {
    "kind": "vault",
@@ -16136,8 +16189,10 @@
    "page": 3515,
    "aliases": [
     "Crasorak kara",
+    "Temple Woods dungeon",
     "Temple Woods vault",
-    "Temple woods vault"
+    "Temple woods vault",
+    "vault in Temple Woods"
    ],
    "area": "Temple Woods",
    "power_level": "2",
@@ -16230,9 +16285,66 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     3515
+    ],
+    "door": [
+     "game"
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "levers": [
+     3515
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Crasorak Kara: dragonkin vault in Temple Woods, power level 2, number 1 in the wiki's standard order.\nCrasorak Kara is the dragonkin vault found in the south-eastern part of the Temple Woods.\nOpens: not in the mirror.\nEnemies: power level 2: Giant Rat 9, Vault Guardian Hulk 4, Vault Guardian Sentinel 3, Goblin Runt 2, Vault Overlord 1.\nBoss: Vault Overlord (power level 2, 5; health 1300, 2875; weak to Crush (level 5)).\nNotable enemies (Dragonkin Vault list): Vault Overlord.\nChests: Always: runes, rune essence, general decoration plans. Extra rolls: runes 25/100, skill tomes 10/100, weak potions 15/100, lighting furniture plans 15/100, general decoration plans 10/100, vault materials 25/100. An additional 2-3 drops will be rolled. The items inside these tables are not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nResources: nodes: Anima vent, Rune essence (rock), Stone boulder; other: Chest (Crasorak Kara) - four total., Vault core - three total.\nSources: wiki pages 1315, 2128, 3515, 5462."
+   "text": "Crasorak Kara: dragonkin vault in Temple Woods (Brynmoor), power level 2 [wiki]; number 1 in the wiki's standard order; power level of Temple Woods 1 [game].\nDoor: (374.6, 1918.7, -2.8) m, the game's teleporter \"Crasorak Kara\", prompt \"Enter\" [game, read by his client, build 26161880]; the wiki map centre (380.0, 1935.0) is 17 m from it.\nTo get in: the wiki names no key, lever, statue or quest for the door.\nLevers [wiki]: A lever opens the final door (walkthrough).\nInside [wiki]: power level 2: Giant Rat 9, Vault Guardian Hulk 4, Vault Guardian Sentinel 3, Goblin Runt 2, Vault Overlord 1.\nBoss [wiki + game]: Vault Overlord (power level 2, health 1300 here; weak to Crush (level 5); immune to Poison, Bleed and Burning; attacks: Rapid spin attack, Standard fist slam, Double-fisted slam; game attack damage: Arm Throw 26, Slam 43, Slam Retaliate 43, Smashleft 30, Smashright 30, Spin 24, Swipe Left 30, Swiperight 30).\nDatamined [metabot.gg, 2026-11-18]: 6 chests, 15 traps, floor plan 164x196 m.\nChests [wiki]: Always: runes, rune essence, general decoration plans. Extra rolls: runes 25/100, skill tomes 10/100, weak potions 15/100, lighting furniture plans 15/100, general decoration plans 10/100, vault materials 25/100. An additional 2-3 drops will be rolled. The items inside these tables are not in the mirror.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 3515, 5462; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     380.0,
+     1935.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Crasorak_Kara {{Map}} centre (page 3515)",
+    "accuracy_m": 50
+   },
+   "door": {
+    "position": [
+     374.58,
+     1918.74,
+     -2.76
+    ],
+    "prompt": "Enter",
+    "build": "26161880",
+    "actor": "BP_InteractablePlayerTeleporter_C_UAID_18C04D97CB3D30D401_1397338720",
+    "seen": "his look rows 2026-11-01/02 (23 reads); the actor is always loaded (dump 26574459)",
+    "src": "game"
+   },
+   "game_region": {
+    "name": "Temple Woods",
+    "province": "Brynmoor",
+    "power_level": 1,
+    "build": "26161880",
+    "at": "door"
+   },
+   "province": "Brynmoor",
+   "levers": [
+    "A lever opens the final door (walkthrough)."
+   ],
+   "metabot": {
+    "size": "164x196 m",
+    "chests": 6,
+    "traps": 15,
+    "boss": "Vault Overlord",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Kalistrakthen Kara": {
    "kind": "vault",
@@ -16240,9 +16352,11 @@
    "title": "Kalistrakthen Kara",
    "page": 9234,
    "aliases": [
+    "Emberwood dungeon",
     "Emberwood vault",
     "Kalistrakthen",
-    "Kalistrakthen kara"
+    "Kalistrakthen kara",
+    "vault in Emberwood"
    ],
    "area": "Emberwood",
    "power_level": "5",
@@ -16339,9 +16453,45 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     9234
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Kalistrakthen Kara: dragonkin vault in Emberwood, power level 5, number 8 in the wiki's standard order.\nKalistrakthen Kara is a dragonkin vault that is located at the westmost point of Emberwood, north of a small pond.\nOpens: not in the mirror.\nEnemies: power level 5: Giant Rat 9, Rat King 1, Vault Guardian Hulk 13, Vault Guardian Sentinel 4, Vault Striker 1; power level 4: Giant Rat 3.\nBoss: Rat King (power level 2, 5; health 280, 805; weak to Stab); Vault Striker (power level 5; health 3738).\nNotable enemies (Dragonkin Vault list): Rat King, Vault Striker.\nChests: contents not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Fallen hoplite's chest.\nNotable loot: Fallen Hoplite's Chest Vestige.\nSources: wiki pages 1315, 2128, 9234."
+   "text": "Kalistrakthen Kara: dragonkin vault in Emberwood (Fellhollow), power level 5 [wiki]; number 8 in the wiki's standard order; power level of Emberwood 5 [game].\nKalistrakthen Kara is a dragonkin vault that is located at the westmost point of Emberwood, north of a small pond.\nDoor: not read by the game yet; the wiki map centre is (343.8, -515.8) m (within about 50 m); the game's region at that point: Emberwood (Fellhollow), power level 5.\nTo get in: the wiki names no key, lever, statue or quest for the door.\nInside [wiki]: power level 5: Giant Rat 9, Rat King 1, Vault Guardian Hulk 13, Vault Guardian Sentinel 4, Vault Striker 1; power level 4: Giant Rat 3.\nBoss [wiki + game]: Rat King (power level 5, health 805 here; weak to Stab; resists Crush; attacks: not in the mirror; drops: Raw Rat Meat 3, Coarse Animal Fur 3, Animal Hide Scraps 3, Small Animal Fang 3 always); Vault Striker (power level 5, health 3738 here; weak to: not known; attacks: not in the mirror; drops: Stone 30 always; chance of Stone, Rune Essence, Vault Shard).\nDatamined [metabot.gg, 2026-11-18]: 8 chests, 0 traps, floor plan 304x204 m.\nGives [wiki]: recipes learned here: Fallen hoplite's chest; notable loot: Fallen Hoplite's Chest Vestige.\nEvery vault [wiki]: vault shards in chests and from vault monsters; 3 vault cores on plinths (50 kg each); a death inside leaves the grave at the outside entrance.\nSources: wiki pages 1315, 2128, 9234; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     343.8,
+     -515.8
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Kalistrakthen_Kara {{Map}} centre (page 9234)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Emberwood",
+    "province": "Fellhollow",
+    "power_level": 5,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Fellhollow",
+   "metabot": {
+    "size": "304x204 m",
+    "chests": 8,
+    "traps": 0,
+    "boss": "Vault Striker",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Kletterbuja Kara": {
    "kind": "vault",
@@ -16349,8 +16499,11 @@
    "title": "Kletterbuja Kara",
    "page": 3520,
    "aliases": [
+    "Bloodblight Swamp dungeon",
+    "Bloodblight Swamp vault",
     "Kletterbuja",
-    "Kletterbuja kara"
+    "Kletterbuja kara",
+    "vault in Bloodblight Swamp"
    ],
    "area": "Bloodblight Swamp",
    "power_level": "3",
@@ -16452,9 +16605,51 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     3520
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "levers": [
+     3520
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Kletterbuja Kara: dragonkin vault in Bloodblight Swamp, power level 3, number 6 in the wiki's standard order.\nKletterbuja Kara is the dragonkin vault found in the southern part of the Bloodblight Swamp.\nOpens: not in the mirror.\nEnemies: power level 3: Putrid Rat 8, Vault Guardian Hulk 8, Vault Guardian Sentinel 6, Plague King 1.\nBoss: Plague King (power level 2, 3; health 300, 488; weak to Crush).\nNotable enemies (Dragonkin Vault list): Plague King.\nChests: Always: rune essence, runes. Extra rolls: animal materials 15/100, mineral materials 10/100, weak potions 5/100, garou decoration plans 10/100, skill tomes 10/100, vault materials 10/100, lighting furniture plans 5/100. An additional 3-5 drops will be rolled. The items inside these tables are not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Wild archer cowl, Wild archer body, Wild archer chaps.\nResources: nodes: Anima vent, Gold ore node, Rune essence (rock), Silver ore node, Stone boulder; plants: Snapdragon (plant), Swamp weed (plant), Toadflax (plant); other: Chest (Kletterbuja Kara), Vault core.\nSources: wiki pages 1315, 2128, 3520, 5460."
+   "text": "Kletterbuja Kara: dragonkin vault in Bloodblight Swamp (Ghornfell), power level 3 [wiki]; number 6 in the wiki's standard order; power level of Bloodblight Swamp 3 [game].\nDoor: not read by the game yet; the wiki map centre is (1170.0, 1680.0) m (within about 50 m); the game's region at that point: Bloodblight Swamp (Ghornfell), power level 3.\nTo get in: the wiki names no key, lever, statue or quest for the door.\nLevers [wiki]: Kletterbuja Kara no longer remains sealed if the user leaves between lever pulls.\nInside [wiki]: power level 3: Putrid Rat 8, Vault Guardian Hulk 8, Vault Guardian Sentinel 6, Plague King 1.\nBoss [wiki + game]: Plague King (power level 3, health 488 here; weak to Crush; resists Stab; immune to Poison; attacks: not in the mirror).\nDatamined [metabot.gg, 2026-11-18]: 5 chests, 10 traps, floor plan 141x177 m; no boss listed.\nGives [wiki]: recipes learned here: Wild archer cowl, Wild archer body, Wild archer chaps.\nChests [wiki]: Always: rune essence, runes. Extra rolls: animal materials 15/100, mineral materials 10/100, weak potions 5/100, garou decoration plans 10/100, skill tomes 10/100, vault materials 10/100, lighting furniture plans 5/100. An additional 3-5 drops will be rolled. The items inside these tables are not in the mirror.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 3520, 5460; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     1170.0,
+     1680.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Kletterbuja_Kara {{Map}} centre (page 3520)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Bloodblight Swamp",
+    "province": "Ghornfell",
+    "power_level": 3,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Ghornfell",
+   "levers": [
+    "Kletterbuja Kara no longer remains sealed if the user leaves between lever pulls."
+   ],
+   "metabot": {
+    "size": "141x177 m",
+    "chests": 5,
+    "traps": 10,
+    "boss": null,
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Skeklac Kara": {
    "kind": "vault",
@@ -16462,7 +16657,10 @@
    "title": "Skeklac Kara",
    "page": 3519,
    "aliases": [
-    "Skeklac kara"
+    "Fractured Plains dungeon",
+    "Fractured Plains vault",
+    "Skeklac kara",
+    "vault in Fractured Plains"
    ],
    "area": "Fractured Plains",
    "power_level": "4",
@@ -16570,9 +16768,52 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     3519
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "entry": [
+     3519
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Skeklac Kara: dragonkin vault in Fractured Plains, power level 4, number 5 in the wiki's standard order.\nSkeklac Kara is the dragonkin vault found in the north-eastern part of the Fractured Plains, north of Ashien's Watch.\nOpens: The vault starts off locked, and must be unlocked by interacting with 4 dragonkin statues located in Ashien's Watch.\nEnemies: power level 4: Putrid Rat 8, Vault Guardian Hulk 7, Vault Guardian Sentinel 4, Vault Corruptor 1.\nHazards: Exploding plant traps.\nBoss: Vault Corruptor (power level 4; health 2925; weak to Water).\nNotable enemies (Dragonkin Vault list): Vault Corruptor.\nChests: Always: runes. Extra rolls: vault materials 10/100, dragonkin decoration plans 10/100, animal materials 15/100, mineral materials 15/100, lighting furniture plans 5/100, skill tomes 10/100. An additional 3-5 drops will be rolled. The items inside these tables are not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Granite maul.\nResources: nodes: Anima vent, Copper ore node, Rune essence (rock), Stone boulder, Tin ore node, Iron ore node; other: Chest (Skeklac Kara), Vault core.\nSources: wiki pages 1315, 2128, 3519, 5457."
+   "text": "Skeklac Kara: dragonkin vault in Fractured Plains (Ghornfell), power level 4 [wiki]; power level of Fractured Plains 3 [game].\nDoor: not read by the game yet; the wiki map centre is (1375.0, 757.0) m (within about 50 m); the game's region at that point: Fractured Plains (Ghornfell), power level 3.\nTo get in [wiki]: The vault starts off locked, and must be unlocked by interacting with 4 dragonkin statues located in Ashien's Watch. The vault is also involved in the Granite Mauled quest, where the player must retrieve a dwarfish blueprint for the granite maul from the vault and bring it to Doric.\nInside [wiki]: power level 4: Putrid Rat 8, Vault Guardian Hulk 7, Vault Guardian Sentinel 4, Vault Corruptor 1.\nHazards [wiki]: Exploding plant traps.\nBoss [wiki + game]: Vault Corruptor (power level 4, health 2925 here; weak to Water; resists Fire; immune to Poison, Bleed and Burning; attacks: not in the mirror).\nDatamined [metabot.gg, 2026-11-18]: 5 chests, 150 traps, floor plan 218x198 m.\nGives [wiki]: recipes learned here: Granite maul.\nChests [wiki]: Always: runes. Extra rolls: vault materials 10/100, dragonkin decoration plans 10/100, animal materials 15/100, mineral materials 15/100, lighting furniture plans 5/100, skill tomes 10/100. An additional 3-5 drops will be rolled. The items inside these tables are not in the mirror.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 3519, 5457; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     1375.0,
+     757.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Skeklac_Kara {{Map}} centre (page 3519)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Fractured Plains",
+    "province": "Ghornfell",
+    "power_level": 3,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Ghornfell",
+   "entry": [
+    "The vault starts off locked, and must be unlocked by interacting with 4 dragonkin statues located in Ashien's Watch.",
+    "The vault is also involved in the Granite Mauled quest, where the player must retrieve a dwarfish blueprint for the granite maul from the vault and bring it to Doric."
+   ],
+   "metabot": {
+    "size": "218x198 m",
+    "chests": 5,
+    "traps": 150,
+    "boss": "Vault Corruptor",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Skekven Kara": {
    "kind": "vault",
@@ -16580,8 +16821,14 @@
    "title": "Skekven Kara",
    "page": 9412,
    "aliases": [
+    "Fellhollow dungeon",
+    "Fellhollow vault",
+    "Lake of Lost Souls dungeon",
+    "Lake of Lost Souls vault",
     "Skekven kara",
-    "Skeven kara"
+    "Skeven kara",
+    "vault in Fellhollow",
+    "vault in Lake of Lost Souls"
    ],
    "area": "Fellhollow",
    "power_level": "5",
@@ -16699,9 +16946,54 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     9412
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "entry": [
+     9412
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Skekven Kara: dragonkin vault in Fellhollow, power level 5, number 9 in the wiki's standard order.\nSkekven Kara is a dragonkin vault located between Silverthorn Keep and the Lake of Lost Souls.\nOpens: To open the door, four dragonkin effigies must be found first.\nEnemies: power level 5: Giant Rat 4, Vault Guardian Hulk Unknown, Vault Guardian Sentinel Unknown, Skeletal Warrior 5, Skeletal Archer 5, Skeletal Necromancer 1, Skeletal Hoplite 1, Skeletal Marauder 3, Vault Overlord 1.\nBoss: Vault Overlord (power level 2, 5; health 1300, 2875; weak to Crush (level 5)).\nNotable enemies (Dragonkin Vault list): Skeletal Hoplite, Skeletal Marauder, Vault Overlord.\nChests: contents not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Fallen hoplite's tassets, Undead ranger's bow.\nNotable loot: Fallen Hoplite's Tassets Vestige Can be found in the same place as chest 3, Undead Ranger's Bow Vestige Can be found in the same place as chest 6.\nSources: wiki pages 1315, 2128, 9412."
+   "text": "Skekven Kara: dragonkin vault in Fellhollow, power level 5 [wiki]; power level of Fellhollow 5 [game].\nDoor: not read by the game yet; the wiki map centre is (1979.3, -423.7) m (within about 50 m); the game's region at that point: Lake of Lost Souls (Fellhollow), power level 5.\nTo get in [wiki]: To open the door, four dragonkin effigies must be found first. Hole in the wall behind Doric's tent, Windstep to it and Mine the Wall. Up high, this will take several Windsteps to reach. Behind a pillar opposite Doric's tent.\nInside [wiki]: power level 5: Giant Rat 4, Vault Guardian Hulk Unknown, Vault Guardian Sentinel Unknown, Skeletal Warrior 5, Skeletal Archer 5, Skeletal Necromancer 1, Skeletal Hoplite 1, Skeletal Marauder 3, Vault Overlord 1.\nBoss [wiki + game]: Vault Overlord (power level 5, health 2875 here; weak to Crush (level 5); immune to Poison, Bleed and Burning; attacks: Rapid spin attack, Standard fist slam, Double-fisted slam; game attack damage: Arm Throw 26, Slam 43, Slam Retaliate 43, Smashleft 30, Smashright 30, Spin 24, Swipe Left 30, Swiperight 30).\nDatamined [metabot.gg, 2026-11-18]: 9 chests, 10 traps, floor plan 211x230 m; no boss listed.\nGives [wiki]: recipes learned here: Fallen hoplite's tassets, Undead ranger's bow; notable loot: Fallen Hoplite's Tassets Vestige, Undead Ranger's Bow Vestige.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 9412; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     1979.3,
+     -423.7
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Skekven_Kara {{Map}} centre (page 9412)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Lake of Lost Souls",
+    "province": "Fellhollow",
+    "power_level": 5,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Fellhollow",
+   "entry": [
+    "To open the door, four dragonkin effigies must be found first.",
+    "Hole in the wall behind Doric's tent, Windstep to it and Mine the Wall",
+    "Up high, this will take several Windsteps to reach",
+    "Behind a pillar opposite Doric's tent"
+   ],
+   "metabot": {
+    "size": "211x230 m",
+    "chests": 9,
+    "traps": 10,
+    "boss": null,
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Takla Kara": {
    "kind": "vault",
@@ -16709,7 +17001,10 @@
    "title": "Takla Kara",
    "page": 3518,
    "aliases": [
-    "Takla kara"
+    "Fractured Plains dungeon",
+    "Fractured Plains vault",
+    "Takla kara",
+    "vault in Fractured Plains"
    ],
    "area": "Fractured Plains",
    "power_level": "3",
@@ -16818,9 +17113,57 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     3518
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "entry": [
+     3518
+    ],
+    "levers": [
+     3518
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Takla Kara: dragonkin vault in Fractured Plains, power level 3, number 4 in the wiki's standard order.\nTakla Kara is the dragonkin vault found in the western part of the Fractured Plains on a mesa.\nOpens: It is located behind rocks that must be mined to access the entrance.\nEnemies: power level 3: Giant Rat 5, Vault Guardian Hulk 4, Vault Guardian Sentinel 6, Vault Incinerator 1.\nBoss: Vault Incinerator (power level 3; health 2112; weak to Water).\nNotable enemies (Dragonkin Vault list): Vault Incinerator.\nChests: Always: rune essence, runes. Extra rolls: vault materials 10/100, dragonkin decoration plans 10/100, animal materials 15/100, mineral materials 15/100, lighting furniture plans 5/100, skill tomes 10/100. An additional 3-5 drops will be rolled. The items inside these tables are not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Paladin's helm, Paladin's platebody, Paladin platelegs, Wild scout's shortbow.\nResources: nodes: Anima vent, Blurite ore node - Blurite ore nodes can only be found in Takla Kara., Copper ore node, Iron ore node, Rune essence (rock), Stone boulder, Tin ore node; plants: Dwellberry bush; other: Chest (Takla Kara), Vault core - Three (3) total.\nSources: wiki pages 1315, 2128, 3518, 5458."
+   "text": "Takla Kara: dragonkin vault in Fractured Plains (Ghornfell), power level 3 [wiki]; number 4 in the wiki's standard order; power level of Fractured Plains 3 [game].\nDoor: not read by the game yet; the wiki map centre is (715.0, 1200.0) m (within about 50 m); the game's region at that point: Fractured Plains (Ghornfell), power level 3.\nTo get in [wiki]: It is located behind rocks that must be mined to access the entrance.\nLevers [wiki]: Boss areas inside Takla Kara can now be opened again with the nearby lever.\nInside [wiki]: power level 3: Giant Rat 5, Vault Guardian Hulk 4, Vault Guardian Sentinel 6, Vault Incinerator 1.\nBoss [wiki + game]: Vault Incinerator (power level 3, health 2112 here; weak to Water; resists Fire; immune to Poison, Bleed and Burning; attacks: not in the mirror).\nDatamined [metabot.gg, 2026-11-18]: 6 chests, 0 traps, floor plan 152x146 m.\nGives [wiki]: recipes learned here: Paladin's helm, Paladin's platebody, Paladin platelegs, Wild scout's shortbow.\nChests [wiki]: Always: rune essence, runes. Extra rolls: vault materials 10/100, dragonkin decoration plans 10/100, animal materials 15/100, mineral materials 15/100, lighting furniture plans 5/100, skill tomes 10/100. An additional 3-5 drops will be rolled. The items inside these tables are not in the mirror.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 3518, 5458; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     715.0,
+     1200.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Takla_Kara {{Map}} centre (page 3518)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Fractured Plains",
+    "province": "Ghornfell",
+    "power_level": 3,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Ghornfell",
+   "entry": [
+    "It is located behind rocks that must be mined to access the entrance."
+   ],
+   "levers": [
+    "Boss areas inside Takla Kara can now be opened again with the nearby lever."
+   ],
+   "metabot": {
+    "size": "152x146 m",
+    "chests": 6,
+    "traps": 0,
+    "boss": "Vault Incinerator",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Thishepen Kara": {
    "kind": "vault",
@@ -16828,7 +17171,10 @@
    "title": "Thishepen Kara",
    "page": 3516,
    "aliases": [
-    "Thishepen kara"
+    "Bramblemead Valley dungeon",
+    "Bramblemead Valley vault",
+    "Thishepen kara",
+    "vault in Bramblemead Valley"
    ],
    "area": "Bramblemead Valley",
    "power_level": "2",
@@ -16925,9 +17271,53 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     3516
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "entry": [
+     3516
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Thishepen Kara: dragonkin vault in Bramblemead Valley, power level 2, number 2 in the wiki's standard order.\nThishepen Kara is the dragonkin vault found near the Runecrafting Guild in Bramblemead Valley.\nOpens: It is involved in the Highlighting the Problem quest, where a password can be found in the vault by interacting with a dragonkin effigy.\nEnemies: power level 2: Giant Rat 16, Vault Guardian Hulk 10, Vault Guardian Sentinel 5, Vault Archon 1; power level 1: Giant Rat 5.\nBoss: Vault Archon (power level 2; health 3100).\nNotable enemies (Dragonkin Vault list): Vault Archon.\nChests: Always: runes, rune essence, general decoration plans. Extra rolls: runes 25/100, skill tomes 10/100, weak potions 15/100, lighting furniture plans 15/100, general decoration plans 10/100, vault materials 25/100. An additional 2-3 drops will be rolled. The items inside these tables are not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nResources: nodes: Anima vent - Astral, law, Rune essence (rock), Stone boulder; other: Chest (Thishepen Kara), Vault core - (Three total).\nSources: wiki pages 1315, 2128, 3516, 5464."
+   "text": "Thishepen Kara: dragonkin vault in Bramblemead Valley (Brynmoor), power level 2 [wiki]; power level of Bramblemead Valley 2 [game].\nDoor: not read by the game yet; the wiki map centre is (250.0, 1495.0) m (within about 50 m); the game's region at that point: Bramblemead Valley (Brynmoor), power level 2.\nTo get in [wiki]: It is involved in the Highlighting the Problem quest, where a password can be found in the vault by interacting with a dragonkin effigy. Enter through the path to the south-west side (where the two goblins and giant rat appear), cast Windstep and jump through there. Or drop down from above using rock platforms coming from the north east side.\nInside [wiki]: power level 2: Giant Rat 16, Vault Guardian Hulk 10, Vault Guardian Sentinel 5, Vault Archon 1; power level 1: Giant Rat 5.\nBoss [wiki + game]: Vault Archon (power level 2, health 3100 here; weak to Crush; immune to Poison, Bleed and Burning; game attack damage: Earthjavelinleft 26, Earthjavelinright 26, Earthshaker 18, Earthshakerlarge 26).\nDatamined [metabot.gg, 2026-11-18]: 7 chests, 16 traps, floor plan 176x180 m.\nChests [wiki]: Always: runes, rune essence, general decoration plans.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 3516, 5464; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     250.0,
+     1495.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Thishepen_Kara {{Map}} centre (page 3516)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Bramblemead Valley",
+    "province": "Brynmoor",
+    "power_level": 2,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Brynmoor",
+   "entry": [
+    "It is involved in the Highlighting the Problem quest, where a password can be found in the vault by interacting with a dragonkin effigy.",
+    "Enter through the path to the south-west side (where the two goblins and giant rat appear), cast Windstep and jump through there.",
+    "Or drop down from above using rock platforms coming from the north east side."
+   ],
+   "metabot": {
+    "size": "176x180 m",
+    "chests": 7,
+    "traps": 16,
+    "boss": "Vault Archon",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Vekchenven Kara": {
    "kind": "vault",
@@ -16935,11 +17325,17 @@
    "title": "Vekchenven Kara",
    "page": 9387,
    "aliases": [
+    "Hope's Fall dungeon",
+    "Hope's Fall vault",
+    "Lake of Lost Souls dungeon",
+    "Lake of Lost Souls vault",
     "Vekchenven",
     "Vekchenven Kara Vault",
     "Vekchenven Kara vault",
     "Vekchenven kara",
-    "Vekchenven kara vault"
+    "Vekchenven kara vault",
+    "vault in Hope's Fall",
+    "vault in Lake of Lost Souls"
    ],
    "area": "Lake of Lost Souls",
    "power_level": "5",
@@ -17063,9 +17459,52 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     9387
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "entry": [
+     9387
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Vekchenven Kara: dragonkin vault in Lake of Lost Souls, power level 5, number 10 in the wiki's standard order.\nVekchenven Kara is a dragonkin vault, hidden beneath a waterfall in the Lake of Lost Souls region.\nOpens: The vault is relatively short and requires the player to become soul rifted to enter the spectral door to get the necromancer's staff vestige. This vault requires the player to become soul rifted multiple times to receive all the loot and complete the dungeon.\nEnemies: power level 5: Rotridden Rat 4, Vault Guardian Hulk 1, Vault Guardian Sentinel 1, Dragon Wolf 5, Rotsworn Necromancer 1, Skeletal Warrior 1, Soulstone Sentinel 2, Zogre 1; While soulrifted: Lost Soul ∞, Ghost Wolf ∞.\nHazards: Exploding plant trap, Wither, Fire jets.\nBoss: not in the mirror's boss table.\nNotable enemies (Dragonkin Vault list): Rotsworn Necromancer, Soulstone Sentinel, Zogre.\nChests: contents not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Wolfbane Dagger, Necromancer's staff, Fallen hoplite's helm.\nNotable loot: Curse Fragment (Rage), Necromancer's Staff Vestige, Fallen Hoplite's Helm Vestige, Wolfbane Dagger Vestige.\nSources: wiki pages 1315, 9387."
+   "text": "Vekchenven Kara: dragonkin vault in Lake of Lost Souls (Fellhollow), power level 5 [wiki]; number 10 in the wiki's standard order; power level of Lake of Lost Souls 5 [game].\nDoor: not read by the game yet; the wiki map centre is (1440.4, -577.0) m (within about 50 m); the game's region at that point: Hope's Fall (Fellhollow), power level 5 (the wiki says Lake of Lost Souls).\nTo get in [wiki]: The vault is relatively short and requires the player to become soul rifted to enter the spectral door to get the necromancer's staff vestige. This vault requires the player to become soul rifted multiple times to receive all the loot and complete the dungeon.\nInside [wiki]: power level 5: Rotridden Rat 4, Vault Guardian Hulk 1, Vault Guardian Sentinel 1, Dragon Wolf 5, Rotsworn Necromancer 1, Skeletal Warrior 1, Soulstone Sentinel 2, Zogre 1; While soulrifted: Lost Soul ∞, Ghost Wolf ∞.\nHazards [wiki]: Exploding plant trap, Wither, Fire jets.\nBoss: none named on the wiki.\nDatamined [metabot.gg, 2026-11-18]: 10 chests, 20 traps, floor plan 239x212 m; boss Dragon Wolves and Zogre.\nGives [wiki]: recipes learned here: Wolfbane Dagger, Necromancer's staff, Fallen hoplite's helm; notable loot: Curse Fragment (Rage), Necromancer's Staff Vestige, Fallen Hoplite's Helm Vestige, Wolfbane Dagger Vestige.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 9387; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     1440.4,
+     -577.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Vekchenven_Kara {{Map}} centre (page 9387)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Hope's Fall",
+    "province": "Fellhollow",
+    "power_level": 5,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Fellhollow",
+   "entry": [
+    "The vault is relatively short and requires the player to become soul rifted to enter the spectral door to get the necromancer's staff vestige.",
+    "This vault requires the player to become soul rifted multiple times to receive all the loot and complete the dungeon."
+   ],
+   "metabot": {
+    "size": "239x212 m",
+    "chests": 10,
+    "traps": 20,
+    "boss": "Dragon Wolves and Zogre",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Vertentis Kara": {
    "kind": "vault",
@@ -17073,9 +17512,15 @@
    "title": "Vertentis Kara",
    "page": 3517,
    "aliases": [
+    "Fractured Plains dungeon",
+    "Fractured Plains vault",
     "Verentis Kara",
     "Verentis kara",
-    "Vertentis kara"
+    "Vertentis kara",
+    "Whispering Swamp dungeon",
+    "Whispering Swamp vault",
+    "vault in Fractured Plains",
+    "vault in Whispering Swamp"
    ],
    "area": "Whispering Swamp",
    "power_level": "2",
@@ -17179,9 +17624,53 @@
     ],
     "shards": [
      1315
+    ],
+    "map_centre": [
+     3517
+    ],
+    "game_region": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "entry": [
+     3517,
+     3334
+    ],
+    "metabot": [
+     "metabot.gg"
     ]
    },
-   "text": "Vertentis Kara: dragonkin vault in Whispering Swamp, power level 2, number 3 in the wiki's standard order.\nVertentis Kara is the dragonkin vault found in the eastern part of the Whispering Swamp.\nOpens: not in the mirror.\nEnemies: power level 2: Giant Rat 12, Vault Guardian Hulk 7, Vault Guardian Sentinel 5, Plague King Unknown, Rat King 1.\nBoss: Rat King (power level 2, 5; health 280, 805; weak to Stab).\nNotable enemies (Dragonkin Vault list): Plague King, Rat King.\nChests: Always: runes, rune essence, materials. Extra rolls: runes 25/100, skill tomes 10/100, weak potions 15/100, lighting furniture plans 15/100, general decoration plans 10/100, vault materials 25/100. An additional 2-3 drops will be rolled. The items inside these tables are not in the mirror.\nVault shard - Found within vault chests and dropped from vault monsters.\nRecipes learned here: Anti-dragon shield.\nResources: nodes: Anima vent, Clay node, Rune essence (rock), Stone boulder; plants: Harralander (plant), Marrentil (plant); other: Chest (Vertentis Kara), Vault cores - three total.\nSources: wiki pages 1315, 2128, 3517, 5461."
+   "text": "Vertentis Kara: dragonkin vault in Whispering Swamp (Brynmoor), power level 2 [wiki]; power level of Whispering Swamp 2 [game].\nDoor: not read by the game yet; the wiki map centre is (1025.0, 1435.0) m (within about 50 m); the game's region at that point: Fractured Plains (Ghornfell), power level 3 (the wiki says Whispering Swamp).\nTo get in [wiki]: It is involved in the Dragon Slayer quest, as the player must talk to the goblin Spitfoot inside the vault to learn where Cathan was going. Cathan's journal calls it \"the blue-flamed door in the swamps\"; Spitfoot was to bring him its keys (wiki: Spitfoot).\nInside [wiki]: power level 2: Giant Rat 12, Vault Guardian Hulk 7, Vault Guardian Sentinel 5, Plague King Unknown, Rat King 1.\nBoss [wiki + game]: Rat King (power level 2, health 280 here; weak to Stab; resists Crush; attacks: not in the mirror).\nDatamined [metabot.gg, 2026-11-18]: 6 chests, 0 traps, floor plan 174x161 m; no boss listed.\nGives [wiki]: recipes learned here: Anti-dragon shield.\nChests [wiki]: Always: runes, rune essence, materials. Extra rolls: runes 25/100, skill tomes 10/100, weak potions 15/100, lighting furniture plans 15/100, general decoration plans 10/100, vault materials 25/100. An additional 2-3 drops will be rolled. The items inside these tables are not in the mirror.\nEvery vault [wiki]: vault shards in chests and from vault monsters.\nSources: wiki pages 1315, 2128, 3334, 3517, 5461; game map data; metabot.gg vault map.",
+   "map_centre": {
+    "position": [
+     1025.0,
+     1435.0
+    ],
+    "src": "wiki https://dragonwilds.runescape.wiki/w/Vertentis_Kara {{Map}} centre (page 3517)",
+    "accuracy_m": 50
+   },
+   "game_region": {
+    "name": "Fractured Plains",
+    "province": "Ghornfell",
+    "power_level": 3,
+    "build": "26161880",
+    "at": "wiki map centre"
+   },
+   "province": "Brynmoor",
+   "entry": [
+    "It is involved in the Dragon Slayer quest, as the player must talk to the goblin Spitfoot inside the vault to learn where Cathan was going.",
+    "Cathan's journal calls it \"the blue-flamed door in the swamps\"; Spitfoot was to bring him its keys (wiki: Spitfoot)."
+   ],
+   "metabot": {
+    "size": "174x161 m",
+    "chests": 6,
+    "traps": 0,
+    "boss": null,
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   }
   },
   "Fight Cave": {
    "kind": "dungeon",
@@ -17236,6 +17725,189 @@
     ]
    },
    "text": "Fight Cave: dungeon.\nThe Fight Cave is a dangerous combat activity located within The Burning Spire, in Umbral Sands.\nEnemies: KotHaar-Hur, KotHaar-Ket, KotHaar-Xil, KotHaar-Kal, Tok-Xil, Fuzan.\nBoss: Fuzan.\nSources: wiki pages 13309."
+  },
+  "Uzzer Kara": {
+   "kind": "vault",
+   "name": "Uzzer Kara",
+   "title": "Uzzer Kara",
+   "page": null,
+   "area": "Umbral Sands",
+   "power_level": "7",
+   "order": "11",
+   "lead": "Uzzer Kara is a dragonkin vault in the north-east of Umbral Sands, added in update 0.12.0 (23 June 2026).",
+   "aliases": [
+    "Mirrors vault",
+    "Umbral Sands dungeon",
+    "Umbral Sands vault",
+    "Uzzer kara",
+    "Uzzer vault",
+    "vault in Umbral Sands"
+   ],
+   "live_wiki": "Dragonkin Vault, read live 2026-11-18 (last edited 2026-11-01); no page of its own",
+   "src": {
+    "area": [
+     1315
+    ],
+    "power_level": [
+     1315
+    ],
+    "order": [
+     1315
+    ],
+    "lead": [
+     1315
+    ],
+    "live_wiki": [
+     1315
+    ],
+    "enemies_note": [
+     1315,
+     "metabot.gg"
+    ],
+    "game_landmarks": [
+     "game"
+    ],
+    "province": [
+     "game"
+    ],
+    "metabot": [
+     "metabot.gg"
+    ]
+   },
+   "enemies_note": "The wiki lists no enemies. metabot.gg: 14 Vault Guardian statues that wake as you pass, 13 explosive traps, a maze; no boss listed.",
+   "game_landmarks": [
+    {
+     "name": "Vault Guardian",
+     "position": [
+      3259.02,
+      319.59,
+      18.24
+     ],
+     "region": "Dunes of Uzzer"
+    },
+    {
+     "name": "Vault Guardian",
+     "position": [
+      3297.67,
+      326.25,
+      6.15
+     ],
+     "region": "Dunes of Uzzer"
+    },
+    {
+     "name": "Vault Guardian Prime",
+     "position": [
+      3342.68,
+      408.59,
+      11.34
+     ],
+     "region": "Dunes of Uzzer"
+    }
+   ],
+   "province": "Umbral Sands",
+   "metabot": {
+    "size": "211x228 m",
+    "chests": 8,
+    "traps": 13,
+    "boss": null,
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   },
+   "text": "Uzzer Kara: dragonkin vault in Umbral Sands, power level 7 [wiki]; number 11 in the wiki's standard order; power level of Umbral Sands 7 [game].\nUzzer Kara is a dragonkin vault in the north-east of Umbral Sands, added in update 0.12.0 (23 June 2026).\nDoor: no position known. The game's map registry has Vault Guardian at (3259.0, 319.6, 18.2) m; Vault Guardian at (3297.7, 326.2, 6.2) m; Vault Guardian Prime at (3342.7, 408.6, 11.3) m in Dunes of Uzzer [game, build 26161880].\nTo get in: the wiki names no key, lever, statue or quest for the door.\nThe wiki lists no enemies. metabot.gg: 14 Vault Guardian statues that wake as you pass, 13 explosive traps, a maze; no boss listed.\nBoss: none named on the wiki.\nDatamined [metabot.gg, 2026-11-18]: 8 chests, 13 traps, floor plan 211x228 m.\nSources: wiki pages 1315; page 1315 read live 2026-11-18; game map data; metabot.gg vault map."
+  },
+  "Manafem Kara": {
+   "kind": "vault",
+   "name": "Manafem Kara",
+   "title": "Manafem Kara",
+   "page": null,
+   "area": "Umbral Sands",
+   "power_level": "7",
+   "order": "11",
+   "lead": "Manafem Kara is a dragonkin vault in the south-west of Umbral Sands (metabot.gg: a pyramid south of the Manafem Plains), added in update 0.12.0 (23 June 2026).",
+   "aliases": [
+    "Kalphite Queen vault",
+    "Kalphite vault",
+    "Manafem kara",
+    "Manafem vault",
+    "Umbral Sands dungeon",
+    "Umbral Sands vault",
+    "vault in Umbral Sands"
+   ],
+   "live_wiki": "Dragonkin Vault, read live 2026-11-18 (last edited 2026-11-01); no page of its own",
+   "src": {
+    "area": [
+     1315
+    ],
+    "power_level": [
+     1315
+    ],
+    "order": [
+     1315
+    ],
+    "lead": [
+     1315
+    ],
+    "live_wiki": [
+     1315
+    ],
+    "enemies": [
+     1315,
+     "metabot.gg"
+    ],
+    "listed_enemies": [
+     1315
+    ],
+    "boss": [
+     13941,
+     "metabot.gg"
+    ],
+    "province": [
+     "game"
+    ],
+    "metabot": [
+     "metabot.gg"
+    ]
+   },
+   "enemies": [
+    {
+     "name": "Kalphite Worker",
+     "amount": "43 (metabot.gg)"
+    },
+    {
+     "name": "Kalphite Soldier",
+     "amount": "11 (metabot.gg)"
+    },
+    {
+     "name": "Kalphite Queen",
+     "amount": "1"
+    }
+   ],
+   "listed_enemies": {
+    "common": [
+     "Kalphite Worker",
+     "Kalphite Soldier"
+    ],
+    "notable": [
+     "Kalphite Queen"
+    ]
+   },
+   "boss": [
+    {
+     "creature": "Kalphite Queen",
+     "power_level": "7",
+     "health": "5500"
+    }
+   ],
+   "province": "Umbral Sands",
+   "metabot": {
+    "size": "308x308 m",
+    "chests": 8,
+    "traps": 0,
+    "boss": "Kalphite Queen",
+    "url": "https://metabot.gg/en/dragonwilds/map/vaults",
+    "fetched": "2026-11-18"
+   },
+   "text": "Manafem Kara: dragonkin vault in Umbral Sands, power level 7 [wiki]; number 11 in the wiki's standard order; power level of Umbral Sands 7 [game].\nManafem Kara is a dragonkin vault in the south-west of Umbral Sands (metabot.gg: a pyramid south of the Manafem Plains), added in update 0.12.0 (23 June 2026).\nDoor: no position known.\nTo get in: the wiki names no key, lever, statue or quest for the door.\nInside [wiki]: Kalphite Worker 43 (metabot.gg), Kalphite Soldier 11 (metabot.gg), Kalphite Queen 1.\nBoss [wiki + game]: Kalphite Queen (power level 7, health 5500; can be immune to any attack style: a red shade blocks Attack damage, a blue shade Magic damage, a green shade Ranged damage; two forms, the second flies; respawn 2 days; always drops Greater Kalphite Wing 2-4, Kalphite Shell 5-8, Kalphite Ichor 6-12, Poison Ichor 3-6).\nDatamined [metabot.gg, 2026-11-18]: 8 chests, 0 traps, floor plan 308x308 m.\nSources: wiki pages 1315, 13941; page 1315 read live 2026-11-18; game map data; metabot.gg vault map."
   }
  },
  "dropped_by": {
@@ -21982,7 +22654,7 @@
  },
  "counts": {
   "creatures": 129,
-  "vaults": 10,
+  "vaults": 12,
   "dungeons": 1,
   "reverse_items": 143,
   "reverse_rows": 418,
@@ -22015,7 +22687,8 @@
   },
   "max_text": 1470,
   "regions": 36,
-  "resources": 49
+  "resources": 49,
+  "vault_doors_game": 1
  },
  "regions": {
   "Temple Woods": {
@@ -31550,5 +32223,12 @@
    "lookup_source": "regions (game map build 26161880 + wiki mirror)",
    "text": "Yew Tree: resource node. Grows in: Umbral Sands (power level 7; hostile: Kalphite Worker (power level 7), Kalphite Soldier (power level 7), Kalphite Guardian (power level 7), KotHaar-Hur (power level 7)) [wiki node page + region page].\nWiki node page location: Umbral Sands.\nGives (game journal): Bird Nest, Yew Logs, Yew tree Seed.\nGame journal (build 26574459) location: Yew Tree: Ghornfell.\nSources differ: the game journal says Ghornfell; the wiki says Umbral Sands.\nSources: power levels game map (build 26161880); places and residents wiki https://dragonwilds.runescape.wiki/w/Yew_Tree and the region and creature pages."
   }
+ },
+ "vault_registry": {
+  "dungeons_client": 32,
+  "dungeon_actors_server_dump": 17,
+  "teleporters_server_dump": 21,
+  "build": "26574459",
+  "src": "client UE4SS.log 2026-11-17 19:45:10Z 'vault_list n=32 source=registry complete=false'; dumps/26574459/UE4SS_ObjectDump.txt (Dungeon_UAID_*, BP_InteractablePlayerTeleporter_C)"
  }
 }

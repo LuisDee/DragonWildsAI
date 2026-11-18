@@ -250,7 +250,7 @@ def test_vault_entry_enemies_boss_chests_and_opening(doc):
     assert "4 dragonkin statues" in v["opens"][0]
     assert "skill tomes 10/100" in v["chests"] and "not in the mirror" in v["chests"]
     assert v["src"]["chests"] == [4] and v["src"]["boss"] == [5] and v["src"]["power_level"] == [6]
-    assert "Hazards: Exploding plant traps" in v["text"]
+    assert "Hazards [wiki]: Exploding plant traps" in v["text"]
     assert "recommended" not in v["text"]
 
 
@@ -606,7 +606,7 @@ def test_chest_items_placed_by_label_or_row_name(game_doc):
     assert rolls[0]["extra_rolls"] == [1, 2] and rolls[0]["guaranteed"][0]["item"] == "Vault Core"
     assert "Chest loot in the game's tables: always Vault Core 1; plus 1-2 rolls among: Skill Tome 1-3 (50 %) [set 10 %]" in v["text"]
     assert "Vault Shard 2-4" in v["text"]
-    assert "Chests: " in v["text"]  # the wiki's chest page stays too
+    assert "Chests [wiki]: " in v["text"]  # the wiki's chest page stays too
     assert game_doc["counts"]["vaults_missing"]["chest_items"] == 0
 
 
