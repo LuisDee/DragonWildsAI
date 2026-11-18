@@ -581,6 +581,12 @@ end
 -- UNVERIFIED live on the client (the replicated OwningPlayerId value).
 local ZERO_GUID = "00000000000000000000000000000000"
 local name_entries = {} -- guid hex -> {name, account} (the replicated name list is append-only)
+-- guid hex -> clock of a read that did not find it: a miss is remembered for NAME_MISS_S, so a crate of a character
+-- not in the list does not re-run a DisplayNameComponent FindAllOf and a TArray ForEach per crate per census (native-
+-- crash review 2026-11-18); after the window it is read again (a name that joined the list is then found)
+local name_misses = {}
+M.NAME_MISS_S = 30
+M.name_clock = os.clock
 function M.my_char_guid()
     local pc = M.local_pc and M.local_pc()
     return pc and U.guid_hex(U.try(function() return pc.PlayerState.OwnerGuid.CharacterGuid.InnerGuid end)) or nil
@@ -591,6 +597,8 @@ end
 function M.char_entry(hex)
     if not hex then return nil end
     if name_entries[hex] then return name_entries[hex] end
+    local now, miss = M.name_clock(), name_misses[hex]
+    if miss and now - miss < M.NAME_MISS_S and now >= miss then return nil end
     local found
     for _, dn in ipairs(U.find_all("DisplayNameComponent", { skip_defaults = true }) or {}) do
         if found then break end
@@ -605,7 +613,8 @@ function M.char_entry(hex)
             end)
         end)
     end
-    if found and found.name and found.account then name_entries[hex] = found end
+    if found and found.name and found.account then name_entries[hex], name_misses[hex] = found, nil
+    elseif not found then name_misses[hex] = now end
     return found
 end
 function M.char_name(hex) local e = M.char_entry(hex); return e and e.name or nil end

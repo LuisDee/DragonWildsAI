@@ -75,6 +75,30 @@ S.owner_row(crate(guid(0xAAAAAAAA, 1, 2, 3)), d)
 check("an owner missing from the name list is said so, with the guid", d.owner == "a character not in the name list"
     and d.owner_guid == "AAAAAAAA000000010000000200000003" and d.mine == false, d.owner)
 
+-- a miss is remembered for S.NAME_MISS_S (native-crash review 2026-11-18): a crate of a character not in the list
+-- re-ran a DisplayNameComponent FindAllOf and a TArray ForEach per crate per census; the list is append-only, so a
+-- name that joins it later is found after the window
+do
+    local real_find, scans, clock = FindAllOf, 0, 1000
+    FindAllOf = function(cls) if cls == "DisplayNameComponent" then scans = scans + 1 end return real_find(cls) end
+    local real_clock = S.name_clock
+    S.name_clock = function() return clock end
+    local stranger = guid(0xBBBBBBBB, 1, 2, 3)
+    for _ = 1, 10 do d = {}; S.owner_row(crate(stranger), d) end
+    -- (the owner row also reads his own account entry for same_account: two names, each scanned once)
+    local first = scans
+    check("a name miss is remembered: ten crates of the same stranger cost one scan per name, not one per crate",
+        first >= 1 and first <= 2 and d.owner == "a character not in the name list", scans)
+    W.names[#W.names + 1] = { CharacterGuid = { InnerGuid = stranger }, CharacterName = ftext("Newcomer") }
+    clock = clock + (S.NAME_MISS_S or 30) - 1
+    d = {}; S.owner_row(crate(stranger), d)
+    check("within the miss window: no further scan", scans == first, scans)
+    clock = clock + 2
+    d = {}; S.owner_row(crate(stranger), d)
+    check("after the miss window: read again, a name that joined the list is found", scans > first and d.owner == "Newcomer", d.owner)
+    FindAllOf, S.name_clock = real_find, real_clock
+end
+
 d = {}
 S.owner_row(uobj("BP_Station_Campfire_C /Game/L.L:PersistentLevel.BP_Station_Campfire_C_1", {}), d)
 check("no ownership component: nothing added (never a guess)", next(d) == nil)
