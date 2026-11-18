@@ -126,7 +126,8 @@ def rig(tmp_path):
                DW_CLIENT_HOLD=str(tmp_path / "client.stopped"), DW_CLIENT_WD_EVENTS=str(tmp_path / "wd.jsonl"),
                DW_CLIENT_BOOT_LOG=str(tmp_path / "boot.log"), DW_CLIENT_SMOKE_DIR=str(tmp_path),
                DW_CLIENT_STEAM="logged_in", DW_CLIENT_CDB=str(cdb),  # fake Steam/debugger, never the host's
-               DW_CLIENT_BRAIN_PATTERN="no-such-brain-process-zq9")  # a brain running on the host never counts
+               DW_CLIENT_BRAIN_PATTERN="no-such-brain-process-zq9",  # a brain running on the host never counts
+               DW_CLIENT_MAX_FE_RETURNS="2")  # the scenarios below were written for 2 returns; the default (1) has its own test
     for k in ("DW_CLIENT_DEFAULT_TARGET", "DW_CLIENT_FORBID_TARGETS"):  # per-machine settings never leak in
         env.pop(k, None)
     r = type("Rig", (), {})()
@@ -537,6 +538,14 @@ def test_frontend_counts_returns_from_the_game_log(rig):
     # the count is persisted for that pid (the game log can stall, L23)
     rec = json.loads((rig.tmp / "state" / "client_frontend_returns.json").read_text(encoding="utf-8-sig"))
     assert rec["pid"] == rig.proc.pid and rec["returns"] == 2
+
+
+def test_the_default_allows_one_return(rig):
+    # client build 26658295 crashed on its 2nd return (2026-11-18 12:34:36Z), so by default one return already needs a relaunch
+    rig.env.pop("DW_CLIENT_MAX_FE_RETURNS")
+    record_returns(rig, 1)
+    fe = frontend(rig)
+    assert fe["max"] == 1 and fe["returns"] == 1 and fe["needs_relaunch"] is True
 
 
 def test_frontend_ignores_an_older_process_log_and_another_pids_record(rig):

@@ -306,7 +306,9 @@ function Get-Cdb {
 #     this process: its "Log file open" stamp is not older than the process), and
 #   - logs/state/client_frontend_returns.json: {pid, start, returns}, raised by Register-FrontEndReturn whenever
 #     a tool sends disconnect.lua (the game log can stall: L23).
-$ClientMaxFrontEndReturns = if ($env:DW_CLIENT_MAX_FE_RETURNS) { [int]$env:DW_CLIENT_MAX_FE_RETURNS } else { 2 }
+# 1 since client build 26658295: on 2026-11-18 12:34:36Z the client crashed on its 2nd return (connection lost at 12:29,
+# rejoin, then the watchdog's park disconnect; same last lines and GC/UE4SS-callback frames as L24).
+$ClientMaxFrontEndReturns = if ($env:DW_CLIENT_MAX_FE_RETURNS) { [int]$env:DW_CLIENT_MAX_FE_RETURNS } else { 1 }
 $ClientFrontEndFile = Join-Path $ClientStateDir 'client_frontend_returns.json'
 function Get-ProcStartIso($Proc) { try { $Proc.StartTime.ToUniversalTime().ToString('o') } catch { '' } }
 function Get-FrontEndReturnsFromLog($Proc) {
