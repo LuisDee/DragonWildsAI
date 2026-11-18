@@ -1758,6 +1758,11 @@ def build(mirror: Mirror | None = None, probe: dict | None = None) -> dict:
         doc["dropped_by"][item] = {"item": item, "rows": rows, "aliases": _item_aliases(item, mirror),
                                    "text": reverse_text(item, rows)}
     doc["counts"] = counts(doc)
+    try:  # regions and resource nodes (power level, residents, nodes): game map + this mirror
+        from tools.build_regions import add_sections
+        add_sections(doc, mirror)
+    except Exception as exc:  # a broken places file costs the regions, never the bestiary
+        print(f"regions not added: {exc!r}", file=sys.stderr)
     return doc
 
 
@@ -1804,32 +1809,55 @@ def _words(text: str) -> list[str]:
     return [_stem(w) for w in words(text)]
 
 
+# Sections matched by name, with their priority on a tie (lower first) and the kind a lookup result shows.
+# regions/resources: tools/build_regions.py (power level, residents and resource nodes per region; Luis 2026-11-18).
+SECTIONS = (("creatures", 0), ("vaults", 0), ("regions", 0), ("resources", 0), ("dropped_by", 1))
+SECTION_KIND = {"creatures": "creature", "vaults": "vault", "regions": "region", "resources": "resource",
+                "dropped_by": "item sources"}
+
+
 class Bestiary:
-    """Name or alias matching over data/bestiary.json: the entries a query names, longest name first."""
+    """Name or alias matching over data/bestiary.json: the entries a query names, longest name first.
+
+    An entry's ``loose_aliases`` (a resource's bare name: "tin", "coal", "stone") match only at the end of the query
+    or before a function word ("where is tin", "coal in fellhollow"), never as the first word of a longer name
+    ("stone pickaxe", "oak logs"), and may be three letters long."""
 
     def __init__(self, doc: dict | None = None, path: Path = OUT):
+        from brain.knowledge import STOP
+        self.stop = {_words(w)[0] for w in STOP if _words(w)}
         self.doc = doc if doc is not None else json.loads(Path(path).read_text(encoding="utf-8"))
-        self.names: list[tuple[tuple[str, ...], int, str, str]] = []  # (words, priority, section, key)
-        for sec, prio in (("creatures", 0), ("vaults", 0), ("dropped_by", 1)):
+        self.names: list[tuple[tuple[str, ...], int, str, str, bool]] = []  # (words, priority, section, key, loose)
+        for sec, prio in SECTIONS:
             for key, e in self.doc.get(sec, {}).items():
                 for n in {e.get("name") or e.get("item") or key, key, *(e.get("aliases") or []), *(e.get("class_names") or [])}:
                     w = tuple(_words(n))
                     if w and (len(w) > 1 or len(w[0]) >= 4):
-                        self.names.append((w, prio, sec, key))
-        self.names.sort(key=lambda r: (-len(r[0]), r[1]))
+                        self.names.append((w, prio, sec, key, False))
+                for n in e.get("loose_aliases") or []:
+                    w = tuple(_words(n))
+                    if w and (len(w) > 1 or len(w[0]) >= 3):
+                        self.names.append((w, prio, sec, key, True))
+        self.names.sort(key=lambda r: (-len(r[0]), r[1], r[4]))
 
     def match(self, query: str) -> list[tuple[str, str]]:
         q = _words(query)
         used = [False] * len(q)
+        used_item = [False] * len(q)  # a resource node's words stay free for the item of that name ("copper ore")
         out: list[tuple[str, str]] = []
-        for w, _prio, sec, key in self.names:
+        for w, _prio, sec, key, loose in self.names:
             n = len(w)
+            taken = used_item if sec == "dropped_by" else used
             for i in range(len(q) - n + 1):
-                if tuple(q[i:i + n]) == w and not any(used[i:i + n]):
+                if loose and i + n < len(q) and q[i + n] not in self.stop:
+                    continue
+                if tuple(q[i:i + n]) == w and not any(taken[i:i + n]):
                     if (sec, key) not in out:
                         out.append((sec, key))
                     for j in range(i, i + n):
                         used[j] = True
+                        if sec != "resources":
+                            used_item[j] = True
                     break
         return out[:MAX_ENTRIES]
 
@@ -1875,8 +1903,8 @@ def merge(bestiary: Bestiary, query: str, results: list[dict], budget: int = TEX
         text = e.get("text") if isinstance(e, dict) else None
         if not isinstance(text, str) or not text.strip():
             continue
-        mine.append({"source": "bestiary (wiki mirror)", "authoritative": False,
-                     "kind": {"creatures": "creature", "vaults": e.get("kind", "vault"), "dropped_by": "item sources"}[sec],
+        mine.append({"source": e.get("lookup_source") or "bestiary (wiki mirror)", "authoritative": False,
+                     "kind": e.get("kind") if sec in ("vaults", "regions") and e.get("kind") else SECTION_KIND[sec],
                      "title": str(e.get("name") or e.get("item") or key), "text": _clip(text, ENTRY_CHARS)})
     if not mine:
         return results, None
