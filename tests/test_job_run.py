@@ -785,3 +785,132 @@ def test_a_door_he_built_is_not_left_unread_as_a_chest():
     assert door["read"] is False and door.get("no_inventory") is True
     assert j.is_storage("BP_T1_Door_C_2147472981", {}, door) is False
     assert j.is_storage("BP_Storage_Crate_C_1", {}, j.read_container({"ok": False, "reason": "not_found"})) is None
+
+
+# ------------------------------------------------------------------ 2026-11-18 run 20261118-000146-L2
+# He died twice and respawned at a bed camp of his ~100 m west of his base. A sample there listed his small chest at
+# [85.98, 1851.65] and his door at [94.71, 1853.14] (that door under two names: the game re-creates a door that left
+# relevancy). The end read was made where he ended, at his base: the client's inspect reaches 80 m
+# (client_bridge LOOK_MAX_RADIUS_M): "it's 89 m away, beyond 80 m", "not perceived within 80 m". He never carried a
+# copper ore, and the run was left out.
+CHEST = "BP_BaseBuilding_Chest_Small_C_2147473017"
+DOOR = "BP_T1_Door_C_2147458506"
+
+
+def at_camp(t):
+    return T0 + 30 <= t <= T0 + 60
+
+
+def far_state(t):
+    """At his base, except 30-60 s at the bed camp 100 m west, where get_state lists the chest and the door."""
+    if at_camp(t):
+        st = state(pos=(90.0, 1852.0, -31.0))
+        st["structures"] = [{"id": CHEST, "mine": True, "position": [85.98, 1851.65, -31.7]},
+                            {"id": DOOR, "mine": True, "position": [94.71, 1853.14, -30.3]}]
+        return st
+    return state(pos=(153.59, 1909.79, -30.9))
+
+
+def far_chests(near_contents):
+    """What the client's inspect answers: the camp's pieces only from within 80 m of them."""
+    return lambda t, cid: near_contents.get(cid) if at_camp(t) else None
+
+
+class DoorIO(FakeIO):
+    def inspect(self, cid):
+        if cid == DOOR and at_camp(self.t):
+            self.inspected.append(cid)
+            return {"ok": True, "data": {"id": cid, "class": "BP_T1_Door_C", "kind": "actor"}}
+        return super().inspect(cid)
+
+
+def nothing_script():
+    return model(T0 + 1) + [call(T0 + 3, "e1", "explore", {"about": "copper ore"}),
+                            result(T0 + 90, "e1", "explore", ok=False, reason="nothing_in_range",
+                                   data={"detail": "saw nothing matching 'copper ore'"})]
+
+
+def test_snapshot_keeps_where_his_containers_stood():
+    s = j.snapshot(far_state(T0 + 40))
+    assert s["container_where"] == {CHEST: [85.98, 1851.65, -31.7], DOOR: [94.71, 1853.14, -30.3]}
+
+
+def test_read_container_keeps_the_clients_detail():
+    r = j.read_container({"ok": False, "reason": "unknown_target",
+                          "data": {"detail": "it's 89 m away, beyond 80 m", "distance": 89}})
+    assert r["read"] is False and r["why"] == "unknown_target: it's 89 m away, beyond 80 m"
+
+
+def test_held_in_run_from_bag_reads_and_pickups_only():
+    rows = [{"ts": 1, "kind": "bridge_recv", "msg": {"ok": True, "data": state({"ITEM_Resources_Stone": 5})}},
+            {"ts": 2, "kind": "bridge_recv", "msg": {"ok": True, "data": state({"ITEM_Resources_Stone": 9})}},
+            {"ts": 3, "kind": "bridge_recv", "msg": {"ok": False, "data": {"bag": 3}}},
+            result(4, "g", "gather", data={"item": "ITEM_Resources_Wood_Ash", "gathered": 5}),
+            result(5, "i", "interact", data={"gained": {"ITEM_Sword_Bronze": 1}}),
+            result(6, "c", "craft", data={"collected": [{"item": "ITEM_Consumable_Water_Clean", "count": 2}]}),
+            result(7, "x", "consume", data={"item": "ITEM_Consumable_Meat_Rat_Roast", "count_left": 3}),
+            result(8, "y", "gather", ok=False, data={"item": "ITEM_Resources_CopperOre"}),
+            {"ts": 9, "kind": "say", "text": "got 30 copper ore"}]  # his words are never a read
+    h = j.held_in_run(rows, [snap({"ITEM_Resources_Stone": 2}), j.snapshot({"unread": "x"})])
+    assert h["reads"] == 3 and h["peak"]["ITEM_Resources_Stone"] == 9
+    assert h["gained"] == {"ITEM_Resources_Wood_Ash": 5, "ITEM_Sword_Bronze": 1, "ITEM_Consumable_Water_Clean": 2}
+    assert "ITEM_Resources_CopperOre" not in h["peak"] and "ITEM_Resources_CopperOre" not in h["gained"]
+
+
+def test_run_job_reads_a_chest_of_his_while_he_is_near_it(doc):
+    """000146's cause: the chest was listed only at the bed camp and read only at the end, 89 m off. It is now read
+    the first time a sample lists it (he is within 30 m then), and the end read's failure says how far it was."""
+    io = DoorIO(script=nothing_script(), states=far_state, chests=far_chests({CHEST: []}))
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"], "deadline": 200})
+    first = rec["state_end"]["chest_first"]
+    assert first[CHEST]["read"] is True and first[CHEST]["items"] == {} and 30 <= first[CHEST]["t"] <= 60
+    assert first[DOOR].get("no_inventory") is True
+    end = rec["state_end"]["chest_end"]
+    assert end[CHEST]["read"] is False and end[CHEST]["seen_m"] == 89.2
+
+
+def test_l2_fail_certain_when_he_never_carried_any_and_the_unread_held_none(doc):
+    io = DoorIO(script=nothing_script(), states=far_state, chests=far_chests({CHEST: []}))
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"], "deadline": 200})
+    assert rec["job_done"] is False and not rec.get("unread") and "fail_certain: never carried any" in rec["done_why"]
+    assert j.not_counted(rec) is None and rec["verdict"]["bars"]["read"] is True and not rec["verdict"]["pass"]
+
+
+def test_l2_stays_unread_when_an_unread_chest_was_never_read_or_held_enough(doc):
+    job = j.job_of("L2", doc)
+    io = DoorIO(script=nothing_script(), states=far_state, chests=lambda t, cid: None)  # never readable
+    rec = j.run_job(io, job, {"interruptions": doc["interruptions"], "deadline": 200})
+    assert rec["unread"] and "never carried any" in rec["unread"] and "seen 89.2 m from where he ended" in rec["unread"]
+    copper = [{"item": "ITEM_Resources_CopperOre", "name": "Copper Ore", "count": 30}]
+    io = DoorIO(script=nothing_script(), states=far_state, chests=far_chests({CHEST: copper}))
+    rec = j.run_job(io, job, {"interruptions": doc["interruptions"], "deadline": 200})
+    assert rec["unread"] and "fail_certain" not in rec["done_why"]  # it held 30 when read: it may still
+
+
+def test_l2_never_fail_certain_once_he_held_the_item(doc):
+    job = j.job_of("L2", doc)
+    start = snap(mine=[CHEST])
+    end = snap()
+    end.update(j.evidence([]))
+    end["chest_end"] = {CHEST: {"read": False, "why": "unknown_target: not perceived within 80 m"}}
+    end["chest_first"] = {CHEST: {"read": True, "items": {}, "t": 0.0}}
+    end["held_in_run"] = {"reads": 40, "peak": {}, "gained": {}}
+    assert j.done(job, start, end)[0] is False
+    for held in ({"reads": 40, "peak": {"ITEM_Resources_CopperOre": 3}, "gained": {}},
+                 {"reads": 40, "peak": {}, "gained": {"ITEM_Resources_CopperOre": 1}}, {}):
+        end["held_in_run"] = held
+        assert j.done(job, start, end)[0] is None
+
+
+def test_a_gained_want_he_never_held_is_fail_certain_even_unread():
+    # "put in during the run": what an unread container held before does not matter if he never held any
+    want = [{"item": "ITEM_Resources_Stone", "count": 10, "gained": True}]
+    start, end = snap(mine=[CHEST]), snap()
+    end.update(j.evidence([]))
+    end["chest_end"] = {CHEST: {"read": False, "why": "unknown_target: not perceived within 80 m"}}
+    end["chest_first"] = {}
+    end["held_in_run"] = {"reads": 12, "peak": {}, "gained": {}}
+    ok, why = j.p_in_own_chest(want, start, end)
+    assert ok is False and "fail_certain" in why
+    end["held_in_run"] = {"reads": 12, "peak": {"ITEM_Resources_Stone": 2}, "gained": {}}
+    assert j.p_in_own_chest(want, start, end)[0] is None

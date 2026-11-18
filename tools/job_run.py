@@ -133,7 +133,8 @@ def snapshot(data: dict | None) -> dict:
     once (a loadout slot that references a carried stack is not counted again); worn {slot: item} (Head, Body, Legs,
     HeldRight, held_right ...); consumables {food, drink} that do no harm, and the ones left out; position; dead;
     own_containers (ids get_state marks mine: the client's ledger of what he built); container_kinds {id: census
-    kind}; empty_slots (the game's count over every page); bag_room (bag_room()); unread (why the read is not a
+    kind}; container_where {id: position} of his (an actor's name is per client session and changes when the game
+    re-creates it; where it stands does not); empty_slots (the game's count over every page); bag_room (bag_room()); unread (why the read is not a
     reading of him: a failed get_state is never an empty character)."""
     d = data or {}
     if isinstance(d.get("data"), dict) and ("ok" in d):
@@ -173,11 +174,14 @@ def snapshot(data: dict | None) -> dict:
            if isinstance(e, dict) and e.get("mine") and e.get("id")}
     kinds = {str(e["id"]): str(e["kind"]) for key in ("interactables", "structures") for e in d.get(key) or []
              if isinstance(e, dict) and e.get("id") and e.get("kind") in CENSUS_KINDS}
+    where = {str(e["id"]): list(e["position"]) for key in ("structures", "interactables") for e in d.get(key) or []
+             if isinstance(e, dict) and e.get("mine") and e.get("id") and isinstance(e.get("position"), (list, tuple))
+             and len(e["position"]) >= 2}
     pl = d.get("power_level")
     unread = d.get("unread") or (None if rows is not None or d.get("inventory") or d.get("position") is not None
                                  else "the read carried no position and no inventory")
     out = {"carried": carried, "worn": worn, "consumables": cons, "position": d.get("position"),
-           "dead": bool(d.get("dead")), "own_containers": sorted(own), "container_kinds": kinds,
+           "dead": bool(d.get("dead")), "own_containers": sorted(own), "container_kinds": kinds, "container_where": where,
            "empty_slots": d.get("empty_slots"), "bag_room": bag_room(d),
            "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
     if left_out:
@@ -285,6 +289,74 @@ def evidence(rows: list[dict]) -> dict:
     return {"chests": chests_seen(rows), "crafted": crafted_in_run(rows), "chests_before": chests_before(rows)}
 
 
+# tool results that name an item he did not gain (eaten, worn, put away, failed) or only looked at
+NO_GAIN_TOOLS = {"consume", "equip", "unequip", "store", "drop", "inspect", "look", "explore", "deconstruct"}
+
+
+def held_in_run(rows: list[dict], snaps: list[dict]) -> dict:
+    """What his bag held in the run, from game reads only: peak {item: the most any read of his bag showed} over the
+    harness's own get_state reads (snaps) and every get_state / inventory reply in the brain log (bridge_recv); reads
+    (how many); gained {item: n} the client's pickups and crafts reported (ok tool results: data.item with its
+    count, data.gained, data.collected). His words are never read."""
+    peak: dict[str, int] = {}
+    reads = 0
+
+    def bag(carried: dict) -> None:
+        nonlocal reads
+        reads += 1
+        for k, v in (carried or {}).items():
+            peak[k] = max(peak.get(k, 0), int(v or 0))
+
+    for s in snaps:
+        if s and not s.get("unread"):
+            bag(s.get("carried") or {})
+    gained: dict[str, int] = {}
+
+    def gain(item: Any, n: Any) -> None:
+        if isinstance(item, str) and item:
+            gained[item] = gained.get(item, 0) + max(1, int(n) if isinstance(n, (int, float)) else 1)
+
+    for r in rows:
+        if r.get("kind") == "bridge_recv":
+            m = r.get("msg") or {}
+            d = m.get("data")
+            if m.get("ok") is False or not isinstance(d, dict):
+                continue
+            if isinstance(d.get("inventory_items"), list) or (
+                    any(k in d for k in ("hotbar", "bag", "loadout"))
+                    and all(isinstance(d.get(k), list) for k in ("hotbar", "bag", "loadout") if k in d)):
+                bag(snapshot(d)["carried"])
+        elif r.get("kind") == "tool_result" and r.get("tool") not in NO_GAIN_TOOLS:
+            res = r.get("result") or {}
+            d = res.get("data") if isinstance(res.get("data"), dict) else {}
+            if res.get("ok") is not True:
+                continue
+            if isinstance(d.get("gained"), dict):
+                for k, n in d["gained"].items():
+                    gain(k, n)
+            for e in d.get("collected") or []:
+                if isinstance(e, dict):
+                    gain(e.get("item"), e.get("count"))
+            if not isinstance(d.get("gained"), dict) and not d.get("collected"):
+                gain(d.get("item"), next((d[k] for k in ("gathered", "gained", "count", "crafts")
+                                          if isinstance(d.get(k), (int, float)) and d[k] > 0), 1))
+    return {"reads": reads, "peak": peak, "gained": gained}
+
+
+def never_held(end: dict, want: dict) -> str | None:
+    """Why he cannot have put any of this want anywhere in the run, from game reads (end["held_in_run"]: no read of
+    his bag held it, no pickup or craft gave it, no container his body opened showed it), or None when that is not
+    sure."""
+    h = end.get("held_in_run") or {}
+    if not h.get("reads"):
+        return None
+    if _want_count(h.get("peak") or {}, want) or _want_count(h.get("gained") or {}, want) \
+            or _want_count(end.get("crafted") or {}, want) \
+            or any(_want_count(c.get("items") or {}, want) for c in (end.get("chests") or {}).values()):
+        return None
+    return f"never carried any ({h['reads']} reads of his bag held none; no pickup or craft of it)"
+
+
 def is_storage(cid: str, kinds: dict | None = None, read: dict | None = None) -> bool | None:
     """Is this container one the game treats as storage: True, False, or None (not known). The census kind decides
     when it was read ("storage", not a station: sense.FAMILIES); else the game's asset id and class as
@@ -314,6 +386,8 @@ def read_container(reply: Any) -> dict:
     out = {"kind": d.get("kind"), "class": d.get("class")}
     if r.get("ok") is not True or not isinstance(d.get("contents"), list):
         why = r.get("reason") or d.get("detail") or ("no inventory read on it" if r.get("ok") else "no reply")
+        if r.get("reason") and d.get("detail"):  # the client's own words on it: "it's 89 m away, beyond 80 m" (000146)
+            why = f"{r['reason']}: {d['detail']}"
         # found, and no inventory on it: the game holds nothing in it (his door, 2026-11-17 runs 211950 and 212448)
         none_in = r.get("ok") is True and d.get("contents") is None
         return {**out, "read": False, "why": str(why)[:200], **({"no_inventory": True} if none_in else {})}
@@ -421,12 +495,19 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
         return False, "no storage container of his was seen in the run"
     if reads is None:
         return None, "unread: no end read of his containers"
-    storage = {cid: is_storage(cid, kinds, reads.get(cid)) for cid in sorted(own)}
+    first = end.get("chest_first") or {}  # each one's read the first time a run read listed it near him
+
+    def kind_read(cid: str) -> dict | None:  # the end read decides what it is; else his read of it in the run
+        r = reads.get(cid) or {}
+        return r if (r.get("read") or r.get("no_inventory") or cid not in first) else first[cid]
+
+    storage = {cid: is_storage(cid, kinds, kind_read(cid)) for cid in sorted(own)}
     if not any(v is not False for v in storage.values()):
         return False, f"none of his containers is storage ({', '.join(sorted(own)[:4])})"
     good = {cid: reads[cid]["items"] for cid, s in storage.items() if s and (reads.get(cid) or {}).get("read")}
-    unread = {cid: (reads.get(cid) or {}).get("why") or "not read" for cid, s in storage.items()
-              if s is not False and cid not in good}
+    unread = {cid: ((reads.get(cid) or {}).get("why") or "not read")
+              + (f"; seen {reads[cid]['seen_m']} m from where he ended" if (reads.get(cid) or {}).get("seen_m") else "")
+              for cid, s in storage.items() if s is not False and cid not in good}
     short, doubt = [], []
     for want in spec:
         label = want.get("label") or want.get("item")
@@ -457,8 +538,21 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
             doubt.append(f"{label}: {best[1]} in {best[0]}, but what it held at the start was not read")
             continue
         if unread:
+            # a pass the reads rule out: he never held any, so nothing of it went into an unread container in the
+            # run, and it holds no more than when it was read in the run (fail_certain: the count asked can be
+            # neither there nor put in); else unread, with what is known
+            sure = never_held(end, want)
+            was = {c: _want_count(first[c].get("items") or {}, want) for c in unread
+                   if (first.get(c) or {}).get("read")}
+            if sure and (gained or (len(was) == len(unread) and max(was.values()) < n)):
+                short.append(f"{label}: {best[1]} of {n}{word} in the read ones; fail_certain: {sure}"
+                             + ("" if gained else ", and the unread ones held " + "; ".join(
+                                 f"{c} {k} when read at {first[c].get('t')} s" for c, k in sorted(was.items())[:3])))
+                continue
             doubt.append(f"{label}: {best[1]} of {n}{word} in the read ones; unread: "
-                         + "; ".join(f"{c} ({w})" for c, w in sorted(unread.items())[:3]))
+                         + "; ".join(f"{c} ({w}{'' if c in was else '; never read in the run'})"
+                                     for c, w in sorted(unread.items())[:3])
+                         + (f"; he {sure}" if sure else ""))
             continue
         before = [(cid, put_in(cid, opened[cid]["items"])) for cid in good
                   if cid in opened and opened[cid].get("tool") != "take"]
@@ -952,17 +1046,47 @@ class _Seen:
     pieces within 30 m (build.lua cfg.structures), so a crate of his is marked mine only while he is near it (run
     20261117-195219-L2: in neither the start nor the end read)."""
 
+    READ_CAP = 8  # new containers read per sample
+
     def __init__(self):
         self.own: set[str] = set()
         self.kinds: dict[str, str] = {}
+        self.where: dict[str, list] = {}
+        self.first: dict[str, dict] = {}
+        self.bags: list[dict] = []
 
     def see(self, snap: dict) -> None:
         self.own |= set(snap.get("own_containers") or [])
         self.kinds.update(snap.get("container_kinds") or {})
+        self.where.update(snap.get("container_where") or {})
+        self.bags.append({"carried": snap.get("carried") or {}})
+
+    def read_new(self, io, snap: dict, t: float) -> None:
+        """Read each container of his that this read lists (so within 30 m of him: inside the client's 80 m inspect
+        reach, client_bridge LOOK_MAX_RADIUS_M) the first time it is listed. Run 20261118-000146-L2: his chest at the
+        bed camp he respawned at was listed there and read only at the end, from his base 89 m off ("it's 89 m away,
+        beyond 80 m"), and the run was left out. A failed read is tried again the next time it is listed."""
+        todo = [cid for cid in snap.get("own_containers") or []
+                if cid not in self.first and is_storage(cid, self.kinds) is not False][:self.READ_CAP]
+        for cid, r in chest_reads(io, todo).items():
+            if r.get("read") or r.get("no_inventory"):
+                self.first[cid] = {**r, "t": round(t, 1)}
 
     def into(self, snap: dict) -> None:
         snap["own_containers"] = sorted(self.own | set(snap.get("own_containers") or []))
         snap["container_kinds"] = {**self.kinds, **(snap.get("container_kinds") or {})}
+        snap["container_where"] = {**self.where, **(snap.get("container_where") or {})}
+        snap["chest_first"] = dict(self.first)
+
+
+def seen_from_end(reads: dict, where: dict, pos: Any) -> None:
+    """Mark each failed end read with how far from where he ended the container was last listed (seen_m)."""
+    if not (isinstance(pos, (list, tuple)) and len(pos) >= 2):
+        return
+    for cid, r in reads.items():
+        p = where.get(cid)
+        if not r.get("read") and not r.get("no_inventory") and p:
+            r["seen_m"] = round(math.dist(p[:2], pos[:2]), 1)
 
 
 def _open_reads(snap: dict) -> dict[str, dict]:
@@ -997,6 +1121,10 @@ def run_job(io, job: dict, opts: dict) -> dict:
     if any(w.get("gained") for w in (job.get("end") or {}).get("in_own_chest") or []) and not start.get("unread"):
         # what his containers in reach hold before the line: a 'gained' want counts only what goes in after it
         start["chest_start"] = chest_reads(io, chest_candidates(start, start))
+        seen.first.update({cid: {**r, "t": 0.0} for cid, r in start["chest_start"].items()
+                           if r.get("read") or r.get("no_inventory")})
+    if chest_job and not start.get("unread"):
+        seen.read_new(io, start, 0.0)  # the start read of his containers (those chest_start did not read)
     trigger = opts.get("trigger") or job.get("interrupt_trigger") or "first_step"
     t0 = io.now()
     sent = [{"t": 0.0, "line": job["line"], "sent": io.send(job["line"])}]
@@ -1022,6 +1150,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
             if not read.get("unread"):  # a failed read is skipped, never judged
                 cur = read
                 seen.see(cur)
+                if chest_job:
+                    seen.read_new(io, cur, rel)
                 cur.update(evidence(rows))
                 seen.into(cur)
                 ok, ok_why = done(job, start, cur)
@@ -1078,6 +1208,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
     seen.into(end)
     if chest_job:
         end["chest_end"] = chest_reads(io, chest_candidates(start, end))
+        seen_from_end(end["chest_end"], end.get("container_where") or {}, end.get("position"))
+        end["held_in_run"] = held_in_run(rows, seen.bags)  # start, every sample and end (seen.see)
     ok, ok_why = done(job, start, end)
     tl = q.timeline(rows, t0, ended)
     calls = cl.model_calls(rows)
