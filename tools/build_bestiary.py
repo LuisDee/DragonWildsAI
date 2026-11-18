@@ -1897,7 +1897,8 @@ class BestiaryLookup:
 
 
 def merge(bestiary: Bestiary, query: str, results: list[dict], budget: int = TEXT_BUDGET) -> tuple[list[dict], dict | None]:
-    """The entries ``query`` names first, then ``results`` in their order while all texts stay within ``budget``.
+    """The entries ``query`` names first (after the game card of an item it names), then ``results`` in their order
+    while all texts stay within ``budget``.
     Returns (results, info); info is None when no entry matched (results unchanged), else what a log line needs.
     An entry's text is held to ENTRY_CHARS whatever the file says; an entry without text is skipped."""
     from brain.knowledge import _clip
@@ -1920,8 +1921,22 @@ def merge(bestiary: Bestiary, query: str, results: list[dict], budget: int = TEX
         if used + n <= budget:
             rest.append(r)
             used += n
-    return mine + rest, {"entries": [m["title"] for m in mine], "chars": used, "old_kept": len(rest),
-                         "old_dropped": len(results) - len(rest)}
+    # An item the query names keeps its own game card first (the card carries the wiki's node tool and tier,
+    # brain/knowledge.py _node_line); the bestiary entries that mention it, its sources, regions and vaults, follow.
+    own = [r for r in rest if _names_item_card(query, r)]
+    rest = [r for r in rest if not any(r is o for o in own)]
+    return own + mine + rest, {"entries": [m["title"] for m in mine], "chars": used,
+                               "old_kept": len(own) + len(rest), "old_dropped": len(results) - len(own) - len(rest)}
+
+
+def _names_item_card(query: str, r: dict) -> bool:
+    """``r`` is the game's own card of an item and every word of its name is in ``query`` ("copper ore", "what vault
+    drops granite maul"); a query for a region or a node ("where is copper") names no item card."""
+    from brain.knowledge import _terms
+    if not (r.get("authoritative") and r.get("kind") == "item"):
+        return False
+    title = _terms(str(r.get("title") or ""))
+    return bool(title) and title <= _terms(query or "")
 
 
 # ------------------------------------------------------------------------------ score (the eval's own functions)

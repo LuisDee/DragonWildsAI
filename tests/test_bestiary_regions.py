@@ -194,6 +194,17 @@ def test_bestiary_lookup_merge_shows_kind_and_source(bestiary):
     assert res[0]["kind"] == "resource"
 
 
+def test_bestiary_lookup_merge_keeps_the_named_items_own_card_first(bestiary):
+    card = {"source": "game data", "authoritative": True, "kind": "item", "title": "Copper Ore", "text": "card"}
+    other = {"source": "game data", "authoritative": True, "kind": "item", "title": "Tin Ore", "text": "other"}
+    wiki = {"source": "wiki", "authoritative": False, "kind": "item", "title": "Copper Ore", "text": "page"}
+    res, info = merge(bestiary, "copper ore", [other, wiki, card])
+    assert res[0] is card and [r["kind"] for r in res[1:3]] == ["resource", "item sources"]
+    assert res[3:] == [other, wiki] and info["old_kept"] == 3
+    res, _ = merge(bestiary, "where is copper", [card])  # names the node, not the item: the region entry leads
+    assert res[0]["kind"] == "resource" and res[-1] is card
+
+
 # ---------------------------------------------------------------- the committed data and the eval files
 
 
