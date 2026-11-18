@@ -2199,8 +2199,11 @@ local function jump_tick(f)
             if not ok then return stop(st, { status = "failed", reason = "verification_failed", detail = "second jump input failed" }, log) end
             st.jump_double = false; st.jump_t2 = t; st.double_jumps = (st.double_jumps or 0) + 1
             st.jump_observation.submitted = true
-            -- for the typed jump's landing line (second=yes dj2=<s after the first press>)
-            if st.lp_jump_exec then st.lp_jump_exec.dj2 = t end
+            -- for the typed jump's landing line (second=yes dj2=<s after the first press>; vh2= his ground speed as the
+            -- second press is made and in= whether he pushed the stick the frame before: the djump-drift study
+            -- 2026-11-18 could not tell a directional double jump from speed built up in the air)
+            local jx = st.lp_jump_exec
+            if jx then jx.dj2, jx.vh2, jx.in2 = t, h_speed(st, pawn), st.in_tick == st.ticks - 1 end
         elseif t - st.jump_t > 1.2 then
             -- the first jump never left the ground: no second press, carry on (the stuck/re-plan ladder decides;
             -- live 2026-10-31 20:32 this ended the ramp_down journey)
@@ -3394,9 +3397,10 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
     local toward = (vh and vh > 1 and el > 1) and (vv.X * ex + vv.Y * ey) / (vh * el) or nil
     local function f0(x) return x and string.format("%.0f", x) or "-" end
     local function p3(q, dz) return q and q.X and string.format("(%.0f,%.0f,%.0f)", q.X, q.Y, q.Z - (dz or 0)) or "-" end
+    local function yn(b) return b == nil and "-" or (b and "1" or "0") end
     log(string.format("move: jump verdict=%s why=%s act=%s rise=%.0f run=%.0f k=%s/%s from=%s to=%s takeoff=%s"
         .. " takeoff_off=%s v0=%s v0h=%s toward=%s air=%.2f apex=%s nearest=%s at=%s feet_dz=%.0f"
-        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s",
+        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s vh2=%s vhn=%s in=%s/%s/%s airin=%s",
         verdict, why, p.leap and "leap" or tostring(p.act), p.Z - a.Z, el, tostring(st.lwp), tostring(st.lpath and #st.lpath),
         p3(a), p3(p), p3(tk, hh), tk.X and f0(math.sqrt((tk.X - a.X) ^ 2 + (tk.Y - a.Y) ^ 2)) or "-",
         p3(vv), f0(vh), toward and string.format("%.2f", toward) or "-", t - (j.started or t),
@@ -3407,7 +3411,34 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
         -- a double jump's second press: fired or not, and when after the first (2026-11-17 double-jumps study: a
         -- flight cut short could not tell "never pressed" from "pressed and the face ate it")
         p.act == "djump" and not p.leap and (j.dj2 and "yes" or "no") or "-",
-        j.dj2 and string.format("%.2f", j.dj2 - (j.started or j.dj2)) or "-"))
+        j.dj2 and string.format("%.2f", j.dj2 - (j.started or j.dj2)) or "-",
+        -- his ground speed (cm/s) at the second press and at his nearest pass over the cell; whether he pushed the
+        -- stick the frame before the first press, the second press and the nearest pass (1/0); airborne frames with
+        -- input / all airborne frames (djump-drift study 2026-11-18: 16 of 16 rock-step double jumps drifted 2.6 m)
+        f0(j.vh2), f0(j.vhn), yn(j.in0), yn(j.in2), yn(j.inn),
+        j.air_n and string.format("%d/%d", j.air_in or 0, j.air_n) or "-"))
+end
+
+-- once per load, at the first typed jump: the movement values that govern his flight, by property (nil reads "-").
+-- Engine CharacterMovementComponent and Dominion's own (dumps/26670300 Dominion.hpp:20738). Read only; the values
+-- are kept in M.jump_phys. A field, not a local (the main chunk's 200-local limit).
+M.jump_phys_props = { "AirControl", "AirControlBoostMultiplier", "AirControlBoostVelocityThreshold", "FallingLateralFriction",
+    "BrakingDecelerationFalling", "MaxAcceleration", "MaxWalkSpeed", "JumpZVelocity", "GravityScale",
+    "MinimumAccelerationForDirectionalDoubleJumpAndDash", "DoubleJumpMaxHorizontalSpeedDuringDash", "MaxFallDistanceForDoubleJump" }
+function M.jump_physics_line(pawn, log)
+    if M.jump_phys then return M.jump_phys end
+    local ok, cm = pcall(function() return pawn.CharacterMovement end)
+    local vals, parts = {}, {}
+    for _, k in ipairs(M.jump_phys_props) do
+        local okv, x = false, nil
+        if ok and cm then okv, x = pcall(function() return cm[k] end) end
+        x = okv and tonumber(x) or nil
+        vals[k] = x
+        parts[#parts + 1] = k .. "=" .. (x and string.format("%.6g", x) or "-")
+    end
+    M.jump_phys = vals
+    if log then log("move: jump physics " .. table.concat(parts, " ")) end
+    return vals
 end
 
 local function steer_typed_jump(f, p)
@@ -3514,8 +3545,10 @@ local function steer_typed_jump(f, p)
         if st.local_authority and not local_route_owned(st, gen, pawn, pc, goal) then return true end
         if jr == "accepted" then
             st.lp_jump_exec = { path = st.lpath, index = st.lwp, endpoint = p, previous = prev, token = st.owner_token, started = t, saw_air = false,
-                takeoff = v(me), v0 = (okv and type(vx) == "number") and { X = vx, Y = vy, Z = vz } or nil }
+                takeoff = v(me), v0 = (okv and type(vx) == "number") and { X = vx, Y = vy, Z = vz } or nil,
+                in0 = st.in_tick == st.ticks - 1 }
             st.lp_jumped[st.lwp] = t; j = st.lp_jump_exec
+            if not M.jump_phys then pcall(M.jump_physics_line, pawn, log) end
         elseif jr ~= "busy" then return true end
     elseif near then f.aim = prev end
     if not j then return end
@@ -3529,7 +3562,11 @@ local function steer_typed_jump(f, p)
         j.saw_air = true
         if me.Z > (j.apex or -math.huge) then j.apex = me.Z end
         local dn = d2(me, p)
-        if not j.nearest or dn < j.nearest then j.nearest, j.nearest_dz = dn, (me.Z - (st.half_h or 88)) - p.Z end
+        local pushed = st.in_tick == st.ticks - 1
+        j.air_n, j.air_in = (j.air_n or 0) + 1, (j.air_in or 0) + (pushed and 1 or 0)
+        if not j.nearest or dn < j.nearest then
+            j.nearest, j.nearest_dz, j.vhn, j.inn = dn, (me.Z - (st.half_h or 88)) - p.Z, h_speed(st, pawn), pushed
+        end
     end
     if j.saw_air and grounded == true then
         local dz = math.abs((me.Z - st.half_h) - p.Z)
@@ -4484,7 +4521,7 @@ local function steer_input(f)
         if spd and spd > M.cfg.hazard_walk_cms then st.status = "slowing"; return end
     end
     pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, slow and M.cfg.hazard_slow_input or 1.0, false)
-    st.status = "moving"
+    st.status, st.in_tick = "moving", st.ticks -- in_tick: the frame his stick was last pushed (the jump landing line)
 end
 
 -- sprint: far from the goal, only while making progress on the ground, never on a local path. Press-to-sprint:

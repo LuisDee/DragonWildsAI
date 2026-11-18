@@ -3642,6 +3642,61 @@ do
     M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
+-- The jump landing line shows his ground speed at the second press and at his nearest pass over the cell, whether he
+-- pushed the stick at the first press, the second press and that pass, and his airborne frames with input; the first
+-- typed jump of a load logs the movement values that govern the flight once (djump-drift study 2026-11-18: on a
+-- one-cell rock top every standstill double jump drifted 2.6 m and came down 1.25-1.5 m past the cell; air input or
+-- the game's directional double jump?).
+do
+    local cm = pawn.CharacterMovement
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
+    M.follow(log, "Zezima", 2, { nav = false })
+    run(5)
+    local mv = _G.DW_MOVE
+    local here = pawn.loc
+    mv.env = mv.env or {}; mv.env.double_jump, mv.env.dj_measured = true, true
+    mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X, Y = here.Y + 130, Z = FLOOR + 230, act = "djump" } }
+    mv.lwp = 2; mv.lp_jump_exec = nil; mv.lp_jumped = {}; mv.lp_runup = nil
+    M.jump_phys = nil
+    cm.AirControl, cm.BrakingDecelerationFalling, cm.JumpZVelocity, cm.MinimumAccelerationForDirectionalDoubleJumpAndDash = 0.35, 0, 807.9, 1500
+    local n0 = #logs
+    local vy = 40
+    frame_hook = function() cm.Velocity = { X = 0, Y = vy, Z = 0 }; vy = math.min(250, vy + 20) end
+    step(14) -- past the second press (0.33 s)
+    frame_hook = nil
+    local j = mv.lp_jump_exec
+    local phys
+    for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump physics ", 1, true) then phys = (phys and phys .. "|" or "") .. logs[i] end end
+    check("jump physics: logged once at the first typed jump, by property", phys ~= nil and not phys:find("|", 1, true)
+        and phys:find("AirControl=0.35 ", 1, true) ~= nil and phys:find("JumpZVelocity=807.9 ", 1, true) ~= nil
+        and phys:find("BrakingDecelerationFalling=0 ", 1, true) ~= nil
+        and phys:find("MinimumAccelerationForDirectionalDoubleJumpAndDash=1500 ", 1, true) ~= nil
+        and phys:find("FallingLateralFriction=- ", 1, true) ~= nil, tostring(phys))
+    check("jump air: the second press keeps his speed and whether he pushed the stick", j ~= nil and j.dj2 ~= nil
+        and type(j.vh2) == "number" and j.vh2 > 40 and j.in2 ~= nil and j.in0 ~= nil and (j.air_n or 0) > 0 and j.vhn ~= nil,
+        j and ("vh2=" .. tostring(j.vh2) .. " in2=" .. tostring(j.in2) .. " air_n=" .. tostring(j.air_n)) or "no jump")
+    local lines = {}
+    local function cap(m) lines[#lines + 1] = m end
+    M.jump_landing_line(mv, pawn, pawn:K2_GetActorLocation(), mv.lpath[2], { previous = mv.lpath[1], started = T - 1,
+        dj2 = T - 0.6, vh2 = 212.4, vhn = 251, in0 = false, in2 = true, inn = true, air_n = 40, air_in = 38 }, "missed", "far", T, cap)
+    check("landing line: vh2, vhn, in= first/second/nearest and airin", lines[1] ~= nil
+        and lines[1]:find("second=yes dj2=0.40 vh2=212 vhn=251 in=0/1/1 airin=38/40", 1, true) ~= nil, tostring(lines[1]))
+    lines = {}
+    M.jump_landing_line(mv, pawn, pawn:K2_GetActorLocation(), mv.lpath[2], { previous = mv.lpath[1], started = T }, "missed", "far", T, cap)
+    check("landing line: none of it known reads as dashes", lines[1] ~= nil and lines[1]:find("vh2=- vhn=- in=-/-/- airin=-", 1, true) ~= nil,
+        tostring(lines[1]))
+    -- a second typed jump in the same load does not log the values again
+    n0 = #logs
+    M.jump_physics_line(pawn, log)
+    local again = false
+    for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump physics ", 1, true) then again = true end end
+    check("jump physics: not logged again in the same load", not again, "")
+    cm.Velocity, cm.AirControl, cm.BrakingDecelerationFalling, cm.JumpZVelocity = nil, nil, nil, nil
+    cm.MinimumAccelerationForDirectionalDoubleJumpAndDash = nil
+    M.stop(log); air = 0; luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
 -- A walk to a creature that is gone before he gets there says so (live 2026-11-17 07:36:55Z, run 073510: his reflex
 -- killed the rat he was walking to and the walk ended with the bare code target_not_visible)
 do
