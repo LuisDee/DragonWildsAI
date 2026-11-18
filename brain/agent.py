@@ -489,6 +489,31 @@ class Agent:
             data["detail"] = f"{note} {data.get('detail') or ''}".strip()
             self.log.log("target_was_killed", tool=task.skill, target=target, note=note)
 
+    def _craft_sources(self, task: Task, outcome: Outcome) -> None:
+        """A craft that failed short: each missing row gets the sources craft_plan would give it, and the step's result
+        words end with them (brain/plan_sources.py enrich_craft_failure; live 2026-11-18 00:08Z, 389 s: "the bone pickaxe
+        needs stuff we don't have" though Bark to Bones was his and a Tannery is a build-menu piece). Facts only."""
+        from . import plan_sources
+        ctl = self.controller
+        try:
+            state = self.executor.state(max_age=POST_ACTION_REUSE_S)
+        except Exception:  # an unreadable state leaves the facts that don't need it
+            state = {}
+        state = state if isinstance(state, dict) and not state.get("unavailable") else {}
+        try:
+            spells = ctl.castable_spells() if (ctl.has("spells") or ctl.has("cast")) else None
+        except Exception:
+            spells = None
+        try:
+            line = plan_sources.enrich_craft_failure(
+                outcome.data if isinstance(outcome.data, dict) else None, state=state, spells=spells,
+                knowledge=getattr(ctl, "knowledge", None), places=getattr(ctl, "places", None), log=self.log)
+        except Exception as exc:  # facts are a bonus; the failure stands without them
+            self.log.log("craft_sources_error", error=repr(exc))
+            return
+        if line:
+            task.detail = (f"{task.detail} " if task.detail else "") + line
+
     def _run_task(self, task: Task) -> Outcome:
         """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""
         # the same call as the action the body is still doing since the player spoke: the executor re-attaches to it
@@ -510,6 +535,8 @@ class Agent:
                 if isinstance(outcome.data, dict):
                     outcome.data["knowledge"] = got[1]
                 task.detail = (f"{task.detail} " if task.detail else "") + f"({got[1]})"
+        if not outcome.ok and task.skill == "craft" and outcome.reason == Reason.MISSING_MATERIALS:
+            self._craft_sources(task, outcome)
         self._killed_note(task, outcome)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
         if self._directed is not None:

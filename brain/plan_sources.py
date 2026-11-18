@@ -389,3 +389,118 @@ def enrich_result(res: dict, **kw) -> dict:
     return res
 
 
+# ------------------------------------------------------------------------------ a craft that failed short
+# Live 2026-11-18 00:08Z (logs/brain-live-20261118-010135-17424.jsonl, 389 s): craft Bone Pickaxe failed "I need 8
+# Animal Bone ... and 4 Leather and I have 0" and said nothing of where they come from; he said "the bone pickaxe
+# needs stuff we don't have", went to mine copper with his stone pickaxe and died. craft_plan knew: Bark to Bones was
+# his, cows and deer drop bone and hide, the Tannery is a build-menu piece. The failed craft now carries the same
+# facts for what it lacks, from the same functions (``_rows``, ``_build_fact``), shorter.
+
+MISSING_ITEMS = 4
+MISSING_PER_ITEM = 3
+MISSING_CHARS = 700
+
+
+def _station_near(sids: list[str], names: list[str], state: dict | None) -> bool:
+    want = {s.lower() for s in sids} | {n.lower() for n in names}
+    for s in (state or {}).get("stations_nearby") or []:
+        if isinstance(s, dict) and ({str(s.get("station") or "").lower(), str(s.get("name") or "").lower()} & want):
+            return True
+    return False
+
+
+def _made(item: str, *, state=None, knowledge=None) -> tuple[list[str], list[tuple[str, str]]]:
+    """How a recipe (not a trader's, not one that takes the thing itself) makes ``item``: one line per station, with
+    what of each input he carries, then for a station not near him its build-menu facts (craft_plan's find_station
+    ``build``). Also the inputs he carries none of (id, name). ([], []) when nothing makes it."""
+    from .knowledge import vendor_station
+    cat = _catalog()
+    stations = cat.get("stations") or {}
+    have = counts(state)
+    unlocked = (state or {}).get("recipes_unlocked")
+    unlocked = set(unlocked) if isinstance(unlocked, list) else None
+    by_station: dict[tuple, list[tuple[bool, str]]] = {}
+    lacking: list[tuple[str, str]] = []
+    for rid, r in sorted((cat.get("recipes") or {}).items()):
+        sids = [s for s in r.get("stations") or [] if isinstance(s, str)]
+        ins = [i for i in r.get("inputs") or [] if isinstance(i, dict) and i.get("item")]
+        if r.get("test") or not ins or not any(o.get("item") == item for o in r.get("outputs") or []):
+            continue
+        if (sids and all(vendor_station(s, stations) for s in sids)) or any(i["item"] == item for i in ins):
+            continue
+        names = list(dict.fromkeys((stations.get(s) or {}).get("display_name") or s for s in sids
+                                   if (stations.get(s) or {}).get("display_name")))
+        words = " + ".join(f"{int(i.get('count') or 1)} {i.get('name') or i['item']} (you carry {have.get(i['item'], 0)})"
+                           for i in ins)
+        if unlocked is not None and rid not in unlocked:
+            words += ", not unlocked yet"
+        enough = all(have.get(i["item"], 0) >= int(i.get("count") or 1) for i in ins)
+        by_station.setdefault((tuple(sids), tuple(names)), []).append((not enough, words))
+        for i in ins:
+            if have.get(i["item"], 0) == 0 and (i["item"], i.get("name") or i["item"]) not in lacking:
+                lacking.append((i["item"], i.get("name") or i["item"]))
+    lines = []
+    for (sids, names), ways in by_station.items():
+        ways.sort()
+        where = f"made at {' or '.join(names[:2])}" if names else "made"
+        lines.append(_clip(f"{where} from " + " or ".join(w for _, w in ways[:2])))
+        if names and not _station_near(list(sids), list(names), state):
+            b = _build_fact({"name": names[0]}, knowledge, have)
+            if b:
+                cost = b["wiki"].split(": ", 1)[-1]
+                lines.append(_clip(f"{names[0]}: none near you; a build-menu piece, {cost}"
+                                   + (f" (you carry {b['you_carry']})" if b.get("you_carry") else "")))
+    return lines, lacking
+
+
+def missing_facts(missing: list[dict] | None, *, state=None, spells=None, knowledge=None, places=None) -> dict[str, list[str]]:
+    """{name: lines} for the inputs a failed craft lacks: a thing a recipe makes gets where and from what (and the
+    sources of an input he carries none of); anything else the sources craft_plan gives it (``_rows``). A row with
+    gathered_before (he has gathered it: its spots say where) gets nothing. Bounded: MISSING_ITEMS items,
+    MISSING_PER_ITEM lines each, LINE_CHARS a line."""
+    out: dict[str, list[str]] = {}
+    for m in missing or []:
+        if len(out) >= MISSING_ITEMS:
+            break
+        if not isinstance(m, dict) or not isinstance(m.get("item"), str) or m.get("gathered_before"):
+            continue
+        name = str(m.get("name") or m["item"])
+        try:
+            lines, lacking = _made(m["item"], state=state, knowledge=knowledge)
+            if not lines:
+                lines = [line for _, _, line in _rows(m["item"], name, state=state, spells=spells, knowledge=knowledge,
+                                                      places=places)]
+            else:
+                for iid, iname in lacking[:1]:
+                    sub = _rows(iid, iname, state=state, spells=spells, knowledge=knowledge, places=places)
+                    lines += [_clip(f"{iname}: {line}") for _, _, line in sub[:1]]
+        except Exception:  # data is best effort: the failure stands without it
+            lines = []
+        if lines:
+            out[name] = lines[:MISSING_PER_ITEM]
+    return out
+
+
+def missing_line(found: dict[str, list[str]]) -> str | None:
+    """The words added to the failed craft's result: 'Where the missing things come from: <name>: a | b. <name>: ...'"""
+    if not found:
+        return None
+    text = "Where the missing things come from: " + " ".join(f"{k}: {' | '.join(v)}." for k, v in found.items())
+    return text if len(text) <= MISSING_CHARS else text[: MISSING_CHARS - 1].rsplit(" ", 1)[0] + "…"
+
+
+def enrich_craft_failure(data: dict, *, state=None, spells=None, knowledge=None, places=None, log=None) -> str | None:
+    """On a craft result's data with ``missing`` rows: each row gets ``sources`` (``missing_facts``); returns the line
+    for the step's result words (``missing_line``) and logs craft_sources, or None when nothing was added."""
+    if not isinstance(data, dict) or not isinstance(data.get("missing"), list):
+        return None
+    found = missing_facts(data["missing"], state=state, spells=spells, knowledge=knowledge, places=places)
+    for m in data["missing"]:
+        if isinstance(m, dict) and str(m.get("name") or m.get("item")) in found:
+            m["sources"] = found[str(m.get("name") or m.get("item"))]
+    line = missing_line(found)
+    if line and log is not None:
+        log.log("craft_sources", item=data.get("item"), sources=list(found), chars=len(line))
+    return line
+
+
