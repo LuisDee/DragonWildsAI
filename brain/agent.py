@@ -293,6 +293,8 @@ class Agent:
             self._in_pump = False
         self.flush_situations()
         self._review_tick()
+        if (proxy := getattr(self, "planner_proxy", None)) is not None:
+            proxy.serve()  # body reads a background Planner call asked for (DW_ASYNC_PLAN); empty in line
         if self.director is not None:
             self.director.tick()  # the board: decisions (worker) applied, the next step run started
 

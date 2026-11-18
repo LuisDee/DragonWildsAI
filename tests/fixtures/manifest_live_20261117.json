@@ -1,0 +1,1204 @@
+{
+ "source": "logs/brain-live-20261117-234028-19024.jsonl controller prompt + client_mod kinds",
+ "manifest": {
+  "say": {
+   "kind": "waiter",
+   "llm": false,
+   "moves": false,
+   "description": "Say one line in game chat. This is the only way anyone hears you: text you write outside say is a private note nobody sees. Call it at most once per reply, beside your other tool calls; the line is said when they start (if one fails first, you get to say what went wrong instead). No say call = you stay silent.",
+   "args": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "description": "Exactly what the players read in chat: short, casual, in your own words."
+     }
+    },
+    "required": [
+     "text"
+    ]
+   }
+  },
+  "agility_courses": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Agility courses near you: name, distance, minimum level vs yours. Read only.",
+   "args": {
+    "properties": {
+     "radius": {
+      "default": 200,
+      "description": "Metres.",
+      "minimum": 10,
+      "maximum": 400,
+      "type": "number"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "buildables": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Pieces you can build (unlocked): name, category, material cost and what you're still missing. Read-only.",
+   "args": {
+    "properties": {
+     "can_build_now": {
+      "default": false,
+      "description": "Only pieces you have the materials for.",
+      "type": "boolean"
+     },
+     "about": {
+      "description": "Words for what to build; several things in one ask work (e.g. foundation wall roof door chest workbench). Each word gets its best pieces in the list, and by_word names them per word (a word with none has no piece).",
+      "type": "string"
+     },
+     "max": {
+      "default": 25,
+      "description": "At most this many pieces.",
+      "minimum": 1,
+      "maximum": 60,
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "combat_brief": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Facts to prepare a fight: power levels, the creature's weaknesses, your weapons vs it, usable buff/defence spells, healing food, the estimate, its learned attacks. Read-only.",
+   "args": {
+    "properties": {
+     "target": {
+      "description": "Creature id, or a name (nearest).",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "type": "object"
+   }
+  },
+  "craft_plan": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Plan a goal item from carried items: ordered steps (gather, craft at station, unlock, find station) and alternative recipes. Read only.",
+   "args": {
+    "properties": {
+     "quantity_mode": {
+      "enum": [
+       "additional_output",
+       "inventory_target"
+      ],
+      "description": "additional_output: make count more; inventory_target: end up carrying count in total.",
+      "default": "additional_output",
+      "type": "string"
+     },
+     "item": {
+      "description": "Goal item name or id.",
+      "type": "string"
+     },
+     "recipe": {
+      "description": "Or a recipe id.",
+      "type": "string"
+     },
+     "count": {
+      "minimum": 1,
+      "description": "How many.",
+      "default": 1,
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "farm_plots": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Farm plots near you with the game's own state: soil (weeds/clear), harvestable, diseased, watered, fertilized, the plot's prompt, growth (what grows there and its stage, e.g. Potato stage 2 of 3, from the plant the game shows; weeds count as a plant) and mine (true: a plot I built; false: someone else's). Read only.",
+   "args": {
+    "properties": {
+     "radius": {
+      "default": 40,
+      "description": "Metres.",
+      "minimum": 5,
+      "maximum": 120,
+      "type": "number"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "fishing_spots": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Fishing spots near you: method (net/rod), level, distance, fished out or not, and which of your tools fits each. Read only.",
+   "args": {
+    "properties": {
+     "radius": {
+      "default": 60,
+      "description": "Metres.",
+      "minimum": 5,
+      "maximum": 120,
+      "type": "number"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "held_actions": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "The actions of what you hold, from item data: style, name (e.g. Chop, Overhead Chop), perk, unlocked, damage. Read-only.",
+   "args": {
+    "properties": {},
+    "type": "object"
+   }
+  },
+  "inspect": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Details of one thing: what it gives, needs, contains. Read-only.",
+   "args": {
+    "properties": {
+     "target": {
+      "description": "An id from look.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "type": "object"
+   }
+  },
+  "inventory": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Your full inventory with item stats vs what you wear. Read-only.",
+   "args": {
+    "properties": {
+     "raw": {
+      "default": false,
+      "description": "Debug: raw listing.",
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "lodestones": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Lodestones you could fast-travel to: where they are, whether teleport is currently available from the nearest one, and the cost. Read-only.",
+   "args": {
+    "properties": {},
+    "type": "object"
+   }
+  },
+  "look": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "List things nearby (items, plants, resources, creatures, players, usables) with the ids other tools act on. situation is only a short summary and misses many small things (sticks, stones, plants, chests, stations): when he names something to pick up, use, fight or inspect that situation doesn't show, look with about=<his words> before acting on it or telling him it isn't there. Read-only.",
+   "args": {
+    "properties": {
+     "near": {
+      "description": "A player's name: look around HIM instead of you (distances from him, plus from_me and which side of him it lies). He must be in sight.",
+      "type": "string"
+     },
+     "max": {
+      "default": 15,
+      "description": "At most this many things.",
+      "minimum": 1,
+      "maximum": 40,
+      "type": "integer"
+     },
+     "about": {
+      "description": "The player's words for what to find; ranks matches first.",
+      "type": "string"
+     },
+     "radius": {
+      "default": 20,
+      "description": "Metres.",
+      "minimum": 1,
+      "maximum": 80,
+      "type": "number"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "quests": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Your quest log from the game: active quests with the current step in the game's own words (and its hint), and where: the step's own map markers as the map and compass show them (an area circle, a target spot or the NPC: name, kind, radius_m, position, distance_m, inside); go_to takes the position. Completed quests too; all = true adds the ones not started. Read only.",
+   "args": {
+    "properties": {
+     "all": {
+      "default": false,
+      "description": "Include quests not started yet.",
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "recipes": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "List recipes: craftable now (default), every recipe for an item with its status and missing inputs, or what a station makes. Read-only.",
+   "args": {
+    "properties": {
+     "station": {
+      "description": "Station type, name or id.",
+      "type": "string"
+     },
+     "item": {
+      "description": "Item name or id.",
+      "type": "string"
+     },
+     "limit": {
+      "minimum": 1,
+      "maximum": 50,
+      "default": 25,
+      "type": "integer"
+     },
+     "near_only": {
+      "default": false,
+      "description": "Only stations near you.",
+      "type": "boolean"
+     },
+     "count": {
+      "minimum": 1,
+      "description": "How many wanted.",
+      "default": 1,
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "spells": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Your spells: what each does, rune cost vs carried, cooldown, castable now and why not. all=true adds locked ones with their unlock level. Read-only.",
+   "args": {
+    "properties": {
+     "all": {
+      "default": false,
+      "description": "Include locked spells.",
+      "type": "boolean"
+     },
+     "compact": {
+      "default": true,
+      "description": "Ignored.",
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "stations": {
+   "kind": "read",
+   "llm": true,
+   "moves": false,
+   "description": "Stations near you: type, distance, unlocked recipes, what you can make now, and a furnace's state (running, contents, fuel, output). Read-only.",
+   "args": {
+    "properties": {
+     "radius": {
+      "default": 60,
+      "description": "Metres.",
+      "minimum": 5,
+      "maximum": 120,
+      "type": "number"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "agility_course": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Run an agility course: walks to its start, starts it, and runs through its orbs to the finish. Trains Agility (walking anywhere also gives a little Agility XP). See agility_courses.",
+   "args": {
+    "properties": {
+     "radius": {
+      "minimum": 10,
+      "maximum": 400,
+      "description": "Search radius, m (default 200).",
+      "type": "number"
+     },
+     "course": {
+      "description": "A course id from agility_courses (default: the nearest you can do).",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "attack": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Fight a creature until it dies, defending per combat_orders (never players). data.assessment estimates the fight. The kill trains the skill of the weapon you hold (melee: Attack, bows: Ranged, staffs: Magic; `weapon` picks it, default best melee).",
+   "args": {
+    "properties": {
+     "style": {
+      "description": "A held item's action: primary, special, secondary, jump, or its name (held_actions).",
+      "type": "string"
+     },
+     "force": {
+      "default": false,
+      "description": "Ignore flee_hp for this fight.",
+      "type": "boolean"
+     },
+     "weapon": {
+      "description": "Carried item to fight with (e.g. a crossbow), or held = what is in hand now; default best melee.",
+      "type": "string"
+     },
+     "target": {
+      "description": "Creature id, or a name (nearest).",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "type": "object"
+   }
+  },
+  "build": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Build a piece by its name from buildables (you need its materials), or several with pieces. Walks near the spot (stays put when it is in reach), tries preview spots until one is valid, places it once and checks it was built. ok: 'built' says what stands where (metres and compass from you, facing, its structures id); rejected_previews_before_placing are not failures. With on, it only places once the preview snaps onto that piece and says whether it sits flush (gap, level, facing). Not ok: detail says why, and no new piece was found standing there. Trains Construction.",
+   "args": {
+    "properties": {
+     "near": {
+      "description": "Somewhere next to this id: 'me' is beside you wherever this step finds you (a gather or walk before it may have taken you away from your house); a built piece's id (your house's foundation) puts it by that piece.",
+      "type": "string"
+     },
+     "piece": {
+      "description": "The piece's name or id from buildables (words of its name are enough when only one piece has them all).",
+      "type": "string"
+     },
+     "rotation": {
+      "minimum": 0,
+      "maximum": 360,
+      "description": "Turn it this many degrees (15 degree steps).",
+      "type": "number"
+     },
+     "pieces": {
+      "description": "Several in one go, the build screen kept open: a list of {piece, on, rotation}. on may name an earlier item as '#k' ('#1:N' = the N edge of what item 1 built). I go in the order that keeps walking short;",
+      "items": {
+       "type": "object"
+      },
+      "maxItems": 12,
+      "type": "array"
+     },
+     "on": {
+      "description": "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W', ':top' or ':in' (no side: the free side nearest you). What holds what: a wall or door-frame wall stands on a foundation's edge (':N' = its north edge); ':in' puts a door into a door-frame wall;",
+      "type": "string"
+     },
+     "at": {
+      "description": "Exactly here: [x, y, z] metres or an id."
+     }
+    },
+    "type": "object"
+   }
+  },
+  "cast": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Cast one of your spells (wheel, then cast); verified by runes and cooldown. Pick from castable_spells by what it does; a spell not listed there can't be cast now, so tell him so instead. Instant: on you. Placed/aimed: at target, or omit it and you find a valid spot or aim yourself; a target out of reach (even a moving creature) is walked up to and cast at in this same call. Each spell's `how` (in castable_spells) says how it is really used: what to drop or stand by first, what to cast it on, or (cast_type instant_after_move) that it is held open while you walk_to somewhere. Never at players.",
+   "args": {
+    "properties": {
+     "target": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "minItems": 2,
+        "items": {
+         "type": "number"
+        },
+        "maxItems": 3,
+        "type": "array"
+       }
+      ],
+      "description": "Placed/aimed: look id or [x,y,z] m; omit to choose."
+     },
+     "walk_to": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "minItems": 2,
+        "items": {
+         "type": "number"
+        },
+        "maxItems": 3,
+        "type": "array"
+       }
+      ],
+      "description": "Required for, and only for, cast_type instant_after_move: walk here (look id or [x,y,z] m) while it is held open, then finish it; the result says where you ended (landed_at), how far from where you opened it (from_opened_m) and whether that brought you back (returned)."
+     },
+     "spell": {
+      "description": "Exact name from castable_spells.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "spell"
+    ],
+    "type": "object"
+   }
+  },
+  "collect_water": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Collect water (Dirty Water) from a pond or river: walks to the bank, uses the water, checks it came in; repeats for count. Dirty Water is drinkable but unhealthy; boil it at a Campfire for Clean Water.",
+   "args": {
+    "properties": {
+     "count": {
+      "default": 1,
+      "description": "How many.",
+      "minimum": 1,
+      "maximum": 20,
+      "type": "integer"
+     },
+     "target": {
+      "description": "A water source's id from look (default: the nearest water).",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "combat_orders": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Set your standing combat policy, kept until changed.",
+   "args": {
+    "properties": {
+     "flee_hp": {
+      "minimum": 0,
+      "maximum": 1,
+      "type": "number"
+     },
+     "allow_jump": {
+      "type": "boolean"
+     },
+     "disengage": {
+      "description": "Back off and eat when hurt.",
+      "type": "boolean"
+     },
+     "protect": {
+      "type": "string"
+     },
+     "stance": {
+      "enum": [
+       "defensive",
+       "aggressive",
+       "passive",
+       "flee"
+      ],
+      "type": "string"
+     },
+     "heal_hp": {
+      "minimum": 0,
+      "maximum": 1,
+      "type": "number"
+     },
+     "abilities": {
+      "description": "Spells the reflex may use: {phase_dash, windstep, tempest_shield} true/false.",
+      "type": "object"
+     },
+     "defense": {
+      "enum": [
+       "auto",
+       "parry",
+       "block",
+       "dodge",
+       "none"
+      ],
+      "type": "string"
+     },
+     "avoid": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "reengage_hp": {
+      "minimum": 0,
+      "maximum": 1,
+      "type": "number"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "consume": {
+   "kind": "action",
+   "llm": true,
+   "moves": false,
+   "description": "Eat or drink one item you carry (a bag item is dragged to your hotbar and used; ground items: interact first). Food and drink each have their own use lock (~6 s): a drink right after a food goes at once, a second food waits ~6 s for the first.",
+   "args": {
+    "properties": {
+     "item": {
+      "description": "A carried item's name or id, or 'food' / 'drink' / 'potion'.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "item"
+    ],
+    "type": "object"
+   }
+  },
+  "craft": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Make one recipe at a nearby station from carried items (walks there, uses it, collects the result). It needs every input carried, the recipe unlocked and a station of its type: without one it fails and says which. What a recipe takes, and what of it you are short of, is read with recipes. It does not gather or craft ingredients (craft_plan plans those).",
+   "args": {
+    "properties": {
+     "station": {
+      "description": "Station id (default nearest).",
+      "type": "string"
+     },
+     "item": {
+      "description": "Item to make (name or id).",
+      "type": "string"
+     },
+     "recipe": {
+      "description": "Recipe id, to pick one of several.",
+      "type": "string"
+     },
+     "input": {
+      "description": "Or a carried item to put in the station instead of naming what comes out (e.g. raw food at a fire): the recipe that takes it.",
+      "type": "string"
+     },
+     "fuel": {
+      "description": "Fuel to burn (processing).",
+      "type": "string"
+     },
+     "count": {
+      "minimum": 1,
+      "maximum": 50,
+      "description": "Items, default 1 (crafts with recipe or input; input without count: all of it).",
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "deconstruct": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Take down a built piece the way a player does (build menu, repair mode, aim, destroy), or with whole=true every piece connected to it, top first so nothing falls. Says what came down, what you got back (the materials it cost: they drop beside it and I walk over them; any still on the ground are named with their ids in on_ground, for fetch) and what was left and why. Never takes a container that holds items; stations, farm plots and containers that aren't yours stay unless the player asked for that one (include_stations); a piece something kept stands on stays.",
+   "args": {
+    "properties": {
+     "include_stations": {
+      "default": false,
+      "description": "Also an empty station / plot / container that isn't yours, only when the player asked for it.",
+      "type": "boolean"
+     },
+     "whole": {
+      "default": false,
+      "description": "Also every piece connected to it (the whole house).",
+      "type": "boolean"
+     },
+     "target": {
+      "description": "A structures id (get_state / look), e.g. BuildingPiece_42 or an actor id.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "type": "object"
+   }
+  },
+  "drop": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Drop carried items at your feet (to hand them to a player use give).",
+   "args": {
+    "properties": {
+     "item": {
+      "description": "A carried item: its name (e.g. 'Oak Logs') or item id from inventory.",
+      "type": "string"
+     },
+     "at": {
+      "enum": [
+       "feet"
+      ],
+      "description": "Only 'feet'.",
+      "default": "feet",
+      "type": "string"
+     },
+     "count": {
+      "minimum": 1,
+      "description": "How many.",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "item",
+     "count"
+    ],
+    "type": "object"
+   }
+  },
+  "equip": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Equip a carried weapon, tool, shield or armour piece; answers once the game shows it in your hands or worn.",
+   "args": {
+    "properties": {
+     "item": {
+      "description": "A carried item's name or id.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "item"
+    ],
+    "type": "object"
+   }
+  },
+  "explore": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Search outward on foot with no place in mind, least-visited directions first, until something matching 'about' comes into view; reports what was found or how far you searched. It does not head for a place you know of (a quest's marker, a named or remembered place): go_to goes there.",
+   "args": {
+    "properties": {
+     "max_legs": {
+      "default": 6,
+      "description": "How many legs.",
+      "minimum": 1,
+      "maximum": 12,
+      "type": "integer"
+     },
+     "about": {
+      "description": "What to look for, in words (e.g. water, berries, a tree).",
+      "type": "string"
+     },
+     "leg_m": {
+      "default": 30,
+      "description": "Metres per leg.",
+      "minimum": 8,
+      "maximum": 80,
+      "type": "number"
+     }
+    },
+    "required": [
+     "about"
+    ],
+    "type": "object"
+   }
+  },
+  "fish": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Fish at a fishing spot (ripples in the water) until you catch count more: walks there, takes out the net or rod that spot needs, trawls (net) or casts and fights the fish (rod). Trains Fishing. Needs a carried net or rod that fits the spot (see fishing_spots).",
+   "args": {
+    "properties": {
+     "radius": {
+      "minimum": 5,
+      "maximum": 120,
+      "description": "Search radius, m (default 60).",
+      "type": "number"
+     },
+     "method": {
+      "description": "Only spots of this method, e.g. net or rod (from fishing_spots).",
+      "type": "string"
+     },
+     "spot": {
+      "description": "A fishing spot id from fishing_spots (default: the nearest one you have a tool for).",
+      "type": "string"
+     },
+     "count": {
+      "default": 5,
+      "description": "Catches to make (fish or junk).",
+      "minimum": 1,
+      "maximum": 50,
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "follow": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Follow a player until stopped or given another job (waits and resumes if he is out of reach; out of sight, goes by his marker on the game map).",
+   "args": {
+    "properties": {
+     "distance": {
+      "minimum": 1,
+      "description": "Distance to keep, metres.",
+      "default": 3,
+      "type": "number"
+     },
+     "player": {
+      "description": "The player's exact name.",
+      "type": "string",
+      "enum": [
+       "Tester"
+      ]
+     }
+    },
+    "required": [
+     "player"
+    ],
+    "type": "object"
+   }
+  },
+  "gather": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Harvest a resource (a profile key, e.g. oak, ash, copper, stone_boulder, loose_stones) until you have count MORE; finds targets and equips your tool. The result's `trains` names the skill it gave XP to (none = no XP). Trains Mining: clay, coal, copper, iron, rune_essence, stone_boulder, tin; Trains Woodcutting: ash, maple, oak, willow, yew; no XP: loose_stones (other profiles: not measured).",
+   "args": {
+    "properties": {
+     "mode": {
+      "description": "Only sources of this kind (chop, pickup); no tool-free substitute.",
+      "type": "string"
+     },
+     "style": {
+      "description": "One of the tool's actions (see held_actions), e.g. Overhead Chop.",
+      "type": "string"
+     },
+     "target": {
+      "description": "The id of one log or stump lying here (from what you see) to chop up and collect; ends when it and its pieces are done.",
+      "type": "string"
+     },
+     "stumps": {
+      "description": "Also chop stumps.",
+      "type": "boolean"
+     },
+     "radius": {
+      "minimum": 1,
+      "maximum": 120,
+      "description": "Search radius, m (default 30; 15 with near).",
+      "type": "number"
+     },
+     "resource": {
+      "description": "A resource (oak, copper, stone_boulder = mine a stone boulder with a pickaxe, Mining XP; loose_stones = pick stones up off the ground, no XP) or a kind (ore, rock, logs, stone: the nearest of that kind).",
+      "type": "string"
+     },
+     "near": {
+      "description": "A player's name: search around HIM instead of you (he must be in sight).",
+      "type": "string"
+     },
+     "count": {
+      "minimum": 1,
+      "description": "How many more.",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "resource",
+     "count"
+    ],
+    "type": "object"
+   }
+  },
+  "give": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Hand carried items to a player the way players do (the game has no trade): walk to him (any distance), step in front of him, face him, drop the count at his feet and check it lies there. He picks it up himself. Players only: an NPC takes what a quest asks for in the talk with them (talk).",
+   "args": {
+    "properties": {
+     "player": {
+      "description": "The player's exact name.",
+      "type": "string",
+      "enum": [
+       "Tester"
+      ]
+     },
+     "item": {
+      "description": "A carried item's name or id.",
+      "type": "string"
+     },
+     "count": {
+      "minimum": 1,
+      "description": "How many.",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "player",
+     "item",
+     "count"
+    ],
+    "type": "object"
+   }
+  },
+  "go_to": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Walk to a player, a perceived thing, a remembered place or a point; answers on arrival or says why not. Use it whenever he wants you somewhere, also when you think you're already there: it answers arrived at once if you are. A player out of sight is found by his marker on the game map, at any distance.",
+   "args": {
+    "properties": {
+     "target": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "minItems": 2,
+        "items": {
+         "type": "number"
+        },
+        "maxItems": 3,
+        "type": "array"
+       }
+      ],
+      "description": "A player name, a perceived id, a place, 'my_grave' / 'my_grave:<ts>' (a remembered grave), or [x,y,z]. Also a place name from the game's map (a region, NPC or landmark), even out of sight, or a lodestone by what stands near it (\"the lodestone by Zanik\"): pass the name itself, no need to look for it first; the result says what it was taken to be."
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "type": "object"
+   }
+  },
+  "interact": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Press use (E) on one perceived thing: walks there, faces it, presses, checks it worked. Picks up a ground stack or plant, Take All from a grave, lies down in a bed/shelter (interact on it again to get up), opens, talks. To only walk to something, use go_to.",
+   "args": {
+    "properties": {
+     "secondary": {
+      "default": false,
+      "description": "Its second action (F), e.g. collect every nearby stack of that kind.",
+      "type": "boolean"
+     },
+     "target": {
+      "description": "The id of one perceived thing (from situation or look). Not a name or coordinates.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "type": "object"
+   }
+  },
+  "move_item": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Move a carried item between bag and hotbar (only hotbar food/drink can be used).",
+   "args": {
+    "properties": {
+     "item": {
+      "description": "A carried item's name or id.",
+      "type": "string"
+     },
+     "to": {
+      "enum": [
+       "hotbar",
+       "bag"
+      ],
+      "description": "Where to put it.",
+      "type": "string"
+     },
+     "slot": {
+      "minimum": 0,
+      "description": "Slot in that page (default: first free).",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "item",
+     "to"
+    ],
+    "type": "object"
+   }
+  },
+  "set_vitals_policy": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Set when your reflex eats, drinks or eats to heal by itself (% of max; a 10% floor always applies).",
+   "args": {
+    "properties": {
+     "drink_below_pct": {
+      "minimum": 10,
+      "maximum": 95,
+      "description": "Drink below this % hydration.",
+      "type": "number"
+     },
+     "reserve_warn": {
+      "minimum": 0,
+      "maximum": 20,
+      "description": "Warn below this many usable items.",
+      "type": "integer"
+     },
+     "heal_below_pct": {
+      "minimum": 0,
+      "maximum": 95,
+      "description": "Eat healing food below this % HP (0 = off).",
+      "type": "number"
+     },
+     "eat_below_pct": {
+      "minimum": 10,
+      "maximum": 95,
+      "description": "Eat below this % food.",
+      "type": "number"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "split": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Split a carried stack in two: take count off it into a free slot, the rest stays (e.g. to drop, store or give only part). drop, store and give take the amount themselves, so split only when a separate stack is wanted.",
+   "args": {
+    "properties": {
+     "item": {
+      "description": "A carried item's name or id.",
+      "type": "string"
+     },
+     "to": {
+      "enum": [
+       "bag",
+       "hotbar"
+      ],
+      "description": "Where the new stack goes (default: beside the old one).",
+      "type": "string"
+     },
+     "count": {
+      "minimum": 1,
+      "description": "How many go into the new stack.",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "item",
+     "count"
+    ],
+    "type": "object"
+   }
+  },
+  "stop": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Stop the current job (a follow too) and stand still and stay. Only for stopping or staying put: any other action already replaces the current job, so don't call stop beside one.",
+   "args": {
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  "store": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Put carried items into a chest or storage: walks there, opens it, moves them in, checks, closes it.",
+   "args": {
+    "properties": {
+     "item": {
+      "description": "A carried item's name or id.",
+      "type": "string"
+     },
+     "count": {
+      "minimum": 1,
+      "description": "How many (default: all you carry).",
+      "type": "integer"
+     },
+     "container": {
+      "description": "The chest's id (from situation or look).",
+      "type": "string"
+     }
+    },
+    "required": [
+     "item",
+     "container"
+    ],
+    "type": "object"
+   }
+  },
+  "take": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Take items out of a chest or storage: walks there, opens it, moves them to your bag or hotbar, checks, closes it. Shared chests are fine; say what you took.",
+   "args": {
+    "properties": {
+     "count": {
+      "minimum": 1,
+      "description": "How many (default: all of it).",
+      "type": "integer"
+     },
+     "item": {
+      "description": "The item's name or id.",
+      "type": "string"
+     },
+     "to": {
+      "enum": [
+       "bag",
+       "hotbar"
+      ],
+      "description": "Where to put it.",
+      "default": "bag",
+      "type": "string"
+     },
+     "container": {
+      "description": "The chest's id (from situation or look).",
+      "type": "string"
+     }
+    },
+    "required": [
+     "item",
+     "container"
+    ],
+    "type": "object"
+   }
+  },
+  "talk": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Talk to someone (an NPC whose prompt is Talk): walks over, opens the conversation and returns everything they say and your numbered answer options, exactly as the game shows them. Answer in the next call with choose = the option's number or text, or end it with leave = true; call with no arguments to re-read. Each reply reports quest steps that changed (quests_changed) and items they gave or took (items). Quest hand-ins happen by talking to the quest's NPC while you carry or have done what the step asks.",
+   "args": {
+    "properties": {
+     "leave": {
+      "description": "End the conversation.",
+      "type": "boolean"
+     },
+     "choose": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       }
+      ],
+      "description": "Your answer: an option number or its text, from the last reply."
+     },
+     "target": {
+      "description": "Who to talk to: their name (e.g. from look or the quest step) or an id from look (only to start).",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "teleport": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Fast-travel like a player to a far lodestone (another region): walk to the nearest lodestone, use it, pick the destination on its map; checks you arrived. Not for getting to a lodestone: walking to one, also one he names by what stands near it ('the lodestone by Zanik'), is go_to.",
+   "args": {
+    "properties": {
+     "to": {
+      "description": "A lodestone id from lodestones, or [x, y, z] metres (the lodestone nearest that point)."
+     }
+    },
+    "required": [
+     "to"
+    ],
+    "type": "object"
+   }
+  },
+  "tend": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Work a farm plot once: walk to it and use a carried item on it (its main action, e.g. a spade's dig, seeds' scatter, a watering can's pour, compost), or with no item press use on it (harvest, cure). Checks the plot changed. A spade on a weeded plot keeps digging until the soil is clear (the game needs about 5 digs per weed stage). Trains Farming. See farm_plots for each plot's state.",
+   "args": {
+    "properties": {
+     "times": {
+      "default": 1,
+      "description": "Presses at most, until the plot changes.",
+      "minimum": 1,
+      "maximum": 10,
+      "type": "integer"
+     },
+     "item": {
+      "description": "A carried item to use on the plot (name or id); omit to press use.",
+      "type": "string"
+     },
+     "plot": {
+      "description": "A plot id from farm_plots (default: the nearest).",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "unequip": {
+   "kind": "waiter",
+   "llm": true,
+   "moves": false,
+   "description": "Put away a held item or take off a worn piece (into your bag); answers once the game shows it off.",
+   "args": {
+    "properties": {
+     "slot": {
+      "description": "Or a loadout slot: HeldRight, HeldLeft, Head, Body, Legs, Cape.",
+      "type": "string"
+     },
+     "item": {
+      "description": "The equipped item's name or id.",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  "use_action": {
+   "kind": "action",
+   "llm": true,
+   "moves": true,
+   "description": "Use one of your held item's actions once (a swing, a block, the special), e.g. to show the player.",
+   "args": {
+    "properties": {
+     "style": {
+      "description": "A held item's action: primary, special, secondary, jump, or its name (held_actions).",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  }
+ }
+}

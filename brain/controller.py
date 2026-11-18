@@ -44,6 +44,8 @@ from .open_ask import ASK_TOOLS
 from .llm import (LLMClient, LLMResponse, ToolCall, assistant_message, model_view, request_log_fields, strip_markers,
                   tool_result_message)
 from .spells import SpellBook
+from . import tool_registry
+from .tool_registry import ACTION_TOOLS, FOOD_OPTIONS, FORGET_SKILL, LIST_SKILLS, START_GOAL  # noqa: F401
 from .state_store import StateStore
 from .voice import Voice
 
@@ -82,38 +84,7 @@ READ_ALONE = "Read-only."
 FINAL_PASS_NOTE = ("No more looking this turn (the read-only tools are used up). Act now with your tools on what "
                    "you found, or reply in a few words (what you found, or what's stopping you).")
 
-START_GOAL = {
-    "type": "function",
-    "function": {
-        "name": "start_goal",
-        "description": ("Hand a long job of many steps to your planner (e.g. 'gather 10 logs and bring them to the "
-                        "player', 'build a storage hut by the lake'): it plans the steps with your tools, runs them, "
-                        "checks each in the game and reports back. A job one tool or a few calls in a row can do: call "
-                        "them yourself. A learned skill that fits: run_skill."),
-        "parameters": {"type": "object", "properties": {"goal": {"type": "string", "description":
-                       "The job in plain words, as he asked for it."}}, "required": ["goal"]},
-    },
-}
-LIST_SKILLS = {
-    "type": "function",
-    "function": {"name": "list_skills", "description": "Read-only: the skills you have learned, with how often each worked.",
-                 "parameters": {"type": "object", "properties": {}}},
-}
-FOOD_OPTIONS = {  # brain/needs_options.py: the same digest situation shows when food or water is low, on demand
-    "type": "function",
-    "function": {"name": "food_options", "description": (
-        "Read-only: your food or water options right now, each with what it restores, your level after, where it "
-        "is, the steps, an estimated time and the risk. situation shows them by itself when a need is low."),
-        "parameters": {"type": "object", "properties": {"need": {"type": "string", "enum": ["food", "drink"],
-                       "description": "Leave out for both."}}}},
-}
-FORGET_SKILL = {
-    "type": "function",
-    "function": {"name": "forget_skill", "description": "Delete one learned skill by its exact name (from list_skills).",
-                 "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
-}
-ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "cast", "sleep", "wake", "interact",
-                "gather"]
+# The brain-declared tools, ACTION_TOOLS and the Controller's view live in the one registry (brain/tool_registry.py)
 # Actions that can run for minutes: the reply is said when they start, progress lines while they run,
 # and a short result line when they end (a failure still overrides, single voice).
 LONG_ACTIONS = {"gather", "build_blueprint"}
@@ -488,21 +459,9 @@ class Controller:
         return out
 
     def _schemas(self) -> list[dict]:
-        hide_goal = self.director is not None and self.director.hides_start_goal
-        brain = [tool_schema("remember"), tool_schema("run_skill")] + ([] if hide_goal else [START_GOAL]) + \
-            ([LIST_SKILLS, FORGET_SKILL] if self.skills is not None else []) + [FOOD_OPTIONS]
-        if self.knowledge is not None:  # the kinds it can filter on come from the index itself
-            kinds = ", ".join(self.knowledge.kinds())
-            brain.insert(0, tool_schema("lookup", TOOLS["lookup"][1] + (f" kind values: {kinds}." if kinds else "")))
-        rules = [tool_schema(n) for n in RULE_TOOLS if self.has(n)]
-        if self.director is not None:
-            brain = brain + list(self.director.tool_schemas())
-        if self.caps is not None:  # the body's manifest: its own descriptions and schemas
-            return [self.caps.function_schema(n) for n in self.caps.llm_tools()] + rules + brain
-        # No manifest (mock, server puppet): the brain's own schemas, still only for tools the body has.
-        acts = [n for n in ACTION_TOOLS if self.has(n)]
-        reads = [n for n in READ_TOOLS if self.has(n) and n not in BRAIN_TOOLS]
-        return [tool_schema(n) for n in reads + acts] + rules + brain
+        """The full view of the one registry (brain/tool_registry.py)."""
+        return tool_registry.controller_view(caps=self.caps, has=self.has, knowledge=self.knowledge,
+                                             skills=self.skills is not None, director=self.director)
 
     def _note_players(self, speaker: str | None, state: dict) -> None:
         """The players there are: the one he plays beside, whoever has spoken to him, everyone online but himself
@@ -982,15 +941,9 @@ class Controller:
             recs = self.skills.all() if self.skills else []
             return {"ok": True, "data": {"skills": [{"name": r.name, "ok": r.stats.ok, "runs": r.stats.runs}
                                                     for r in recs]}}
-        if call.name == "food_options":
-            from . import needs_options
-            st = getattr(self, "_state_for_reads", None) or {}
-            want = (call.arguments or {}).get("need")
-            kinds = [want] if want in ("food", "drink") else ["food", "drink"]
-            try:
-                return {"ok": True, "data": {k: needs_options.options_for(st, k) for k in kinds}}
-            except Exception as exc:  # a broken digest never breaks the turn: the model hears why
-                return {"ok": False, "reason": "unavailable", "error": f"{type(exc).__name__}: {exc}"[:300]}
+        if call.name == "food_options":  # the registry's handler, over the state this turn read
+            ctx = tool_registry.ReadContext({"state": getattr(self, "_state_for_reads", None) or {}})
+            return tool_registry.DECLARED["food_options"].handler(ctx, call.arguments or {})
         try:
             args = self._validate(call.name, call.arguments)
         except Exception as exc:
@@ -1043,8 +996,8 @@ class Controller:
 
     def _brain_read(self, tool: str, args: dict) -> dict:
         if tool == "lookup" and self.knowledge is not None:
-            try:
-                return self.knowledge.lookup(args["query"], args.get("kind"))
+            try:  # the registry's handler (the Planner and the Director call the same one)
+                return tool_registry.DECLARED["lookup"].handler(tool_registry.ReadContext(knowledge=self.knowledge), args)
             except Exception as exc:  # knowledge is best effort; never break the turn on it
                 return {"ok": False, "reason": Reason.BODY_ERROR, "data": {"error": repr(exc)[:200]}}
         return {"ok": False, "reason": Reason.NOT_IMPLEMENTED, "data": {"tool": tool}}

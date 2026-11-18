@@ -46,17 +46,22 @@ def extract_json(text: str) -> str:
 
 def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str, int], Any], *,
                   tools: list[dict] | None = None, run_tool: Callable[[str, dict], Any] | None = None,
-                  max_tool_rounds: int = 3, max_repairs: int = 1,
+                  max_tool_rounds: int = 3, max_tool_calls: int | None = None, max_repairs: int = 1,
                   before_request: Callable[[], bool] | None = None,
                   can_advise: Callable[[], bool] | None = None, advise: bool = True,
                   on_response: Callable[[LLMResponse], None] | None = None,
                   on_request: Callable[[list[dict], list[dict] | None], None] | None = None) -> tuple[Any, dict]:
     """Returns (value, info) with info = {requests, tool_calls: [{name, args, refused}], repairs, advised,
-    messages}."""
+    messages}. ``max_tool_calls`` (optional) also caps the calls run: a call past it is answered with an error
+    instead of running, and once it is reached the research is over as at ``max_tool_rounds``."""
     msgs = list(messages)
     info: dict[str, Any] = {"requests": 0, "tool_calls": [], "repairs": 0, "advised": False}
     can_research = bool(tools) and run_tool is not None
     tool_rounds = 0
+    ran = 0  # tool calls actually run
+
+    def spent() -> bool:
+        return tool_rounds >= max_tool_rounds or (max_tool_calls is not None and ran >= max_tool_calls)
 
     def repair(why: str) -> None:
         if info["repairs"] >= max_repairs:
@@ -68,13 +73,13 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
         if before_request is not None and not before_request():
             info["messages"] = msgs
             raise BudgetStop("out of budget")
-        if can_research and tool_rounds >= max_tool_rounds and not info.get("research_over"):
+        if can_research and spent() and not info.get("research_over"):
             info["research_over"] = True
             msgs = msgs + [{"role": "user", "content": RESEARCH_OVER}]
         # Keep definitions for historical tool blocks, but disable further tool use at the limit.
         # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#controlling-claudes-output
         # https://github.com/BerriAI/litellm/blob/v1.106.4/litellm/llms/anthropic/chat/transformation.py
-        choice = "none" if can_research and tool_rounds >= max_tool_rounds else None
+        choice = "none" if can_research and spent() else None
         with request_tool_choice(choice):
             if on_request is not None:
                 on_request(msgs, tools if can_research else None)
@@ -87,14 +92,19 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
         if resp.finish_reason in ("length", "max_tokens", "model_context_window_exceeded"):
             raise DecisionError(f"model output truncated (finish_reason={resp.finish_reason})")
         if can_research and resp.tool_calls:
-            over = tool_rounds >= max_tool_rounds
+            over = spent()
             tool_rounds += 1
             msgs = msgs + [assistant_message(resp)]
             for call in resp.tool_calls:
-                info["tool_calls"].append({"name": call.name, "args": call.arguments, "refused": over})
+                capped = not over and max_tool_calls is not None and ran >= max_tool_calls
+                info["tool_calls"].append({"name": call.name, "args": call.arguments, "refused": over or capped})
                 if over:
                     result = {"ok": False, "error": "research is over: answer with the JSON object now"}
+                elif capped:
+                    result = {"ok": False, "error": f"not run: the limit is {max_tool_calls} research calls per "
+                                                    f"answer; answer with the JSON object now"}
                 else:
+                    ran += 1
                     try:
                         result = run_tool(call.name, call.arguments or {})
                     except Exception as exc:  # a research tool failing is information, not a crash

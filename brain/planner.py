@@ -5,11 +5,17 @@ prompt describes what was executed and how it failed, the model explains the
 cause, then emits a new plan for the remaining work, or asks for help.
 Plans are validated with pydantic against the skill registry; an invalid plan
 gets one repair round with the validation errors, then raises PlanError.
+
+Before it answers, the Planner may call read-only research tools (the registry's read view, brain/tool_registry.py
+PLANNER_READS: the same lookup the Controller and the Director have). The loop runs inside plan()/replan(), so it
+works unchanged when that call runs on a worker thread (DW_ASYNC_PLAN): the Research is built per call over a copy
+of the state. At most MAX_RESEARCH_CALLS calls run per plan; then the plan is due.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any, Callable
 
 from pydantic import BaseModel, ValidationError
 
@@ -34,6 +40,12 @@ Rules:
 Respond with JSON only, no prose:
 {{"description": str|null, "explanation": str|null, "ask_help": str|null,
   "tasks": [{{"skill": str, "args": {{...}}}}]}}"""
+
+# One plain sentence, only when tools are offered: what exists, not what to do with it (CLAUDE.md section 3).
+RESEARCH_LINE = ("Read-only research tools are offered with this request ({names}); they change nothing in the game, "
+                 "and at most {n} calls are answered before the plan is due.")
+MAX_RESEARCH_CALLS = 4
+RESULT_LOG_CHARS = 2000  # a research result as the planner_research row keeps it
 
 REPLAN = """The plan failed. Follow these steps.
 1. description: describe what was executed and what happened.
@@ -93,18 +105,37 @@ def _done_row(t: Task) -> dict:
 
 
 class Planner:
-    def __init__(self, llm: LLMClient, skills: SkillRegistry, logger: JsonlLogger, max_repairs: int = 1):
+    def __init__(self, llm: LLMClient, skills: SkillRegistry, logger: JsonlLogger, max_repairs: int = 1,
+                 research: Callable[[dict], Any] | None = None, max_research: int = MAX_RESEARCH_CALLS):
         self.llm = llm
         self.skills = skills
         self.log = logger
         self.max_repairs = max_repairs
+        # state -> an object with tools() and run(name, args) (brain.director.planner_research); None: no tools
+        self.research = research
+        self.max_research = max_research
 
-    def _system(self) -> dict:
-        return {"role": "system", "content": SYSTEM.format(skills=json.dumps(self.skills.describe(), indent=1))}
+    def _system(self, tools: list[dict] | None = None) -> dict:
+        text = SYSTEM.format(skills=json.dumps(self.skills.describe(), indent=1))
+        if tools:
+            names = ", ".join(t["function"]["name"] for t in tools)
+            text += "\n\n" + RESEARCH_LINE.format(names=names, n=self.max_research)
+        return {"role": "system", "content": text}
+
+    def _research(self, state: dict) -> Any:
+        if self.research is None:
+            return None
+        try:
+            return self.research(state)
+        except Exception as exc:  # no research is no reason to make no plan
+            self.log.log("planner_research_unavailable", component="planner", error=repr(exc)[:300])
+            return None
 
     def plan(self, goal: str, state: dict, notes: dict) -> PlanResult:
         user = {"goal": goal, **_where(state), "notes": notes, "state": _trim_state(state)}
-        return self._ask([self._system(), {"role": "user", "content": json.dumps(user)}])
+        research = self._research(state)
+        tools = research.tools() if research is not None else None
+        return self._ask([self._system(tools), {"role": "user", "content": json.dumps(user)}], "plan", research, tools)
 
     def replan(self, tree: TaskTree, failed: Task, reason: str | None, state: dict, notes: dict) -> PlanResult:
         user = {
@@ -120,12 +151,29 @@ class Planner:
             "notes": notes,
             "state": _trim_state(state),
         }
-        messages = [self._system(), {"role": "user", "content": json.dumps(user) + "\n\n" + REPLAN}]
-        return self._ask(messages)
+        research = self._research(state)
+        tools = research.tools() if research is not None else None
+        messages = [self._system(tools), {"role": "user", "content": json.dumps(user) + "\n\n" + REPLAN}]
+        return self._ask(messages, "replan", research, tools)
 
-    def _ask(self, messages: list[dict]) -> PlanResult:
-        """One plan through the shared validate-and-repair loop (brain/llm_json.py, simplify item 10)."""
-        self.log.log("prompt", component="planner", model=self.llm.model, messages=messages)
+    def _ask(self, messages: list[dict], mode: str = "plan", research: Any = None,
+             tools: list[dict] | None = None) -> PlanResult:
+        """One plan through the shared validate-and-repair loop (brain/llm_json.py, simplify item 10), with up to
+        max_research read-only research calls before it."""
+        self.log.log("prompt", component="planner", model=self.llm.model, messages=messages,
+                     **({"tools": [t["function"]["name"] for t in tools]} if tools else {}))
+        made: list[dict] = []
+
+        def run_tool(name: str, args: dict) -> Any:
+            try:
+                result = research.run(name, args)
+            except Exception as exc:  # a research tool failing is information for the model, never a lost plan
+                result = {"ok": False, "error": repr(exc)[:300]}
+            text = json.dumps(result, default=str, ensure_ascii=False)
+            made.append({"tool": name, "args": args, "chars": len(text)})
+            self.log.log("planner_research", component="planner", mode=mode, tool=name, args=args, chars=len(text),
+                         result=text[:RESULT_LOG_CHARS])
+            return result
 
         def validate(text: str, round_: int) -> PlanResult:
             try:
@@ -134,14 +182,37 @@ class Planner:
                 self.log.log("plan_invalid", error=str(exc), round=round_)
                 raise
 
+        usage: list[dict] = []
+
+        def on_response(r) -> None:
+            usage.append(r.usage or {})
+            self.log.log("llm_response", component="planner", model=self.llm.model, content=r.content, usage=r.usage,
+                         **({"tool_calls": [c.name for c in r.tool_calls]} if r.tool_calls else {}))
+
+        info: dict = {}
         try:
-            plan, _ = json_decision(self.llm, messages, validate, max_repairs=self.max_repairs,
-                                    on_response=lambda r: self.log.log("llm_response", component="planner",
-                                                                       model=self.llm.model, content=r.content,
-                                                                       usage=r.usage))
+            plan, info = json_decision(self.llm, messages, validate, max_repairs=self.max_repairs,
+                                       tools=tools or None, run_tool=run_tool if tools else None,
+                                       max_tool_rounds=self.max_research, max_tool_calls=self.max_research,
+                                       on_response=on_response)
         except DecisionError as exc:
+            self._log_plan(mode, None, made, usage, info, error=str(exc)[:300])
             raise PlanError("planner produced no valid plan") from exc
+        self._log_plan(mode, plan, made, usage, info)
         return plan
+
+    def _log_plan(self, mode: str, plan: PlanResult | None, made: list[dict], usage: list[dict], info: dict,
+                  error: str | None = None) -> None:
+        """The plan row: its steps, the research calls made (and refused past the cap), the requests and their cost."""
+        cost = [u.get("cost_usd") for u in usage if isinstance(u.get("cost_usd"), (int, float))]
+        self.log.log("plan", component="planner", mode=mode, research_calls=len(made),
+                     research_refused=sum(1 for c in info.get("tool_calls") or [] if c.get("refused")),
+                     research=[c["tool"] for c in made], requests=len(usage),
+                     tokens_in=sum(u.get("prompt") or 0 for u in usage),
+                     tokens_out=sum(u.get("completion") or 0 for u in usage),
+                     cost_usd=round(sum(cost), 6) if cost else None,
+                     tasks=[t.skill for t in plan.tasks] if plan is not None else None,
+                     ask_help=plan.ask_help if plan is not None else None, **({"error": error} if error else {}))
 
     def _validate(self, text: str) -> PlanResult:
         plan = PlanModel.model_validate_json(extract_json(text))

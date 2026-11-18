@@ -423,8 +423,18 @@ class LiveSession:
         self.client.result_hooks.append(self.stash.observe_result)
         self.client.state_hooks.append(self.stash.observe_state)
         self.executor = Executor(self.client, self.store, self.log)
-        self.planner = Planner(planner_llm, self.store.skills, self.log)
         self.knowledge = open_knowledge(self.log) if opts.knowledge else None
+        # the Planner's read-only research (brain/tool_registry.py PLANNER_READS): the knowledge index, the facts the
+        # Director cached, the body's verified reads. Its body reads go through a BodyProxy owned by this (the agent
+        # loop's) thread: in line they run at once; from a background plan (DW_ASYNC_PLAN) the loop serves them.
+        from .tool_registry import BodyProxy, planner_research
+        from .knowledge_memory import KnowledgeMemory
+        self.planner_proxy = BodyProxy(self.client.call)
+        self.planner_proxy.owner = threading.get_ident()
+        research = None if os.environ.get("DW_PLANNER_RESEARCH", "1") == "0" else planner_research(
+            self.knowledge, self.planner_proxy, set(self.caps.tools) | set(self.caps.manifest), self.caps.manifest,
+            facts=lambda: KnowledgeMemory(Path(state_dir)).snapshot())
+        self.planner = Planner(planner_llm, self.store.skills, self.log, research=research)
         self.controller = Controller(controller_llm, self.client, self.store, self.log,
                                      name=opts.name, player=opts.player, available_tools=self.caps.tools,
                                      skills=self.skills, caps=self.caps, knowledge=self.knowledge)
@@ -433,6 +443,7 @@ class LiveSession:
                                self.log, prefixes=opts.prefixes, skills=self.skills,
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
         self.agent.body_self_defends = "combat_status" in self.caps.extras
+        self.agent.planner_proxy = self.planner_proxy  # the loop serves a background plan's body reads
         try:  # the game's map data: the Where line (region, named places near) and go_to <place name>
             self.agent.broker.places = self.executor.places = self.controller.places = Places()
             self.controller.use_map_names()

@@ -29,8 +29,6 @@ import concurrent.futures as cf
 import copy
 import json
 import os
-import queue
-import threading
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -49,10 +47,11 @@ from .board import ENDED, PLAN_FIELDS, WINDOW_NAME, BoardError, BoardOps, BoardS
     apply_inbox_record
 from .capability_gaps import GapLog, default_path
 from .interface import Reason
-from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown, recall
+from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown
 from .llm import model_view, request_log_fields
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
 from .situation import quest_rows
+from .tool_registry import BODY_READ_FALLBACK, BodyProxy, Research, planner_research  # noqa: F401 (re-exported)
 
 GAP_KINDS = ("action", "perception", "knowledge")
 RESEARCH_ROUNDS = 2  # wave 5: real Sonnet used every round it was given and batched 2-4 calls per round
@@ -319,51 +318,6 @@ class SyncExecutor:
         return f
 
 
-class BodyProxy:
-    """Body reads for the worker, served on the agent loop (the bridge has one owner)."""
-
-    def __init__(self, call: Callable[[str, dict], dict], timeout_s: float = 20.0):
-        self.call = call
-        self.timeout_s = timeout_s
-        self.owner: int | None = None
-        self.q: queue.Queue = queue.Queue()
-
-    def request(self, tool: str, args: dict) -> dict:
-        if self.owner is not None and threading.get_ident() == self.owner:
-            return self._do(tool, args)
-        # Event timeout alone does not cancel queued work; synchronize cancellation with the claim.
-        # https://docs.python.org/3/library/threading.html#event-objects
-        box: dict = {"ev": threading.Event(), "lock": threading.Lock(), "cancelled": False,
-                     "deadline": time.monotonic() + self.timeout_s}
-        self.q.put((tool, args, box))
-        if not box["ev"].wait(self.timeout_s):
-            with box["lock"]:
-                box["cancelled"] = True
-            return {"ok": False, "reason": Reason.BUSY, "data": {"detail": "the body is busy right now; plan without it"}}
-        return box["res"]
-
-    def serve(self) -> None:
-        self.owner = threading.get_ident()
-        while True:
-            try:
-                tool, args, box = self.q.get_nowait()
-            except queue.Empty:
-                return
-            # Claim only a still-live request; once claimed, the read is already in flight.
-            with box["lock"]:
-                if box["cancelled"] or time.monotonic() >= box["deadline"]:
-                    continue
-                box["started"] = True
-            box["res"] = self._do(tool, args)
-            box["ev"].set()
-
-    def _do(self, tool: str, args: dict) -> dict:
-        try:
-            return self.call(tool, args)
-        except Exception as exc:  # a read failing is information
-            return {"ok": False, "reason": Reason.BODY_ERROR, "data": {"error": repr(exc)[:200]}}
-
-
 @dataclass
 class Decision:
     kind: str
@@ -519,98 +473,9 @@ def _compact_state(state: dict) -> dict:
 
 # ------------------------------------------------------------------------------ research tools (worker side)
 
-RESEARCH_TOOLS = [
-    _fn("recall", "Facts you looked up or saw before (cached, with source and confidence). Check this first.",
-        {"query": {"type": "string"}}, ["query"]),
-    _fn("lookup", "Game knowledge: game data first (items, recipes, stations, spells), then the community wiki "
-        "(regions, creatures, drops, quests).", {"query": {"type": "string"}, "kind": {"type": "string"}}, ["query"]),
-    _fn("compare_gear", "Catalog items of a category (e.g. a tool or weapon kind) or slot with their stats, his best "
-        "one now (held or carried), the deltas, and whether a recipe makes each.",
-        {"category": {"type": "string"}, "slot": {"type": "string"}, "limit": {"type": "integer"}}),
-    _fn("map_memory", "Places he has seen things (stations, resources, creatures, lodestones, beds, graves...), "
-        "nearest first, and spots found empty or mined out.",
-        {"kind": {"type": "string"}, "name": {"type": "string"}, "item": {"type": "string"},
-         "limit": {"type": "integer"}}),
-    _fn("skills_progress", "His skills, lowest first: level, xp, how each is trained (wiki), the recipes that award "
-        "its XP and his tools that name it.", {}),
-    _fn("learned_skills", "Routines he learned before (learned skills) that match the words.",
-        {"query": {"type": "string"}}),
-]
-PROXY_TOOL_DOCS = {
-    "craft_plan": _fn("craft_plan", "Plan additional item production by default, or an inventory target; "
-                      "the tree shows ingredients, acquisition alternatives and execution uncertainty.",
-                      {"item": {"type": "string"},
-                       "count": {"type": "integer", "description": "Additional item units, or final stock units in inventory_target mode."},
-                       "quantity_mode": {"type": "string", "enum": ["additional_output", "inventory_target"],
-                                         "default": "additional_output"}}, ["item"]),
-    "recipes": _fn("recipes", "Recipes: for an item (every recipe and its status) or a station type.",
-                   {"item": {"type": "string"}, "station": {"type": "string"}}),
-    "stations": _fn("stations", "Crafting and processing stations near him and their state.", {}),
-    "buildables": _fn("buildables", "Pieces he has unlocked: name, material cost, what he still lacks. A station he "
-                      "needs and doesn't have is often a piece to build. can_build_now keeps only those he has the "
-                      "materials for on him; the reply's cannot_build_now tells which matching pieces that left out "
-                      "and what each lacks.",
-                      {"about": {"type": "string"}, "can_build_now": {"type": "boolean"}}),
-}
-
-
-class Research:
-    """Read-only research over an immutable snapshot (safe on the worker thread)."""
-
-    def __init__(self, snap: dict, knowledge=None, proxy: BodyProxy | None = None, body_tools: set[str] = frozenset(),
-                 manifest: dict | None = None):
-        self.snap = snap
-        self.knowledge = knowledge
-        self.proxy = proxy
-        self.body_tools = set(body_tools)
-        self.manifest = manifest or {}
-        self.lookups: list[dict] = []
-
-    def tools(self) -> list[dict]:
-        out = [t for t in RESEARCH_TOOLS if self.knowledge is not None or t["function"]["name"] != "lookup"]
-        out += [PROXY_TOOL_DOCS[n] for n in PROXIED_READS if n in self.body_tools and self.proxy is not None]
-        # Use the body-published schema for these verified read handlers, never a guessed schema.
-        # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
-        for n in ("look", "lodestones"):
-            entry = self.manifest.get(n) or {}
-            if (self.proxy is not None and n in self.body_tools and entry.get("kind") == "read"
-                    and entry.get("moves") is False and isinstance(entry.get("args"), dict)):
-                out.append({"type": "function", "function": {"name": n,
-                    "description": entry.get("description") or "Read current body state.", "parameters": entry["args"]}})
-        return out
-
-    def run(self, name: str, args: dict) -> Any:
-        offered = {t["function"]["name"]: t["function"]["parameters"] for t in self.tools()}
-        if name not in offered:
-            return {"ok": False, "error": f"no research tool {name!r}"}
-        try:
-            jsonschema.validate(args, offered[name])
-        except (jsonschema.ValidationError, jsonschema.SchemaError) as exc:
-            return {"ok": False, "error": f"invalid research arguments: {exc.message}"}
-        if name == "recall":
-            return {"facts": recall(self.snap["facts"], str(args.get("query") or ""))}
-        if name == "lookup" and self.knowledge is not None:
-            res = self.knowledge.lookup(str(args.get("query") or ""), args.get("kind"))
-            self.lookups.append({"query": str(args.get("query") or ""), "result": res})
-            return res
-        if name == "compare_gear":
-            return compare_gear(self.snap["state"], args.get("category"), args.get("slot"), int(args.get("limit") or 8))
-        if name == "map_memory":
-            from .map_memory import query  # the capability agent's store (pure query over a snapshot)
-            mem = self.snap.get("map") or {}
-            rows = query(mem, kind=args.get("kind"), name=args.get("name"), item=args.get("item"),
-                         near=(self.snap.get("state") or {}).get("position"), limit=int(args.get("limit") or 8),
-                         now=self.snap.get("now"))
-            neg = [n for n in mem.get("negative") or [] if not args.get("item") or n.get("item") == args.get("item")]
-            return {"seen": rows, "empty_or_mined_out": neg[-8:]}
-        if name == "skills_progress":
-            return skills_progress(self.snap["state"], self.snap.get("body_tools"))
-        if name == "learned_skills":
-            q = P.tokens(str(args.get("query") or ""))
-            return {"skills": [s for s in self.snap.get("learned", []) if not q or q & P.tokens(json.dumps(s))]}
-        if name in (*PROXIED_READS, "look", "lodestones") and name in self.body_tools and self.proxy is not None:
-            return self.proxy.request(name, args)
-        return {"ok": False, "error": f"no research tool {name!r}"}
+# The research tools, BodyProxy and Research live in brain/tool_registry.py (one registry, Luis 2026-11-18); the
+# Director and the Planner each take its read-only view through an allow-list (DIRECTOR_READS, PLANNER_READS).
+PROXY_TOOL_DOCS = BODY_READ_FALLBACK  # the brain's own docs for a body read the body publishes no entry for
 
 
 @lru_cache(maxsize=1)
