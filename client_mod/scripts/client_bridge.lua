@@ -1235,6 +1235,19 @@ local function actor_of(t)
     return nil, U
 end
 
+-- A lever's own state (a vault's AWorldSwitch: SwitchState.SwitchPosition through sense.vault_row, property reads
+-- only), or nil: asked only for a row that carried switch_position when it was found (capstone study 2026-11-18).
+local function switch_of(t)
+    if rawget(_G, "DW_PAUSE") or not (t and t.switch_position ~= nil) then return nil end
+    local s = M.module("sense")
+    if not (s and type(s.vault_row) == "function") then return nil end
+    local a = actor_of(t)
+    if a == nil then return nil end
+    local d = {}
+    local ok = pcall(s.vault_row, a, d)
+    return ok and tonumber(d.switch_position) or nil
+end
+
 -- Containers (graves, chests, storage): what is inside, read-only; nil when not a container.
 local function contents_of(a, U)
     -- TArray reads on an invalid owner crash natively (UE4SS push_arrayproperty, 21:49:34): validate the
@@ -1383,6 +1396,8 @@ R.interact = { needs = { { "sense", "census" }, { "inventory", "interact_target"
             local same = det and (det.actor == id or (fol and not det.none and (
                 (det.name and det.name == self.thing.name) or (det.item and det.item == self.thing.item))))
             if same then
+                -- a lever: its position before the press, from the game (switch_of)
+                if self.switch_before == nil then self.switch_before = switch_of(self.thing) end
                 local pr = call("inventory", "press_interact")
                 if not pr.ok then return pr end
                 self.phase, self.verify_until = "verify", tnow + M.INTERACT_VERIFY_S
@@ -1401,9 +1416,18 @@ R.interact = { needs = { { "sense", "census" }, { "inventory", "interact_target"
             end
             -- a foliage id never has an actor of its own: only an inventory gain proves the press worked
             local gone = tostring(id):sub(1, 4) ~= "fol:" and actor_of(self.thing) == nil
-            if item or gone then
-                return { ok = true, data = { target = id, item = item or S.bridge.null, count = n, gained = S.bridge.object(all),
-                                             target_gone = gone, prompt = self.detector and self.detector.prompt or S.bridge.null } }
+            -- a lever neither vanishes nor fills the bag: the game's own SwitchPosition moving is the proof
+            local now_pos = not (item or gone) and self.switch_before ~= nil and switch_of(self.thing) or nil
+            local switched = now_pos ~= nil and now_pos ~= self.switch_before
+            if item or gone or switched then
+                local data = { target = id, item = item or S.bridge.null, count = n, gained = S.bridge.object(all),
+                               target_gone = gone, prompt = self.detector and self.detector.prompt or S.bridge.null }
+                if switched then
+                    data.changed, data.switch_position, data.switch_before = "switched", now_pos, self.switch_before
+                    data.detail = string.format("I pulled the %s: the game reads it at position %s now (it was %s).",
+                        tostring(self.thing.name or id), tostring(now_pos), tostring(self.switch_before))
+                end
+                return { ok = true, data = data }
             end
             if tnow >= self.verify_until then
                 return fail("verification_failed", { target = id, detail = "pressed interact, but the target is still there "

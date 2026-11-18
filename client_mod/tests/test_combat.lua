@@ -596,7 +596,10 @@ do
     local acts = read_activity()
     check("combat_end activity written", #acts >= 1 and acts[#acts]:find('"kind":"combat_end"', 1, true) and acts[#acts]:find('"outcome":"killed"', 1, true)
           and acts[#acts]:find('"by":"debug"', 1, true), acts[#acts])
-    check("locked on", (world.injected.IA_ToggleLockOnTargeting or 0) == 1)
+    local rk = (Cm._state().recent_kills or {})[1]
+    check("recent_kills: the kill with its game class (job_run boss_killed matches it to the bestiary)",
+          rk and rk.creature == "Kebbit" and rk.class == "BP_AI_Kebbit_C" and rk.mine == true, rk and tostring(rk.class))
+    check("locked on",(world.injected.IA_ToggleLockOnTargeting or 0) == 1)
     check("hits verified via damage multicast", res and res.data.hits >= 3, res and res.data.hits)
     check("looted the drop", res and res.data.looted == 1 and INV.interacts >= 1, res and (tostring(res.data.looted) .. " i=" .. INV.interacts .. " " .. table.concat(res.data.phase_log, " | ")))
     check("task resumed after fight", A.owner() and A.owner().name == "gather" and MV.mode == "go_to")

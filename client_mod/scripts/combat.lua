@@ -1846,7 +1846,9 @@ function M.emit_combat_end(F, res)
     if F.dead_seen then
         local c = C()
         c.recent_kills = c.recent_kills or {}
-        table.insert(c.recent_kills, 1, { creature = F.target_name, iso = os.date("!%Y-%m-%dT%H:%M:%SZ"), mine = F.kills > 0,
+        -- class: the game's class word of the creature (its sense row's .class), so a kill is matched to the bestiary
+        -- by what the game calls it, not only by its AIName (tools/job_run.p_boss_killed)
+        table.insert(c.recent_kills, 1, { creature = F.target_name, class = F.target_class, iso =os.date("!%Y-%m-%dT%H:%M:%SZ"), mine = F.kills > 0,
             killed_by = F.killed_by, loot = loot, looted = F.loot_inv0 ~= nil })
         while #c.recent_kills > 5 do table.remove(c.recent_kills) end
     end
@@ -3836,6 +3838,7 @@ local function switch_target(F, row)
         if not known then F.others[#F.others + 1] = { id = row.id, name = row.name, killed = false } end
     end
     F.target, F.target_id, F.target_name = row.actor, row.id, row.name
+    F.target_class = row.class or (U.valid(row.actor) and U.class_word(row.actor)) or nil
     F.dead_seen, F.locked, F.following, F.follow_t = false, false, false, nil
     F.target_hp, F.target_pos, F.dist_m = row.hp, row.pos, row.distance_m or 99
     F.fatal_hit, F.killed_by, F.out_since, F.far_n, F.si_d0 = nil, nil, nil, 0, nil
@@ -4420,7 +4423,7 @@ local function start_fight(log, actor, opts)
     c.counts.fights = c.counts.fights + 1
     local t = now(pawn)
     local F = { gen = c.gen, log = log, pc = pc, mode = opts.mode or "attack", force = opts.force, token = token,
-                target = actor, target_id = tgt.id, target_name = tgt.name, target_hp = tgt.hp, target_pos = tgt.pos,
+                target = actor, target_id = tgt.id, target_name = tgt.name, target_class = tgt.class or (U.valid(actor) and U.class_word(actor)) or nil, target_hp = tgt.hp, target_pos = tgt.pos,
                 dist_m = tgt.distance_m or 99, start_dist_m = tgt.distance_m, affinities = read_affinities(actor),
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
                 hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why,

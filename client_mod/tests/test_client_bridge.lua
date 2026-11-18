@@ -729,6 +729,47 @@ test("interact refusals: creature, detector on something else, nothing happens",
     assert(r and r.reason == "verification_failed", json.encode(r))
 end)
 
+-- A vault lever neither vanishes nor fills the bag: the pull that worked read verification_failed (capstone study
+-- 2026-11-18, section 2). Its own SwitchPosition (sense.vault_row) moving is the proof; a lever that did not move fails.
+test("interact: a lever is verified by its own switch position (changed = switched); one that did not move fails", function()
+    local lever = { id = "lever_1", class = "BP_WorldSwitch_C", name = "Boss Lever", kind = "interactable", prompt = "Pull",
+                    position = { 40, 40, 3 }, switch_position = 0 }
+    table.insert(FAKE.world.interactables, lever)
+    FAKE.move.position = { 40, 41, 3 }
+    local sense, inv = B.module("sense"), B.module("inventory")
+    local vr0, p0 = sense.vault_row, inv.press_interact
+    local reads = 0
+    sense.vault_row = function(a, d) reads = reads + 1; d.switch_position = a.switch_position end
+    local moves = true
+    inv.press_interact = function(log) local pr = p0(log); if moves then lever.switch_position = lever.switch_position + 1 end; return pr end
+    FAKE.presses = 0
+    local _, _, id = rpc("interact", { target = "lever_1" })
+    for _ = 1, 4 do step() end
+    local r = results(drain(), id)[1]
+    assert(r and r.ok and r.data.changed == "switched" and r.data.switch_before == 0 and r.data.switch_position == 1
+           and r.data.target_gone == false and FAKE.presses == 1, json.encode(r))
+    assert(tostring(r.data.detail):find("position 1", 1, true), json.encode(r))
+    assert(reads >= 2, "read before and after the press")
+    -- negative: the press did nothing to it -> still verification_failed
+    moves = false
+    _, _, id = rpc("interact", { target = "lever_1" })
+    step(); step()
+    T = T + B.INTERACT_VERIFY_S
+    step()
+    r = results(drain(), id)[1]
+    assert(r and r.reason == "verification_failed", json.encode(r))
+    -- the lever's state unreadable (no vault_row): never a pass on a reading that is not there
+    sense.vault_row, moves = nil, true
+    _, _, id = rpc("interact", { target = "lever_1" })
+    step(); step()
+    T = T + B.INTERACT_VERIFY_S
+    step()
+    r = results(drain(), id)[1]
+    sense.vault_row, inv.press_interact, FAKE.move.position = vr0, p0, nil
+    table.remove(FAKE.world.interactables)
+    assert(r and r.reason == "verification_failed", json.encode(r))
+end)
+
 test("events: damage from someone else -> attacked (debounced); own damage ignored", function()
     local V = base .. "/vitals.jsonl"
     write(V, json.encode({ type = "damage", amount = 7, hp = 83, instigator = { id = "wolf_9", name = "Wolf", class = "BP_AI_Wolf_C" } }) .. "\n")

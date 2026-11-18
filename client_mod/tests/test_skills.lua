@@ -2234,6 +2234,38 @@ test("store: a reflex pre-empting mid-transfer closes the chest at once; on resu
     assert(r and r.ok and r.data.count == 3 and F.open_chest == nil, json.encode(r))
 end)
 
+-- A vault lever neither vanishes nor fills the bag: a pull that worked read verification_failed and a second press
+-- could pull it back (capstone study 2026-11-18, section 2). Its own SwitchPosition (sense.vault_row) is the proof.
+test("interact on a lever: verified by its own switch position (changed = switched), one press; unmoved or unread fails", function()
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    local lever = { id = "lever_1", class = "BP_WorldSwitch_C", name = "Boss Lever", kind = "interactable", prompt = "Pull",
+                    position = { 40, 2, 3 }, switch_position = 0 }
+    table.insert(F.world.interactables, lever)
+    local sense, inv = B.module("sense"), B.module("inventory")
+    local vr0, p0 = sense.vault_row, inv.press_interact
+    local moves = true
+    sense.vault_row = function(a, d) d.switch_position = a.switch_position end
+    inv.press_interact = function() F.presses = F.presses + 1; if moves then lever.switch_position = lever.switch_position + 1 end; return { ok = true } end
+    F.presses = 0
+    local _, id = rpc("interact", { target = "lever_1" })
+    local r = run(id, 60)
+    assert(r and r.ok and r.data.changed == "switched" and r.data.switch_before == 0 and r.data.switch_position == 1
+           and F.presses == 1, json.encode(r))
+    assert(tostring(r.data.detail):find("Boss Lever", 1, true), json.encode(r))
+    -- negative: the presses did nothing to it -> verification_failed, as before
+    moves, F.presses = false, 0
+    _, id = rpc("interact", { target = "lever_1" })
+    r = run(id, 80)
+    assert(r and not r.ok and r.reason == "verification_failed", json.encode(r))
+    -- unreadable (no vault_row): never a pass on a reading that is not there
+    sense.vault_row, moves = nil, true
+    _, id = rpc("interact", { target = "lever_1" })
+    r = run(id, 80)
+    sense.vault_row, inv.press_interact = vr0, p0
+    assert(r and not r.ok and r.reason == "verification_failed", json.encode(r))
+end)
+
 test("interact on an NPC: verified by the conversation it starts (changed = conversation), one press only", function()
     reset()
     F.world.items, F.world.resources = {}, {}

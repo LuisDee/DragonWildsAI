@@ -559,6 +559,21 @@ function W.press_signals(api)
              conversation = W.conversation_npc(api), station = W.open_station(api), resting = W.resting_in(api) }
 end
 
+-- A lever's own state (a vault's AWorldSwitch: SwitchState.SwitchPosition, read by sense.vault_row, property reads
+-- only), or nil when the thing has none or it cannot be read. A lever neither vanishes nor fills the bag, so without
+-- this a pull that worked read verification_failed (capstone study 2026-11-18, section 2) and a second press could pull
+-- it back. Asked only for a row that carried switch_position when it was found.
+function W.switch_state(api, th)
+    if paused() or not (th and th.switch_position ~= nil) then return nil end
+    local s = api.module("sense")
+    if not (s and type(s.vault_row) == "function") then return nil end
+    local a = api.actor_of(th)
+    if a == nil then return nil end
+    local d = {}
+    local ok = pcall(s.vault_row, a, d)
+    return ok and tonumber(d.switch_position) or nil
+end
+
 -- The station whose crafting / processing screen the game has open for him (crafting.W.open_station), or nil.
 -- A press on a station opens its screen; without this read the verify saw "nothing changed" and pressed again,
 -- which shut the screen (live 2026-11-02 04:22: Crafting Table, presses at +0.1 s and +4.5 s, verification_failed).
@@ -849,6 +864,8 @@ local function episode_poll(api, e, t, owner_token)
             e.took_name = e.took and det.name or nil
             e.sig_before = W.press_signals(api)
             e.prompt_before = det.prompt
+            -- a lever: its position before the press, from the game (kept over a second press: the first may land late)
+            if e.switch_before == nil then e.switch_before = W.switch_state(api, th) end
             -- the bag as it is at the press, not as it was when the walk began: what reached it in between is not what
             -- the press gave (live 20261116-194849: a goblin fight held a talk up for 27 s, its loot of 5 Goblin Pack read
             -- as the press's gain, and talk said "no conversation opened" 0.1 s after pressing). Kept for a second press
@@ -961,6 +978,13 @@ local function episode_poll(api, e, t, owner_token)
             if not changed and sig.conversation and (sig.conversation == th.id or sig.conversation == "?") and not (e.sig_before and e.sig_before.conversation) then
                 changed = "conversation"
             end
+            -- a lever: the game's own SwitchPosition moved (it neither vanishes nor fills the bag)
+            if not changed and e.switch_before ~= nil then
+                local now_pos = W.switch_state(api, th)
+                if now_pos ~= nil and now_pos ~= e.switch_before then
+                    changed, e.switch_after = "switched", now_pos
+                end
+            end
             if not changed then
                 local det = W.detector(api)
                 if det and det.prompt and e.prompt_before and det.prompt ~= e.prompt_before and same_target(th, det) then
@@ -979,6 +1003,11 @@ local function episode_poll(api, e, t, owner_token)
                 data.took = e.took
                 data.detail = string.format("The game highlighted another %s right beside that one, so I took it: +%d %s.",
                     tostring(e.took_name or e.label), n, tostring(e.took_name or e.label))
+            end
+            if changed == "switched" then
+                data.switch_position, data.switch_before = e.switch_after, e.switch_before
+                data.detail = string.format("I pulled the %s: the game reads it at position %s now (it was %s).",
+                    tostring(e.label), tostring(e.switch_after), tostring(e.switch_before))
             end
             if changed == "resting" and not data.detail then
                 data.resting_in = W.resting_in(api)
