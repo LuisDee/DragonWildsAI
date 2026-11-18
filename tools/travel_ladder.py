@@ -7,6 +7,8 @@
   .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump,jump_ford --repeat 5 --label jumpcourse
       the jump course (docs/research/2026-11-17-jump-course.md): dev world only, teleported starts only, and a
       summary from tools/jump_stats.py of the paths with a jump up, strikes, real falls and jump verdict lines
+  .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_pond_bank,jump_pond_top,jump_rock_cell,jump_rock_step --repeat 5 --label jumpcourse-real
+      the real-play legs (study 2026-11-18): hops under the step slack at the pond bank, one-cell rocks by home
 
 Each journey: the dev `teleport` fixture puts Claude at a fixed start (server K2_TeleportTo, mod/bench/fixtures.lua),
 he settles, then ONE bridge go_to (debug channel) to the goal, exactly as the brain would send it. A second
@@ -175,6 +177,24 @@ P.update({
     # point: the study jump_real_study.md). Start on the bank (cell (123,1888,-31.5)); goal the path point
     # (129,1895,-32.8) + 0.88 on the far side, where the real paths went on
     "jf_a": [122.5, 1888.5, -30.6], "jf_b": [129.0, 1895.0, -31.9],
+    # The two causes of the real-play misses the legs above never met (study jump_real_1118, 52 brain jump paths since
+    # 8adf80f, 15 strikes). Starts are the plan lines' own "at" (capsule centre); goals the path end + 0.88 m.
+    # (a) hops under the step slack (rise 46-64 cm) at the pond bank by home: 6 of the 7 kind-A strikes.
+    # The bank's hump, crossed at a walk: 10:48:54Z plan #2 at (16279,191444,-3088), path [wwwjwww] 163,1914 ...
+    # 161,1915,-31.9 j 160,1914,-31.3 (rise 63) ... 157,1911,-31.7; the same edge 11:00:30Z and 14:46:27Z (at
+    # 16249,191427). All three pressed 100-124 cm early at 216-230 cm/s and came down 102-150 cm on (allowed 45)
+    "jpb_a": [162.79, 1914.44, -30.88], "jpb_b": [157.0, 1911.0, -30.82],
+    # onto the bank's top from the dip: 13:50:07Z plan #3 at (15921,191183,-3074), path [wwwj] 159,1912,-31.6
+    # 158,1913,-31.8 157,1914,-32.0 j 157,1915,-31.4 (rise 61); 11:16:54Z the same hop (path [wwwjdw]). Both at
+    # v0h 450 and overshot 166-180 cm. The dip, not the start, is the foot: the start's shelf is 0.2 m under the top
+    "jpt_a": [159.21, 1911.83, -30.74], "jpt_b": [157.0, 1915.0, -30.52], "jpt_foot": [157.0, 1914.0, -31.12],
+    # (b) one-cell rocks of 1-3 m he climbs and drops off instead of walking round (6 of the 8 real falls).
+    # The rock arch by the pond: 17 Nov 21:30:43Z plan #1 at (16320,191395,-3081), path [wddwwww] 163,1914,-31.7
+    # d 162,1913,-29.1 (djump 256, from a standstill) d 161,1912,-31.6 then walk to 157,1912,-31.8: fell short
+    "jrc_a": [163.20, 1913.95, -30.81], "jrc_b": [157.0, 1912.0, -30.92],
+    # the rock north of the pond: 18 Nov 13:35:11Z plan #5 at (15067,192094,-3185), path [wdw] 151,1921,-32.7 d
+    # 152,1921,-30.4 (djump 230 from a standstill, dj2 .56) w 153,1920,-31.0: fell short, came down at takeoff level
+    "jrs_a": [150.67, 1920.94, -31.85], "jrs_b": [153.0, 1920.0, -30.12],
 })
 # Reached = on top: within JUMP_TOL_M (2D; the body's own go_to tolerance is 1.5 m, every start is 2.6 m or more
 # from its goal) and within half the leg's rise in height (at least 0.5 m, at most ARRIVE_DZ): standing at the foot
@@ -182,11 +202,18 @@ P.update({
 JUMP_TOL_M = 2.0
 
 
-def _jump(name, a, b, note, human_m, go_tol=None):
-    rise = P[b][2] - P[a][2]
+def _jump(name, a, b, note, human_m, go_tol=None, foot=None, past=False):
+    """foot: the low side's capsule point when it is not the start (the start stands on a shelf near the top's
+    height), so the height test is half the rise from there. past: the goal lies beyond the edge at about the
+    start's level (a hump or rock crossed, not climbed): reached is getting through, the strike counts are jump_stats'."""
+    rise = P[b][2] - P[foot or a][2]
     j = _j(name, a, b, note, human_m=human_m, tol_m=JUMP_TOL_M, tol_dz=round(min(ARRIVE_DZ, max(0.5, rise / 2)), 2))
     if go_tol is not None:  # the go_to's own circle, when the body's 1.5 m one reaches the ledge's foot
         j["go_tol"] = go_tol
+    if foot:
+        j["foot"] = P[foot]
+    if past:
+        j["past"] = True
     j["course"] = "jump"  # dev world only, teleported starts only (place(walk_ok=False)), a jump summary per run
     return j
 
@@ -206,6 +233,17 @@ JUMP_COURSE = [
     # the only leg with a hop under the step slack, from water, over a one-cell top the path drops off again (the
     # jumps the windmill and Doric legs never make: 7 of 9 real-play misses of 2026-11-18 were hops like it)
     _jump("jump_ford", "jf_a", "jf_b", "jump: the ford east of home, hops over one-cell bumps in water", human_m=9),
+    # real-play cause (a), study jump_real_1118: a hop under the step slack met mid-path at a walk (no slow-down: rise
+    # 63 < step_tol 65) and onto the top from the dip at speed; 5 of the 6 pond-bank strikes of 17-18 Nov
+    _jump("jump_pond_bank", "jpb_a", "jpb_b", "jump: the pond bank by home, a 63 cm hump crossed at a walk", human_m=7,
+          past=True),
+    _jump("jump_pond_top", "jpt_a", "jpt_b", "jump: the pond bank by home, a 61 cm hop onto the top from the dip",
+          human_m=4, go_tol=0.5, foot="jpt_foot"),
+    # real-play cause (b): a one-cell rock jumped onto (djump from a standstill) and dropped off, where a player walks round
+    _jump("jump_rock_cell", "jrc_a", "jrc_b", "jump: the rock arch by the pond, 2.5 m up and off again; walk round it",
+          human_m=8, past=True),
+    _jump("jump_rock_step", "jrs_a", "jrs_b", "jump: the rock north of the pond, a 2.3 m djump onto one cell, step off",
+          human_m=4, go_tol=0.5),
 ]
 # kept out of OBSTACLES so `--obstacles` runs what it ran before; `--only` picks from JOURNEYS + OBSTACLES + JUMP_COURSE
 JUMP_IDS = {j["id"] for j in JUMP_COURSE}

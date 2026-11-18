@@ -1,4 +1,4 @@
-"""travel_ladder's jump course (docs/research/2026-11-17-jump-course.md): the six legs, what counts as reached, the dev-only
+"""travel_ladder's jump course (docs/research/2026-11-17-jump-course.md): the legs, what counts as reached, the dev-only
 and no-walk guards, one leg driven against fakes, and the jump_stats summary over the legs' time windows (offline)."""
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import tools.travel_ladder as T
 from tools import jump_stats as J
 
 COURSE = "jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump,jump_ford"
+# the real-play legs (study jump_real_1118): the two causes the legs above never met
+REAL = "jump_pond_bank,jump_pond_top,jump_rock_cell,jump_rock_step"
 
 # docs/research/2026-11-17-jump-landings.md, "The course (no model)": id -> (start, goal), capsule centre, m
 STUDY = {
@@ -21,12 +23,21 @@ STUDY = {
     "jump_windmill_djump": ([156.0, 1746.0, -8.82], [158.0, 1739.0, -5.32]),
     # the real-play jump study of 2026-11-18: the ford east of home, hops over one-cell bumps in water
     "jump_ford": ([122.5, 1888.5, -30.6], [129.0, 1895.0, -31.9]),
+    # 2026-11-18 real play, from the client log's plan lines: (a) hops under the step slack at the pond bank by home
+    "jump_pond_bank": ([162.79, 1914.44, -30.88], [157.0, 1911.0, -30.82]),  # 10:48:54Z plan #2, [wwwjwww]
+    "jump_pond_top": ([159.21, 1911.83, -30.74], [157.0, 1915.0, -30.52]),   # 13:50:07Z plan #3, [wwwj]
+    # (b) one-cell rocks climbed and dropped off
+    "jump_rock_cell": ([163.20, 1913.95, -30.81], [157.0, 1912.0, -30.92]),  # 17 Nov 21:30:43Z plan #1, [wddwwww]
+    "jump_rock_step": ([150.67, 1920.94, -31.85], [153.0, 1920.0, -30.12]),  # 13:35:11Z plan #5, [wdw]
 }
 
 
 def test_the_legs_are_the_studys_and_only_only_picks_them():
     legs = T.pick(set(COURSE.split(",")))
     assert [j["id"] for j in legs] == COURSE.split(",")
+    assert [j["id"] for j in T.pick(set(REAL.split(",")))] == REAL.split(",")
+    assert [j["id"] for j in T.JUMP_COURSE] == COURSE.split(",") + REAL.split(",")
+    legs = T.JUMP_COURSE
     for j in legs:
         assert (j["start"], j["goal"]) == STUDY[j["id"]] and j["course"] == "jump" and j["human_m"]
     # the old selections are unchanged: no flag = the journeys, --obstacles = the obstacle legs, neither has a jump leg
@@ -40,9 +51,20 @@ def test_reached_means_on_top_not_at_the_foot():
         s, g = j["start"], j["goal"]
         assert T.arrived(g, g, j["tol_m"], j["tol_dz"])
         assert not T.arrived(s, g, j["tol_m"], j["tol_dz"]), j["id"]  # the start never counts
-        foot = [g[0] + 0.5, g[1], s[2]]  # beside the goal, at the start's height: fell back
+        if j.get("past"):  # a hump or rock crossed: the goal is past it at about the start's level, the top is no goal
+            assert abs(g[2] - s[2]) < 0.5 and T.d2(s, g) > 5, j["id"]
+            continue
+        # beside the goal, at the low side's height (the start, or the dip below the top): fell back
+        foot = [g[0] + 0.5, g[1], j.get("foot", s)[2]]
         assert not T.arrived(foot, g, j["tol_m"], j["tol_dz"]), j["id"]
         assert 0.5 <= j["tol_dz"] <= T.ARRIVE_DZ and j["tol_m"] == T.JUMP_TOL_M
+    # the pond top: the start's shelf is 0.22 m under the top, so the dip (0.6 m under) is the foot, not the start
+    top = T.pick({"jump_pond_top"})[0]
+    assert top["foot"] == [157.0, 1914.0, -31.12] and top["tol_dz"] == 0.5 and top["go_tol"] == 0.5
+    assert not T.arrived(top["start"], top["goal"], top["tol_m"], top["tol_dz"])
+    # the rock step's goal is past a 2.3 m top 2.5 m away: the body's 1.5 m circle would stop at the rock's foot
+    step = T.pick({"jump_rock_step"})[0]
+    assert step["go_tol"] == 0.5 and not T.arrived(step["start"], step["goal"], step["tol_m"], step["tol_dz"])
     # the old legs keep the ladder's 3 m / 1.8 m
     assert T.JOURNEYS[0]["tol_m"] == T.ARRIVE_M and T.JOURNEYS[0]["tol_dz"] == T.ARRIVE_DZ
 
@@ -92,8 +114,9 @@ def fakes(monkeypatch, tmp_path):
     return c
 
 
-def test_a_jump_leg_runs_against_fakes(fakes):
-    j = T.pick({"jump_doric"})[0]
+@pytest.mark.parametrize("leg", ["jump_doric", "jump_pond_bank", "jump_pond_top", "jump_rock_cell", "jump_rock_step"])
+def test_a_jump_leg_runs_against_fakes(fakes, leg):
+    j = T.pick({leg})[0]
     dev = FakeDev(fakes)
     row = T.run_journey(dev, j)
     assert row["ok"] and row["start"] == j["start"] and row["end"] == j["goal"]
@@ -105,12 +128,17 @@ def test_a_jump_leg_refuses_a_world_that_is_not_dev(fakes):
     with pytest.raises(RuntimeError, match="not the local dev server"):
         T.run_journey(dev, T.pick({"jump_hill_rats"})[0])
     assert dev.setups == [] and fakes.sent == []  # nothing reached the body
+    with pytest.raises(RuntimeError, match="not the local dev server"):
+        T.run_journey(dev, T.pick({"jump_pond_bank"})[0])
+    assert dev.setups == [] and fakes.sent == []
 
 
 def test_a_jump_leg_never_walks_past_another_player(fakes):
     dev = FakeDev(fakes, players=True)
     with pytest.raises(RuntimeError, match="another player is on the dev world"):
         T.run_journey(dev, T.pick({"jump_hill_top"})[0])
+    with pytest.raises(RuntimeError, match="another player is on the dev world"):
+        T.run_journey(dev, T.pick({"jump_rock_cell"})[0])
     assert "go_to" not in fakes.sent
     # the other legs keep the walk to the start
     p = T.place(dev, fakes, T.P["doric"])

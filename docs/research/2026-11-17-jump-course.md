@@ -20,6 +20,23 @@ Six short `go_to`s, from where he stood below each of the worst jump-up places t
 - **Guards:** before each jump leg the ladder runs `dev.guard()` again, which refuses unless the client is on the local dev server (never Shockbyte) with no live brain. If the teleport fixture refuses because another player is on, the leg is refused, recorded as ERR and not counted. The ladder's other legs walk to their start in that case, but the jump legs never do: the walk would pass the other player and add its own jumps to the counts.
 - `jump_hill_east` is 10.2 m in 2D. That is past the 10 m beyond which goals get oracle routes (DISCOVERIES). It is the study's leg, kept as given. If its rows show oracle routes, shorten it.
 
+### The real-play legs (2026-11-18)
+
+Real (brain) play since 8adf80f: 15 strikes in 52 jump paths, from two causes the legs above never meet (study `jump_real_1118`): (a) hops under the step slack (rise 46-64 cm), 7 strikes, 6 at the pond bank by home; (b) one-cell rocks of 1-3 m he climbs and drops off instead of walking round, 6 of the 8 real falls. Starts are the client log's plan lines' own position (capsule centre), goals the path end + 0.88 m, so the local planner meets the same edge. No move.lua or localplan.lua change came with them (rule 1).
+
+| id | real paths it reproduces | start | goal | reached |
+|---|---|---|---|---|
+| jump_pond_bank | 18 Nov 10:48:54Z, 11:00:30Z, 14:46:27Z: `[wwwjwww]` hop 161,1915,-31.9 to 160,1914,-31.3 (rise 63) mid-path, pressed 1.0-1.24 m early at 216-230 cm/s | 162.79, 1914.44, -30.88 | 157.0, 1911.0, -30.82 | through: 2 m, 0.5 m (`past`) |
+| jump_pond_top | 18 Nov 11:16:54Z, 13:50:07Z: `[wwwj]` from the dip 157,1914,-32.0 onto 157,1915,-31.4 (rise 61) at 450 cm/s, overshot 1.7-1.8 m | 159.21, 1911.83, -30.74 | 157.0, 1915.0, -30.52 | on top: 2 m, 0.5 m over the dip (`foot`); go_to circle 0.5 m |
+| jump_rock_cell | 17 Nov 21:30:43Z: `[wddwwww]` djump 256 from a standstill onto the rock arch 162,1913,-29.1, then off to 161,1912 | 163.20, 1913.95, -30.81 | 157.0, 1912.0, -30.92 | through: 2 m, 0.5 m (`past`) |
+| jump_rock_step | 18 Nov 13:35:11Z: `[wdw]` djump 230 from a standstill onto 152,1921,-30.4, step off to 153,1920 | 150.67, 1920.94, -31.85 | 153.0, 1920.0, -30.12 | 2 m, 0.87 m; go_to circle 0.5 m |
+
+A `past` leg's goal lies beyond the hump or rock at about the start's level: reaching it says nothing of the jump; the strike and fall counts (`jump_stats`) are the measure. A player walks round the rock (human_m 8 and 4).
+
+```
+.venv\Scripts\python.exe -m tools.travel_ladder --only jump_pond_bank,jump_pond_top,jump_rock_cell,jump_rock_step --repeat 5 --label jumpcourse-real
+```
+
 ## The command
 
 On a named world (rule 9), with the brain stopped and the live lock free:
