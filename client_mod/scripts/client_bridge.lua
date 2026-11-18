@@ -2294,6 +2294,8 @@ function M.start(opts)
     local shared = root .. "/mod/scripts"
     if not package.path:find(shared, 1, true) then package.path = shared .. "/?.lua;" .. package.path end
     local jsonutil = require("jsonutil")
+    -- the shared util, for ping's plain-UObject wrapper health (risk register R19; main.lua prewarms the types)
+    local ok_u, util = pcall(function() return assert(loadfile(root .. "/mod/body/util.lua"))() end)
     -- A fresh bridge.lua instance (its state is file-local), so it never shares offsets with anything.
     local bridge = assert(loadfile(shared .. "/bridge.lua"))()
     local dir = (opts.dir or os.getenv("DW_CLIENT_BRIDGE_DIR") or (root .. "/client_io/bridge")):gsub("\\", "/")
@@ -2314,7 +2316,8 @@ function M.start(opts)
           attacked_at = {}, vitals_low = {}, prefixes = prefixes(),
           -- DW_CLIENT_CHAT=heard (default): every other player's line -> chat_heard; =addressed: legacy filter
           chat_mode = (os.getenv("DW_CLIENT_CHAT") or "heard"):lower(),
-          name = opts.name or os.getenv("DW_COMPANION_NAME") or "Claude" }
+          name = opts.name or os.getenv("DW_COMPANION_NAME") or "Claude",
+          util = ok_u and type(util) == "table" and util or nil }
     assert(bridge.init({ dir = dir, log = jlog, in_name = M.IN_NAME, out_name = M.OUT_NAME, from_start = opts.from_start,
                          offset = handover and handover.main }))
     -- every tool goes through dispatch, so modules can appear (or break) while the bridge runs.
@@ -2355,6 +2358,8 @@ function M.start(opts)
             for _, j in ipairs(a and a.joiners or {}) do waiting[#waiting + 1] = j.id end -- a joined repeat is in flight too
             return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time(),
                                          started = S.started_epoch, waiters = waiting,
+                                         -- "ok" | "no_methods" (UE4SS's UObject type lost its methods: R19, restart the client)
+                                         uobject = S.util and S.util.uobject_health and S.util.try(S.util.uobject_health) or nil,
                                          action = a and { id = a.id, kind = a.kind, age_s = a.started and (now_s() - a.started) or S.bridge.null }
                                              or S.bridge.null } }
         end

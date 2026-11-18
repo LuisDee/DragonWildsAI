@@ -108,6 +108,20 @@ test("ping answers pong with body=client", function()
     assert(r.ok and r.data.pong == true and r.data.body == "client" and r.reason == nil)
 end)
 
+test("ping carries the plain-UObject wrapper's health (R19, as the server's ping)", function()
+    local real_sfo = rawget(_G, "StaticFindObject")
+    StaticFindObject = function(path)
+        return { IsValid = function() return true end, GetAddress = function() return 1 end, GetFullName = function() return "X " .. path end }
+    end
+    local r = rpc("ping")
+    assert(r.ok and r.data.uobject == "ok", "uobject " .. tostring(r.data.uobject))
+    -- the damaged type of 2026-11-18: GetAddress answers, GetFullName does not
+    StaticFindObject = function() return { IsValid = function() return true end, GetAddress = function() return 7 end } end
+    r = rpc("ping")
+    assert(r.ok and r.data.uobject == "no_methods", "uobject " .. tostring(r.data.uobject))
+    StaticFindObject = real_sfo
+end)
+
 test("missing modules: not_implemented; unknown tool: unknown_tool; get_state stub", function()
     assert(rpc("follow", { player = "Luis" }).reason == "not_implemented")
     assert(rpc("gather", { resource = "log", count = 1 }).reason == "not_implemented")

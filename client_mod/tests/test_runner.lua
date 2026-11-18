@@ -27,8 +27,24 @@ local popen_calls, exec_calls = 0, 0
 local real_execute = os.execute
 io.popen = function() popen_calls = popen_calls + 1; error("io.popen would block the game thread") end
 local loop_fn
-function LoopInGameThreadWithDelay(ms, fn) loop_fn = fn; return 1 end
-function ExecuteInGameThread(fn) fn() end
+local callbacks = 0 -- game-thread callbacks registered so far
+function LoopInGameThreadWithDelay(ms, fn) callbacks = callbacks + 1; loop_fn = fn; return 1 end
+function ExecuteInGameThread(fn) callbacks = callbacks + 1; fn() end
+-- R19 (client): UE4SS's wrapper types are built on the mod's start thread before any game-thread callback of the
+-- mod exists (util.prewarm_wrappers, as the server's main.lua does). The shared util is read from DW_CLIENT_ROOT.
+os.execute('mkdir "' .. (dir .. "/mod/body"):gsub("/", "\\") .. '" 2>nul')
+do
+    local fh = assert(io.open(here .. "/../../mod/body/util.lua", "rb")); local src = fh:read("a"); fh:close()
+    write(dir .. "/mod/body/util.lua", src)
+end
+local prewarm = { finds = 0, callbacks_before = nil }
+function StaticFindObject(path)
+    prewarm.finds = prewarm.finds + 1
+    if prewarm.callbacks_before == nil then prewarm.callbacks_before = callbacks end
+    return { IsValid = function() return true end, GetAddress = function() return 1 end,
+             GetFullName = function() return "X " .. path end,
+             GetFName = function() return { ToString = function() return "Default__KismetSystemLibrary" end } end }
+end
 local real_print = print
 print = function() end
 
@@ -41,6 +57,13 @@ local fails = 0
 local function check(name, c, info) if c then print("ok   " .. name) else fails = fails + 1; print("FAIL " .. name .. " " .. tostring(info)) end end
 
 check("runner loop registered", type(loop_fn) == "function")
+check("R19: wrapper types prewarmed before any game-thread callback", prewarm.finds >= 6 and prewarm.callbacks_before == 0,
+    tostring(prewarm.finds) .. " finds, " .. tostring(prewarm.callbacks_before) .. " callbacks before")
+do
+    local lf = io.open(dir .. "/logs/client/client.log", "rb"); local txt = lf and lf:read("a") or ""; if lf then lf:close() end
+    check("R19: the prewarm is logged with each type's state", txt:find("ue4ss_wrappers", 1, true) ~= nil
+        and txt:find('"UObject":"ok"', 1, true) ~= nil, txt:sub(1, 300))
+end
 loop_fn()
 check("stale queue entry from before the load is not run", not exists(OUT .. "/stale.json") and exists(CMD .. "/stale.lua"))
 

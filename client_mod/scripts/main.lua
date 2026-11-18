@@ -132,6 +132,22 @@ ensure_dir(OUT_DIR)
 do local _, off = read_new(QUEUE, 0); qstate.offset = off or 0 end
 log("DWClient loaded (json=" .. (ok_json and "dkjson" or "fallback: " .. tostring(jsonutil)) .. ", runner=queue)")
 
+-- Build UE4SS's Lua wrapper types NOW, on this (the mod's start) thread, before the runner loop, the bridge and
+-- every other game-thread callback of this mod exists (risk register R19, RE-UE4SS #1445 part 3 / #1345): UE4SS
+-- builds each type's metatable once per lua_State at its first push, and built inside a game-thread callback while
+-- another thread pushed onto the shared hook_lua, the UObject type lost its methods for a whole server process
+-- (2026-11-18). The client runs the same UE4SS, so the same window. Read-only (StaticFindObject of native objects);
+-- logged as "ue4ss_wrappers {...}". The bridge's ping carries the type's health as `uobject`.
+do
+    local ok_u, U = pcall(function() return assert(loadfile(ROOT .. "/mod/body/util.lua"))() end)
+    if ok_u and type(U) == "table" and type(U.prewarm_wrappers) == "function" then
+        local okp, perr = pcall(U.prewarm_wrappers, { event = function(name, data) log(name .. " " .. encode(data)) end })
+        if not okp then log("ue4ss_wrappers error: " .. tostring(perr)) end
+    else
+        log("ue4ss_wrappers skipped: util " .. tostring(U))
+    end
+end
+
 -- Poll on the game thread: a plain read of the queue file (no process), so a 500 ms cadence is cheap.
 LoopInGameThreadWithDelay(500, function()
     for _, name in ipairs(list_cmds()) do
