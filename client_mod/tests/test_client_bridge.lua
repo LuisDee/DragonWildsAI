@@ -273,6 +273,7 @@ test("go_to pre-empts follow silently, replies when move.status says arrived (ve
     assert(#events(msgs, "task_failed") == 0, "pre-empted follow ends silently")
     assert(FAKE.move.calls[1] == "stop" and FAKE.move.calls[2] == "go_to", table.concat(FAKE.move.calls, ","))
     assert(FAKE.move.opts.stand == true, "[x,y,z] is a spot to stand on (move: reached on its floor)")
+    assert(FAKE.move.opts.wade == nil, "water avoidance stays on unless the caller asks")
     step(); step()
     assert(#results(drain(), id) == 0, "still moving")
     FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.4 }, { 9, 1, 0 }
@@ -285,6 +286,14 @@ test("go_to pre-empts follow silently, replies when move.status says arrived (ve
     local done = events(out, "task_done")
     assert(#done == 1 and done[1].task_id == id)
     assert(rpc("get_state").data.following == nil, "follow ended")
+end)
+
+test("go_to wade=true reaches move as opts.wade (collect_water's shore walk; anything else is no wade)", function()
+    rpc("go_to", { target = { 10, 0, 0 }, wade = true })
+    assert(FAKE.move.opts.wade == true)
+    rpc("go_to", { target = { 10, 0, 0 }, wade = "yes" })
+    assert(FAKE.move.opts.wade == nil)
+    rpc("stop")
 end)
 
 test("go_to: arrival claim far from the target -> verification_failed", function()

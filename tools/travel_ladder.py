@@ -9,6 +9,8 @@
       summary from tools/jump_stats.py of the paths with a jump up, strikes, real falls and jump verdict lines
   .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_pond_bank,jump_pond_top,jump_rock_cell,jump_rock_step --repeat 5 --label jumpcourse-real
       the real-play legs (study 2026-11-18): hops under the step slack at the pond bank, one-cell rocks by home
+  .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_pond_bank_run,jump_pond_top_run,jump_pond_top_east --repeat 5 --label jumpcourse-run
+      cause (a) with its real approach: collect_water's wading sprint over the hump, the bank-top hop out of a run
 
 Each journey: the dev `teleport` fixture puts Claude at a fixed start (server K2_TeleportTo, mod/bench/fixtures.lua),
 he settles, then ONE bridge go_to (debug channel) to the goal, exactly as the brain would send it. A second
@@ -195,6 +197,32 @@ P.update({
     # the rock north of the pond: 18 Nov 13:35:11Z plan #5 at (15067,192094,-3185), path [wdw] 151,1921,-32.7 d
     # 152,1921,-30.4 (djump 230 from a standstill, dj2 .56) w 153,1920,-31.0: fell short, came down at takeoff level
     "jrs_a": [150.67, 1920.94, -31.85], "jrs_b": [153.0, 1920.0, -30.12],
+    # Cause (a) run as he met it (2026-11-19 study of the client log; jump_pond_bank 0 strikes in 5 paths and
+    # jump_pond_top 1 in 8 on 2026-11-18 22:15-22:21Z and 22:36-22:44Z). Why the two legs above never met it:
+    # - jump_pond_bank: the three real hump misses were collect_water walks (arbiter "granted skill:collect_water"
+    #   10:48:50Z, 11:00:25Z, 14:46:09Z) from home to the learned shore point, sent with wade=true: water cells cost
+    #   nothing then (move.lua cell_cost: `not st.wade`), so the plan ran through the shallows over the 63 cm hump
+    #   ([wwwjwww]/[wwjwww], 161,1915 -> 160,1914), reached at a sprint (go_to spd 577-609) heading west, the run-up
+    #   "still sideways after 0.6-0.7 s (216-230 cm/s); jumping anyway", takeoff 100-124 cm past the jump's start. The
+    #   leg's dry go_to (water 8 a cell) from a standstill planned the rock arch djump [wddwwww] all 5 times instead.
+    #   Start: where those walks began, on the home platform (10:48:51Z go_to at 173.42,1914.98; 11:00:20Z at
+    #   172.54,1915.10); goal: the shore point he walked to, (14523,190770,-3185) at 10:48:50Z (stand, capsule
+    #   centre); wade on. The real trips were 36-38 m with that hump their only jump.
+    "jpr_a": [173.42, 1914.98, -30.28], "jpr_b": [145.23, 1907.70, -31.85],
+    # - jump_pond_top: its go_to was 3.9 m, so move went straight (src=straight: no water_ahead plan under 10 m
+    #   to the goal), walked into the dip at 156.6,1914.4 and planned [wj] there from a standstill (v0h 0-107,
+    #   toward -0.71: the slow back-and-up hop, nearer #6 at 04:40:06Z than the two it was made for). The real ones
+    #   were planned out of a run with the goal far off, 3 cells before the hop, and pressed at v0h 450:
+    #   13:50:09Z (combat chase, follow d=58 m): plan #2 (stuck) at (16143,190320,-3049), north along x 160 at
+    #   273-426 cm/s, then plan #3 (water_ahead) at jpt_a [wwwj] 159,1912 158,1913 157,1914 j 157,1915, v0
+    #   (-319,318). Start plan #2's "at"; goal the chased target then (stuck line 13:50:01Z: 13863,196434,-2971),
+    #   so the same water-detour way over the bank top is taken
+    "jpu_a": [161.43, 1903.20, -30.49], "jpu_b": [138.63, 1964.34, -29.71],
+    #   11:16:56Z (go_to of 211 m to 15623,191688,-3254): plan #6 (water_ahead) at (16821,190782,-3042) at a sprint
+    #   (spd 642) heading west, a 15-cell walk to the hump, stuck at (159.36,1912.71), plan #7 [wwwjdw] 159,1913
+    #   158,1913 157,1914 j 157,1915, v0 (-314,322). Start plan #6's "at" (15 m from the goal, so water_ahead fires
+    #   as it did); goal that go_to's point, a floor point, + 0.88 like the other goals (he arrived at -31.85)
+    "jpe_a": [168.21, 1907.82, -30.42], "jpe_b": [156.23, 1916.88, -31.66],
 })
 # Reached = on top: within JUMP_TOL_M (2D; the body's own go_to tolerance is 1.5 m, every start is 2.6 m or more
 # from its goal) and within half the leg's rise in height (at least 0.5 m, at most ARRIVE_DZ): standing at the foot
@@ -202,10 +230,11 @@ P.update({
 JUMP_TOL_M = 2.0
 
 
-def _jump(name, a, b, note, human_m, go_tol=None, foot=None, past=False):
+def _jump(name, a, b, note, human_m, go_tol=None, foot=None, past=False, wade=False):
     """foot: the low side's capsule point when it is not the start (the start stands on a shelf near the top's
-    height), so the height test is half the rise from there. past: the goal lies beyond the edge at about the
-    start's level (a hump or rock crossed, not climbed): reached is getting through, the strike counts are jump_stats'."""
+    height), so the height test is half the rise from there. past: the goal lies beyond the edge, at about the
+    start's level or below it (a hump or rock crossed, not climbed): reached is getting through, the strike counts are
+    jump_stats'. wade: the go_to goes with water avoidance off, as collect_water's walk to a shore stand does."""
     rise = P[b][2] - P[foot or a][2]
     j = _j(name, a, b, note, human_m=human_m, tol_m=JUMP_TOL_M, tol_dz=round(min(ARRIVE_DZ, max(0.5, rise / 2)), 2))
     if go_tol is not None:  # the go_to's own circle, when the body's 1.5 m one reaches the ledge's foot
@@ -214,6 +243,8 @@ def _jump(name, a, b, note, human_m, go_tol=None, foot=None, past=False):
         j["foot"] = P[foot]
     if past:
         j["past"] = True
+    if wade:
+        j["wade"] = True
     j["course"] = "jump"  # dev world only, teleported starts only (place(walk_ok=False)), a jump summary per run
     return j
 
@@ -244,6 +275,18 @@ JUMP_COURSE = [
           human_m=8, past=True),
     _jump("jump_rock_step", "jrs_a", "jrs_b", "jump: the rock north of the pond, a 2.3 m djump onto one cell, step off",
           human_m=4, go_tol=0.5),
+    # real-play cause (a) with the real approach (the pond legs above met neither the wade walk nor the run): the
+    # hump from a sprint on collect_water's walk (10:48:57Z, 11:00:32Z, 14:46:29Z) and the hop onto the bank's top
+    # pressed at 450 cm/s out of a plan made running with the goal far off (13:50:09Z from the south, 11:16:56Z from
+    # the east). Longer than the other legs on purpose: the run-up to the edge is what they lacked
+    _jump("jump_pond_bank_run", "jpr_a", "jpr_b",
+          "jump: home to the pond's shore point at a sprint, wading on (collect_water's walk), over the 63 cm hump",
+          human_m=36, past=True, wade=True),
+    _jump("jump_pond_top_run", "jpu_a", "jpu_b",
+          "jump: north past the pond on a chase, the 61 cm hop onto the bank's top taken at a run", human_m=62, past=True),
+    _jump("jump_pond_top_east", "jpe_a", "jpe_b",
+          "jump: west along the pond's south shore at a sprint, then the 61 cm hop onto the bank's top", human_m=15,
+          past=True),
 ]
 # kept out of OBSTACLES so `--obstacles` runs what it ran before; `--only` picks from JOURNEYS + OBSTACLES + JUMP_COURSE
 JUMP_IDS = {j["id"] for j in JUMP_COURSE}
@@ -403,7 +446,8 @@ def run_journey(dev, j):
     th = threading.Thread(target=sample, daemon=True)
     t0 = time.time()
     th.start()
-    r = c.request("go_to", {"target": goal, **({"tolerance": j["go_tol"]} if j.get("go_tol") else {})}, timeout=GO_TO_WAIT_S)
+    r = c.request("go_to", {"target": goal, **({"tolerance": j["go_tol"]} if j.get("go_tol") else {}),
+                            **({"wade": True} if j.get("wade") else {})}, timeout=GO_TO_WAIT_S)
     t1 = time.time()
     stop.set()
     th.join(5)
