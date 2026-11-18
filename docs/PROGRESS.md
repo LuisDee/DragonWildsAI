@@ -2211,3 +2211,26 @@ Built, not merged (a1cda75): a plan with tasks and a question runs its tasks and
 - Unseen: 26f5fad, 5115f18, 44ce27b, 044b58c, d2024ed confirmed (d2024ed: the sender prove passed on the first server start in all 5 starts since the merge, against 3 of 8 failing before). The temporary sender guard can go after one more window.
 
 **Merged after it:** the L1 grader by item instance and the venture rungs V1/V2 (`job_run --rung`), collect_water names the nearest pond, a local plan begun in the air starts on the floor under him, the client watchdog parks him off the dev world while nobody plays him. The lookup chain, the async planner and the gear line are rebased on main and wait one window each. Unseen 8 open (cap): the jump course `jumpcourse-airfeet` (7 passes) runs now as the confirm window. Spend 18 Nov at 06:20Z: $1.94.
+
+## 2026-11-18 06:20Z-08:55Z: jump landings 2 % on the course, copper 0 of 4 and why (our own note told him to stop), the ask survives a restart, harness faults found the hard way
+
+**Jumps (goal item 2).** Course `jumpcourse-airfeet` (7 passes, 06:23-06:37Z): paths with a landing judged missed **1 of 61 (2 %)**, real falls 0 of 61, 48 of 49 legs; 16 plans begun mid-hop started on the floor under him (30a3377 confirmed). The bar (under 10 %) is met on the course; real play is the remaining check (31 % on 13 paths last measured).
+
+**Copper, V1 rung (home to a bone pickaxe), window `l2_v1_1118l`: 0 of 4,** each with the crafting cards (4fa2088) and a question that rides with its tasks (0b33d59). All four ended with a question to the player: "where's a copper vein?" (twice, without using lookup), "want me to go for it?", and a full chain laid out then a question. Tagged model.
+- **The study** (ask_vs_act, 209 Haiku replays, $0.15) found the cause in our code: on the turn after his question he is told only `{"ok": true, "note": "said"}`, and the chat-run note (`PROMISE_NOTE`) says "you only answered or asked something: reply with no text at all". There 0 of 18 replays act. Telling him what is true (nobody in sight heard it, the player's last line, nothing is working on the ask) and naming his open request: 12 of 18 (p < 0.0001); as built (d67ddd5) 10 of 24. It is the next copper window's change.
+- **Sonnet's stone pickaxe** (study): the tier fact sat only in a wiki row marked "may be outdated". Cards per craft_plan row: stone first 3/3 to 0/6, bone pickaxe 6/6 in replay. **Thread:** he asked the player for Coarse Thread holding 7 fur because a station's build shortfall was text only (fix 9a73ac4: 0 of 3 asked, from 2 of 3).
+
+**Brain restart (I5).** The open ask is now on disk per world (2e40ec7) and comes back with a where-you-were note; live, `ask_restored` appeared after the restart and he knew the ask. The trial still stopped: on a pair checkpoint taken from a fork with no chest of his own he asked which crate to use (void, harness). Now `--until own_chest` takes the checkpoint only once the game shows a crate that is his with job items in it. The earlier I5 "pass" (021010) was voided: the body finished the store in the gap and the new brain did not know the ask.
+
+**Full bag (I4)** has never had a real trial: on N1 logs and stone stack into stacks he holds, so a full bag never bites, and the body counted empty slots over every inventory page, so a full item page never read as full (fix b270de2, not merged; I4 gets its own vehicle N2).
+
+**Harness faults, each fixed:**
+- the client park (72823b5, confirmed: he logs off after 2 min with nobody playing him, so his save stays fit) left him at the menu while the old sender guard proved the sender: the guard is retired (the sender fix held on every server start) and a window start unparks him;
+- a subagent's test in its own worktree launched the real client (the worktree had its own lock state): live state now resolves to the main tree and launchers refuse under pytest and from a worktree (037cc73, f71e4d8);
+- the vitals rescue could not lift him over 75: under 25 rest the game caps food and water ("Knackered"); it now restores rest first (adf0f57);
+- the memory reaper killed a window's shell; its job_run lost its console and every client_boot it spawned died 0xC0000142, so it sat on a fork holding the lock. I killed it and switched him back to ClaudeDev under the lock from a healthy process; windows now run detached in their own hidden console, and a spawn helper with its own console is being built;
+- V2's grader asked for the full region power from home; it now uses the decided bar, power minus 1 (c57c9bf).
+
+**Capstone readiness** (study): of five grading steps only "at the door" reads live; stages K1 (to the door) and K2 (enter) are built offline. **Async planner:** today's sync baseline, the body waited over 5 s on 29 of 29 plans (median 12 s); its window is 5 L2 trials with `DW_ASYNC_PLAN=1`. The live lookup measure is built (52 questions, 25 held-out).
+
+Window now: `n1_i5_1118p`, the own-chest checkpoint then 4 restart trials. Spend 18 Nov at 08:55Z: $2.60.
