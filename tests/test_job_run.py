@@ -168,6 +168,12 @@ def test_h2_cooked_meals_and_water_in_his_chest(doc):
     job = j.job_of("H2", doc)
     cooked = sorted(x for x in j.made_at(["Campfire", "Grill"], "Item.Food") if "Burnt" not in x)[0]
     start, end = snap(mine=[CRATE]), snap()
+    start["chest_start"] = {CRATE: {"read": True, "items": {cooked: 26, "ITEM_Consumable_Water_Clean": 29}}}
+    end["chest_end"] = {CRATE: {"read": True, "items": {cooked: 26, "ITEM_Consumable_Water_Clean": 29}}}
+    assert not j.done(job, start, end)[0]   # the base crate already held them: nothing was put in (gained)
+    end["chest_end"] = {CRATE: {"read": True, "items": {cooked: 36, "ITEM_Consumable_Water_Clean": 39}}}
+    assert j.done(job, start, end)[0]
+    start["chest_start"] = {CRATE: {"read": True, "items": {}}}
     end["chest_end"] = {CRATE: {"read": True, "items": {cooked: 10, "ITEM_Consumable_Water_Clean": 10}}}
     assert j.done(job, start, end)[0]
     end["chest_end"][CRATE]["items"] = {"ITEM_Consumable_Bread_Burnt": 10, "ITEM_Consumable_Water_Clean": 10}
