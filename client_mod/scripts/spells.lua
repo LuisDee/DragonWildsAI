@@ -280,7 +280,7 @@ end
 -- ------------------------------------------------------------------ engine touches (tests replace W)
 local W = {}
 M.W = W
-M.STATIC_V = 2 -- bump when W.static gains fields (its cache survives hot reloads in _G.DWSpells)
+M.STATIC_V = 3 -- bump when W.static gains fields (its cache survives hot reloads in _G.DWSpells)
 local Uc
 local function U()
     if not Uc then Uc = assert(loadfile((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/") .. "/mod/body/util.lua"))() end
@@ -314,6 +314,15 @@ function W.static(spell)
     local ov = u.try(function() return spell.bOverrideMaxPlacementDistanceFromCamera end) == true
     local mx = ov and u.try(function() return spell.MaxPlacementDistanceFromCamera end) or nil
     if type(mx) == "number" and mx > 0 then s.reach_m = mx / 100 end
+    -- the spell's own camera trace (UUtilitySpellData.CameraTraceDistance / CameraTraceIgnoreDistance, cm; class
+    -- defaults 0 and 400, dump 26574459 UtilitySpellData.cpp; the asset's own values are not in the dump). Suspected
+    -- cause of a Bark to Bones preview stopping 2.9 m short of an Oak ~10.5 m away (2026-11-18). M.reach uses it only
+    -- when read and > 0, and only to shorten the reach; unread (trace_read = false) changes nothing.
+    local tr = u.try(function() return spell.CameraTraceDistance end)
+    local ig = u.try(function() return spell.CameraTraceIgnoreDistance end)
+    s.trace_read = type(tr) == "number"
+    s.trace_m = type(tr) == "number" and tr / 100 or nil
+    s.trace_ignore_m = type(ig) == "number" and ig / 100 or nil
     -- the wheel slice shows this texture: how the cast checks the open page shows THIS spell
     local icon = u.str(u.try(function() return spell.SpellIcon:GetObjectID():GetAssetPathName() end))
         or u.str(u.try(function() return spell.SpellIcon:GetAssetPathName() end))
@@ -1009,6 +1018,12 @@ local function new_cast(api, args)
         if not wt or wt.kind == "self" then return nil, wf or api.fail("invalid_args", { detail = "walk_to must be a place or a thing" }) end
         walk_to = wt
     end
+    if placed then
+        local rn = M.reach_note(st, snap)
+        d.reach_m, d.reach_src, d.trace_m, d.trace_ignore_m = rn.reach_m, rn.reach_src, rn.trace_m, rn.trace_ignore_m
+        pcall(api.log, string.format("[spells] reach %s: %.1f m (%s), camera trace %s m, ignore %s m", tostring(row.id),
+            rn.reach_m, rn.reach_src, tostring(rn.trace_m), tostring(rn.trace_ignore_m)))
+    end
     local job = { api = api, row = row, st = st, d = d, acts = acts, slot = slot, target = tg, placed = placed, walk_to = walk_to,
                   pages = M.page_count(snap.radials, #(snap.wheel or {}), per),
                   per = per, icon_of = icon_of,
@@ -1330,9 +1345,27 @@ function M.refresh_target(job)
     if p then tg.position = p end
     return tg.position
 end
-local function reach_of(job, snap)
-    return job.st.reach_m or ((snap and snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or M.cfg.place_max_m
+-- The camera-to-target reach (m) of a cast and where it came from: the spell's own placement override, else the
+-- spellcasting component's limit, else cfg.place_max_m; then capped by the spell's own camera trace when that was
+-- READ and is > 0 (never widened by it). Unread or 0: exactly the reach of before.
+function M.reach(st, snap, cfg)
+    cfg = cfg or M.cfg
+    local r, src
+    if st and type(st.reach_m) == "number" then r, src = st.reach_m, "spell_override"
+    elseif snap and type(snap.place_max_m) == "number" and snap.place_max_m > 0 then r, src = snap.place_max_m, "component"
+    else r, src = cfg.place_max_m, "default" end
+    local tr = st and st.trace_m
+    if type(tr) == "number" and tr > 0 and tr < r then r, src = tr, "spell_trace" end
+    return r, src
 end
+-- What a placed cast records about its reach (job.d and one log line): trace "unknown" when it was not read.
+function M.reach_note(st, snap, cfg)
+    local r, src = M.reach(st, snap, cfg)
+    local tr
+    if st and st.trace_read then tr = st.trace_m elseif st and st.trace_read == false then tr = "unknown" end
+    return { reach_m = r, reach_src = src, trace_m = tr, trace_ignore_m = st and st.trace_ignore_m or nil }
+end
+local function reach_of(job, snap) return (M.reach(job.st, snap)) end
 -- Open the wheel now, or first walk into reach of a target that is too far (never for self casts).
 function M.begin_open(job, t, snap)
     local cfg = M.cfg
@@ -1678,7 +1711,7 @@ local function step(job)
             end
             if aimed_at then
                 local dist = W.aim(api, { aimed_at[1], aimed_at[2], (aimed_at[3] or 0) + cfg.aim_heights_m[1] })
-                local lim = job.st.reach_m or ((snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or cfg.place_max_m
+                local lim = reach_of(job, snap)
                 if dist and dist > lim + 0.5 and (job.reapproaches or 0) < cfg.reapproach_max and job.target.kind ~= "point" then
                     -- it moved out of reach while the wheel opened: put the spell away, walk again, re-open
                     job.reapproaches = (job.reapproaches or 0) + 1
@@ -1713,7 +1746,7 @@ local function step(job)
         if not in_spell_mode(mode) then
             return failed(job, "verification_failed", "placement_closed", "The placement preview for " .. job.row.name .. " closed before I could place it.")
         end
-        local lim = job.st.reach_m or ((snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or cfg.place_max_m
+        local lim = reach_of(job, snap)
         if not job.checker and (job.target.kind == "thing" or job.target.kind == "player") and (job.reapproaches or 0) < cfg.reapproach_max then
             -- it moved out of reach while the wheel opened: put the spell away, walk again, re-open
             local pos, me = M.refresh_target(job), snap.position
