@@ -3636,3 +3636,9 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - `U.uobject_health()` (in `ping` as `uobject`) reads the state.
   - The prove's reason names it (`ue4ss_uobject_no_methods`), and `ensure_sender` stops on the first try. Risk register R19. Not yet confirmed live.
 - **Make it visible next time:** the server's UE4SS.log is not archived at start, unlike the client's. A bad process shows as `ue4ss_wrappers` ok=false, as `ping.uobject` = "no_methods", or as a hook `self` of `UObject: <ptr>`.
+
+## Whose account a crate is on: OwningPlayerId (2026-11-18, game build 26574459, dev world save 'base' read offline from CompanionDev.sav; window n1_i2i4_1118h)
+- `UOwnershipComponent` (Dominion.hpp:28942) holds `FString OwningPlayerId` (replicated, `OnRep_OwningPlayerId`) beside `OwningCharacterGuid` and `bIsPrivatelyOwned`.
+- **OwningPlayerId is the placer's account string.** Every crate record in the save carries `"RedpointEOS:0002f5bf759c4864bb2c07830b60e27d,STEAM:76561198614193617"` (bootymaxer) followed by ClaudeDev's guid E71C5DC1-46F0A55B-69FF52A8-81255DEF. It is the same form as the name list's `FDomCharacterDisplayName.AccountGuidSaveStr` (`GameState.DisplayNameComponent.SanitizedCharacterNames`), which is how a client reads its own account.
+- So a fork of ClaudeDev (new character name and guid, same Steam account) sees the base crates as owned by "ClaudeDev", not by him. With only that, he said "the crates I can see aren't mine" and stopped (runs 034457-N1-I2 and 040149-N1-I4).
+- `sense.owner_row` now adds `owner_name` and `same_account` (the crate's OwningPlayerId, else the owner's name-list account, compared with his own entry's account by platform id) and words `owner` as "ClaudeDev (another character of your account)" or "<name> (another player)". The client's read of the replicated value is not yet confirmed live.

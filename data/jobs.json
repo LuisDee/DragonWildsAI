@@ -78,8 +78,8 @@
       },
       "start": "ClaudeDev",
       "interrupt_from": "job_n1_midjob",
-      "interrupt_trigger": "first_deposit|progress:0.5",
-      "interrupt_trigger_note": "mid-job, read from the game: after his first store of ash or stone into a container (the store result's read of the container screen), or once half the 30 units are on him or in a chest (get_state samples and his store results), whichever comes first (progress is read every 3 s while it is awaited). From job_n1_midjob (made by `trial --job N1 --until mid --save-as job_n1_midjob`: kept only when the end read has 0.2 to 0.6 of the 30 units got and nothing stored) he is past the start of the job and far from its end when it fires. job_n1_mid (window 1118d, --until first_step) was saved with all 20 ash and 10 stone carried, and I2 from it was done at 21 s: never used.",
+      "interrupt_trigger": "work:4",
+      "interrupt_trigger_note": "mid-job: 4 s into his first work call (job_run.first_work: the first call of work_tools he starts, whatever it returns). From job_n1_midjob he carries 20 ash and 5 stone, so the job left is one gather of 5 stone (6 to 15 s) and two stores; 'first_deposit|progress:0.5' came due only between the end of his first store and the end of his second (2.1 to 2.8 s, and 0.7 s with no call open for I4's between_calls) and was never put in in 5 of 6 trials of window n1_i2i4_1118h (it fired in n1_i1_1118g only because those second stores ran 2.2 to 3.9 s). The interruption now lands inside his gather, with the stores still to do. job_n1_mid (window 1118d, --until first_step) was saved with all 20 ash and 10 stone carried, and I2 from it was done at 21 s: never used.",
       "work_tools": ["gather", "pickup", "craft", "build", "store", "take", "interact", "cast"]
     },
     "L3": {

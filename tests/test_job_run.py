@@ -503,7 +503,7 @@ def test_run_job_i5_resumes_after_the_restart(doc):
     io = FakeIO(script=script + after, states=lambda t: state(mine=[CRATE]))
     rec = j.run_job(io, j.job_of("L2", doc), {"step": "I5", "interruptions": doc["interruptions"], "confirm_s": 20})
     assert io.restarts == 1
-    assert rec["interruption"]["took"] and rec["interruption"]["t_put"] == 21.0
+    assert rec["interruption"]["took"] and rec["interruption"]["t_put"] == 20.0  # polled every 0.5 s while awaited
     assert rec["resume"]["resumed"] and rec["resume"]["call"]["tool"] == "gather" and not rec["resume"]["new_line"]
     assert rec["ended"] == "resumed" and rec["resumed"] and not rec["done"] and not rec["job_done"] and rec["verdict"]["pass"]
     assert rec["item"] == "job: L2 / I5" and rec["misses"]["by_phase"] == {"before": 0, "during": 0, "after": 0}

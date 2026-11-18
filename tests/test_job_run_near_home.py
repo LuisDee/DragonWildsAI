@@ -129,6 +129,9 @@ def test_trigger_kinds_and_alternatives():
 
 
 # ------------------------------------------------------------------ whole step trials on the fake body
+DEP = "first_deposit|progress:0.5"  # the mechanism these trials test; N1's own trigger is work:4 (window 1118h)
+
+
 def n1_script(deposit_at=30.0, extra=()):
     rows = model(T0 + 1)
     rows += [call(T0 + 3, "g1", "gather", {"resource": "ash", "count": 9}),
@@ -143,7 +146,8 @@ def test_i1_goes_in_after_his_first_deposit_and_he_takes_the_job_up_again(doc):
                               result(T0 + 80, "g2", "gather", data={"detail": "Got 11 ash."})]
     io = FakeIO(script=n1_script(extra=after), states=lambda t: state(mine=[CRATE]),
                 chests={CRATE: [{"item": ASH, "name": "Ash Logs", "count": 9}]})
-    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I1", "interruptions": doc["interruptions"], "confirm_s": 20})
+    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I1", "interruptions": doc["interruptions"], "confirm_s": 20,
+                                              "trigger": DEP})
     intr = rec["interruption"]
     assert intr["took"] and intr["moment"]["first_deposit_s"] == 30.0
     assert intr["moment"]["trigger"] == "first_deposit|progress:0.5" and intr["t_put"] >= 30.0
@@ -162,7 +166,8 @@ def test_i4_waits_until_no_call_is_open_so_the_bag_fills_before_the_next_gather(
     extra += model(T0 + 60) + [call(T0 + 62, "s2", "store", {"item": "Stone"}),
                                result(T0 + 65, "s2", "store", ok=False, reason="bag_full")]
     io = FakeIO(script=n1_script(extra=extra), states=lambda t: state(mine=[CRATE]), room=[12, 0])
-    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I4", "interruptions": doc["interruptions"], "confirm_s": 10})
+    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I4", "interruptions": doc["interruptions"], "confirm_s": 10,
+                                              "trigger": DEP})
     intr = rec["interruption"]
     assert intr["t_put"] >= 47.0 and intr["took"]
     assert [v for v, kw in io.fixtures] == ["grant"]
@@ -173,7 +178,8 @@ def test_i5_score_reads_the_new_brains_first_work_call(doc):
     after = model(T0 + 70) + [call(T0 + 74, "g2", "gather", {"resource": "stone", "count": 10}),
                               result(T0 + 90, "g2", "gather", data={"detail": "Got 10 stone."})]
     io = FakeIO(script=n1_script(extra=after), states=lambda t: state(mine=[CRATE]))
-    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I5", "interruptions": doc["interruptions"], "confirm_s": 20})
+    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I5", "interruptions": doc["interruptions"], "confirm_s": 20,
+                                              "trigger": DEP})
     assert io.restarts == 1 and rec["interruption"]["took"]
     assert rec["resume"]["resumed"] and rec["resume"]["after_s"] == round(74.0 - rec["interruption"]["t_clear"], 1)
     assert rec["verdict"]["pass"]
@@ -181,7 +187,7 @@ def test_i5_score_reads_the_new_brains_first_work_call(doc):
 
 def test_no_resumption_within_the_limit_fails_the_step(doc):
     io = FakeIO(script=n1_script(), states=lambda t: state(mine=[CRATE]))
-    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I1", "interruptions": doc["interruptions"]})
+    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I1", "interruptions": doc["interruptions"], "trigger": DEP})
     assert rec["interruption"]["took"] and not rec["resume"].get("resumed") and not rec["verdict"]["pass"]
 
 
@@ -194,7 +200,7 @@ def test_a_job_done_before_the_interruption_says_nothing(doc):
                                         ["20 Ash Logs", "10 Stone"])]
     full = [{"item": ASH, "name": "Ash Logs", "count": 20}, {"item": STONE, "name": "Stone", "count": 10}]
     io = FakeIO(script=rows, states=lambda t: state(mine=[CRATE]), chests=lambda t, cid: full if t >= T0 + 30 else [])
-    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I1", "interruptions": doc["interruptions"]})
+    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I1", "interruptions": doc["interruptions"], "trigger": DEP})
     assert rec["ended"] == "job done" and not io.fixtures
     assert "done before" in rec["not_counted"] and j.rates([rec], set()) == {}
 

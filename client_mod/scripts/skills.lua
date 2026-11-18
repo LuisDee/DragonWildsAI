@@ -2800,7 +2800,7 @@ M._took_left_words = took_left_words
 -- never over a field the result set itself. A row without them adds nothing.
 function W.owner_fields(t, data)
     if type(t) ~= "table" or type(data) ~= "table" then return data end
-    for _, k in ipairs({ "owner", "owner_guid", "mine", "private" }) do
+    for _, k in ipairs({ "owner", "owner_name", "owner_guid", "mine", "same_account", "private" }) do
         if t[k] ~= nil and data[k] == nil then data[k] = t[k] end
     end
     return data

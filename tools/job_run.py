@@ -62,6 +62,7 @@ SAMPLE_S = 15.0       # a get_state read for the end predicate and the body's st
 # ... and this often while a moment read from his progress is awaited (--until mid, a progress trigger): a 15 s
 # sample let one 19-log gather take N1 from 0.03 to 0.63 between two reads (window 1118d, run 014312)
 FAST_SAMPLE_S = 3.0
+AWAIT_POLL_S = 0.5    # the brain log is read this often while a step's interruption is awaited (rows only, no reads)
 MID_DEFAULT = (0.2, 0.6)  # --until mid: end a probe once this share of the job is got and nothing of it is stored
 UNTILS = ("done", "first_step", "resumed")
 CONFIRM_S = 60.0      # an interruption trial goes on this long after he took the job up again (it was not a blip)
@@ -219,8 +220,9 @@ def _item_id(name: str | None) -> str | None:
 
 
 # a container's owner as the body read it from the game (client_mod/scripts/sense.lua owner_row: the actor's
-# UOwnershipComponent.OwningCharacterGuid, "yours" / a character name / "nobody"); mine last (chests_seen sets it)
-OWNER_KEYS = ("owner", "owner_guid", "private", "mine")
+# UOwnershipComponent.OwningCharacterGuid, "yours" / a character name / "nobody"; same_account: the placer's account
+# (OwningPlayerId) against his own); owner and owner_guid first (game_owner); mine last (chests_seen sets it)
+OWNER_KEYS = ("owner", "owner_guid", "owner_name", "same_account", "private", "mine")
 
 
 def chests_seen(rows: list[dict]) -> dict[str, dict]:
@@ -446,6 +448,8 @@ def game_owner(cid: str, start: dict, end: dict) -> tuple[bool | None, str]:
             return True, "owner: yours"
         if src.get("owner_guid") and str(src["owner_guid"]).upper() in guids:
             return True, f"owner: {who or src['owner_guid']} (a character of his line)"
+        if src.get("same_account") is True:  # the game's account read: a character of his own account placed it
+            return True, f"owner: {who or src.get('owner_guid')}"
         return False, f"owner: {who or src.get('owner_guid')}"
     return None, "owner not read"
 
@@ -585,8 +589,11 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
             if have >= n:
                 no_start.append(cid)
             return have
-        best = max(((cid, put_in(cid, items)) for cid, items in good.items()), key=lambda x: x[1],
-                   default=(None, 0))
+        counts = [(cid, put_in(cid, items)) for cid, items in good.items()]
+        # one whose start is known and that got enough wins over a fuller one with no start read (run 034838-N1-I2:
+        # ...149 held 297 logs, never read before his stores; ...171 went 3 -> 23 by his store's read)
+        sure_best = max(((c, v) for c, v in counts if c not in no_start), key=lambda x: x[1], default=(None, 0))
+        best = sure_best if sure_best[1] >= n else max(counts, key=lambda x: x[1], default=(None, 0))
         word = " put in during the run" if gained else ""
         if best[1] >= n and best[0] not in no_start:
             used.add(best[0])
@@ -905,22 +912,34 @@ def first_step(calls: list[dict], job: dict) -> float | None:
     return None
 
 
+def first_work(calls: list[dict], job: dict) -> float | None:
+    """When his first work call STARTED (seconds into the run), whatever it returned: the moment a `work:S` trigger
+    counts from."""
+    return next((round(float(c["t"]), 1) for c in calls if _work_call(c, job.get("work_tools"))), None)
+
+
 def resumed(calls: list[dict], interruption: dict, work_tools=None, lines: list[dict] | None = None) -> dict:
     """Did he take the job up again after the interruption: the first work call that STARTED after it cleared
-    (t_clear; seconds into the run), how many seconds after, and whether a line from the player came in between
-    (lines: [{t, line}] sent after the first)."""
+    (t_clear; seconds into the run), or one he started while it lasted and that was still running when it cleared and
+    then ended ok (through: he kept the job going through it; run 034838-N1-I2 stored stone through the fight and was
+    in a store when it cleared, with nothing left to start after); how many seconds after, and whether a line from the
+    player came in between (lines: [{t, line}] sent after the first)."""
     clear = interruption.get("t_clear")
     if clear is None:
         return {"resumed": False, "why": "the interruption has not cleared"}
     clear = float(clear)
-    nxt = next((c for c in calls if float(c.get("t") or 0) >= clear and _work_call(c, work_tools)), None)
-    put = float(interruption.get("t_put") or clear)
+    put = float(interruption.get("t_put") if interruption.get("t_put") is not None else clear)
+    through = next((c for c in calls if _work_call(c, work_tools) and put <= float(c.get("t") or 0) < clear
+                    and c.get("ok") is True and c.get("dur_s") is not None
+                    and float(c["t"]) + float(c["dur_s"]) >= clear), None)
+    nxt = through or next((c for c in calls if float(c.get("t") or 0) >= clear and _work_call(c, work_tools)), None)
     new_lines = [l for l in lines or [] if float(l.get("t") or 0) >= put]
     if nxt is None:
         return {"resumed": False, "new_line": bool(new_lines), "why": "no work call after the interruption cleared"}
-    t = float(nxt["t"])
+    t = clear if through else float(nxt["t"])
     return {"resumed": True, "t": t, "after_s": round(t - clear, 1), "call": {"tool": nxt.get("tool"), "args": nxt.get("args"),
-            "ok": nxt.get("ok")}, "new_line": any(float(l.get("t") or 0) <= t for l in new_lines)}
+            "ok": nxt.get("ok"), "t": float(nxt["t"])}, "through": bool(through),
+            "new_line": any(float(l.get("t") or 0) <= t for l in new_lines)}
 
 
 def _chest_wants(job: dict) -> list[dict]:
@@ -958,14 +977,15 @@ def progress(job: dict, start: dict, cur: dict | None, rows: list[dict]) -> floa
     return round(got / asked, 3) if asked else None
 
 
-TRIGGERS = ("first_step", "first_deposit", "progress", "share", "at")
+TRIGGERS = ("first_step", "first_deposit", "progress", "share", "at", "work")
+VALUED = ("progress", "share", "at", "work")  # the kinds that take a number
 
 
 def trigger_ok(spec: str | None) -> bool:
     """Every alternative of a trigger spec is a known kind, with a number where it takes one."""
     for s in str(spec or "").split("|"):
         kind, sep, val = s.strip().partition(":")
-        if kind not in TRIGGERS or (kind in ("progress", "share", "at")) != bool(sep):
+        if kind not in TRIGGERS or (kind in VALUED) != bool(sep):
             return False
         try:
             val and float(val)
@@ -975,19 +995,22 @@ def trigger_ok(spec: str | None) -> bool:
 
 
 def trigger_due(spec: str, first_step_t: float | None, t: float, bar: float | None,
-                deposit_t: float | None = None, share: float | None = None) -> bool:
+                deposit_t: float | None = None, share: float | None = None, work_t: float | None = None) -> bool:
     """When to put the interruption in: 'first_step' (after his first verified step), 'first_deposit' (after his
     first store of an asked item: first_deposit), 'progress:0.5' (half the asked units got: progress), 'share:0.3'
-    (at that share of the job's bar; with no bar, after the first step), 'at:120' (seconds into the run).
+    (at that share of the job's bar; with no bar, after the first step), 'at:120' (seconds into the run), 'work:4'
+    (4 s after his first work call started: first_work; inside the job's first work from a mid-job checkpoint).
     'a|b': whichever comes first."""
     alts = [s.strip() for s in (spec or "first_step").split("|") if s.strip()] or ["first_step"]
     if len(alts) > 1:
-        return any(trigger_due(s, first_step_t, t, bar, deposit_t, share) for s in alts)
+        return any(trigger_due(s, first_step_t, t, bar, deposit_t, share, work_t) for s in alts)
     kind, _, val = alts[0].partition(":")
     if kind not in TRIGGERS:
         raise ValueError(f"unknown trigger {alts[0]!r}")
     if kind == "at":
         return t >= float(val)
+    if kind == "work":
+        return work_t is not None and t >= work_t + float(val)
     if kind == "first_deposit":
         return deposit_t is not None and t >= deposit_t
     if kind == "progress":
@@ -1312,6 +1335,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
     sent = [{"t": 0.0, "line": job["line"], "sent": io.send(job["line"])}]
     intr = None
     first_t = None
+    work_t = None
     why = None
     ok, ok_why = False, "not read yet"
     last_sample = -1e9
@@ -1326,6 +1350,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
         calls = cl.model_calls(rows)
         if first_t is None:
             first_t = first_step(tl["calls"], job)
+        if work_t is None:
+            work_t = first_work(tl["calls"], job)
         fast = bool(lo_hi) or (bool(step) and intr is None and by_progress)
         if now - last_sample >= (FAST_SAMPLE_S if fast else SAMPLE_S):
             last_sample = now
@@ -1347,9 +1373,9 @@ def run_job(io, job: dict, opts: dict) -> dict:
         if step and intr is None and ok is not True:
             dep_t, share = first_deposit(rows, job, t0), progress(job, start, cur, rows)
             # between_calls (I4): wait for no open call, so the bag fills before his next gather, not inside one
-            if trigger_due(trigger, first_t, rel, bar, dep_t, share) and not (spec.get("between_calls") and open_tool):
-                moment = {"trigger": trigger, "at_s": round(rel, 1), "first_step_s": first_t, "first_deposit_s": dep_t,
-                          "progress": share, "carried": {w["item"]: count_of((cur or {}).get("carried") or {}, w["item"])
+            if trigger_due(trigger, first_t, rel, bar, dep_t, share, work_t) and not (spec.get("between_calls") and open_tool):
+                moment = {"trigger": trigger, "at_s": round(rel, 1), "first_work_s": work_t, "first_step_s": first_t,
+                          "first_deposit_s": dep_t, "progress": share, "carried": {w["item"]: count_of((cur or {}).get("carried") or {}, w["item"])
                                                          for w in _chest_wants(job)} or None}
                 intr = apply_interruption(io, step, spec, t0)
                 intr["moment"] = moment
@@ -1383,7 +1409,9 @@ def run_job(io, job: dict, opts: dict) -> dict:
             why = "quiet"
         if why:
             break
-        io.sleep(q.POLL_S)
+        # while an interruption is awaited the moment can be short (window 1118h: 0.7 s between two of his calls for
+        # I4's between_calls, 2.1-2.8 s between his first and last store for first_deposit): poll it more often
+        io.sleep(AWAIT_POLL_S if step and intr is None else q.POLL_S)
     ended = io.now()
     left_after = io.stop_all()
     _, end = _read_state(io)
@@ -1428,14 +1456,16 @@ def run_job(io, job: dict, opts: dict) -> dict:
         rec["mid"] = mid_read(job, start, end, rows, t0, lo_hi)
     if step:
         rec["resumed"] = bool(res.get("resumed"))
-        rec.update(interruption=intr or {"step": step, "took": False, "how": "never put in (no first step)"},
+        never = f"never put in: {trigger} was not due when the run ended ({why})"
+        rec.update(interruption=intr or {"step": step, "took": False, "how": never},
                    resume=res, resume_within_s=spec.get("resume_within_s"),
                    says_after_put=[s for s in tl["says"] if intr and intr.get("t_put") is not None and s["t"] >= intr["t_put"]])
     # a head start is a whole job's rule: a step trial from a mid-job checkpoint carries the job's things by design
     nc = None if step else not_counted(job, start)
-    if step and not intr:
+    if step and not intr:  # the harness's moment never came: no trial of the step, never a fail (window 1118h)
         nc = ("the job was done before the interruption was due: the step says nothing" if ok is True
-              else None)
+              else f"the interruption was never put in ({trigger} not due when the run ended: {why}): "
+                   "the step says nothing")
     elif step and ok is True and not res.get("resumed") and why == "job done":
         nc = "the job was done before he could take it up again: the step says nothing"
     if nc:

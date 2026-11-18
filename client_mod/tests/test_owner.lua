@@ -93,11 +93,71 @@ S.owner_row(crate(DEV), d)
 check("his guid unread: owner named, mine unknown", d.owner == "ClaudeDev" and d.mine == nil)
 pc.PlayerState = saved
 
+-- ---------------------------------------------------------------- whose account the owner is on (the game's)
+-- The crate's OwnershipComponent.OwningPlayerId (FString, replicated) holds the placer's account string; the world
+-- save 'base' (CompanionDev.sav, 18 Nov) has "RedpointEOS:0002f5bf...,STEAM:76561198614193617" (bootymaxer) beside
+-- ClaudeDev's guid on every crate. His own account is his name-list entry's AccountGuidSaveStr (the same string form).
+local MY_ACCT = "RedpointEOS:0002f5bf759c4864bb2c07830b60e27d,STEAM:76561198614193617"
+local LUIS_ACCT = "RedpointEOS:000286bfe45b41708a6ea0839d9aa53a,STEAM:76561199797634942"
+local function crate_acct(owner_guid, acct)
+    local c = crate(owner_guid)
+    c.OwnershipComponent.OwningPlayerId = ftext(acct)
+    return c
+end
+W.names = { { CharacterGuid = { InnerGuid = DEV }, CharacterName = ftext("ClaudeDev"), AccountGuidSaveStr = ftext(MY_ACCT) },
+            { CharacterGuid = { InnerGuid = FORK }, CharacterName = ftext("ClaudeJ180342a"), AccountGuidSaveStr = ftext(MY_ACCT) },
+            { CharacterGuid = { InnerGuid = LUIS }, CharacterName = ftext("luisdeburnaybast"), AccountGuidSaveStr = ftext(LUIS_ACCT) } }
+
+d = {}
+S.owner_row(crate_acct(DEV, MY_ACCT), d)
+check("a crate another character of his account placed says so", d.owner == "ClaudeDev (another character of your account)"
+    and d.owner_name == "ClaudeDev" and d.same_account == true and d.mine == false
+    and d.owner_guid == "E71C5DC146F0A55B69FF52A881255DEF", d.owner)
+
+d = {}
+S.owner_row(crate_acct(LUIS, LUIS_ACCT), d)
+check("a crate of another player's character says so", d.owner == "luisdeburnaybast (another player)"
+    and d.same_account == false and d.mine == false, d.owner)
+
+d = {}
+S.owner_row(crate_acct(DEV, ""), d)
+check("no OwningPlayerId: the owner's account from the name list", d.owner == "ClaudeDev (another character of your account)"
+    and d.same_account == true, d.owner)
+
+d = {}
+S.owner_row(crate_acct(FORK, MY_ACCT), d)
+check("his own crate still reads yours", d.owner == "yours" and d.mine == true and d.same_account == nil, d.owner)
+
+-- the same account read through one platform id only (a part in common is the same account)
+d = {}
+S.owner_row(crate_acct(DEV, "STEAM:76561198614193617"), d)
+check("one platform id in common is the same account", d.same_account == true, d.owner)
+
+-- his own account unread (a character not in the name list yet): nothing claimed about the account
+local NEW = guid(0x55555555, 0x66666666, 0x77777777, 0x88888888)
+pc.PlayerState = { OwnerGuid = { CharacterGuid = { InnerGuid = NEW } } }
+d = {}
+S.owner_row(crate_acct(DEV, MY_ACCT), d)
+check("his account unread: owner named only, account unknown", d.owner == "ClaudeDev" and d.same_account == nil
+    and d.mine == false, d.owner)
+
+-- neither account string readable (no OwningPlayerId, an entry with no account): as before
+local OLD = guid(0x99999999, 1, 1, 1)
+W.names[#W.names + 1] = { CharacterGuid = { InnerGuid = OLD }, CharacterName = ftext("OldOne") }
+pc.PlayerState = saved
+d = {}
+S.owner_row(crate(OLD), d)
+check("no account strings: owner named only", d.owner == "OldOne" and d.same_account == nil, d.owner)
+
 -- ---------------------------------------------------------------- told back in store / take results
 local SK = assert(loadfile(root .. "/client_mod/scripts/skills.lua"))()
 local row = { id = "BP_BaseBuilding_Crate_C_2147472971", owner = "ClaudeDev", owner_guid = "E71C5DC146F0A55B69FF52A881255DEF", mine = false }
 local data = SK.W.owner_fields(row, { container = row.id, count = 20 })
 check("a store result carries the crate's owner", data.owner == "ClaudeDev" and data.mine == false and data.owner_guid == row.owner_guid)
+local row2 = { id = "c", owner = "ClaudeDev (another character of your account)", owner_name = "ClaudeDev", same_account = true, mine = false }
+data = SK.W.owner_fields(row2, { container = "c" })
+check("a store result carries whose account it is", data.same_account == true and data.owner_name == "ClaudeDev"
+    and data.owner == row2.owner)
 data = SK.W.owner_fields({ id = "x" }, { container = "x" })
 check("a row without an owner read adds nothing", data.owner == nil and data.mine == nil)
 data = SK.W.owner_fields(row, { owner = "set by the result" })

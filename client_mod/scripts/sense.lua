@@ -568,33 +568,62 @@ end
 -- record carries ClaudeDev's guid E71C5DC1-46F0A55B-69FF52A8-81255DEF). Until this read he had no way to tell whose a
 -- crate was (run 20261118-015315-N1-I2: look listed 7 crates and an Ash Chest with no owner). The building pieces
 -- themselves keep no owner (build.lua: the ledger marks those). UNVERIFIED live on the client.
--- Row fields: owner = "yours" | the owner's character name | "a character not in the name list" | "nobody";
--- owner_guid (hex, absent for "nobody"); mine = true/false (this character); private = true when it is locked to its
--- owner. Nothing is added when the read fails: never a guess.
+-- Row fields: owner = "yours" | the owner's character name, with "(another character of your account)" or "(another
+-- player)" when both accounts were read | "a character not in the name list" | "nobody"; owner_name (the bare name);
+-- owner_guid (hex, absent for "nobody"); mine = true/false (this character); same_account = true/false (the placer's
+-- account against his own; absent when either is unread); private = true when it is locked to its owner. Nothing is
+-- added when the read fails: never a guess.
+-- The account: UOwnershipComponent.OwningPlayerId (FString, replicated: OnRep_OwningPlayerId) holds the placer's
+-- account string; the world save 'base' (CompanionDev.sav, 18 Nov 2026) has
+-- "RedpointEOS:0002f5bf...,STEAM:76561198614193617" (bootymaxer) beside ClaudeDev's guid on every crate. His own is his
+-- name-list entry's AccountGuidSaveStr (FDomCharacterDisplayName; the same "Platform:id,Platform:id" form). A fork of
+-- ClaudeDev is another character of the same account (window n1_i2i4_1118h: "the crates I can see aren't mine").
+-- UNVERIFIED live on the client (the replicated OwningPlayerId value).
 local ZERO_GUID = "00000000000000000000000000000000"
-local owner_names = {} -- guid hex -> character name (the replicated name list is append-only)
+local name_entries = {} -- guid hex -> {name, account} (the replicated name list is append-only)
 function M.my_char_guid()
     local pc = M.local_pc and M.local_pc()
     return pc and U.guid_hex(U.try(function() return pc.PlayerState.OwnerGuid.CharacterGuid.InnerGuid end)) or nil
 end
--- A character's name from its guid, as the chat box resolves a sender (client_mod/scripts/chat.lua resolve_name:
--- GameState DisplayNameComponent.SanitizedCharacterNames, CharacterGuid.InnerGuid -> CharacterName).
-function M.char_name(hex)
+-- A character's name-list entry from its guid, as the chat box resolves a sender (client_mod/scripts/chat.lua
+-- resolve_name: GameState DisplayNameComponent.SanitizedCharacterNames, CharacterGuid.InnerGuid -> CharacterName),
+-- with its AccountGuidSaveStr. Kept once both are read.
+function M.char_entry(hex)
     if not hex then return nil end
-    if owner_names[hex] then return owner_names[hex] end
-    local name
+    if name_entries[hex] then return name_entries[hex] end
+    local found
     for _, dn in ipairs(U.find_all("DisplayNameComponent", { skip_defaults = true }) or {}) do
-        if name then break end
+        if found then break end
         pcall(function()
             dn.SanitizedCharacterNames:ForEach(function(_, elem)
-                if name then return end
+                if found then return end
                 local e = elem:get()
-                if U.guid_hex(e.CharacterGuid.InnerGuid) == hex then name = text(U.try(function() return e.CharacterName end)) end
+                if U.guid_hex(e.CharacterGuid.InnerGuid) == hex then
+                    found = { name = text(U.try(function() return e.CharacterName end)),
+                              account = text(U.try(function() return e.AccountGuidSaveStr end)) }
+                end
             end)
         end)
     end
-    if name then owner_names[hex] = name end
-    return name
+    if found and found.name and found.account then name_entries[hex] = found end
+    return found
+end
+function M.char_name(hex) local e = M.char_entry(hex); return e and e.name or nil end
+-- Two account strings ("RedpointEOS:<id>,STEAM:<id>"): true when they share a platform id, false when both name ids
+-- and share none, nil when either has none (unread).
+function M.same_account(a, b)
+    local function ids(s)
+        local t = {}
+        for part in tostring(s or ""):gmatch("[^,]+") do
+            part = part:match("^%s*(.-)%s*$")
+            if part:match("^[^:]+:.+$") then t[part:lower()] = true end
+        end
+        return t
+    end
+    local ia, ib = ids(a), ids(b)
+    if next(ia) == nil or next(ib) == nil then return nil end
+    for k in pairs(ia) do if ib[k] then return true end end
+    return false
 end
 function M.owner_row(a, d)
     local oc = P(a, "OwnershipComponent") -- Blueprint-declared on the crate: R17 guarded read
@@ -607,7 +636,15 @@ function M.owner_row(a, d)
     local me = M.my_char_guid()
     if me == hex then d.owner, d.mine = "yours", true; return end
     if me then d.mine = false end
-    d.owner = M.char_name(hex) or "a character not in the name list"
+    local e = M.char_entry(hex) or {}
+    d.owner_name = e.name
+    local theirs = text(U.try(function() return oc.OwningPlayerId end)) or e.account
+    local mine_acct = me and (M.char_entry(me) or {}).account or nil
+    local same = M.same_account(theirs, mine_acct)
+    d.same_account = same
+    local who = e.name or "a character not in the name list"
+    d.owner = same == true and (who .. " (another character of your account)")
+        or same == false and (who .. " (another player)") or who
 end
 
 -- ------------------------------------------------------------------ foliage (standing trees, bushes, pickups)
