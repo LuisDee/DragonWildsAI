@@ -43,6 +43,7 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from brain import childproc
 from evals.bench import hashes  # noqa: E402
 from evals.bench.report import wilson  # noqa: E402
 
@@ -172,7 +173,7 @@ def run_obs(root: Path, since_h: float, shas: list[str]) -> dict | None:
     if shas:
         cmd += ["--companion-sha", ",".join(s[:12] for s in shas)]
     try:
-        p = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=300, encoding="utf-8", errors="replace")
+        p = childproc.run(cmd, cwd=root, capture_output=True, text=True, timeout=300, encoding="utf-8", errors="replace")
         return json.loads(p.stdout) if p.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return None

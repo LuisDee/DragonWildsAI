@@ -18,6 +18,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # run as tools/steam_restart.py (the docstring's way)
+from brain import childproc  # noqa: E402
+
 STEAM = Path(r"C:\Program Files (x86)\Steam")
 ACCOUNT = "bootymaxer"
 
@@ -80,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     exe = str(STEAM / "steam.exe")
     subprocess.run([exe, "-shutdown"], timeout=60)
     for _ in range(40):
-        if b"steam.exe" not in subprocess.run(["tasklist"], capture_output=True).stdout.lower():
+        if b"steam.exe" not in childproc.run(["tasklist"], capture_output=True).stdout.lower():
             break
         time.sleep(3)
     subprocess.Popen([exe, "-silent"])

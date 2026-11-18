@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from brain import childproc
 from brain import paths
 
 from .hashes import ROOT
@@ -63,7 +64,7 @@ def powershell(script: str, *args: str, timeout: float = 900) -> int:
     live_guard.check(f"tools/{script} {' '.join(args)}".strip())
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "tools" / script), *args]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).returncode
+        return childproc.run(cmd, capture_output=True, text=True, timeout=timeout).returncode
     except subprocess.TimeoutExpired:
         return 124
 

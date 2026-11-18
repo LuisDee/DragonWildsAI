@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from . import childproc
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -14,8 +15,8 @@ def main_tree(repo: Path = REPO_ROOT) -> Path:
     cannot say. A linked worktree (git worktree add, e.g. a subagent's .claude/worktrees/agent-*) has its own GIT_DIR,
     but `git rev-parse --git-common-dir` names the main tree's .git (git-worktree(1), "Details")."""
     try:
-        out = subprocess.run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                             capture_output=True, text=True, timeout=15)
+        out = childproc.run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                            capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError):
         return Path(repo)
     common = Path(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else None

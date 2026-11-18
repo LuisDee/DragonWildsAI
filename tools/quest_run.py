@@ -77,9 +77,10 @@ def dirty_code(root: Path = ROOT) -> list[str]:
     not a commit: on 2026-11-16/17 an unfinished combat.lua hot-loaded into a trial for 19 s and cost the window.
     Empty when git cannot say."""
     import subprocess
+    from brain import childproc
     try:
-        out = subprocess.run(["git", "status", "--porcelain", "--", *CODE_DIRS], cwd=root, capture_output=True,
-                             text=True, timeout=30)
+        out = childproc.run(["git", "status", "--porcelain", "--", *CODE_DIRS], cwd=root, capture_output=True,
+                            text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return []
     return [row.strip() for row in out.stdout.splitlines() if row.strip()] if out.returncode == 0 else []
@@ -406,7 +407,7 @@ def cmd_run(a) -> int:
     from tools.live_lock import held
     from tools import m1_session
     import contextlib
-    import subprocess
+    from brain import childproc
     in_lock = getattr(a, "in_lock", False)  # a fresh-character window: the caller holds the lock for the whole window
     with (contextlib.nullcontext() if in_lock else held("quests", a.wait)):
         t_wait = time.time()  # the last holder may have driven him a moment ago: give its commands 60 s to age out
@@ -417,7 +418,7 @@ def cmd_run(a) -> int:
             print("not running:\n  " + "\n  ".join(bad))
             return 3
         if not getattr(a, "no_heal", False):  # a fresh character plays with what it has: no top-up
-            subprocess.run([sys.executable, "-m", "tools.supply", "--heal"], cwd=str(ROOT))
+            childproc.run([sys.executable, "-m", "tools.supply", "--heal"], cwd=str(ROOT))
         fixtures = []
         if a.grant:  # dev fixture (dev server only, nobody else on): e.g. gear lost to an unreachable grave
             from evals.bench.devrun import default_dev

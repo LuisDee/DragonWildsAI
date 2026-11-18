@@ -62,12 +62,13 @@ import contextlib
 import json
 import math
 import os
-import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
+from brain import childproc
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "logs" / "evals" / "vault_probe.jsonl"
@@ -136,7 +137,7 @@ def xyz(p) -> list[float] | None:
 
 def head() -> str:
     try:
-        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+        return childproc.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     except OSError:
         return ""
 

@@ -23,12 +23,12 @@ import argparse
 import json
 import math
 import shutil
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from brain import childproc
 from brain import paths
 from tools import chat_ladder as cl
 from tools import obs
@@ -54,8 +54,8 @@ def all_pieces() -> dict:
     census) -> {"me": [x, y, z], "pts": [[x, y, z], ...]} | {} when the probe fails."""
     # sh by its full path: a run started from PowerShell has no Git on its PATH (run 20261116-015416 died here)
     sh = shutil.which("sh") or "C:/Program Files/Git/bin/sh.exe"
-    p = subprocess.run([sh, "tools/client_cmd.sh", "client_mod/commands/build_pieces_all.lua", "30"], cwd=str(ROOT),
-                       capture_output=True, text=True, timeout=60)
+    p = childproc.run([sh, "tools/client_cmd.sh", "client_mod/commands/build_pieces_all.lua", "30"], cwd=str(ROOT),
+                      capture_output=True, text=True, timeout=60)
     try:
         r = json.loads(p.stdout.strip().splitlines()[-1]).get("result") or {}
     except (ValueError, IndexError):
@@ -563,7 +563,7 @@ def cmd_run(a) -> int:
         if bad:
             print("not running:\n  " + "\n  ".join(bad))
             return 3
-        subprocess.run([sys.executable, "-m", "tools.supply", "--heal"], cwd=str(ROOT))
+        childproc.run([sys.executable, "-m", "tools.supply", "--heal"], cwd=str(ROOT))
         ok, how = cl.ensure_sender()
         if not ok:
             print("sender:", how)

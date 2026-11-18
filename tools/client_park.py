@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 
+from brain import childproc
 from brain import paths
 from tools import live_guard
 
@@ -49,7 +50,7 @@ def _boot(timeout_s: float = 900.0) -> int:
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "tools" / "client_boot.ps1"),
            "-Quiet"]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s).returncode
+        return childproc.run(cmd, capture_output=True, text=True, timeout=timeout_s).returncode
     except subprocess.TimeoutExpired:
         return 124
 

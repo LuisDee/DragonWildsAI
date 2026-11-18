@@ -36,6 +36,7 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from brain import childproc
 from brain import paths
 from tools import obs, spend
 from tools import truth_check as tc
@@ -660,8 +661,8 @@ def start_brain(a, spent: float | None) -> tuple[subprocess.Popen, Path | None]:
            "PYTHONIOENCODING": "utf-8"}
     log = open(paths.log_dir() / "brain-chat-ladder-console.log", "a", encoding="utf-8")
     t0 = time.time()
-    p = subprocess.Popen([sys.executable, "-m", "brain.run_live", "--body", "client", "--player", TESTER],
-                         cwd=str(ROOT), env=env, stdout=log, stderr=subprocess.STDOUT)
+    p = childproc.popen([sys.executable, "-m", "brain.run_live", "--body", "client", "--player", TESTER],
+                        cwd=str(ROOT), env=env, stdout=log, stderr=subprocess.STDOUT)
     deadline = t0 + 90
     while time.time() < deadline:  # the log is named after the interpreter's pid, not the venv launcher's (p.pid)
         for f in paths.log_dir().glob("brain-live-*.jsonl"):
@@ -684,7 +685,7 @@ def start_brain(a, spent: float | None) -> tuple[subprocess.Popen, Path | None]:
 def stop_brain(p: subprocess.Popen | None) -> None:
     if p is not None and p.poll() is None:
         if os.name == "nt":  # the venv python.exe is a launcher; take its interpreter child down with it
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+            childproc.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
         p.terminate()
         try:
             p.wait(timeout=15)

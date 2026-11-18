@@ -48,6 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from brain import childproc
 from brain import paths
 from brain.fileio import atomic_write
 
@@ -118,9 +119,9 @@ def frontend_state(timeout_s: float = 60) -> dict | None:
     a switch through Ops.boot is always safe. Callers use this to report and plan (a relaunch takes ~1-2 min and loses
     module state such as the scenario memory world). None when PowerShell gives no answer."""
     try:
-        out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                              str(ROOT / "tools" / "client_frontend.ps1")], capture_output=True, text=True,
-                             timeout=timeout_s).stdout
+        out = childproc.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                             str(ROOT / "tools" / "client_frontend.ps1")], capture_output=True, text=True,
+                            timeout=timeout_s).stdout
         return json.loads(out.strip().splitlines()[-1])
     except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
         return None
@@ -227,7 +228,7 @@ class Ops:
                "-Target", target, "-Quiet"]
         t0 = now()
         try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+            p = childproc.run(cmd, capture_output=True, text=True, timeout=timeout_s)
             code = p.returncode
         except subprocess.TimeoutExpired:
             code = -1
@@ -250,9 +251,9 @@ class Ops:
     @staticmethod
     def _procs(image: str, needle: str) -> list[str]:
         try:
-            out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                                  f"Get-CimInstance Win32_Process -Filter \"Name='{image}'\" | ForEach-Object {{ $_.CommandLine }}"],
-                                 capture_output=True, text=True, timeout=30).stdout
+            out = childproc.run(["powershell", "-NoProfile", "-Command",
+                                 f"Get-CimInstance Win32_Process -Filter \"Name='{image}'\" | ForEach-Object {{ $_.CommandLine }}"],
+                                capture_output=True, text=True, timeout=30).stdout
         except (OSError, subprocess.TimeoutExpired):
             return []
         return [x for x in out.splitlines() if x.strip() and needle in x]

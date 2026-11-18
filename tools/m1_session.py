@@ -18,11 +18,11 @@ import argparse
 import calendar
 import json
 import random
-import subprocess
 import sys
 import time
 from pathlib import Path
 
+from brain import childproc
 from brain import paths
 
 LOG_NAME = "m1_session.jsonl"
@@ -71,7 +71,7 @@ def rows() -> list[dict]:
 
 
 def spent_today() -> float | None:
-    out = subprocess.run([sys.executable, "-m", "tools.obs", "spend", "--json"], capture_output=True, text=True)
+    out = childproc.run([sys.executable, "-m", "tools.obs", "spend", "--json"], capture_output=True, text=True)
     try:
         return float(json.loads(out.stdout)["spent_usd"])
     except (ValueError, KeyError, json.JSONDecodeError):
@@ -93,8 +93,8 @@ def send_speech_direct(text: str, timeout: float = 30.0) -> tuple[bool, str]:
     unless `prove` passed this server run."""
     args = json.dumps({"module": "speech_direct", "args": {"action": "send", "confirm": True, "text": text,
                                                            "name": TEST_SENDER, "test_guid": True}})
-    out = subprocess.run([sys.executable, "-m", "tools.bridge_cmd", "debug_run", args, "--body", "server",
-                          "--timeout", str(timeout)], capture_output=True, text=True)
+    out = childproc.run([sys.executable, "-m", "tools.bridge_cmd", "debug_run", args, "--body", "server",
+                         "--timeout", str(timeout)], capture_output=True, text=True)
     return out.returncode == 0 and '"ok": true' in out.stdout.replace("'", '"').lower(), (out.stdout or out.stderr)[-300:]
 
 
@@ -126,8 +126,8 @@ def _brain_heard_since(t0: float, sender: str) -> bool:
 
 
 def client_ping() -> bool:
-    out = subprocess.run([sys.executable, "-m", "tools.bridge_cmd", "ping", "--body", "client", "--timeout", "8"],
-                         capture_output=True, text=True)
+    out = childproc.run([sys.executable, "-m", "tools.bridge_cmd", "ping", "--body", "client", "--timeout", "8"],
+                        capture_output=True, text=True)
     return out.returncode == 0
 
 
@@ -201,8 +201,8 @@ def cmd_proof(a) -> int:
 def register_sender(timeout: float = 30.0) -> tuple[bool, str]:
     """Register the test sender's display name for its test guid (no chat), so the client resolves it."""
     args = json.dumps({"module": "speech_direct", "args": {"action": "register", "name": TEST_SENDER, "test_guid": True}})
-    out = subprocess.run([sys.executable, "-m", "tools.bridge_cmd", "debug_run", args, "--body", "server",
-                          "--timeout", str(timeout)], capture_output=True, text=True)
+    out = childproc.run([sys.executable, "-m", "tools.bridge_cmd", "debug_run", args, "--body", "server",
+                         "--timeout", str(timeout)], capture_output=True, text=True)
     return out.returncode == 0 and '"ok": true' in out.stdout.replace("'", '"').lower(), (out.stdout or out.stderr)[-300:]
 
 
@@ -260,7 +260,7 @@ def obs_metrics(since: float, until: float | None) -> dict:
     iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t))  # noqa: E731
     cmd = [sys.executable, "-m", "tools.obs", "metrics", "--json", "--since", iso(since)] + (
         ["--until", iso(until)] if until else [])
-    out = subprocess.run(cmd, capture_output=True, text=True)
+    out = childproc.run(cmd, capture_output=True, text=True)
     try:
         return json.loads(out.stdout)
     except json.JSONDecodeError:

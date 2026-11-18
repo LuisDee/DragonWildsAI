@@ -29,10 +29,11 @@ import calendar
 import gzip
 import json
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
+
+from brain import childproc
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "unseen_fixes.jsonl"
@@ -67,8 +68,8 @@ def epoch(stamp: str) -> int:
 
 def commit(ref: str) -> tuple[str, str, int]:
     """(short hash, subject, commit time in epoch seconds) of a commit, read from git (read only)."""
-    out = subprocess.run(["git", "-C", str(ROOT), "show", "-s", "--format=%h%x00%s%x00%ct", ref + "^{commit}"],
-                         capture_output=True, text=True, encoding="utf-8")
+    out = childproc.run(["git", "-C", str(ROOT), "show", "-s", "--format=%h%x00%s%x00%ct", ref + "^{commit}"],
+                        capture_output=True, text=True, encoding="utf-8")
     if out.returncode != 0:
         raise SystemExit(f"git does not know {ref}: {out.stderr.strip()}")
     h, subject, ct = out.stdout.strip().split("\x00")

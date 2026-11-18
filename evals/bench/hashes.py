@@ -11,6 +11,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from brain import childproc
+
 ROOT = Path(__file__).resolve().parents[2]
 
 # Judge files (design §9.3): everything that decides a score. A change since Luis's judge tag = NOT MET.
@@ -36,8 +38,8 @@ def git(*args: str, root: Path = ROOT) -> str | None:
     if not shutil.which("git"):
         return None
     try:
-        p = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=60,
-                           encoding="utf-8", errors="replace")
+        p = childproc.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=60,
+                          encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return None
     return p.stdout if p.returncode == 0 else None

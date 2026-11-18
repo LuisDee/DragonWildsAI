@@ -452,10 +452,10 @@ def worst_case_usd(calls: dict[str, int], models: dict[str, str], prompt_tokens:
 
 def spend_preflight(calls: dict[str, int], models: dict[str, str]) -> tuple[bool, str]:
     """Refuse (fail closed) when the spend can't be read, the cap is hit, or this batch could cross it."""
-    import subprocess
+    from brain import childproc
     try:
-        p = subprocess.run([sys.executable, "-m", "tools.obs", "spend", "--json"], cwd=ROOT, capture_output=True,
-                           text=True, timeout=180, encoding="utf-8", errors="replace")
+        p = childproc.run([sys.executable, "-m", "tools.obs", "spend", "--json"], cwd=ROOT, capture_output=True,
+                          text=True, timeout=180, encoding="utf-8", errors="replace")
         s = json.loads(p.stdout)
     except Exception as exc:
         return False, f"cannot read today's spend (tools.obs spend): {exc!r}"

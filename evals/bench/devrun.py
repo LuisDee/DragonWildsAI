@@ -21,6 +21,7 @@ import sys
 import time
 from pathlib import Path
 
+from brain import childproc
 from brain.interface import ChatHeard
 
 from . import hashes, leaves  # noqa: F401
@@ -43,8 +44,8 @@ def user_env(names: tuple[str, ...] = ("ANTHROPIC_API_KEY", "DW_CONTROLLER_MODEL
         if os.environ.get(n):
             continue
         try:
-            v = subprocess.run(["powershell", "-NoProfile", "-Command", f"[Environment]::GetEnvironmentVariable('{n}','User')"],
-                               capture_output=True, text=True, timeout=30).stdout.strip()
+            v = childproc.run(["powershell", "-NoProfile", "-Command", f"[Environment]::GetEnvironmentVariable('{n}','User')"],
+                              capture_output=True, text=True, timeout=30).stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
             v = ""
         if v:

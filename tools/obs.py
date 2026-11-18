@@ -42,6 +42,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
+from brain import childproc
 from brain import paths
 from brain.fileio import append_jsonl
 from tools import obs_tasks as _tasks
@@ -183,8 +184,8 @@ def _git_sha_at(repo: Path, t: float) -> str | None:
     key = (str(repo), int(t))
     if key not in _sha_cache:
         try:
-            r = subprocess.run(["git", "-C", str(repo), "log", "-1", f"--before={_iso(t)}", "--format=%H"],
-                               capture_output=True, text=True, timeout=10)
+            r = childproc.run(["git", "-C", str(repo), "log", "-1", f"--before={_iso(t)}", "--format=%H"],
+                              capture_output=True, text=True, timeout=10)
             _sha_cache[key] = r.stdout.strip() or None if r.returncode == 0 else None
         except (OSError, subprocess.SubprocessError):
             _sha_cache[key] = None

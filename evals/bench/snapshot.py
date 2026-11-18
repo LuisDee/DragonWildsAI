@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from brain import childproc
+
 from .hashes import ROOT, game_build
 from .observer import Abort
 
@@ -49,8 +51,8 @@ def sha(p: Path) -> str:
 def _ps(script: str, *args: str, env: dict | None = None) -> int:
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "tools" / script), *args]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=600,
-                              env={**os.environ, **(env or {})}).returncode
+        return childproc.run(cmd, capture_output=True, text=True, timeout=600,
+                             env={**os.environ, **(env or {})}).returncode
     except subprocess.TimeoutExpired:
         return 124
 

@@ -21,6 +21,7 @@ import sys
 import time
 from pathlib import Path
 
+from brain import childproc
 from brain import paths
 from tools import m1_session as ms
 
@@ -33,7 +34,7 @@ JOBS = ["chop some ash logs and keep them in your bag", "mine a few stones and k
 
 
 def sh(*args: str, timeout: float = 120) -> subprocess.CompletedProcess:
-    return subprocess.run([PY, "-m", *args], capture_output=True, text=True, timeout=timeout, cwd=REPO)
+    return childproc.run([PY, "-m", *args], capture_output=True, text=True, timeout=timeout, cwd=REPO)
 
 
 def say(msg: str) -> None:
@@ -70,13 +71,13 @@ def start_brain(effort: str | None, cap_usd: float) -> subprocess.Popen:
     if effort:
         env["DW_CONTROLLER_EFFORT_ADDRESSED"] = effort
     log = open(paths.log_dir() / "m1_brain_stdout.log", "a", encoding="utf-8")
-    return subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                             str(REPO / "tools" / "start_brain.ps1"), "-Body", "client", "-World", WORLD],
-                            cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
+    return childproc.popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                            str(REPO / "tools" / "start_brain.ps1"), "-Body", "client", "-World", WORLD],
+                           cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
 
 
 def stop_brain(p: subprocess.Popen) -> None:
-    subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+    childproc.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
     p.wait(timeout=30)
 
 
@@ -114,8 +115,8 @@ def ps(script: str, *args: str, env: dict | None = None, timeout: float = 600) -
     if "-DryRun" not in args:  # a dry run only looks
         from tools import live_guard
         live_guard.check(f"tools/{script} {' '.join(args)}".strip())
-    return subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO / "tools" / script),
-                           *args], capture_output=True, text=True, cwd=REPO, env=env, timeout=timeout)
+    return childproc.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO / "tools" / script),
+                          *args], capture_output=True, text=True, cwd=REPO, env=env, timeout=timeout)
 
 
 def client_in_world() -> bool:

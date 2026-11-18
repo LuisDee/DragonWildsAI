@@ -294,6 +294,8 @@ def main(argv=None) -> int:
     if os.path.exists(cmd[0]):  # Windows CreateProcess can't start a relative ".venv/Scripts/python.exe" (WinError 2, live 23:1xZ)
         cmd = [os.path.abspath(cmd[0]), *cmd[1:]]
     with held(a.owner, a.wait, clean=not a.no_clean):
+        # not brain.childproc: this pass-through shares its console on purpose (output and Ctrl+C reach the command
+        # it holds the lock for) and starts it at once, so it never outlives the console it inherits
         return subprocess.call(cmd)
 
 

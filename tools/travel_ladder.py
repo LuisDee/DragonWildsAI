@@ -50,10 +50,11 @@ import contextlib
 import json
 import os
 import math
-import subprocess
 import threading
 import time
 from pathlib import Path
+
+from brain import childproc
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "logs" / "evals" / "travel_ladder.jsonl"
@@ -243,7 +244,7 @@ def position(c):
 
 def head() -> str:
     try:
-        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+        return childproc.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     except OSError:
         return ""
 

@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import subprocess
+from . import childproc
 import re
 import sys
 import threading
@@ -381,7 +382,7 @@ def code_version() -> dict:
 
     def git(*args: str) -> str | None:
         try:
-            out = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=10)
+            out = childproc.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=10)
         except (OSError, subprocess.SubprocessError):
             return None
         return out.stdout if out.returncode == 0 else None
