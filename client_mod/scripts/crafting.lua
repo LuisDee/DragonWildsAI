@@ -375,6 +375,11 @@ end
 -- status: ready | not_unlocked | missing_input | no_station | vendor | no_station_type
 local RANK = { ready = 5, missing_input = 4, no_station = 3, not_unlocked = 2, unlock_unknown = 2, vendor = 1, no_station_type = 0 }
 M.RANK = RANK
+local function station_names(r)
+    local names = {}
+    for _, s in ipairs(r.stations or {}) do names[#names + 1] = station_name(s) end
+    return names
+end
 
 function M.assess(rid, crafts, ctx)
     local r = recipe_of(rid)
@@ -434,16 +439,22 @@ function M.assess(rid, crafts, ctx)
         end
         a.status = "missing_input"
         a.detail = "I need " .. table.concat(parts, ", and ")
+        -- short of an input AND no station near: it lacks what a no_station recipe lacks and more, so it ranks with
+        -- them, after one that lacks only the station (thread study 2026-11-18: 7 fur carried, no flax, no wheel; the
+        -- flax recipe read missing_input, outranked the fur one and the plan sent him for flax)
+        if not best then
+            a.no_station_near = true
+            a.detail = a.detail .. ", and there's no " .. table.concat(station_names(r), " or ") .. " near here"
+        end
     elseif not best then
-        local names = {}
-        for _, s in ipairs(r.stations or {}) do names[#names + 1] = station_name(s) end
         a.status = "no_station"
-        a.detail = "there's no " .. table.concat(names, " or ") .. " near here"
+        a.detail = "there's no " .. table.concat(station_names(r), " or ") .. " near here"
     else
         a.status = "ready"
     end
     a.viable = a.status == "ready"
     a.rank = RANK[a.status] or 0
+    if a.no_station_near then a.rank = RANK.no_station end
     return a
 end
 
@@ -899,7 +910,8 @@ end
 -- A station a recipe needs and none is near: is it a piece he has unlocked and can build himself? From buildables
 -- (the game's own unlocks and costs), by the station's name. Rune Mysteries part 2, 2026-11-16: craft answered
 -- "there's no Air Altar or Rune Altar near here" and he explored 370 m for one; a Rune Altar is his to build.
--- -> {name, cost = "4 Stone + 2 Rune Essence", can_build_now, short = "3 Stone" | nil, text} | nil, read
+-- -> {name, cost = "4 Stone + 2 Rune Essence", can_build_now, short = "3 Stone" | nil,
+--     short_items = {{item, name, count}} (the same short things with their ids) | nil, text} | nil, read
 -- (read = his unlocked pieces were read: nil, true is "none of his unlocked pieces is that station")
 function W.buildable_station(api, rid)
     local b = api.module("build")
@@ -911,15 +923,20 @@ function W.buildable_station(api, rid)
         if ok and type(r) == "table" and r.ok then read = true end
         for _, p in ipairs(ok and type(r) == "table" and r.ok and (r.data or {}).pieces or {}) do
             if lower(p.name) == lower(name) then
-                local cost, short, stored = {}, {}, {}
+                local cost, short, stored, short_items = {}, {}, {}, {}
                 for _, c in ipairs(p.cost or {}) do cost[#cost + 1] = tostring(c.count) .. " " .. tostring(c.name) end
                 for _, m in ipairs(p.missing or {}) do -- what my bag lacks; my storage may hold it
                     local lack = (m.need or 0) - (m.have or 0)
                     local row = tostring(lack) .. " " .. tostring(m.name or m.item)
-                    if (m.in_storage or 0) >= lack then stored[#stored + 1] = row else short[#short + 1] = row end
+                    if (m.in_storage or 0) >= lack then stored[#stored + 1] = row
+                    else
+                        short[#short + 1] = row
+                        short_items[#short_items + 1] = { item = m.item, name = m.name, count = lack }
+                    end
                 end
                 local out = { name = p.name, cost = table.concat(cost, " + "), can_build_now = p.can_build_now == true,
                               short = #short > 0 and table.concat(short, " + ") or nil,
+                              short_items = #short_items > 0 and short_items or nil,
                               in_storage = #stored > 0 and table.concat(stored, " + ") or nil, blocked_by = p.blocked_by }
                 local have = out.short and ("I'm short of " .. out.short) or nil
                 if out.in_storage then have = (have and (have .. ", and ") or "") .. out.in_storage .. " of it is in my storage, not on me" end
@@ -2466,8 +2483,10 @@ local function plan_tool(api, args)
         if st["do"] == "find_station" and st.recipe then
             local ok, b, read = pcall(W.buildable_station, api, st.recipe)
             if ok and b then
+                -- short_items: the brain gives each short thing its sources like a plan input (thread study
+                -- 2026-11-18: "short of 2 Coarse Thread" was text only and the Planner asked the player for thread)
                 st.build = { piece = b.name, cost = b.cost, can_build_now = b.can_build_now, short = b.short,
-                             in_storage = b.in_storage, blocked_by = b.blocked_by, text = b.text }
+                             short_items = b.short_items, in_storage = b.in_storage, blocked_by = b.blocked_by, text = b.text }
             elseif ok and read then
                 st.build_unlocked = false -- not among his unlocked pieces (the brain adds the wiki's cost, if it is one)
             end

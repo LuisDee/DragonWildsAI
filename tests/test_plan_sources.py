@@ -146,6 +146,78 @@ def test_bounded_and_failures_untouched():
     assert ps.enrich_result(copy.deepcopy(bad)) == bad
 
 
+# ------------------------------------------------------------------ a build's short things
+# Thread study 2026-11-18 (run 053839, planner state row 29): craft_plan Bone Pickaxe's only Coarse Thread was the
+# Tannery's "I'm short of 11 Ash Logs + 2 Coarse Thread"; nothing said thread is spun from the 7 Coarse Animal Fur he
+# carried at a Spinning Wheel he can build, and the Planner asked the player for thread 5 of 6 replays.
+FUR = {"inventory": {"ITEM_Resources_Coarse_Animal_Fur": 7, "ITEM_Resources_Wood_Ash": 1, "ITEM_Resources_AnimalBone": 4,
+                     "ITEM_Resources_Stone": 5},
+       "recipes_unlocked": ["RECIPE_Pickaxe_Bone", "RECIPE_Process_Leather_From_Hide",
+                            "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", "RECIPE_Process_Thread_Linen_From_Flax"]}
+
+
+class KBWheel(KB):
+    def build_facts(self, name):
+        if name.lower() == "spinning wheel":
+            return {"title": "Spinning Wheel", "skill": "Construction", "url": "u",
+                    "cost": [("Ash Logs", 12), ("Flax", 4), ("Stone", 2)], "unlock": "first flax"}
+        return super().build_facts(name)
+
+
+def client_build(res, *, items=True):
+    fs = next(s for s in res["data"]["steps"] if s["do"] == "find_station")
+    fs.pop("build_unlocked")
+    fs["build"] = {"piece": "Tannery", "cost": "12 Ash Logs + 4 Animal Bone + 2 Coarse Thread", "can_build_now": False,
+                   "short": "11 Ash Logs + 2 Coarse Thread",
+                   "text": "a Tannery is a piece I have unlocked and can build (...; I'm short of 11 Ash Logs + 2 Coarse Thread)"}
+    if items:
+        fs["build"]["short_items"] = [{"item": "ITEM_Resources_Wood_Ash", "name": "Ash Logs", "count": 11},
+                                      {"item": "ITEM_Resources_Thread_Coarse", "name": "Coarse Thread", "count": 2}]
+    return res
+
+
+def tannery(d):
+    return next(s for s in d["steps"] if s["do"] == "find_station" and s.get("station") == "Tannery")["build"]
+
+
+def test_a_builds_short_thing_gets_its_recipe_station_and_the_stations_build():
+    d = data_of(ps.enrich_result(client_build(plan()), state=FUR, spells=[], knowledge=KBWheel()))
+    got = tannery(d)["short_sources"]
+    assert list(got) == ["Coarse Thread"], got  # Ash Logs: the plan gathers it already
+    thread = " | ".join(got["Coarse Thread"])
+    assert "made at Spinning Wheel from 3 Coarse Animal Fur (you carry 7)" in thread, thread
+    assert "1 Flax (you carry 0)" in thread
+    assert "Spinning Wheel: none near you; a build-menu piece, 12 Ash Logs + 4 Flax + 2 Stone" in thread
+
+
+def test_the_short_things_are_read_from_the_text_when_the_client_sent_no_ids():
+    d = data_of(ps.enrich_result(client_build(plan(), items=False), state=FUR, spells=[], knowledge=KBWheel()))
+    assert "Coarse Animal Fur (you carry 7)" in " ".join(tannery(d)["short_sources"]["Coarse Thread"])
+
+
+def test_a_wiki_build_gets_sources_for_what_his_bag_lacks():
+    d = data_of(ps.enrich_result(plan(), state=FUR, spells=[], knowledge=KBWheel()))
+    b = tannery(d)
+    assert "wiki" in b and list(b["short_sources"]) == ["Coarse Thread"], b  # bone: 4 of 4 carried; ash: gathered
+
+
+def test_build_sources_are_bounded_and_logged():
+    log = Log()
+    d = data_of(ps.enrich_result(client_build(plan()), state=FUR, spells=[], knowledge=KBWheel(), log=log))
+    got = tannery(d)["short_sources"]
+    assert len(got) <= ps.MISSING_ITEMS and all(len(v) <= ps.MISSING_PER_ITEM for v in got.values())
+    assert all(len(line) <= ps.LINE_CHARS for v in got.values() for line in v)
+    assert log.rows[0][1]["build_sources"] == ["Coarse Thread"]
+
+
+def test_a_build_with_nothing_short_gets_no_sources():
+    res = client_build(plan())
+    b = next(s for s in res["data"]["steps"] if s["do"] == "find_station")["build"]
+    b.pop("short"), b.pop("short_items")
+    b["can_build_now"] = True
+    assert "short_sources" not in tannery(data_of(ps.enrich_result(res, state=FUR, spells=[], knowledge=KBWheel())))
+
+
 class Log:
     def __init__(self):
         self.rows = []
@@ -158,7 +230,8 @@ def test_the_log_line_says_what_was_added():
     log = Log()
     ps.enrich_result(plan(), state={}, spells=[BARK], knowledge=KB(), log=log)
     assert log.rows == [("plan_sources", {"sources": ["Animal Bone", "Animal Hide"], "trader_to_obtain": ["Animal Hide"],
-                                          "wiki_builds": ["Tannery"], "cards": ["Bone Pickaxe"]})]
+                                          "wiki_builds": ["Tannery"], "build_sources": ["Coarse Thread"],
+                                          "cards": ["Bone Pickaxe"]})]
 
 
 def test_the_controller_read_of_craft_plan_carries_them(rig, monkeypatch):

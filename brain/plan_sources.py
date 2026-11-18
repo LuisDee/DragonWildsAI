@@ -267,6 +267,15 @@ def _wants_sources(n: dict) -> bool:
     return n.get("status") in LEAF or _trader_recipe(n.get("recipe"))
 
 
+def _ids_by_name() -> dict[str, str]:
+    """{lowercased item display name: item id} from the catalog (the first id of a name)."""
+    by_name: dict[str, str] = {}
+    for iid, it in (_catalog().get("items") or {}).items():
+        if isinstance(it, dict) and it.get("name"):
+            by_name.setdefault(it["name"].lower(), iid)
+    return by_name
+
+
 def _build_fact(step: dict, knowledge, have: dict[str, int]) -> dict | None:
     name = step.get("name") or step.get("station")
     if not name or knowledge is None or not hasattr(knowledge, "build_facts"):
@@ -277,15 +286,14 @@ def _build_fact(step: dict, knowledge, have: dict[str, int]) -> dict | None:
         return None
     if not f:
         return None
-    by_name = {}
-    for iid, it in (_catalog().get("items") or {}).items():
-        if isinstance(it, dict) and it.get("name"):
-            by_name.setdefault(it["name"].lower(), iid)
-    carry = []
+    by_name = _ids_by_name()
+    carry, short = [], []
     for nm, n in f["cost"]:
         iid = by_name.get(nm.lower())
         if iid is not None:
             carry.append(f"{have.get(iid, 0)} of {n} {nm}")
+            if have.get(iid, 0) < n:
+                short.append({"item": iid, "name": nm, "count": n - have.get(iid, 0)})
     out = {"piece": f["title"], "wiki": _clip(f"built from the build menu ({f['skill'] or 'Construction'}): "
                                               + " + ".join(f"{n} {nm}" for nm, n in f["cost"]))}
     if f.get("unlock"):
@@ -294,7 +302,64 @@ def _build_fact(step: dict, knowledge, have: dict[str, int]) -> dict | None:
         out["unlocked"] = False
     if carry:
         out["you_carry"] = ", ".join(carry)
+    if short:
+        out["short_items"] = short
     return out
+
+
+# ------------------------------------------------------------------------------ a build's short things
+# Thread study 2026-11-18 (run 053839, planner state row 29): craft_plan Bone Pickaxe named Coarse Thread only in the
+# Tannery's build cost ("I'm short of 11 Ash Logs + 2 Coarse Thread"). Nothing said thread is spun from the 7 Coarse
+# Animal Fur he carried, at a Spinning Wheel he can build; the Planner asked the player for thread (5 of 6 replays).
+# A build's short things now get the facts a failed craft's missing inputs get (``missing_facts``).
+
+_SHORT_PART = re.compile(r"^\s*(\d+)\s+(.+?)\s*$")
+
+
+def _build_short(build: dict) -> list[dict]:
+    """The things a find_station ``build`` is short of, as {item, name, count}: the client's ``short_items``, or its
+    ``short`` text ("11 Ash Logs + 2 Coarse Thread", from a client without the rows) read by item name, or the wiki
+    build's own rows (``_build_fact``)."""
+    rows = build.get("short_items")
+    if isinstance(rows, list):
+        return [r for r in rows if isinstance(r, dict) and isinstance(r.get("item"), str)]
+    if not isinstance(build.get("short"), str):
+        return []
+    by_name, out = _ids_by_name(), []
+    for part in build["short"].split(" + "):
+        m = _SHORT_PART.match(part)
+        iid = m and by_name.get(m.group(2).lower())
+        if iid:
+            out.append({"item": iid, "name": m.group(2), "count": int(m.group(1))})
+    return out
+
+
+def _build_sources(data: dict, found: dict, *, state=None, spells=None, knowledge=None, places=None) -> list[str]:
+    """``short_sources`` ({name: lines}, ``missing_facts``) on each find_station ``build`` for the short things the
+    plan gives no way to (not an input it gathers, obtains or crafts, not one it already named sources for). Bounded
+    as ``missing_facts`` across the whole plan. The names that got lines."""
+    covered = {n["item"] for n in _nodes(data["root"]) if n.get("item") and n.get("status") != "have"}
+    done: set[str] = set()
+    for st in data.get("steps") or []:
+        b = st.get("build") if isinstance(st, dict) and st.get("do") == "find_station" else None
+        if not isinstance(b, dict):
+            continue
+        rows = [r for r in _build_short(b) if r["item"] not in covered and str(r.get("name") or r["item"]) not in found
+                and r["item"] not in done]
+        b.pop("short_items", None)
+        rows = rows[: max(0, MISSING_ITEMS - len(done))]
+        if not rows:
+            continue
+        got = missing_facts(rows, state=state, spells=spells, knowledge=knowledge, places=places)
+        done |= {r["item"] for r in rows}
+        if got:
+            b["short_sources"] = got
+    names: list[str] = []
+    for st in data.get("steps") or []:
+        b = st.get("build") if isinstance(st, dict) else None
+        if isinstance(b, dict) and isinstance(b.get("short_sources"), dict):
+            names += list(b["short_sources"])
+    return names
 
 
 def _to_obtain(data: dict, n: dict, lines: list[str]) -> None:
@@ -432,19 +497,24 @@ def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, 
             if b:
                 st["build"] = b
         st.pop("build_unlocked", None)
+    try:
+        build_src = _build_sources(data, found, state=state, spells=spells, knowledge=knowledge, places=places)
+    except Exception:  # data is best effort: the plan stands without it
+        build_src = []
     builds = [st.get("name") for st in data.get("steps") or [] if isinstance(st, dict) and st.get("do") == "find_station"
               and isinstance(st.get("build"), dict) and "wiki" in st["build"]]
     try:
         cards = add_cards(data)
     except Exception:  # the plan stands without them
         cards = []
-    _log(log, found, converted, builds, cards, via)
+    _log(log, found, converted, builds, cards, via, build_src)
     return data
 
 
-def _log(log, found, converted, builds, cards, via) -> None:
-    if log is not None and (found or builds or cards):
+def _log(log, found, converted, builds, cards, via, build_src=None) -> None:
+    if log is not None and (found or builds or cards or build_src):
         log.log("plan_sources", sources=sorted(found), trader_to_obtain=converted, wiki_builds=builds,
+                **({"build_sources": sorted(build_src)} if build_src else {}),
                 **({"cards": cards} if cards else {}), **({"via": via} if via else {}))
 
 

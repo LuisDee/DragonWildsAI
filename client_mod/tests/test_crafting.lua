@@ -333,7 +333,7 @@ end
 do -- a craft short of several things names each with what it takes and what he has (chain sitting of 2026-11-17, run
    -- 090028: "I need 8 Stone for that and I have 4 (and 1 more thing missing)" left the Ash Logs for a second try)
     local ctx = { have = { ITEM_Resources_Stone = 4, ITEM_Resources_Wood_Ash = 4 }, unlocked = { RECIPE_Weapon_Club_Stone = true },
-        near = near("Crafting Table") }
+        near = near("CraftingTable") }
     local a = C.assess("RECIPE_Weapon_Club_Stone", 1, ctx)
     check("missing input: every missing thing is named with need and have", a.status == "missing_input"
         and tostring(a.detail):find("8 Stone", 1, true) ~= nil and tostring(a.detail):find("6 Ash Logs", 1, true) ~= nil
@@ -1251,7 +1251,44 @@ do -- no Tannery near: the find_station step says whether a Tannery is a piece h
     BUILD_STUB = { HANDLERS = { buildables = function() return { ok = false, reason = "state_unavailable" } end } }
     fs = plan_bone()
     check("plan: pieces unread -> nothing claimed", fs and fs.build == nil and fs.build_unlocked == nil)
+    -- the build's short things as rows with their ids, so the brain can give each its sources like any plan input
+    -- (thread study 2026-11-18, run 053839: "I'm short of 2 Coarse Thread" was text only; he carried 7 fur, the
+    -- Planner asked the player for thread)
+    BUILD_STUB = { HANDLERS = { buildables = function()
+        return { ok = true, data = { pieces = { { name = "Tannery", cost = { { count = 12, name = "Ash Logs" }, { count = 4, name = "Animal Bone" },
+            { count = 2, name = "Coarse Thread" } }, missing = { { item = "ITEM_Resources_Wood_Ash", name = "Ash Logs", need = 12, have = 6, in_storage = 6 },
+            { item = "ITEM_Resources_Thread_Coarse", name = "Coarse Thread", need = 2, have = 0 } }, can_build_now = false } } } }
+    end } }
+    fs = plan_bone()
+    local si = fs and fs.build and fs.build.short_items or {}
+    check("plan: a build's short things carry their item ids (stored ones are not short)", #si == 1
+          and si[1].item == "ITEM_Resources_Thread_Coarse" and si[1].name == "Coarse Thread" and si[1].count == 2,
+          fs and fs.build and fs.build.short)
     BUILD_STUB = nil
+end
+
+do -- a recipe whose inputs he holds and that lacks only the station ranks ahead of one that lacks an input AND the
+   -- same station (thread study 2026-11-18: 7 fur carried, no flax, no wheel near; the plan's path was gather Flax,
+   -- the fur recipe only an alternative, because the flax recipe read missing_input and hid that it lacks the wheel too)
+    local unl = U({ "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur", "RECIPE_Process_Thread_Linen_From_Flax" })
+    reset({ stations = { TABLE() }, unlocked = unl, have = { ITEM_Resources_Coarse_Animal_Fur = 7 } })
+    local r = C.HANDLERS.craft_plan(nil, { item = "Coarse Thread", count = 2 }, { api = api })
+    local root = (r.data or {}).root or {}
+    check("rank: fur held, no wheel -> the fur recipe is the path", root.recipe == "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur",
+          tostring(root.recipe) .. " " .. tostring(root.status))
+    check("rank: no flax gather step when the fur is held", has_step((r.data or {}).steps or {}, "gather", "item", "ITEM_Resources_Flax") == nil)
+    local alt = (root.alternatives or {})[1] or {}
+    check("rank: the flax alternative says it lacks the flax and the wheel", alt.recipe == "RECIPE_Process_Thread_Linen_From_Flax"
+          and tostring(alt.detail):find("2 Flax for that", 1, true) ~= nil and tostring(alt.detail):find("Spinning Wheel near here", 1, true) ~= nil,
+          alt.detail)
+    local ctx = { have = { ITEM_Resources_Coarse_Animal_Fur = 7 }, unlocked = unl, near = {} }
+    local cs = C.candidates("ITEM_Resources_Thread_Coarse", 2, ctx)
+    check("rank: candidates list the fur recipe first", cs[1] and cs[1].recipe == "RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur"
+          and cs[2] and cs[2].status == "missing_input" and cs[2].rank < C.RANK.missing_input, cs[1] and cs[1].recipe)
+    -- a wheel near: lacking an input there still ranks above lacking the station (unchanged)
+    local near_ctx = { have = {}, unlocked = unl, near = near("Spinning Wheel") }
+    local a = C.assess("RECIPE_Process_Thread_Linen_From_Flax", 1, near_ctx)
+    check("rank: an input short at a station near keeps its rank", a.status == "missing_input" and a.rank == C.RANK.missing_input, a.rank)
 end
 
 do -- a step or a craft short of a raw material says where he has gathered it before (navmem's gather spots)
