@@ -5,6 +5,13 @@ STATE confirms, whole (L1 to L3, held-out H1 to H3) or with one interruption put
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job N1 -k 3 --until mid --save-as job_n1_midjob
     .venv\\Scripts\\python.exe -m tools.job_run interrupt --confirm --step I3 --job L2 -k 5
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job N1 --interrupt I1 -k 5   # the same, near home
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V1 -k 5 --save-as job_l2_v1
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V2 --from job_l2_v1 -k 5 --save-as job_l2_v2
+
+A rung (data/jobs.json L2 "rungs", the goal's venture ladder) is a trial of the job itself, his ask the job's line: it
+sets only where the trial ends (its own end, read from the game) and where it starts (its "from": the checkpoint a
+passing run of the rung before saved). A rung's pass that is saved also writes <label>.ladder.json beside the save: the
+item instances he made in the ladder so far (ladder_made), read by the next rung, so gear he made in V1 counts in V2.
 
 A mid-job checkpoint (the window recipe, each window from the named world, in the foreground):
     stop_server.ps1 -Hold; world_snapshot restore base --confirm; start_server.ps1 (nav_reset.ps1 restarts the helper)
@@ -42,6 +49,7 @@ import math
 import os
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +179,7 @@ def snapshot(data: dict | None) -> dict:
     worn: dict[str, str] = {}
     worn_detail: dict[str, dict] = {}
     instances: dict[str, list] = {}
+    held: list[dict] = []  # each counted stack: {item, guid, broken} (a made tool or weapon on him: made_carried)
     on_him = {r.get("item") or r.get("name") for r in rows or [] if r.get("where") != "loadout"}
     for r in rows or []:
         item = r.get("item") or r.get("name")
@@ -180,6 +189,9 @@ def snapshot(data: dict | None) -> dict:
         if item and not (loadout and slot.startswith(REF_SLOTS) and item in on_him):
             carried[item] = carried.get(item, 0) + n
             instances.setdefault(item, []).append(r.get("guid") or None)  # UItem.Guid (describe_item); None: unread
+            held.append({"item": item, "guid": r.get("guid") or None,
+                         "broken": broken({"broken": r.get("broken"), "durability": r.get("durability"),
+                                           "max_durability": r.get("max_durability")})})
         if loadout and slot and item:
             worn[slot] = item
             worn_detail[slot] = {"item": item, "guid": r.get("guid") or None, "durability": r.get("durability"),
@@ -205,7 +217,7 @@ def snapshot(data: dict | None) -> dict:
     pl = d.get("power_level")
     unread = d.get("unread") or (None if rows is not None or d.get("inventory") or d.get("position") is not None
                                  else "the read carried no position and no inventory")
-    out = {"carried": carried, "worn": worn, "worn_detail": worn_detail, "instances": instances,
+    out = {"carried": carried, "worn": worn, "worn_detail": worn_detail, "instances": instances, "held_detail": held,
            "consumables": cons, "position": d.get("position"),
            "dead": bool(d.get("dead")), "own_containers": sorted(own), "container_kinds": kinds, "container_where": where,
            "empty_slots": d.get("empty_slots"), "bag_room": bag_room(d),
@@ -320,8 +332,29 @@ def crafted_in_run(rows: list[dict]) -> dict[str, int]:
     return out
 
 
+def walk_targets(rows: list[dict]) -> list[dict]:
+    """[{ts, position}] of where his walks were headed, from the brain log: a go_to call given a position, the place
+    the executor resolved a name to (place_resolved: the game's map data), the body's go_to result (target_position).
+    A target given only as a name or an actor id with no position read is left out."""
+    out = []
+    for r in rows:
+        k = r.get("kind")
+        p = None
+        if k == "place_resolved":
+            p = r.get("position")
+        elif k == "tool_call" and r.get("tool") == "go_to":
+            p = (r.get("args") or {}).get("target")
+        elif k == "tool_result" and r.get("tool") == "go_to":
+            d = (r.get("result") or {}).get("data")
+            p = d.get("target_position") if isinstance(d, dict) else None
+        if isinstance(p, (list, tuple)) and len(p) >= 2 and all(isinstance(v, (int, float)) for v in p[:2]):
+            out.append({"ts": r.get("ts"), "position": list(p)})
+    return out
+
+
 def evidence(rows: list[dict]) -> dict:
-    return {"chests": chests_seen(rows), "crafted": crafted_in_run(rows), "chests_before": chests_before(rows)}
+    return {"chests": chests_seen(rows), "crafted": crafted_in_run(rows), "chests_before": chests_before(rows),
+            "walk_targets": walk_targets(rows)}
 
 
 # tool results that name an item he did not gain (eaten, worn, put away, failed) or only looked at
@@ -768,10 +801,236 @@ def p_next_tier_tools(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
     return (not short), "; ".join(out + short)
 
 
+# ------------------------------------------------------------------ the venture ladder's rungs (L2 V1, V2)
+def _cat_entry(item: str | None) -> dict:
+    from brain import item_stats
+    return (item_stats.catalog().get(item or "") or {}) if item else {}
+
+
+def tool_tier(item: str | None) -> int | None:
+    """The game's tier of a tool (data/items_<build>.json `tier`: the field client_mod weapons_data carries and
+    gather.lua compares with a rock's DamageModifiers RequiredTier), or None when the catalog does not know the item."""
+    e = _cat_entry(item)
+    t = e.get("tier")
+    return int(t) if isinstance(t, (int, float)) and not isinstance(t, bool) and e else None
+
+
+def _tagged(item: str, prefix: str) -> bool:
+    return str(_cat_entry(item).get("category_tag") or "").startswith(prefix)
+
+
+def p_made_carried(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """V1: on him (hotbar, bag or loadout) an instance of an item of the game's category_tag, of tier min_tier or more,
+    not broken, made in this run: a craft of it confirmed in the run and an instance he did not hold at the start
+    (made_here: by UItem.Guid, or the start read holding none of it). An instance the reads cannot tell: unread."""
+    tag, need = spec["category_tag"], int(spec.get("min_tier") or 0)
+    label = spec.get("label") or f"a {tag} of tier {need} or better"
+    held = [h for h in end.get("held_detail") or [] if _tagged(h["item"], tag)]
+    good = [h for h in held if (tool_tier(h["item"]) or 0) >= need]
+    if not good:
+        have = ", ".join(f"{h['item']} (tier {tool_tier(h['item'])})" for h in held) or "none"
+        return False, f"he carries none of {label}; of the kind he carries: {have}"
+    short, unread = [], []
+    for h in good:
+        it, t = h["item"], tool_tier(h["item"])
+        if h.get("broken"):
+            short.append(f"{it} (tier {t}) broken")
+        elif not _crafted(end, it):
+            short.append(f"{it} (tier {t}): no craft of it in this run")
+        else:
+            new, why = made_here(it, h.get("guid"), start)
+            if new:
+                return True, f"{it} (tier {t}, min {need}) made in this run and carried ({why})"
+            (short if new is False else unread).append(f"{it}: {why}" + (" (had at the start)" if new is False else ""))
+    if unread:
+        return None, "; ".join(unread + short)
+    return False, "; ".join(short)
+
+
+def made_by_him(item: str, guid: str | None, start: dict, end: dict) -> tuple[bool | None, str]:
+    """An instance he made: in this run (a craft of it confirmed and made_here), or in an earlier rung of the ladder
+    (its UItem.Guid among start["ladder_made"][item], the ladder record of the checkpoint he started from). None when
+    the reads cannot tell (a guid unread where it decides). Never his words."""
+    ladder = (start.get("ladder_made") or {}).get(item) or []
+    if guid and guid in ladder:
+        return True, "made by him in an earlier rung (its instance)"
+    new = None
+    if _crafted(end, item):
+        new, why = made_here(item, guid, start)
+        if new:
+            return True, "made in this run"
+        if new is None:
+            return None, why
+    if ladder and (not guid or None in ladder):
+        return None, f"cannot tell the {item} from the one he made in an earlier rung (instance guid unread)"
+    if new is False:
+        return False, f"the {item} is the one he had at the start"
+    return False, f"no craft of {item} in this run, nor one of his from an earlier rung"
+
+
+@lru_cache(maxsize=1)
+def _places():
+    from brain.places import Places
+    return Places()
+
+
+def region_power(name: str) -> int | None:
+    """The power of a region (data/places_<build>.json `power`), or None for a name the data does not have."""
+    r = next((x for x in _places().regions if x.get("name") == name), None)
+    p = (r or {}).get("power")
+    return int(p) if isinstance(p, (int, float)) and p >= 0 else None
+
+
+def copper_region(pos: Any, spec: dict) -> dict | None:
+    """{region, power} of the region at pos when it is one of spec copper_in (by its region or province name)."""
+    if not (isinstance(pos, (list, tuple)) and len(pos) >= 2):
+        return None
+    r = _places().region_at(pos)
+    if not r or not ({r.get("name"), r.get("province")} & set(spec.get("copper_in") or [])):
+        return None
+    return {"region": r["name"], "power": region_power(r["name"])}
+
+
+def heading_for(end: dict, spec: dict) -> dict:
+    """The copper region he heads for: the region of his latest walk target that is one of copper_in (walk_targets),
+    else spec default_region; {region, power, how}."""
+    for w in reversed(end.get("walk_targets") or []):
+        got = copper_region(w.get("position"), spec)
+        if got:
+            return {**got, "how": f"his walk to {[round(v) for v in w['position'][:2]]}"}
+    d = spec.get("default_region") or "Fractured Plains"
+    return {"region": d, "power": region_power(d), "how": "no walk toward a copper region yet: the nearest"}
+
+
+def entry_read(job: dict, snap: dict, t: float) -> dict | None:
+    """The read that put him inside a copper region of the job's venture_gear: {region, power, power_level (the game's,
+    the fact recorded), t, position} and what he wore and carried then; None while he is outside them."""
+    spec = (job.get("end") or {}).get("venture_gear")
+    if not spec or snap.get("unread"):
+        return None
+    got = copper_region(snap.get("position"), spec)
+    if not got:
+        return None
+    return {**got, "power_level": snap.get("power_level"), "t": round(t, 1), "position": snap.get("position"),
+            **{k: snap.get(k) for k in ("worn", "worn_detail", "held_detail", "instances")}}
+
+
+def p_venture_gear(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """V2: every armour slot worn, whole and made by him; a weapon (the game's tag spec weapon_tag, so not a pickaxe)
+    made by him on him; and the game's power level at least the power of the copper region he heads for (heading_for).
+    When a read put him inside a copper region (end["entered"]: entry_read), that read is judged: gear made and power
+    level at least the region's power passes; gear not made fails; under the power only spec entry_bar judges it
+    (the goal fixes none: null is bar_open, recorded and never a pass or a fail)."""
+    at = end.get("entered") or end
+    short, unread = [], []
+    for slot in spec.get("armour_slots") or []:
+        on = (at.get("worn") or {}).get(slot)
+        det = (at.get("worn_detail") or {}).get(slot) or {}
+        if not on:
+            short.append(f"{slot}: nothing worn")
+            continue
+        if broken(det):
+            short.append(f"{slot}: {on} broken")
+            continue
+        mine, why = made_by_him(on, det.get("guid"), start, end)
+        (short if mine is False else unread if mine is None else []).append(f"{slot}: {on}: {why}")
+    weapons = [h for h in at.get("held_detail") or [] if _tagged(h["item"], spec.get("weapon_tag") or "Item.Equipment.Weapon.")
+               and not h.get("broken")]
+    w_read = [(h, made_by_him(h["item"], h.get("guid"), start, end)) for h in weapons]
+    if not any(m[0] for _, m in w_read):
+        if any(m[0] is None for _, m in w_read):
+            unread += [f"weapon {h['item']}: {m[1]}" for h, m in w_read if m[0] is None]
+        else:
+            short.append("no weapon made by him on him" + (
+                " (" + "; ".join(f"{h['item']}: {m[1]}" for h, m in w_read) + ")" if w_read else ""))
+    where = ({"region": at["region"], "power": at.get("power"), "how": "entered"} if end.get("entered")
+             else heading_for(end, spec))
+    power, pl = where.get("power"), at.get("power_level")
+    gear = "armour " + ", ".join(f"{s} {(at.get('worn') or {}).get(s)}" for s in spec.get("armour_slots") or [])
+    place = f"{where['region']} (power {power})"
+    if short:
+        return False, "; ".join(short + unread) + f"; bar {place}, power level {pl}"
+    if unread:
+        return None, "; ".join(unread)
+    if power is None:
+        return None, f"no power for {where['region']} in the map data"
+    if not isinstance(pl, (int, float)):
+        return None, "the game's power_level was not read" + (" at the entry" if end.get("entered") else "")
+    if end.get("entered"):
+        fact = f"entered {place} at power level {pl:g} (t {at.get('t')} s), {gear} and a weapon made by him"
+        if pl >= power:
+            return True, fact
+        bar = spec.get("entry_bar")
+        if not isinstance(bar, dict) or bar.get("min_below_power") is None:
+            return None, f"bar_open: {fact}; the goal fixes no bar for entering under the region's power"
+        need = power - int(bar["min_below_power"])
+        return pl >= need, f"{fact}; entry bar power level {need}"
+    if pl < power:
+        return False, f"power level {pl:g} of {power} for {place}, headed there by {where['how']}"
+    return True, f"power level {pl:g} for {place} ({where['how']}), {gear} and a weapon, made by him"
+
+
 PREDICATES = {"worn_made_in_run": p_worn_made_in_run, "in_own_chest": p_in_own_chest, "carried_gain": p_carried_gain,
               "made_in_run": p_made_in_run, "near_start_m": p_near_start_m,
               "consumables_carried": p_consumables_carried, "gear_target": p_gear_target,
-              "next_tier_tools": p_next_tier_tools}
+              "next_tier_tools": p_next_tier_tools, "made_carried": p_made_carried, "venture_gear": p_venture_gear}
+
+
+def rung_job(job: dict, rung: str) -> dict:
+    """The job as one rung of its ladder trials it: the job's line and work tools, the rung's end and start (from), no
+    interruption. A SystemExit for a rung the job does not have."""
+    rungs = job.get("rungs") or {}
+    r = rungs.get(rung)
+    if not r:
+        raise SystemExit(f"job {job.get('id')} has no rung {rung!r} (have {', '.join(rungs) or 'none'})")
+    return {**{k: v for k, v in job.items() if k != "rungs"}, "rung": rung, "end": r["end"], "start": r["from"],
+            "not_carried_at_start": r.get("not_carried_at_start") or [], "interrupt_from": None,
+            "interrupt_trigger": None, "bar": None,
+            "bar_note": "a rung has no composed bar of Luis's: human_bar per run", "goal": r.get("goal")}
+
+
+# ------------------------------------------------------------------ the ladder record beside a rung's checkpoint
+def ladder_made(start: dict, end: dict, prev: dict | None) -> dict[str, list]:
+    """{item: [guid or None]} he made in the ladder up to the end of this run: the previous rungs' (prev) and every
+    instance on him at the end of an item crafted in this run that he did not hold at the start (by its guid; a
+    guid unread is kept as None, never matched later)."""
+    out = {k: list(v) for k, v in (prev or {}).items()}
+    for item, guids in (end.get("instances") or {}).items():
+        if not _crafted(end, item):
+            continue
+        had = set((start.get("instances") or {}).get(item) or [])
+        for g in guids:
+            if g is not None and g in had:
+                continue
+            made = out.setdefault(item, [])
+            if g not in made:
+                made.append(g)
+    return out
+
+
+def ladder_path(label: str, folder: Path | None = None) -> Path:
+    from tools import quest_clone
+    return Path(folder or quest_clone.CHECKPOINT_DIR) / f"{label}.ladder.json"
+
+
+def read_ladder(label: str, folder: Path | None = None) -> dict:
+    """The ladder record of a checkpoint ({} when it has none: a save that no rung made)."""
+    try:
+        d = json.loads(ladder_path(label, folder).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def write_ladder(rec: dict, label: str, prev: dict, folder: Path | None = None) -> Path:
+    """Beside the checkpoint a passing rung saved: what he made in the ladder so far and the runs it comes from."""
+    p = ladder_path(label, folder)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    made = ladder_made(rec.get("state_start") or {}, rec.get("state_end") or {}, (prev or {}).get("made"))
+    p.write_text(json.dumps({"job": rec.get("job"), "rung": rec.get("rung"), "checkpoint": label,
+                             "runs": list((prev or {}).get("runs") or []) + [rec.get("run")], "made": made},
+                            indent=1), encoding="utf-8")
+    return p
 
 
 def done(job: dict, state_start: dict, state_end: dict) -> tuple[bool | None, str]:
@@ -836,6 +1095,14 @@ def save_ok(rec: dict, until: str | None) -> tuple[bool, str]:
         return bool(m.get("ok")), m.get("why") or "no mid read"
     if until == "first_step":
         return rec.get("ended") == "first step", f"ended {rec.get('ended')}"
+    if rec.get("rung") and rec.get("job_done"):
+        # a rung's checkpoint stands for a PASSING run of it (goal: the venture ladder; rule 8): its end read, and the
+        # whole verdict (time, misses, stands, counted)
+        v = rec.get("verdict") or verdict(rec)
+        if not v.get("pass"):
+            return False, "rung done but the run did not pass: " + ", ".join(
+                k for k, ok in (v.get("bars") or {}).items() if not ok)
+        return True, f"rung {rec['rung']} passed"
     return bool(rec.get("job_done")), "job done" if rec.get("job_done") else f"job not done ({rec.get('ended')})"
 
 
@@ -1087,7 +1354,8 @@ def verdict(rec: dict) -> dict:
 
 
 def item_key(rec: dict) -> str:
-    return rec.get("job", "?") + (f" / {rec['step']}" if rec.get("step") else "")
+    return (rec.get("job", "?") + (f" / {rec['rung']}" if rec.get("rung") else "")
+            + (f" / {rec['step']}" if rec.get("step") else ""))
 
 
 def all_runs(path: Path | None = None) -> list[dict]:
@@ -1357,6 +1625,10 @@ def run_job(io, job: dict, opts: dict) -> dict:
     raw0, start = _read_state(io)
     if opts.get("own_guids"):  # the characters of his line: whose a container is, by the game (game_owner)
         start["own_guids"] = sorted({str(g).upper() for g in opts["own_guids"] if g})
+    if opts.get("ladder_made"):  # what he made in the ladder's earlier rungs (the checkpoint's ladder record)
+        start["ladder_made"] = opts["ladder_made"]
+    venture = "venture_gear" in (job.get("end") or {})
+    entered: dict | None = None  # the read that put him inside a copper region (V2): its facts end the trial
     chest_job = "in_own_chest" in (job.get("end") or {})
     seen = _Seen()
     if not start.get("unread"):
@@ -1396,7 +1668,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
             first_t = first_step(tl["calls"], job)
         if work_t is None:
             work_t = first_work(tl["calls"], job)
-        fast = bool(lo_hi) or (bool(step) and intr is None and by_progress)
+        fast = bool(lo_hi) or (bool(step) and intr is None and by_progress) or venture
         if now - last_sample >= (FAST_SAMPLE_S if fast else SAMPLE_S):
             last_sample = now
             read = snapshot(io.state())
@@ -1407,6 +1679,10 @@ def run_job(io, job: dict, opts: dict) -> dict:
                     seen.read_new(io, cur, rel)
                 cur.update(evidence(rows))
                 seen.into(cur)
+                if venture and entered is None:
+                    entered = entry_read(job, cur, rel)
+                if entered:
+                    cur["entered"] = entered
                 ok, ok_why = done(job, start, cur)
                 if ok is None and chest_job and done(job, start, {**cur, "chest_end": _open_reads(cur)})[0] is True:
                     cur["chest_end"] = chest_reads(io, chest_candidates(start, cur))  # his opens say done: read it now
@@ -1430,7 +1706,9 @@ def run_job(io, job: dict, opts: dict) -> dict:
             res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:])
         quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
         share_now = progress(job, start, cur, rows) if lo_hi else None
-        if ok:
+        if entered:
+            why = f"entered {entered['region']}"  # the rung's end: his power level there is the fact recorded
+        elif ok:
             why = "job done"
         elif until == "first_step" and first_t is not None:
             why = "first step"
@@ -1464,6 +1742,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
         seen.see(end)
     end.update(evidence(rows))
     seen.into(end)
+    if entered:
+        end["entered"] = entered
     if chest_job:
         end["chest_end"] = chest_reads(io, chest_candidates(start, end))
         seen_from_end(end["chest_end"], end.get("container_where") or {}, end.get("position"))
@@ -1479,9 +1759,11 @@ def run_job(io, job: dict, opts: dict) -> dict:
             intr["t_resumed"] = res["t"]
     active = round(tl["last_busy"] - t0, 1) if why == "quiet" else round(ended - t0, 1)
     idle_total = round(sum(i["s"] for i in tl["idle"]), 1)
-    rec = {"run": time.strftime("%Y%m%d-%H%M%S", time.gmtime(t0)) + f"-{job['id']}" + (f"-{step}" if step else ""),
-           "item": f"job: {job['id']}" + (f" / {step}" if step else ""), "kind": "interrupt" if step else "job",
-           "job": job["id"], "step": step, "held_out": bool(job.get("held_out")), "until": until,
+    rung = job.get("rung")
+    rec = {"run": time.strftime("%Y%m%d-%H%M%S", time.gmtime(t0)) + f"-{job['id']}" + (f"-{rung}" if rung else "")
+           + (f"-{step}" if step else ""),
+           "item": f"job: {job['id']}" + (f" / {rung}" if rung else "") + (f" / {step}" if step else ""),
+           "kind": "interrupt" if step else "job", "job": job["id"], "step": step, "held_out": bool(job.get("held_out")), "until": until,
            "character": opts.get("character"), "checkpoint": opts.get("checkpoint"), "holder": opts.get("holder"),
            "lines": sent, "ended": why, "wall_s": round(ended - t0, 1), "active_s": active,
            # one truth: done is the job's end read from the game in every record (it was a step's resumption, and run
@@ -1492,6 +1774,10 @@ def run_job(io, job: dict, opts: dict) -> dict:
            "idle_total_s": idle_total, "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_logs": io.brain_logs(),
            "dialogue_left": {"before": left_before, "after": left_after}, "bar_s": bar}
+    if rung:
+        rec["rung"] = rung
+    if entered:
+        rec["entered"] = entered
     for cid, c in (rec.get("chests") or {}).items():  # whose each container he used is, by the game (game_owner)
         c["his"], c["his_why"] = game_owner(cid, start, end)
     if is_probe({"until": until}):
@@ -1514,7 +1800,11 @@ def run_job(io, job: dict, opts: dict) -> dict:
         nc = "the job was done before he could take it up again: the step says nothing"
     if nc:
         rec["not_counted"] = nc
-    if ok is None and not step:  # a whole job whose end state could not be read: not counted, the reason kept
+    if ok is None and not step and "bar_open" in str(ok_why):
+        # read, and the goal fixes no bar for it (V2: in the copper region under its power): recorded, not counted
+        rec["bar_open"] = True
+        rec.setdefault("not_counted", "bar_open: " + str(ok_why)[:400])
+    elif ok is None and not step:  # a whole job whose end state could not be read: not counted, the reason kept
         rec["unread"] = ok_why
     rec["misses"] = misses(tl["calls"], active - idle_total, intr)
     try:
@@ -1665,7 +1955,14 @@ def cmd_window(a, step: str | None) -> int:
         return 7
     doc = load_jobs()
     job = job_of(a.job, doc)
+    rung = getattr(a, "rung", None)
+    if rung:  # a rung of the job's ladder: the job's line, the rung's end and start (from)
+        job = rung_job(job, rung)
     ref, ref_why = start_ref(job, step, a.checkpoint)
+    ladder = read_ladder(ref) if rung else {}  # what he made in the earlier rungs, from the checkpoint's record
+    if rung:
+        ref_why = (f"rung {rung}'s from" if ref_why == "the job's start" else ref_why) + (
+            f"; ladder record of runs {', '.join(ladder.get('runs') or [])}" if ladder else "; no ladder record")
     trigger = getattr(a, "trigger", None) or job.get("interrupt_trigger") or "first_step"
     if step and not trigger_ok(trigger):
         print(f"{a.job}: unknown interrupt trigger {trigger!r}")
@@ -1684,7 +1981,7 @@ def cmd_window(a, step: str | None) -> int:
     if (why := save_unfit(src)) is not None:
         print(f"not running: {why}")
         return 3
-    print(f"{a.job}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
+    print(f"{a.job}{' / ' + rung if rung else ''}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
           + (f"the interruption goes in at {trigger}; " if step else "") +
           f"each up to {a.max_haiku} Haiku calls (controller) plus the Planner (Sonnet), capped at ${a.usd} a trial on "
           f"top of today's spend")
@@ -1742,7 +2039,8 @@ def cmd_window(a, step: str | None) -> int:
                                         "trigger": trigger, "deadline": min(a.deadline, left),
                                         "max_haiku": a.max_haiku, "character": name, "checkpoint": ref,
                                         "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S),
-                                        "own_guids": [made.get("guid"), src_guid, dev_guid]})
+                                        "own_guids": [made.get("guid"), src_guid, dev_guid],
+                                        "ladder_made": ladder.get("made")})
                 if "error" in rec:  # no trial ran: the harness's (void), with its reason
                     out["trials"].append({"character": name, "error": rec["error"], "void": "harness"})
                     print(f"{name}: {rec['error']}")
@@ -1769,6 +2067,8 @@ def cmd_window(a, step: str | None) -> int:
                         kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=q.AUTOSAVE_S)
                         out["saved_as"] = str(kept) if kept else f"no save of {name} within {q.AUTOSAVE_S:.0f} s"
                         out["saved_at"] = rec.get("mid") or {"ended": rec["ended"]}
+                        if rung and kept:  # what he made so far goes with the save, for the next rung
+                            out["ladder"] = str(write_ladder(rec, a.save_as, ladder))
                     else:
                         out["trials"][-1]["not_saved"] = why_save
                     print(f"{name}: {'saved as ' + a.save_as if good else 'not saved'}: {why_save}")
@@ -1783,7 +2083,7 @@ def cmd_window(a, step: str | None) -> int:
     if out.get("back") and not a.keep_forks:
         print("parked:", quest_clone.park(used))
     done_ = [t for t in out["trials"] if "pass" in t]
-    print(f"== {a.job}{' / ' + step if step else ''} from {ref}: {sum(1 for t in done_ if t['pass'])} of {len(done_)} passed")
+    print(f"== {a.job}{' / ' + rung if rung else ''}{' / ' + step if step else ''} from {ref}: {sum(1 for t in done_ if t['pass'])} of {len(done_)} passed")
     return 0 if done_ and all(t["pass"] for t in done_) else 1
 
 
@@ -1835,6 +2135,9 @@ def main(argv: list[str] | None = None) -> int:
     it.add_argument("--step", required=True, choices=STEPS)
     tr.add_argument("--interrupt", dest="step", choices=STEPS, default=None,
                     help="put this interruption in mid-job (the same as the interrupt command with --step)")
+    tr.add_argument("--rung", default=None, metavar="V1|V2",
+                    help="one rung of the job's ladder (data/jobs.json rungs): his ask is the job's line; the trial "
+                         "starts from the rung's from (or --from) and ends at the rung's end read from the game")
     for p in (tr, it):
         p.add_argument("--trigger", default=None, help="when the interruption goes in: the job's interrupt_trigger, "
                        "else first_step; or first_deposit, progress:0.5, share:0.3 (of the bar), at:SECONDS; a|b = "
@@ -1879,6 +2182,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if a.cmd in ("trial", "interrupt") and a.trigger and not trigger_ok(a.trigger):
         print(f"unknown --trigger {a.trigger!r} (first_step, first_deposit, progress:F, share:F, at:SECONDS, a|b)")
+        return 2
+    if a.cmd == "trial" and a.rung and (a.step or (a.until and a.until != "done")):
+        print("a rung is a whole trial to its own end: no --interrupt and no --until with --rung")
         return 2
     if a.cmd == "trial":
         a.until = a.until or ("resumed" if a.step else "done")

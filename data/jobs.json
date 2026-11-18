@@ -56,7 +56,33 @@
       },
       "start": "ClaudeDev",
       "interrupt_from": "job_l2_mid",
-      "work_tools": ["gather", "store", "craft", "take", "interact", "cast"]
+      "work_tools": ["gather", "store", "craft", "take", "interact", "cast"],
+      "rungs_note": "The venture ladder (goal, Luis 2026-11-18): each rung is a trial of L2 itself (his ask is L2's line, sent once), from a checkpoint a PASSING run of the rung before saved (`trial --job L2 --rung V1 --save-as job_l2_v1`; rule 8, never a hand-built bag). A rung sets only where the trial ends (its end, read from the game) and where it starts (from). Each rung's pass also writes <checkpoint>.ladder.json beside the save: the item instances (UItem.Guid) he made in the ladder so far, so the next rung tells gear he made from gear he carried in (start ladder_made).",
+      "rungs": {
+        "V1": {
+          "from": "ClaudeDev",
+          "goal": "a bone pickaxe made and carried (bones, hides, tannery on the way)",
+          "end": {
+            "made_carried": {"category_tag": "Item.Equipment.Tool.Pickaxe", "min_tier": 2,
+                             "label": "a pickaxe of tier 2 or better"}
+          },
+          "note": "tier: the game's item data (data/items_<build>.json `tier`, the field client_mod weapons_data carries and gather.lua compares with a rock's DamageModifiers RequiredTier). Copper needs a Bone pickaxe or better by the wiki (data/wiki/derived/rock_gates.json, source=wiki); the live gate of a copper rock is not yet read in game. Made: a craft of it confirmed in the run and an instance not held at the start (made_here)."
+        },
+        "V2": {
+          "from": "job_l2_v1",
+          "goal": "gear for the region's power: armour worn and a weapon, each made by him",
+          "end": {
+            "venture_gear": {
+              "armour_slots": ["Head", "Body", "Legs"],
+              "weapon_tag": "Item.Equipment.Weapon.",
+              "copper_in": ["Fractured Plains", "Stormtouched Highlands", "Dowdun Reach"],
+              "default_region": "Fractured Plains",
+              "entry_bar": null
+            }
+          },
+          "note": "Done: every armour slot worn, whole and made by him (in this run, or in an earlier rung by its instance in the ladder record), a weapon (the game's tag Item.Equipment.Weapon.*; a pickaxe is Item.Equipment.Tool.*) made by him on him, and the game's power level (get_state power_level, pawn:BP_GetPowerLevel, up to ~13 s stale after an equip) at least the power of the copper region he heads for (data/places_<build>.json: the region of his latest walk target that is one of copper_in, matched by region or province; none yet: default_region, Fractured Plains, power 3). The trial also ends when a read puts him inside a copper_in region: his power level at entry is recorded (rec.entered); with the gear made and that power level at least the region's power it passes; without the gear it fails; under the power it is judged only by entry_bar, which the goal does not fix (null: bar_open, recorded, not counted). Proposed, not set: {\"min_below_power\": 0}."
+        }
+      }
     },
     "N1": {
       "line": "claude, put twenty ash logs and ten stone in a chest at your base",
