@@ -3,20 +3,21 @@
 # Runs the shipping exe directly from Win64 (as RSE-Server does); the RSDragonwildsServer.exe
 # launcher only spawns it. The server writes its log to Saved\Logs\RSDragonwilds.log either way.
 . "$PSScriptRoot\config.ps1"
+Assert-LiveAllowed 'tools/start_server.ps1 (the dev server)'
 
 # The hold file goes only once the new process exists: removed first, the watchdog saw "no server, no hold" in the gap
 # and started a second server (2026-11-17 17:42Z); one exited, and the nav policy was written for its pid.
-$hold = Join-Path $RepoRoot 'logs\server.stopped'
+$hold = Join-Path $LiveRoot 'logs\server.stopped'
 if (Get-ServerProcess) { Remove-Item $hold -ErrorAction SilentlyContinue; Write-Host 'Server already running.'; exit 0 }
 
-New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir, (Join-Path $RepoRoot 'logs\perf') | Out-Null
+New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir, (Join-Path $LiveRoot 'logs\perf') | Out-Null
 $env:DW_MOD_LOG_DIR = $ModLogDir
 $env:DW_BRIDGE_DIR  = $BridgeDir
 $env:DW_MOD_ROOT    = $ModDeployDir
 # Repo root: the mod reads data catalogs from <repo>/data (e.g. spells_<build>.json; data/ isn't deployed).
 $env:DW_REPO_ROOT   = $RepoRoot
 # Bot gear/state must live outside the deployed mod folder (deploy_mod.ps1 wipes that folder).
-$stateDir = Join-Path $RepoRoot 'logs\state'
+$stateDir = Join-Path $LiveRoot 'logs\state'
 New-Item -ItemType Directory -Force $stateDir | Out-Null
 $env:DW_BOT_STATE   = Join-Path $stateDir 'bot_state.json'
 $env:DW_HEARTBEAT_FILE = Join-Path $stateDir 'heartbeat.txt'

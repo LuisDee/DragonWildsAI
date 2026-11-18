@@ -270,8 +270,9 @@ def test_the_cli_runs_on_the_paths_at_the_top_of_the_module(tmp_path, monkeypatc
 
 def test_the_defaults_are_the_dev_servers_world_folders_and_a_gitignored_place():
     assert ws.SAVED == ws.SERVER_ROOT / "RSDragonwilds" / "Saved" and ws.WORLD_DIRS == ("SaveGames", "SpudCache")
-    assert ws.SNAP_ROOT.relative_to(ws.ROOT).parts[0] == "logs" or "DW_WORLD_SNAPSHOTS" in os.environ
-    assert ws.HOLD_FILE == ws.ROOT / "logs" / "server.stopped"  # the file stop_server.ps1 -Hold writes
+    # single per VM: under the main working tree also when run from a worktree (brain/paths.LIVE_ROOT)
+    assert ws.SNAP_ROOT.relative_to(ws.LIVE).parts[0] == "logs" or "DW_WORLD_SNAPSHOTS" in os.environ
+    assert ws.HOLD_FILE == ws.LIVE / "logs" / "server.stopped"  # the file stop_server.ps1 -Hold writes
     assert "SaveCharacters" not in str(ws.SAVED) and "client_io" not in str(ws.SNAP_ROOT)
 
 

@@ -17,19 +17,21 @@ $ClientProcName = if ($env:DW_CLIENT_PROC) { $env:DW_CLIENT_PROC } else { 'RSDra
 # launcher/crash reporter, so a test watchdog or stop_client can't see or kill the live game.
 $ClientTreeNames = if ($env:DW_CLIENT_PROC) { @($ClientProcName) } else { @($ClientProcName, 'RSDragonwilds', 'CrashReportClient') }
 $ClientGameLog = if ($env:DW_CLIENT_GAME_LOG) { $env:DW_CLIENT_GAME_LOG } else { Join-Path $env:LOCALAPPDATA 'RSDragonwilds\Saved\Logs\RSDragonwilds.log' }
-$ClientModLog  = if ($env:DW_CLIENT_MOD_LOG) { $env:DW_CLIENT_MOD_LOG } else { Join-Path $RepoRoot 'logs\client\client.log' }
+$ClientModLog  = if ($env:DW_CLIENT_MOD_LOG) { $env:DW_CLIENT_MOD_LOG } else { Join-Path $LiveRoot 'logs\client\client.log' }
+# Where a launch archives the game's previous UE4SS.log (client_boot.ps1 Save-PreviousUe4ssLog): single per VM
+$ClientArchiveDir = if ($env:DW_CLIENT_ARCHIVE_DIR) { $env:DW_CLIENT_ARCHIVE_DIR } else { Join-Path $LiveRoot 'logs\client' }
 $ClientDumpDir = if ($env:DW_CLIENT_DUMP_DIR) { $env:DW_CLIENT_DUMP_DIR } else { Join-Path $ClientWin64 'ue4ss' }
-$ClientIo      = if ($env:DW_CLIENT_IO) { $env:DW_CLIENT_IO } else { Join-Path $RepoRoot 'client_io' }
+$ClientIo      = if ($env:DW_CLIENT_IO) { $env:DW_CLIENT_IO } else { Join-Path $LiveRoot 'client_io' }   # single per VM ($LiveRoot)
 $ClientSecrets = Join-Path $ClientIo 'secrets\server.txt'
 $ClientCmds    = Join-Path $RepoRoot 'client_mod\commands'
-$ClientStateDir = if ($env:DW_CLIENT_STATE_DIR) { $env:DW_CLIENT_STATE_DIR } else { Join-Path $RepoRoot 'logs\state' }
+$ClientStateDir = if ($env:DW_CLIENT_STATE_DIR) { $env:DW_CLIENT_STATE_DIR } else { Join-Path $LiveRoot 'logs\state' }
 $ClientStatusFile = Join-Path $ClientStateDir 'client_status.json'
 $ClientLockFile = Join-Path $ClientStateDir 'client_boot.lock'
 # Hold flags (like logs\server.stopped): while either exists the watchdog never restarts or rejoins the
 # client and client_boot.ps1 refuses to act (unless -Release). logs\client.stopped is what
 # tools/stop_client.ps1 -Hold writes; logs\client.hold is the one main/humans create by hand.
 $ClientHoldFiles = if ($env:DW_CLIENT_HOLD) { @($env:DW_CLIENT_HOLD) } else {
-    @((Join-Path $RepoRoot 'logs\client.stopped'), (Join-Path $RepoRoot 'logs\client.hold')) }
+    @((Join-Path $LiveRoot 'logs\client.stopped'), (Join-Path $LiveRoot 'logs\client.hold')) }
 $ClientHoldFile = $ClientHoldFiles[0]
 function Get-ClientHold { $ClientHoldFiles | Where-Object { Test-Path $_ } | Select-Object -First 1 }
 
@@ -365,6 +367,7 @@ function Start-ClientProcess {
         if ($env:DW_CLIENT_LAUNCH_ARGS) { $sp.ArgumentList = $env:DW_CLIENT_LAUNCH_ARGS }
         Start-Process @sp | Out-Null
     } else {
+        Assert-LiveAllowed 'steam -applaunch (the live client)'   # never under pytest; a worktree needs DW_LIVE_OK=1
         & $SteamExe -applaunch $ClientAppId @ClientArgs
     }
 }

@@ -37,10 +37,11 @@ def test_body_kind_and_default_dirs(monkeypatch):
     monkeypatch.delenv("DW_BODY", raising=False)
     monkeypatch.delenv("DW_BRIDGE_DIR", raising=False)
     assert paths.body_kind() == "server"
-    assert paths.bridge_dir() == paths.REPO_ROOT / "bridge_io"
-    assert paths.bridge_dir("client") == paths.REPO_ROOT / "client_io" / "bridge"
+    # the bridge dirs are single per VM: the main working tree's, also from a worktree (paths.LIVE_ROOT)
+    assert paths.bridge_dir() == paths.LIVE_ROOT / "bridge_io"
+    assert paths.bridge_dir("client") == paths.LIVE_ROOT / "client_io" / "bridge"
     monkeypatch.setenv("DW_BODY", "Client")
-    assert paths.body_kind() == "client" and paths.bridge_dir() == paths.REPO_ROOT / "client_io" / "bridge"
+    assert paths.body_kind() == "client" and paths.bridge_dir() == paths.LIVE_ROOT / "client_io" / "bridge"
     assert endpoint_files() == (BRAIN_TO_CLIENT, CLIENT_TO_BRAIN)
     assert endpoint_files("server") == (BRAIN_TO_BODY, BODY_TO_BRAIN)
     monkeypatch.setenv("DW_BRIDGE_DIR", "/somewhere")

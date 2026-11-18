@@ -111,6 +111,9 @@ def wait_brain_up(since: float, timeout: float = 180) -> bool:
 
 
 def ps(script: str, *args: str, env: dict | None = None, timeout: float = 600) -> subprocess.CompletedProcess:
+    if "-DryRun" not in args:  # a dry run only looks
+        from tools import live_guard
+        live_guard.check(f"tools/{script} {' '.join(args)}".strip())
     return subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO / "tools" / script),
                            *args], capture_output=True, text=True, cwd=REPO, env=env, timeout=timeout)
 

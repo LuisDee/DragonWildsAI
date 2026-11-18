@@ -50,18 +50,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from brain import paths
+
 ROOT = Path(__file__).resolve().parents[1]
 CHECK_DIR = ROOT / "tools" / "live_checks"
 RESULT_DIR = ROOT / "logs" / "live_queue"
-STATE_FILE = ROOT / "logs" / "state" / "live_queue.json"
-LOCK_FILE = ROOT / "logs" / "state" / "live_queue.lock"
-CLIENT_STATUS = ROOT / "logs" / "state" / "client_status.json"
-HOLD_FILES = [ROOT / "logs" / "client.hold", ROOT / "logs" / "client.stopped"]
+LIVE = paths.LIVE_ROOT  # single per VM: the main working tree's, also from a worktree
+STATE_FILE = LIVE / "logs" / "state" / "live_queue.json"
+LOCK_FILE = LIVE / "logs" / "state" / "live_queue.lock"
+CLIENT_STATUS = LIVE / "logs" / "state" / "client_status.json"
+HOLD_FILES = [LIVE / "logs" / "client.hold", LIVE / "logs" / "client.stopped"]
 CMDS = ROOT / "client_mod" / "commands"
 LOG_SOURCES = {"client": ROOT / "logs" / "client" / "client.log",
                "game": Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "Logs" / "RSDragonwilds.log",
-               "vitals": ROOT / "client_io" / "events" / "vitals.jsonl",
-               "activity": ROOT / "client_io" / "events" / "activity.jsonl"}
+               "vitals": LIVE / "client_io" / "events" / "vitals.jsonl",
+               "activity": LIVE / "client_io" / "events" / "activity.jsonl"}
 OWNER = "live-queue"
 MAX_INCONCLUSIVE_RUNS = 3
 STATUS_FRESH_S = 180

@@ -4,8 +4,9 @@
 # if the process is gone. Log: logs\watchdog.log. Run hidden: tools\start_watchdog.ps1.
 param([int]$PollSeconds = 5)
 . "$PSScriptRoot\config.ps1"
+Assert-LiveAllowed 'tools/watchdog.ps1 (restarts the dev server)'
 
-$logFile = Join-Path $RepoRoot 'logs\watchdog.log'
+$logFile = Join-Path $LiveRoot 'logs\watchdog.log'
 $dumpDir = Join-Path $ServerWin64 'ue4ss'
 function Log($msg) { "$(Get-Date -Format o) $msg" | Add-Content -Encoding utf8 $logFile }
 
@@ -36,7 +37,7 @@ function Get-LatestDump { Get-ChildItem $dumpDir -Filter 'crash_*.dmp' -ErrorAct
 
 $seen = (Get-LatestDump).FullName
 Log "watchdog started (poll ${PollSeconds}s), last dump: $seen"
-$hold = Join-Path $RepoRoot 'logs\server.stopped'
+$hold = Join-Path $LiveRoot 'logs\server.stopped'
 while ($true) {
     Start-Sleep -Seconds $PollSeconds
     # stopped on purpose (stop_server.ps1 -Hold): no branch restarts it, the hang one included. On 2026-11-17 the hang
@@ -53,7 +54,7 @@ while ($true) {
     }
     # Game-thread hang with no crash dump: the mod's heartbeat (written every 10 s from the game
     # thread) goes stale. Grace period after start for loading. Capture stacks, then restart.
-    $hb = Join-Path $RepoRoot 'logs\state\heartbeat.txt'
+    $hb = Join-Path $LiveRoot 'logs\state\heartbeat.txt'
     $proc = Get-ServerProcess | Where-Object Name -like '*Shipping*' | Select-Object -First 1
     if ($proc -and (Test-Path $hb) -and ((Get-Date) - $proc.StartTime).TotalSeconds -gt 180) {
         $age = ((Get-Date) - (Get-Item $hb).LastWriteTime).TotalSeconds
@@ -61,7 +62,7 @@ while ($true) {
             Log "heartbeat stale (${age}s): capturing stacks, restarting"
             $cdb = Get-ChildItem 'C:\Program Files\WindowsApps\Microsoft.WinDbg_*\amd64\cdb.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($cdb) {
-                $out = Join-Path $RepoRoot ("logs\hang_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+                $out = Join-Path $LiveRoot ("logs\hang_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
                 & $cdb.FullName -pv -p $proc.Id -c "~*kn 30; q" *> $out
                 Log "stacks: $out"
             }

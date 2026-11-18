@@ -3,8 +3,9 @@
 # -Hold: also tell tools\watchdog.ps1 not to restart it (until start_server.ps1 runs).
 param([switch]$Hold)
 . "$PSScriptRoot\config.ps1"
+Assert-LiveAllowed 'tools/stop_server.ps1 (the dev server)'
 
-if ($Hold) { New-Item -ItemType File -Force (Join-Path $RepoRoot 'logs\server.stopped') | Out-Null }
+if ($Hold) { New-Item -ItemType File -Force (Join-Path $LiveRoot 'logs\server.stopped') | Out-Null }
 
 $procs = Get-ServerProcess
 if (-not $procs) { Write-Host 'Server not running.'; exit 0 }

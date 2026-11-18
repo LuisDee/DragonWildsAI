@@ -17,9 +17,10 @@ import sys
 import time
 from pathlib import Path
 
+from brain import paths
 from brain.fileio import atomic_write
 
-STATE = Path(__file__).resolve().parents[1] / "logs" / "state" / "client_slot.json"
+STATE = paths.LIVE_ROOT / "logs" / "state" / "client_slot.json"  # single per VM (brain/paths.LIVE_ROOT)
 
 
 def _load() -> dict:

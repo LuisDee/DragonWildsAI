@@ -50,13 +50,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from brain import paths
+
 # ---------------------------------------------------------------- every path and name this tool uses, in one place
 ROOT = Path(__file__).resolve().parents[1]
 SERVER_ROOT = Path(os.environ.get("DW_SERVER_ROOT") or r"C:\GameServers\Dragonwilds")  # tools/config.ps1 $ServerRoot
 SAVED = SERVER_ROOT / "RSDragonwilds" / "Saved"                                         # tools/config.ps1 $ServerSaved
+LIVE_SAVED = SAVED  # the real server's saves (a test repoints SAVED: that is its fake; the restore guard reads this)
 WORLD_DIRS = ("SaveGames", "SpudCache")  # the folders under SAVED that are one world; nothing else is read or written
-SNAP_ROOT = Path(os.environ.get("DW_WORLD_SNAPSHOTS") or ROOT / "logs" / "world_snapshots")
-HOLD_FILE = ROOT / "logs" / "server.stopped"  # stop_server.ps1 -Hold: tools/watchdog.ps1 leaves the server down
+LIVE = paths.LIVE_ROOT  # single per VM: the main working tree's, also from a worktree
+SNAP_ROOT = Path(os.environ.get("DW_WORLD_SNAPSHOTS") or LIVE / "logs" / "world_snapshots")
+HOLD_FILE = LIVE / "logs" / "server.stopped"  # stop_server.ps1 -Hold: tools/watchdog.ps1 leaves the server down
 SERVER_IMAGE = "RSDragonwildsServer"          # tools/config.ps1 Get-ServerProcess: 'RSDragonwildsServer*'
 APP_MANIFEST = SERVER_ROOT / "steamapps" / "appmanifest_4019830.acf"  # tools/config.ps1 Get-ServerBuildId
 LOG_DIR = SAVED / "Logs"                      # the server's own logs: "LogNet: Join succeeded: <persona>"
@@ -349,6 +353,11 @@ class Store:
         own_pid: see blockers. undo=False keeps no undo first: only for putting an undo back over a world a restore
         left torn (tools/checkpoint_pair.py), which is not worth keeping. A Refused raised after the world was
         touched carries .undo, the label that puts it back (None when no undo was kept)."""
+        from tools import live_guard  # the real server's saves: never from a test, from a worktree only with DW_LIVE_OK
+        real = os.path.normcase(os.path.abspath(self.saved)) == os.path.normcase(os.path.abspath(LIVE_SAVED))
+        why = live_guard.why_refused(f"restore {label} into {self.saved}", fake=not real)
+        if why:
+            raise Refused(why)
         pl = self.plan(label, others_ok, own_pid)
         if pl["blockers"]:
             raise Refused("; ".join(pl["blockers"]))

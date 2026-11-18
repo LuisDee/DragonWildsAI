@@ -68,7 +68,7 @@ TRACE_READS = ROOT / "logs" / "evals" / "trace_reads.jsonl"
 # a window is stopped by creating this file, never by killing it: the trial ends "stopped" and the window still
 # switches back to ClaudeDev (2026-11-17 18:04Z: a killed L2 window left the client on its fork, and the next
 # window's fixtures took him for another player)
-STOP_FILE = ROOT / "logs" / "job_run.stop"
+STOP_FILE = paths.LIVE_ROOT / "logs" / "job_run.stop"  # single per VM: the main tree's
 STEPS = ("I1", "I2", "I3", "I4", "I5")
 SAMPLE_S = 15.0       # a get_state read for the end predicate and the body's state, this often
 # ... and this often while a moment read from his progress is awaited (--until mid, a progress trigger): a 15 s
@@ -2150,7 +2150,7 @@ class Live:
     def gear_target(self, state: dict) -> dict:
         from tools import rung4_gate
         from brain.stash import Stash
-        stash = Stash(ROOT / "logs" / "state" / "worlds" / self.a.world / "containers.json").labels()
+        stash = Stash(paths.state_dir() / "worlds" / self.a.world / "containers.json").labels()
         tg = rung4_gate.gear_target(state, stash)
         return {"pl": tg["pl"], "pl_now": tg["pl_now"], "kit": tg["kit"]}
 
@@ -2208,6 +2208,11 @@ def cmd_window(a, step: str | None) -> int:
     if not a.confirm:
         print("refusing: a live trial relaunches the client on forked characters; pass --confirm")
         return 2
+    from tools import live_guard  # a test passes a fake lock window (q.clone_window); a worktree needs DW_LIVE_OK=1
+    why = live_guard.why_refused("a job_run window", fake=not live_guard.is_live(q.clone_window))
+    if why:
+        print(why)
+        return live_guard.REFUSED_RC
     doc = load_jobs()
     job = job_of(a.job, doc)
     spec = (doc.get("interruptions") or {}).get(step) or {}

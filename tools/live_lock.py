@@ -32,9 +32,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tools import client_park
+from brain import paths
+from tools import client_park, live_guard
 
-LOCK =Path(__file__).resolve().parents[1] / "logs" / "state" / "live_owner.txt"
+# single per VM: under the MAIN working tree even when this code runs from a worktree (brain/paths.LIVE_ROOT)
+LOCK = paths.LIVE_ROOT / "logs" / "state" / "live_owner.txt"
 QUEUE = LOCK.parent / "live_queue"
 AUDIT = LOCK.parent / "live_lock.log"  # one line per claim / release / stale takeover: who drove him when
 PRIORITY = LOCK.parent / "live_priority.json"
@@ -42,6 +44,7 @@ DEFAULT_RANK = 5
 STALE_S = 300
 REFRESH_S = 60
 AGE_S = 600  # seconds of waiting worth one rank
+LIVE_LOCK = LOCK  # the real one (tests repoint LOCK; try_claim binds the real path as its default)
 
 
 def _alive(pid: int) -> bool:
@@ -87,8 +90,15 @@ def _audit(event: str, owner: str, pid: int, extra: str = "") -> None:
         pass
 
 
+def _is_live_lock(path: Path) -> bool:
+    return os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(LIVE_LOCK))
+
+
 def try_claim(owner: str, pid: int | None = None, path: Path = LOCK) -> bool:
     """Create-if-absent; a stale lock (unrefreshed and its pid gone) is replaced."""
+    # the real lock is claimed only by a caller allowed to drive the live body (not a test, not a worktree without
+    # DW_LIVE_OK); a test passes its own path, which is the fake
+    live_guard.check(f"claim the live lock as {owner}", fake=not _is_live_lock(path))
     pid = pid or os.getpid()
     path.parent.mkdir(parents=True, exist_ok=True)
     cur = read(path)
@@ -145,7 +155,7 @@ def get_up(timeout_s: float = 15.0) -> str:
     Shelter and the next agent's craft failed "resting")."""
     try:
         from tools.scenario_run import run_client_cmd
-        cmd = LOCK.parents[2] / "client_mod" / "commands" / "get_up.lua"
+        cmd = paths.REPO_ROOT / "client_mod" / "commands" / "get_up.lua"
 
         def read() -> dict:
             return (run_client_cmd(cmd, "lock_get_up_read", {"press": False}, timeout_s) or {}).get("result") or {}

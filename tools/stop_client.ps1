@@ -4,6 +4,7 @@
 # Usage: powershell -File tools\stop_client.ps1 [-Hold]
 param([switch]$Hold)
 . "$PSScriptRoot\client_lib.ps1"
+Assert-LiveAllowed 'tools/stop_client.ps1' -Fake:([bool]$env:DW_CLIENT_PROC)   # a fake client: DW_CLIENT_PROC
 
 if ($Hold) { New-Item -ItemType File -Force $ClientHoldFile | Out-Null; Write-Host "Hold set: $ClientHoldFile" }
 $tree = @(Get-ClientProcessTree)

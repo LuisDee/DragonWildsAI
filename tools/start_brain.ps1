@@ -7,6 +7,7 @@
 param([switch]$DryRun, [ValidateSet('server', 'client')][string]$Body = $(if ($env:DW_BODY) { $env:DW_BODY } else { 'server' }),
       [string]$World = '')
 . "$PSScriptRoot\config.ps1"
+Assert-LiveAllowed 'tools/start_brain.ps1 (a live brain)'
 foreach ($name in 'ANTHROPIC_API_KEY', 'DW_CONTROLLER_MODEL', 'DW_PLANNER_MODEL', 'DW_CHAT_PREFIXES', 'DW_WORLD_GUID') {
     $v = [Environment]::GetEnvironmentVariable($name, 'User')
     if ($v) { Set-Item "env:$name" $v }

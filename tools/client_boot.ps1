@@ -41,8 +41,10 @@ param(
     [switch]$Quiet
 )
 . "$PSScriptRoot\client_lib.ps1"
+# never under pytest unless the client is a fake (DW_CLIENT_PROC); from a worktree only with DW_LIVE_OK=1
+Assert-LiveAllowed 'tools/client_boot.ps1' -Fake:([bool]$env:DW_CLIENT_PROC)
 
-$bootLog = if ($env:DW_CLIENT_BOOT_LOG) { $env:DW_CLIENT_BOOT_LOG } else { Join-Path $RepoRoot 'logs\client\boot.log' }
+$bootLog = if ($env:DW_CLIENT_BOOT_LOG) { $env:DW_CLIENT_BOOT_LOG } else { Join-Path $LiveRoot 'logs\client\boot.log' }
 New-Item -ItemType Directory -Force (Split-Path $bootLog) | Out-Null
 function BLog($msg) {
     $line = "$(Get-Date -Format o) $(Protect-Secret $msg)"
@@ -149,7 +151,7 @@ function Save-PreviousUe4ssLog([int]$Keep = 20) {
         if ($first -match '^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)') {
             $boot = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture).ToUniversalTime()
         }
-        $dir = Join-Path $RepoRoot 'logs\client'
+        $dir = $ClientArchiveDir   # the live tree's logs\client, also when this runs from a worktree
         New-Item -ItemType Directory -Force $dir | Out-Null
         $dest = Join-Path $dir ('ue4ss-{0}Z.log' -f $boot.ToString('yyyyMMddTHHmmss'))
         Copy-Item -LiteralPath $src -Destination $dest -Force
@@ -180,6 +182,7 @@ function Invoke-BootOnce([datetime]$t0) {
     if (-not $st.running) {
         Act 'start Steam (-silent)'
         if ($DryRun) { return New-Result $false 'down' 'steam_not_running' $null $t0 }
+        Assert-LiveAllowed 'start Steam'
         Start-Process $SteamExe -ArgumentList '-silent'
         $d = (Get-Date).AddSeconds(120)
         while ((Get-Date) -lt $d -and -not (Get-SteamState).logged_in) { Start-Sleep 3 }

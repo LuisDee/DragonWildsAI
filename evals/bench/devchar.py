@@ -30,11 +30,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from brain import paths
+
 from .hashes import ROOT
 from .observer import Abort
 
 MAIN_CHARACTER = "ClaudeDev"
-NAME_FILE = ROOT / "client_io" / "state" / "character_name.txt"
+NAME_FILE = paths.LIVE_ROOT / "client_io" / "state" / "character_name.txt"  # the client mod reads the main tree's
 SAVE_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "SaveCharacters"
 CREATE_CMD = ROOT / "client_mod" / "commands" / "create_char.lua"
 MADE_LOG = ROOT / "logs" / "bench" / "dev_characters.jsonl"
@@ -57,6 +59,8 @@ def fresh_name(case_id: str, run_tag: str) -> str:
 
 
 def powershell(script: str, *args: str, timeout: float = 900) -> int:
+    from tools import live_guard  # a test injects its own ps; a worktree needs DW_LIVE_OK=1
+    live_guard.check(f"tools/{script} {' '.join(args)}".strip())
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "tools" / script), *args]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).returncode

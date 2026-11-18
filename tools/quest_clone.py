@@ -43,14 +43,17 @@ import sys
 import uuid
 from pathlib import Path
 
+from brain import paths
+
 ROOT = Path(__file__).resolve().parents[1]
 SAVE_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "SaveCharacters"
 SOURCE = "ClaudeDev"
-KEEP_DIR = ROOT / "logs" / "quests" / "clones"
-CHECKPOINT_DIR = ROOT / "logs" / "quests" / "checkpoints"
-PARK_DIR = ROOT / "logs" / "quests" / "forks"
-IDS_PROBE = ROOT / "client_io" / "out" / "quest_ids_probe.json"
-LOC_PROBE = ROOT / "client_io" / "out" / "quest_locations_probe.json"
+LIVE = paths.LIVE_ROOT  # single per VM: the saves these name are the one client's (brain/paths.LIVE_ROOT)
+KEEP_DIR = LIVE / "logs" / "quests" / "clones"
+CHECKPOINT_DIR = LIVE / "logs" / "quests" / "checkpoints"
+PARK_DIR = LIVE / "logs" / "quests" / "forks"
+IDS_PROBE = LIVE / "client_io" / "out" / "quest_ids_probe.json"
+LOC_PROBE = LIVE / "client_io" / "out" / "quest_locations_probe.json"
 DELIVERABLES = ROOT / "data" / "quest_deliverables.json"
 FIRST = "Quest_FTUE_GS"  # the first First Steps
 CHAIN = (FIRST, "Quest_FTUE_RtftJ", "Quest_FTUE_RC", "Quest_FTUE_LO", "Quest_FTUE_RM", "Quest_FTUE_FS")

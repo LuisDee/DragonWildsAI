@@ -75,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     if not a.yes:
         print("re-run with --yes to restart Steam (stop Claude's client first: tools/stop_client.ps1 -Hold)")
         return 2
+    from tools import live_guard
+    live_guard.check("a Steam restart")
     exe = str(STEAM / "steam.exe")
     subprocess.run([exe, "-shutdown"], timeout=60)
     for _ in range(40):

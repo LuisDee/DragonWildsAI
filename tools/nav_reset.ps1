@@ -4,7 +4,7 @@
 # sprinted straight off a 37 m drop). start_server.ps1 runs this hidden after every start, so a manual start, a
 # watchdog restart and a world restore all get it. Log: logs\watchdog.log.
 . "$PSScriptRoot\config.ps1"
-$logFile = Join-Path $RepoRoot 'logs\watchdog.log'
+$logFile = Join-Path $LiveRoot 'logs\watchdog.log'
 function Log($msg) { "$(Get-Date -Format o) $msg" | Add-Content -Encoding utf8 $logFile }
 $python = Join-Path $RepoRoot '.venv\Scripts\python.exe'
 $helpers = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'nav_oracle serve' })

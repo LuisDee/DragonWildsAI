@@ -20,9 +20,13 @@ import sys
 import time
 from pathlib import Path
 
+from brain import paths
+from tools import live_guard
+
 ROOT = Path(__file__).resolve().parents[1]
-PARK = ROOT / "logs" / "state" / "client_park.json"
-STAY = ROOT / "logs" / "state" / "client_stay"
+LIVE = paths.LIVE_ROOT  # single per VM (the main working tree, also from a worktree)
+PARK = LIVE / "logs" / "state" / "client_park.json"
+STAY = LIVE / "logs" / "state" / "client_stay"
 BOOT_LOCKED = 2  # client_boot.ps1's exit when another boot (the watchdog's own unpark) is running
 
 
@@ -58,6 +62,10 @@ def unpark(boot=None, path: Path | None = None, wait_s: float = 900.0, sleep=tim
     mark = parked(p)
     if mark is None:
         return "not parked"
+    if boot is None:  # the real client_boot: a test passes its own boot; a worktree needs DW_LIVE_OK=1
+        why = live_guard.why_refused("unpark: tools/client_boot.ps1")
+        if why:
+            return f"unpark refused: {why}"
     boot = boot or _boot
     t_end = now() + wait_s
     while True:

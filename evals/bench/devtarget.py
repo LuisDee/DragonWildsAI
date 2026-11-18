@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from brain import paths
+
 from .hashes import ROOT
 from .observer import Abort
 from .serverlog import ServerLogReferee, merge
@@ -420,7 +422,7 @@ class DevTarget:
         return res
 
 
-def forbidden_addresses(secrets: Path = ROOT / "client_io" / "secrets", state: Path = ROOT / "logs" / "state") -> list[str]:
+def forbidden_addresses(secrets: Path = paths.LIVE_ROOT / "client_io" / "secrets", state: Path = paths.LIVE_ROOT / "logs" / "state") -> list[str]:
     """host:port of every forbidden target (logs/state/client_forbid_targets.txt names, resolved from secrets)."""
     names = []
     f = state / "client_forbid_targets.txt"

@@ -8,6 +8,7 @@
 # Pause client recovery without stopping it: create logs\client.hold (or tools\stop_client.ps1 -Hold).
 param([switch]$Stop, [switch]$Register, [string[]]$WatchdogArgs = @())
 . "$PSScriptRoot\config.ps1"
+Assert-LiveAllowed 'tools/start_client_watchdog.ps1'
 
 $script = Join-Path $PSScriptRoot 'client_watchdog.ps1'
 $running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*client_watchdog.ps1*' -and $_.CommandLine -notlike '*start_client_watchdog.ps1*' }
@@ -28,4 +29,4 @@ if ($Register) {
 if ($running) { Write-Host "Client watchdog already running (pid $($running.ProcessId -join ', '))."; exit 0 }
 $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script) + $WatchdogArgs
 $p = Start-Process powershell -ArgumentList $argList -WindowStyle Hidden -PassThru
-Write-Host "Client watchdog started (pid $($p.Id)). Events: $(Join-Path $RepoRoot 'logs\client_watchdog.jsonl')"
+Write-Host "Client watchdog started (pid $($p.Id)). Events: $(Join-Path $LiveRoot 'logs\client_watchdog.jsonl')"

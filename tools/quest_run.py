@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 
 from brain import paths
-from tools import obs, spend
+from tools import live_guard, obs, spend
 from tools import chat_ladder as cl
 
 ROOT = paths.REPO_ROOT
@@ -577,6 +577,7 @@ def _on_main(sw, cli, tries: int = 3) -> dict | None:
     return None
 
 
+@live_guard.live_entry("a lock window on forked characters (quest_run/job_run)")
 @contextlib.contextmanager
 def clone_window(wait_s: float, out: dict, out_file: Path):
     """ONE lock window on other characters of Claude's own account (evals/bench/devchar.py, dev world): yields

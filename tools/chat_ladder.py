@@ -43,9 +43,9 @@ from tools import truth_judge as tj
 
 ROOT = paths.REPO_ROOT
 OUT = ROOT / "logs" / "evals" / "chat_ladder.jsonl"
-CLIENT_BRIDGE = ROOT / "client_io" / "bridge"
-HOLD_FILES = [ROOT / "logs" / "client.hold", ROOT / "logs" / "client.stopped"]
-NAV_ALIVE = ROOT / "client_io" / "nav" / "alive.lua"  # the nav helper's heartbeat (tools/nav_oracle.py Authority)
+CLIENT_BRIDGE = paths.LIVE_ROOT / "client_io" / "bridge"  # single per VM (brain/paths.LIVE_ROOT)
+HOLD_FILES = [paths.LIVE_ROOT / "logs" / "client.hold", paths.LIVE_ROOT / "logs" / "client.stopped"]
+NAV_ALIVE = paths.LIVE_ROOT / "client_io" / "nav" / "alive.lua"  # the nav helper's heartbeat (tools/nav_oracle.py Authority)
 
 
 def nav_not_ready(path: Path | None = None, now: float | None = None, max_age_s: float = 30.0) -> str | None:
@@ -650,6 +650,8 @@ def ensure_sender(tries: int = 3, wait_s: float = 10.0, sleep=time.sleep) -> tup
 
 
 def start_brain(a, spent: float | None) -> tuple[subprocess.Popen, Path | None]:
+    from tools import live_guard
+    live_guard.check("a live brain start (brain.run_live on the client)")
     from evals.bench.devrun import user_env
     user_env()
     env = {**os.environ, "DW_BODY": "client", "DW_BRIDGE_DIR": str(CLIENT_BRIDGE), "DW_PLAYER_NAME": TESTER,

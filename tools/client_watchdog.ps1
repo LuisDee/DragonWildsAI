@@ -53,8 +53,9 @@ param(
     [int]$Loops = 0               # stop after N passes (tests); 0 = run forever
 )
 . "$PSScriptRoot\client_lib.ps1"
+Assert-LiveAllowed 'tools/client_watchdog.ps1' -Fake:([bool]$env:DW_CLIENT_PROC)   # tests run it on a fake client
 
-$events = if ($env:DW_CLIENT_WD_EVENTS) { $env:DW_CLIENT_WD_EVENTS } else { Join-Path $RepoRoot 'logs\client_watchdog.jsonl' }
+$events = if ($env:DW_CLIENT_WD_EVENTS) { $env:DW_CLIENT_WD_EVENTS } else { Join-Path $LiveRoot 'logs\client_watchdog.jsonl' }
 function Ev([string]$event, [hashtable]$f = @{}) {
     $o = [ordered]@{ ts = (Get-Date).ToUniversalTime().ToString('o'); event = $event }
     if ($DryRun) { $o.dry_run = $true }
@@ -89,7 +90,7 @@ function Allow-Restart([string]$why) {
 function Save-Stack($proc, [string]$why) {
     $cdb = Get-Cdb
     if (-not $cdb) { Ev 'stack_skipped' @{ why = 'cdb not found' }; return $null }
-    $out = Join-Path $RepoRoot ("logs\client\hang_{0}_{1}.txt" -f $proc.Id, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    $out = Join-Path $LiveRoot ("logs\client\hang_{0}_{1}.txt" -f $proc.Id, (Get-Date -Format 'yyyyMMdd_HHmmss'))
     if ($DryRun) { return "(dry run) $out" }
     # -pv: non-invasive attach (suspends, reads, detaches; no breakpoint, no code change)
     & $cdb.FullName -pv -p $proc.Id -c "~*kn 30; q" *> $out
@@ -108,7 +109,7 @@ function Save-CrashLogs($dump) {
         foreach ($f in @($ue4ss, $ClientGameLog)) {
             if ($f -and (Test-Path $f)) { Copy-Item -LiteralPath $f -Destination $dest -Force -ErrorAction SilentlyContinue }
         }
-        $own = Join-Path $RepoRoot 'logs\client\client.log'
+        $own = Join-Path $LiveRoot 'logs\client\client.log'
         if (Test-Path $own) { Get-Content $own -Tail 400 | Set-Content -Encoding utf8 (Join-Path $dest 'client.log.tail') }
         Ev 'crash_logs_saved' @{ dump = $dump.Name; dir = $dest }
         return $dest
@@ -250,7 +251,7 @@ function Restart-DevServer([string]$why) {
             $proc = Get-ServerProcess | Where-Object Name -like '*Shipping*' | Select-Object -First 1
             $cdb = Get-Cdb
             if ($proc -and $cdb) {
-                $out = Join-Path $RepoRoot ("logs\hang_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+                $out = Join-Path $LiveRoot ("logs\hang_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
                 & $cdb.FullName -pv -p $proc.Id -c "~*kn 30; q" *> $out
                 Ev 'dev_server_stack' @{ file = $out }
             }
@@ -260,14 +261,14 @@ function Restart-DevServer([string]$why) {
     & "$PSScriptRoot\start_server.ps1" | ForEach-Object { Ev 'dev_server_start' @{ out = "$_" } }
 }
 function Check-DevServer {
-    if (Test-Path (Join-Path $RepoRoot 'logs\server.stopped')) { return }   # held on purpose
+    if (Test-Path (Join-Path $LiveRoot 'logs\server.stopped')) { return }   # held on purpose
     $dump = Get-LatestDump (Join-Path $ServerWin64 'ue4ss')
     if ($dump -and $dump.FullName -ne $script:serverDump -and $dump.Length -gt 0) {
         $script:serverDump = $dump.FullName; Restart-DevServer "crash dump $($dump.Name)"; return
     }
     $proc = Get-ServerProcess | Where-Object Name -like '*Shipping*' | Select-Object -First 1
     if (-not (Get-ServerProcess)) { Restart-DevServer 'missing'; return }
-    $hb = Join-Path $RepoRoot 'logs\state\heartbeat.txt'
+    $hb = Join-Path $LiveRoot 'logs\state\heartbeat.txt'
     if ($proc -and (Test-Path $hb) -and ((Get-Date) - $proc.StartTime).TotalSeconds -gt 180 -and
         (Get-Item $hb).LastWriteTime -gt $proc.StartTime) {
         $age = AgeS $hb

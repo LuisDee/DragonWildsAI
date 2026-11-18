@@ -31,7 +31,7 @@ from brain.bridge_client import BridgeClient
 from brain.transport import file_transport_pair
 from tools.live_queue import single_instance
 
-NAV_DIR = Path(os.environ.get("DW_CLIENT_ROOT", str(paths.REPO_ROOT))) / "client_io" / "nav"
+NAV_DIR = Path(os.environ.get("DW_CLIENT_ROOT", str(paths.LIVE_ROOT))) / "client_io" / "nav"
 REQ = NAV_DIR / "req.json"
 RESP = NAV_DIR / "resp.lua"
 ALIVE = NAV_DIR / "alive.lua"  # heartbeat: the mover only uses the oracle while this is fresh

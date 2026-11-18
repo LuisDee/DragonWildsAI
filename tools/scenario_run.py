@@ -48,16 +48,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from brain import paths
 from brain.fileio import atomic_write
 
 ROOT = Path(__file__).resolve().parents[1]
 SUITE = ROOT / "tools" / "scenarios" / "dev_suite.json"
 REPORT_DIR = ROOT / "logs" / "scenarios"
-CLIENT_IO = Path(os.environ.get("DW_CLIENT_IO", ROOT / "client_io"))
-STATE_DIR = Path(os.environ.get("DW_CLIENT_STATE_DIR", ROOT / "logs" / "state"))
+CLIENT_IO = Path(os.environ.get("DW_CLIENT_IO", paths.LIVE_ROOT / "client_io"))  # single per VM: brain/paths.LIVE_ROOT
+STATE_DIR = Path(os.environ.get("DW_CLIENT_STATE_DIR", paths.LIVE_ROOT / "logs" / "state"))
 LEASE = STATE_DIR / "client_target.json"
 SECRETS = CLIENT_IO / "secrets"
-HOLD_FILES = [ROOT / "logs" / "client.stopped", ROOT / "logs" / "client.hold"]
+HOLD_FILES = [paths.LIVE_ROOT / "logs" / "client.stopped", paths.LIVE_ROOT / "logs" / "client.hold"]
 GAME_LOG = Path(os.environ.get("DW_CLIENT_GAME_LOG",
                                Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "Logs" / "RSDragonwilds.log"))
 CLIENT_LOG = Path(os.environ.get("DW_CLIENT_MOD_LOG", ROOT / "logs" / "client" / "client.log"))
@@ -220,6 +221,8 @@ class Ops:
 
     def boot(self, target: str, timeout_s: float = 900) -> dict:
         """tools/client_boot.ps1 -Target <target>; the result from logs/state/client_status.json."""
+        from tools import live_guard
+        live_guard.check(f"tools/client_boot.ps1 -Target {target}")
         cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "tools" / "client_boot.ps1"),
                "-Target", target, "-Quiet"]
         t0 = now()

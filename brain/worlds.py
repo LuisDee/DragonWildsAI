@@ -22,6 +22,7 @@ import shutil
 import time
 from pathlib import Path
 
+from . import paths
 from .interface import GameInterface
 
 DEFAULT = "default"
@@ -147,13 +148,13 @@ def world_kind(addr: str | None = None, *, secrets_dir: Path | None = None, last
     if addr is None:
         import json
         try:
-            p = last_join or REPO / "logs" / "state" / "last_join.json"
+            p = last_join or paths.state_dir() / "last_join.json"
             addr = (json.loads(Path(p).read_text(encoding="utf-8-sig")) or {}).get("addr")
         except (OSError, ValueError, AttributeError):
             addr = None
     if not addr:
         return "unknown"
-    d = Path(secrets_dir) if secrets_dir else REPO / "client_io" / "secrets"
+    d = Path(secrets_dir) if secrets_dir else paths.LIVE_ROOT / "client_io" / "secrets"
     for kind, name in TARGET_FILES.items():
         if _first_line(d / name) == str(addr).strip():
             return kind
