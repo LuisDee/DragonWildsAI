@@ -113,7 +113,9 @@ L2 (copper) is not one job from a level-1 start: copper grows only in Fractured 
 | V5 | V4's save | the ore in his own chest at home (L2's end read) |
 | V6 | V5's save | bronze: tin found and mined, bars smelted, a bronze piece made (the next tier's tools and armour) |
 
-The same ladder serves coal, Fellhollow (power 5, skeletons) and the vault capstone, each a rung of gear higher. The interruption steps I1-I5 move to a job he can finish near home (logs or stone into his chest), since L2 cannot pass until the ladder does.
+The same ladder serves coal, Fellhollow (power 5, skeletons) and the vault capstone, each a rung of gear higher.
+
+**The V2 bar (decided 2026-11-18):** power level at least the region's power minus 1, in armour (head, body, legs) and a weapon he made in the run. Reason: power-3 gear needs copper or tin (bronze), which grow only in power-3 regions, so the first venture is made at power 2 by any player. Entering a copper region ends V2 and records his power level there as a fact. Rung end reads: `job_run --rung V1|V2` (V1: a tier-2 pickaxe made in the run, carried, unbroken, a new item instance). The interruption steps I1-I5 move to a job he can finish near home (logs or stone into his chest), since L2 cannot pass until the ladder does.
 
 ### Held-out (never fixed against)
 
