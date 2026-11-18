@@ -4,7 +4,7 @@
   .venv\\Scripts\\python.exe -m tools.travel_ladder --label baseline
   .venv\\Scripts\\python.exe -m tools.travel_ladder --only ramp_up,ramp_down --repeat 2
   .venv\\Scripts\\python.exe -m tools.travel_ladder --list
-  .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump --repeat 5 --label jumpcourse
+  .venv\\Scripts\\python.exe -m tools.travel_ladder --only jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump,jump_ford --repeat 5 --label jumpcourse
       the jump course (docs/research/2026-11-17-jump-course.md): dev world only, teleported starts only, and a
       summary from tools/jump_stats.py of the paths with a jump up, strikes, real falls and jump verdict lines
 
@@ -170,6 +170,11 @@ P.update({
     # (156,1746,-9.7) + 0.88, the first point of three play plans (16 Nov) that walked 2-4 cells and took the 300 cm
     # diagonal djump (156,1744,-9.3) to (157,1743,-6.3): 23 tried since 16 Nov, 7 missed, 6 real falls. Goal jhl_b.
     "jwd_a": [156.0, 1746.0, -8.82],
+    # the ford east of home: a 46 cm hop onto a one-cell bump, then a 70 cm drop, from a wade (2026-11-18: 4 of 4
+    # judged missed at 125,1891 -> 126,1892, 1 at 130,1891 -> 131,1892; he came down 8-57 cm from the path's next
+    # point: the study jump_real_study.md). Start on the bank (cell (123,1888,-31.5)); goal the path point
+    # (129,1895,-32.8) + 0.88 on the far side, where the real paths went on
+    "jf_a": [122.5, 1888.5, -30.6], "jf_b": [129.0, 1895.0, -31.9],
 })
 # Reached = on top: within JUMP_TOL_M (2D; the body's own go_to tolerance is 1.5 m, every start is 2.6 m or more
 # from its goal) and within half the leg's rise in height (at least 0.5 m, at most ARRIVE_DZ): standing at the foot
@@ -198,6 +203,9 @@ JUMP_COURSE = [
     # the only leg with a double jump of 2.4 m or more pressed after a walk (the others' 2.4 m+ djumps all start from
     # a standstill at the teleported start): it measures the djump run-up (the double-jumps study, section 5)
     _jump("jump_windmill_djump", "jwd_a", "jhl_b", "jump: windmill hill, the 3 m double jump after a walk", human_m=9),
+    # the only leg with a hop under the step slack, from water, over a one-cell top the path drops off again (the
+    # jumps the windmill and Doric legs never make: 7 of 9 real-play misses of 2026-11-18 were hops like it)
+    _jump("jump_ford", "jf_a", "jf_b", "jump: the ford east of home, hops over one-cell bumps in water", human_m=9),
 ]
 # kept out of OBSTACLES so `--obstacles` runs what it ran before; `--only` picks from JOURNEYS + OBSTACLES + JUMP_COURSE
 JUMP_IDS = {j["id"] for j in JUMP_COURSE}

@@ -7,7 +7,7 @@ import pytest
 import tools.travel_ladder as T
 from tools import jump_stats as J
 
-COURSE = "jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump"
+COURSE = "jump_hill_rats,jump_hill_ledge3m,jump_hill_mid,jump_hill_east,jump_hill_top,jump_doric,jump_windmill_djump,jump_ford"
 
 # docs/research/2026-11-17-jump-landings.md, "The course (no model)": id -> (start, goal), capsule centre, m
 STUDY = {
@@ -19,6 +19,8 @@ STUDY = {
     "jump_doric": ([106.46, 1849.46, -31.36], [109.02, 1846.57, -29.57]),
     # docs/research/2026-11-17-double-jumps.md section 5: the 3 m double jump after a walk, onto jump_hill_ledge3m's top
     "jump_windmill_djump": ([156.0, 1746.0, -8.82], [158.0, 1739.0, -5.32]),
+    # the real-play jump study of 2026-11-18: the ford east of home, hops over one-cell bumps in water
+    "jump_ford": ([122.5, 1888.5, -30.6], [129.0, 1895.0, -31.9]),
 }
 
 

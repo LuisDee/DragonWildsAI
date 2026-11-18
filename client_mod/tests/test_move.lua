@@ -3475,6 +3475,67 @@ do
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
+-- A hop over a one-cell top, down at the path's NEXT point on its level, has landed (the ford east of home,
+-- 2026-11-18 04:48-09:05Z: from a 270 cm/s wade he passed 3-17 cm over a 22-54 cm lip's cell and came down 8-57 cm
+-- from the following point at its floor; the rise is under the step slack, so only 45 cm of the cell was allowed and
+-- all five were judged missed). Real rows from logs/client/client.log (cm, floor heights; `nx` from the local path
+-- line before each jump). Real misses of the same day stay misses.
+do
+    local function hop(from, to, nx, at, feet, nearest)
+        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(5)
+        local mv = _G.DW_MOVE
+        local here = pawn.loc
+        local function q(r, act) return { X = here.X + r[1] - from[1], Y = here.Y + r[2] - from[2], Z = FLOOR + r[3] - from[3], act = act } end
+        local after = { 2 * nx[1] - to[1], 2 * nx[2] - to[2], nx[3] }
+        mv.lpath = { q(from, "walk"), q(to, "jump"), q(nx, "drop"), q(after, "walk") }
+        mv.lwp = 2
+        mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
+                            started = T, saw_air = true, nearest = nearest, nearest_dz = 140 }
+        mv.trav_fails, mv.lp_fail = nil, nil
+        pawn.loc = { X = here.X + at[1] - from[1], Y = here.Y + at[2] - from[2], Z = here.Z + feet - from[3] }
+        local n0 = #logs
+        air = 0
+        step(1)
+        local vl
+        for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump verdict=", 1, true) then vl = logs[i] end end
+        return mv, vl
+    end
+    local ford_a, ford_b, ford_n = { 12500, 189100, -3257 }, { 12600, 189200, -3211 }, { 12700, 189300, -3280 }
+    local rows = {
+        { "04:48:39Z", ford_a, ford_b, ford_n, { 12739, 189342 }, -3274, 17 },
+        { "07:16:03Z", ford_a, ford_b, ford_n, { 12707, 189307 }, -3274, 3 },
+        { "07:19:31Z", ford_a, ford_b, ford_n, { 12739, 189331 }, -3274, 7 },
+        { "09:01:14Z", { 13000, 189100, -3275 }, { 13100, 189200, -3253 }, { 13200, 189300, -3280 }, { 13203, 189307 }, -3273, 10 },
+        { "09:05:26Z", ford_a, ford_b, ford_n, { 12708, 189308 }, -3274, 4 },
+    }
+    for _, r in ipairs(rows) do
+        local mv, vl = hop(r[2], r[3], r[4], r[5], r[6], r[7])
+        check("ford hop " .. r[1] .. ": over the bump's cell and down at the next point is landed", (mv.trav_fails or 0) == 0
+            and vl ~= nil and vl:find("verdict=landed why=next", 1, true) ~= nil, "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+        check("ford hop " .. r[1] .. ": the plan goes on past the top and the next point", mv.lpath ~= nil and mv.lwp == 4,
+            "lwp=" .. tostring(mv.lwp))
+    end
+    -- the day's real misses stay misses: a 1.25 m rock passed 56 cm off (03:49:20Z, he never got up), a hump cleared
+    -- sideways and down 1.9 m from the next point (04:40:06Z), a 1.4 m rock from the water, 100 cm off (04:52:34Z)
+    local misses = {
+        { "03:49:20Z", { 11100, 185200, -3222 }, { 11000, 185100, -3097 }, { 11000, 185000, -3180 }, { 10888, 184949 }, -3217, 56 },
+        { "04:40:06Z", { 15700, 191600, -3216 }, { 15600, 191500, -3161 }, { 15700, 191400, -3200 }, { 15511, 191470 }, -3223, 53 },
+        { "04:52:34Z", { 32300, 178600, -4350 }, { 32400, 178700, -4210 }, { 32500, 178800, -4330 }, { 32486, 178653 }, -4348, 100 },
+    }
+    for _, r in ipairs(misses) do
+        local mv, vl = hop(r[2], r[3], r[4], r[5], r[6], r[7])
+        check("real miss " .. r[1] .. " stays a miss", mv.trav_fails == 1 and vl ~= nil and vl:find("verdict=missed", 1, true) ~= nil,
+            "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    end
+    -- over the cell and down near a next point on the jump's own level (no top): a gap stays judged at its point
+    local mv = hop({ 0, 0, 0 }, { 100, 0, 0 }, { 200, 0, 0 }, { 230, 0 }, 0, 10)
+    check("gap jump: over the cell and down near a next point on one level stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
+    M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
 -- The point a jump starts from lay against the foot of the ledge, nearer to it than his capsule could stand (live
 -- 2026-11-17 07:36:02Z, run 073510 Ratcatcher: on the ground 51 cm from that point he pushed at it for 8 s and moved 0
 -- to 3 cm; the re-plans gave the same path, and the attack ended path_blocked 7 m from the rat). He takes off from

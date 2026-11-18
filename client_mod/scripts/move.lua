@@ -3555,11 +3555,26 @@ local function steer_typed_jump(f, p)
         -- and 93 cm over it, at the goal's own height): up to twice the step slack
         local fdz = (me.Z - st.half_h) - p.Z
         local above = not ok_land and not over and level and off < within and fdz > 0 and fdz < 2 * step_tol(st)
-        ok_land = ok_land or over or above
-        pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", over and "over" or above and "above" or ok_land and "within"
+        -- ... or, for any rise, over a one-cell top (the path's next point lies lower) and down at the path's NEXT point
+        -- on its level: he hopped the bump, where the path goes anyway. The ford east of home, 2026-11-18 04:48-09:05Z:
+        -- 5 of the day's 9 misses passed 3-17 cm over a 22-54 cm lip's cell from a 270 cm/s wade and came down 8-57 cm
+        -- from the next point at its floor (scratchpad study jump_real_study.md). "Over" is the cell's own reach (45 cm),
+        -- whatever the rise: a 1.25 m rock passed 56 cm off (03:49:20Z, he never got up) stays a miss.
+        local nx = st.lpath[st.lwp + 1]
+        local onto_next = not ok_land and not over and not above and nx ~= nil and nx.Z ~= nil and nx.Z < p.Z - 15
+            and j.nearest ~= nil and j.nearest < M.cfg.lp_radius_cm and d2(me, nx) < M.cfg.jump_land_cm
+            and math.abs((me.Z - st.half_h) - nx.Z) < step_tol(st)
+        ok_land = ok_land or over or above or onto_next
+        pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", over and "over" or above and "above"
+            or onto_next and "next" or ok_land and "within"
             or ((off >= within and dz >= step_tol(st)) and "far_and_off_height" or (off >= within and "far" or "off_height")), t, log)
         if not owned(bind) then return true end
-        if ok_land then
+        if onto_next then
+            -- past both points: he never stood on the top, so no self edge for it (nor for the drop he made in the air)
+            if st.local_authority and st.lwp + 1 >= #st.lpath then nx.act = "walk"; st.lwp = #st.lpath
+            else st.lwp = st.lwp + 2 end
+            st.lp_jump_exec = nil; f.idxp = true
+        elseif ok_land then
             pcall(emit_self_edge, st, prev, p, p.act)
             if not owned(bind) then return true end
             if st.local_authority and st.lwp == #st.lpath then p.act = "walk" end
