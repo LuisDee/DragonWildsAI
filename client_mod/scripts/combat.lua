@@ -70,6 +70,16 @@ M.cfg = {
     ambient = nil, ambient_status_s = 2.0, -- out-of-fight hazards/cures: nil = env DW_COMBAT_AMBIENT ("1" = on); off by default -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
     threat_scan_s = 2, threat_repeat_s = 60, -- threat_seen: hostiles in sight not rated a likely win (pack counted), out of a fight
     odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, world_id_s = 60, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
+    -- fight odds, calibrated on his own fights of 16-18 Nov 2026 (105 reflex fights with the odds said at their start,
+    -- 215 fights' intake; fitted on 16 Nov, tested on 17-18 Nov; tools/fight_odds_truth.py measures it again):
+    odds_t0_s = 1,             -- reaching it and the first swing (paid once, not mid-fight)
+    odds_uptime = 0.5,         -- a weapon's real damage rate = hit / press cadence x this (he defends, closes in, waits)
+    odds_uptime_hands = 0.15,  -- bare hands (3 fights: 0.6-1.2 dealt per s vs ~9 by hit / cadence)
+    odds_hands_hit = 8,        -- a punch, until he has landed his own (measured: 90 HP in 11 presses)
+    odds_pack_slow = 1.5,      -- n hostiles: kill time x n^this on top of their summed HP (packs took 3-10x longer)
+    odds_landed_per_s = 0.024, -- intake per attacker = the game's mean attack damage x this (blocks, misses, gaps)
+    odds_kill_band = { 0.85, 2.7 }, odds_die_band = { 0.35, 1.6 }, -- measured 20th-80th percentile of real / estimate
+    odds_learn_n = 2, odds_learn_min_s = 8, -- his own record replaces a prior after this many fights (intake: this long)
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
     chase_max_s = 30, -- approaching (all episodes) this long without landing a hit: too_far, cant_catch
@@ -327,11 +337,94 @@ function M.best_weapon(list, enemy, data, learned, known, record)
     return { weapon = best, shield = shield }
 end
 
--- Prior damage per second of an enemy we have not seen hit yet, from its power level.
+-- Prior damage per second of an enemy we have no damage data for, from its power level (a guess: "unknown").
 function M.enemy_dps_prior(pl) return 2 + 2 * math.max(pl or 1, 0) end
 
--- Fight or flight. me = {hp, max_hp, pl, dps}; enemies = {{name, hp, max_hp, pl, boss, dps_obs}};
--- orders = M.orders; current = "fight"|"flee"|nil (hysteresis). -> {decision, u_fight, why, ...}
+-- What his own fights say (combat memory history, persisted; record_fight writes fight_s, pack, dealt, hands):
+--   mine[weapon name]  = {rate, n}: his damage per engaged second, from fights with one hostile where he dealt damage
+--                        (rate = sum dealt / sum (fight_s - odds_t0_s));
+--   theirs[creature]   = {dps, n}: its damage on him per attacker per second, from fights of at least
+--                        odds_learn_min_s (a short fight ends before it swings: sum taken / sum (fight_s x pack)).
+-- Only rows with odds_learn_n or more fights are returned. -> {mine = {}, theirs = {}}
+function M.learned_rates(m)
+    m = m or C().mem
+    local cfg = M.cfg
+    local mine, theirs = {}, {}
+    for name, h in pairs(m and type(m.history) == "table" and m.history or {}) do
+        local t = { taken = 0, s = 0, n = 0 }
+        for _, f in ipairs(type(h) == "table" and h or {}) do
+            local fs = tonumber(f.fight_s)
+            if fs and fs > 0 then
+                local pack = math.max(tonumber(f.pack) or 1, 1)
+                if f.hands and pack <= 1 and (tonumber(f.dealt) or 0) > 0 and fs >= 2 then
+                    local w = mine[f.hands] or { dealt = 0, s = 0, n = 0 }
+                    w.dealt, w.s, w.n = w.dealt + tonumber(f.dealt), w.s + math.max(fs - (cfg.odds_t0_s or 0), 0.5), w.n + 1
+                    mine[f.hands] = w
+                end
+                if fs >= (cfg.odds_learn_min_s or 8) then
+                    t.taken, t.s, t.n = t.taken + (tonumber(f.damage_taken) or 0), t.s + fs * pack, t.n + 1
+                end
+            end
+        end
+        if t.n >= (cfg.odds_learn_n or 2) and t.s > 0 then theirs[name] = { dps = t.taken / t.s, n = t.n } end
+    end
+    local out = {}
+    for w, x in pairs(mine) do if x.n >= (cfg.odds_learn_n or 2) and x.s > 0 then out[w] = { rate = x.dealt / x.s, n = x.n } end end
+    return { mine = out, theirs = theirs }
+end
+
+-- His real damage per engaged second with this weapon profile (nil = bare hands); `nominal` overrides the hit / cadence
+-- rate (a prepared loadout's weapon vs a weakness). -> rate, source | nil
+-- His own record with it first; else hit / press cadence (M.my_dps: his learned hit, else the catalog's; a punch:
+-- odds_hands_hit) x the measured uptime. Live 2026-11-18 01:11Z: bare hands read "likely win, 14 s to kill" a 100 HP
+-- Giant Rat; he dealt 90 in 74 s and died (hit / cadence alone was ~7x his real rate).
+function M.fight_rate(p, nominal)
+    local cfg = M.cfg
+    local name = (p and p.name) or "bare hands"
+    local L = M.learned_rates().mine[name]
+    if L and not nominal then return math.max(L.rate, 0.05), string.format("his last %d fights with it", L.n) end
+    nominal = nominal or M.my_dps(p) or (not p and (cfg.odds_hands_hit or 8) / 0.9) or M.dps(p)
+    if not nominal then return nil end
+    return nominal * (p and (cfg.odds_uptime or 1) or (cfg.odds_uptime_hands or 1)), "estimate"
+end
+
+-- "40-60 s" for a band of seconds (rounded the way a player says it; over 10 min said so). -> string | nil
+function M.band_words(lo, hi)
+    if not (tonumber(lo) and tonumber(hi)) then return nil end
+    local function r(x)
+        if x < 20 then return math.floor(x + 0.5) elseif x < 100 then return math.floor(x / 5 + 0.5) * 5 end
+        return math.floor(x / 10 + 0.5) * 10
+    end
+    local a, b = math.max(r(lo), 1), r(hi)
+    if a >= 600 then return "over 10 min" end
+    if b > 600 then return string.format("%d s to over 10 min", a) end
+    if a >= b then return string.format("about %d s", a) end
+    return string.format("%d-%d s", a, b)
+end
+
+-- "Goblin Runt x3, Giant Rat" for a list of creature rows (first seen first). -> string | nil
+function M.pack_words(list)
+    local names, order = {}, {}
+    for _, e in ipairs(list or {}) do
+        local n = tostring(e.name or "?")
+        if not names[n] then names[n] = 0; order[#order + 1] = n end
+        names[n] = names[n] + 1
+    end
+    local words = {}
+    for _, n in ipairs(order) do words[#words + 1] = names[n] > 1 and (n .. " x" .. names[n]) or n end
+    return #words > 0 and table.concat(words, ", ") or nil
+end
+
+-- Fight or flight. me = {hp, max_hp, pl, dps (his real rate: M.fight_rate)}; enemies = {{name, hp, max_hp, pl, boss,
+-- dps_obs (per attacker: M.enemy_dps), dps_src}}; orders = M.orders; current = "fight"|"flee"|nil (hysteresis).
+-- -> {decision, u_fight, why, verdict, my_ttk, their_ttk, kill_lo/hi, die_lo/hi, unknown, ...}
+-- The numbers (calibrated on his own fights, cfg.odds_*; tools/fight_odds_truth.py):
+--   time to kill = odds_t0_s + (HP of every hostile counted) x n^odds_pack_slow / his rate (no PL factor: HP is real)
+--   time to die  = his HP / (sum of their rates); a hostile with no damage data takes the PL prior and makes the
+--                  verdict "unknown" ("no damage data for X")
+--   bands        = x odds_kill_band / x odds_die_band (the measured 20th-80th percentile of real / estimate)
+--   verdict      = likely_win when even the slow kill beats the fast death, likely_lose the other way, else uncertain
+-- The reflex's fight-or-flee decision keeps reading the central times (u_fight); the verdict and the bands are words.
 function M.assess(me, enemies, orders, current, cfg)
     cfg = cfg or M.cfg
     orders = orders or M.orders
@@ -342,19 +435,28 @@ function M.assess(me, enemies, orders, current, cfg)
     if #enemies == 0 then r.decision, r.why = "none", "no_enemies"; return r end
     -- the numbers first: always reported (information for the model), whatever decides
     local my_pl = me.pl or 1
-    local worst_gap, total_hp, their_dps, boss = -99, 0, 0, false
+    local worst_gap, total_hp, their_dps, boss, unknown = -99, 0, 0, false, nil
     for _, e in ipairs(enemies) do
         if e.boss then boss = true end
         local gap = (e.pl or 1) - my_pl
         if gap > worst_gap then worst_gap = gap end
         total_hp = total_hp + math.max(e.hp or e.max_hp or 50, 1)
-        local d = e.dps_obs or M.enemy_dps_prior(e.pl)
-        their_dps = their_dps + d * (1.25 ^ gap)
+        local d = e.dps_obs
+        if not d then -- no damage data: the power-level guess, said as such
+            d = M.enemy_dps_prior(e.pl) * (1.25 ^ gap)
+            unknown = unknown or tostring(e.name or "it")
+        end
+        their_dps = their_dps + d
     end
-    r.pl_gap, r.boss, r.enemies = worst_gap, boss or nil, #enemies
-    local my_dps = math.max((me.dps or 5) * (1.25 ^ (-worst_gap)), 0.1)
-    r.my_ttk = total_hp / my_dps
-    r.their_ttk = (me.hp or 1) / math.max(their_dps, 0.1)
+    local n = #enemies
+    r.pl_gap, r.boss, r.enemies = worst_gap, boss or nil, n
+    local my_dps = math.max(me.dps or ((cfg.odds_hands_hit or 8) / 0.9 * (cfg.odds_uptime_hands or 1)), 0.05)
+    r.my_ttk = (cfg.odds_t0_s or 0) + total_hp * n ^ (cfg.odds_pack_slow or 0) / my_dps
+    r.their_ttk = (me.hp or 1) / math.max(their_dps, 0.05)
+    local kb, db = cfg.odds_kill_band or { 1, 1 }, cfg.odds_die_band or { 1, 1 }
+    r.kill_lo, r.kill_hi = r.my_ttk * kb[1], r.my_ttk * kb[2]
+    r.die_lo, r.die_hi = r.their_ttk * db[1], r.their_ttk * db[2]
+    r.unknown = unknown and ("no damage data for " .. unknown) or nil
     local ratio = r.their_ttk / math.max(r.my_ttk, 0.1)
     local u_ratio = ratio / (ratio + 1)                         -- 0.5 when even
     local u_hp = math.sqrt(math.max(0, math.min(1, (hp_frac - cfg.flee_hp) / (1 - cfg.flee_hp))))
@@ -365,12 +467,14 @@ function M.assess(me, enemies, orders, current, cfg)
     local too_strong = worst_gap >= (cfg.pl_gap_hard or 4) or (worst_gap >= cfg.pl_gap_flee and r.u_fight < cfg.fight_enter)
     r.too_strong = too_strong or nil
     r.verdict = (boss and "boss") or (too_strong and "too_strong")
-        or (#enemies > cfg.max_hostiles and "outnumbered") or (r.u_fight >= cfg.fight_enter and "likely_win") or "likely_lose"
+        or (#enemies > cfg.max_hostiles and "outnumbered") or (unknown and "unknown")
+        or (r.kill_hi < r.die_lo and "likely_win") or (r.kill_lo > r.die_hi and "likely_lose") or "uncertain"
     if orders.force then r.decision, r.why = "fight", "forced"; return r end
     local flee_hp = orders.flee_hp or cfg.flee_hp
     -- almost won: running at low HP from a creature he kills well before it kills him only gives it free hits
     -- (live 2026-11-01 11:28: he fled at 22 HP from a runt that had ~15 HP left, and took 18 more while fleeing)
-    local finishing = r.my_ttk <= (cfg.finish_margin or 0.5) * r.their_ttk
+    -- (mid-fight: the reach overhead odds_t0_s is paid already)
+    local finishing = r.my_ttk - (cfg.odds_t0_s or 0) <= (cfg.finish_margin or 0.5) * r.their_ttk
     r.finishing = finishing or nil
     if orders.commanded then
         -- a commanded fight is the model's decision (North Star review): no strength vetoes; only the
@@ -1480,6 +1584,13 @@ function M.boss_attempts(name, m)
     return { attempts = #a, damage_taken = dmg, phase_reached = phase, causes_of_death = causes, last = a[#a] }
 end
 
+-- Engaged seconds of a fight: from its first engage (else its start) to the loot or the end. -> s | nil
+function M.fight_span(F)
+    local a, b = F.engage_t or F.t0, F.fought_until or F.t
+    if not (a and b) then return nil end
+    return math.floor(math.max(b - a, 0) * 10) / 10
+end
+
 -- One fight into the creature's history (newest last, at most cfg.history_max).
 function M.record_fight(m, F, res)
     local name = F.target_name and tostring(F.target_name):lower()
@@ -1490,7 +1601,11 @@ function M.record_fight(m, F, res)
                   dur_s = F.t and F.t0 and math.floor((F.t - F.t0) * 10) / 10 or nil, kills = F.kills or 0,
                   parries = F.n_parried or 0, blocks = F.n_blocked or 0, dodges = F.n_dodges or 0, heals = F.n_heals or 0,
                   weapon = F.equip_plan and F.equip_plan.weapon or nil,
-                  killed_by = M._outcome_of(F, res) == "died" and (F.last_hit_by or F.target_name) or nil }
+                  killed_by = M._outcome_of(F, res) == "died" and (F.last_hit_by or F.target_name) or nil,
+                  -- what the odds learn from (M.learned_rates): engaged seconds, the most hostiles at once, his verified
+                  -- damage on the target, and what was in his hands
+                  fight_s = M.fight_span(F), pack = math.max(F.max_pack or 1, 1), dealt = math.floor((F.dmg or 0) * 10) / 10,
+                  hands = (F.profile and F.profile.name) or "bare hands" }
     while #h > M.cfg.history_max do table.remove(h, 1) end
 end
 
@@ -1680,6 +1795,9 @@ local function set_phase(F, ph, why)
     if F.phase == ph then return end
     F.phase = ph
     F.phase_t = F.t
+    -- the engaged span (his fight record's fight_s: first engage to the loot or the end; M.learned_rates)
+    if ph == "engage" and not F.engage_t then F.engage_t = F.t end
+    if (ph == "loot" or ph == "restore") and not F.fought_until then F.fought_until = F.t end
     -- the fight is over: the bow stops aiming at the corpse (live 07:35Z bow gate: the aim kept the camera, so the
     -- loot walk stopped twice on "another skill took the camera" and 17 s passed with nothing picked up)
     if F.rg and (ph == "loot" or ph == "restore") then F.rg.aiming, F.rg.aim_t0, F.hold = false, nil, nil end
@@ -1734,7 +1852,7 @@ function M.emit_combat_end(F, res)
     end
     M.emit_activity({ kind = "combat_end", by = F.by or "unknown", dur_s = F.t and F.t0 and math.floor((F.t - F.t0) * 10) / 10 or nil,
         target = F.target_name, target_id = F.target_id, outcome = outcome_of(F, res), reason = res.reason,
-        damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)),
+        damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)), fight_s = M.fight_span(F),
         hp_end = F.hp_now, loot = loot, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
         dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
         windup_swings = F.n_windup, step_stalls = F.n_step_stalls, dodge_retaps = F.n_retaps,
@@ -1929,24 +2047,39 @@ local function step_equip(F, pawn)
     return false
 end
 
--- ONE estimate of what a creature's attacks cost him per second, for the reflex AND get_state's fight_odds:
--- defense.lua's learned rate (its learned attack damage x the share that landed / its attack rhythm), else nil
--- (M.assess then uses the power-level prior). -> dps | nil
+-- ONE estimate of what a creature's attacks cost him per second PER ATTACKER, for the reflex AND get_state's
+-- fight_odds. Sources, best first (measured 16-18 Nov: defense.lua's per-attack rate read 2-3x too low against his
+-- real deaths, e.g. "182 s to die" vs 80 s, so it comes last):
+--   his own fights with it (M.learned_rates: damage taken per engaged second per attacker),
+--   the game's attack damage (creature_attacks.lua, from DT_AIAttackDamage via data/bestiary.json) x
+--     cfg.odds_landed_per_s,
+--   defense.lua's learned rate (its learned attack damage x the share that landed / its attack rhythm),
+--   nil (M.assess then takes the power-level prior and calls the odds "unknown"). -> dps, source | nil
 function M.enemy_dps(name)
+    if not name then return nil end
+    local key = tostring(name):lower()
+    local L = M.learned_rates().theirs[key]
+    if L then return math.max(L.dps, 0.01), string.format("his last %d fights with it", L.n) end
+    local ga = (M.data("creature_attacks") or {})[key]
+    if ga and tonumber(ga.mean) and ga.mean > 0 then return ga.mean * (M.cfg.odds_landed_per_s or 0.024), "game attack data" end
     local D = mod("defense")
-    if not (D and D.expected_dps and name) then return nil end
+    if not (D and D.expected_dps) then return nil end
     local ok, dps = pcall(D.expected_dps, name)
-    return ok and type(dps) == "number" and dps > 0 and dps or nil
+    if ok and type(dps) == "number" and dps > 0 then return dps, "its attacks on him (rough)" end
+    return nil
 end
 
+-- Every hostile in the fight: the target, what hit him lately, and every aggressive creature within aggro range,
+-- fighting yet or not (fight study 2026-11-18: two deaths came from packs that joined after the odds were read on one
+-- runt, "likely win, 20 s to die", pack 3-4 at the end).
 local function enemies_for_assess(F, origin)
     local c = C()
     local list = {}
     for _, cr in ipairs(creatures_near(origin, M.cfg.assist_m)) do
         local hit = c.attackers[cr.id]
-        if cr.id == F.target_id or (hit and F.t - hit <= M.cfg.attacker_memory_s) or (cr.archetype == 0 and cr.in_combat and (cr.distance_m or 99) < M.cfg.aggro_m) then
+        if cr.id == F.target_id or (hit and F.t - hit <= M.cfg.attacker_memory_s) or (cr.archetype == 0 and (cr.distance_m or 99) < M.cfg.aggro_m) then
             if not cr.dead and not cr.follower then
-                cr.dps_obs = M.enemy_dps(cr.name)
+                cr.dps_obs, cr.dps_src = M.enemy_dps(cr.name)
                 list[#list + 1] = cr
             end
         end
@@ -4011,8 +4144,9 @@ local function frame(F)
         local profile = F.profile or (not F.equip_plan and F.pre_profile) or nil
         local orders = F.mode == "attack" and { commanded = true, force = F.force, avoid = {}, flee_hp = M.orders.flee_hp } or M.orders
         if F.cornered then orders = { force = true, avoid = {} } end -- it kept up with his flee: fight it out
-        local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = M.my_dps(profile) }, enemies_for_assess(F, me.pos),
-            orders, F.decision, M.cfg)
+        local rate, rate_src = M.fight_rate(profile)
+        local foes = enemies_for_assess(F, me.pos)
+        local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = rate }, foes, orders, F.decision, M.cfg)
         F.assessment = a
         if a.decision == "flee" and not F.cornered then
             -- running from what is already on him and at least as fast only gives it free hits (live 2026-11-01
@@ -4031,7 +4165,9 @@ local function frame(F)
                 decision = a.decision, because = F.cornered and ("cornered: " .. F.cornered) or a.why, verdict = a.verdict,
                 hp = me.hp, max_hp = me.max_hp, target_hp = F.target_hp,
                 weapon = profile and profile.name or "bare hands", est_s_to_kill = a.my_ttk and math.floor(a.my_ttk),
-                est_s_to_die = a.their_ttk and math.floor(a.their_ttk) })
+                est_s_to_die = a.their_ttk and math.floor(a.their_ttk), pack = a.enemies,
+                hostiles = M.pack_words(foes), unknown = a.unknown, my_rate_from = rate_src,
+                est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi) })
         end
         if a.decision == "flee" then return begin_flee(F, a.why) end
         F.decision = "fight"
@@ -4261,7 +4397,9 @@ local function start_fight(log, actor, opts)
     if tgt.follower then return { ok = false, reason = "unsafe", data = { why = "a player's follower" } } end
     -- a commanded fight is the model's call (North Star review): the fight-or-flight estimate is
     -- returned as INFORMATION, never as a refusal; only "never attack players" is a hard gate
-    local estimate = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, tgt) or {}
+    local held = M.held_weapon(pawn)
+    local estimate = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = M.fight_rate(held) },
+        { name = tgt.name, hp = tgt.hp, max_hp = tgt.max_hp, pl = tgt.pl, boss = tgt.boss, dps_obs = M.enemy_dps(tgt.name) }) or {}
     -- the pawn FIRST, then the old fight ends (live 18:19: a refused command-level attack had already ended the
     -- guard's running reflex fight, so nothing fought back and a runt beat him down to 1 % HP)
     local arb = mod("arbiter")
@@ -4494,29 +4632,30 @@ function M.threat_watch(pawn, pc, origin, t)
         local lk = U.valid(eq) and U.short(U.try(function() return eq:GetHeldEquipmentDataLeft() end)) or ""
         local items = M.weapons().items or {}
         local w = items[rk] or items[lk]
-        c.threat_dps = { t = t, v = (w and w.role == "weapon" and M.dps(w)) or 12 }
+        -- what is in his hands, at his real rate (a tool or nothing: bare hands; M.fight_rate)
+        c.threat_dps = { t = t, v = M.fight_rate(w and w.role == "weapon" and w or nil) }
     end
-    local en = {}
-    for i, r in ipairs(pack) do
-        if i > (cfg.odds_max or 6) then break end
-        en[#en + 1] = { name = r.name, hp = r.hp, max_hp = r.max_hp, pl = r.pl, boss = r.boss == true, dps_obs = M.enemy_dps(r.name) }
+    -- the fight he would meet: the nearest hostile and every hostile within aggro range of it
+    local near = pack[1]
+    local en, group = {}, {}
+    for _, r in ipairs(pack) do
+        local close = r == near or (r.pos and near.pos and U.dist(r.pos, near.pos) <= cfg.aggro_m * 100)
+            or (not (r.pos and near.pos) and math.abs((r.distance_m or 1e9) - (near.distance_m or 0)) <= cfg.aggro_m)
+        if close and #en < (cfg.odds_max or 6) then
+            local d, src = M.enemy_dps(r.name)
+            en[#en + 1] = { name = r.name, hp = r.hp, max_hp = r.max_hp, pl = r.pl, boss = r.boss == true, dps_obs = d, dps_src = src }
+            group[#group + 1] = r
+        end
     end
     local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = c.threat_dps.v }, en, { reflexonly = true }, nil, cfg)
     if not (a and a.verdict) or a.verdict == "likely_win" then return end
-    local names, order = {}, {}
-    for _, r in ipairs(pack) do
-        c.threat_said[r.id] = t
-        local n = r.name or "?"
-        if not names[n] then names[n] = 0; order[#order + 1] = n end
-        names[n] = names[n] + 1
-    end
-    local words = {}
-    for _, n in ipairs(order) do words[#words + 1] = names[n] > 1 and (n .. " x" .. names[n]) or n end
-    local near = pack[1]
+    for _, r in ipairs(pack) do c.threat_said[r.id] = t end
     M.emit_activity({ kind = "threat_seen", by = "reflex", target = near.name, target_id = near.id,
         distance_m = near.distance_m and math.floor(near.distance_m) or nil, target_pl = near.pl, target_hp = near.hp,
-        pack = #pack, hostiles = table.concat(words, ", "), verdict = a.verdict, pl_gap = a.pl_gap,
+        pack = #pack, hostiles = M.pack_words(pack), fight_pack = #group, fight_hostiles = M.pack_words(group),
+        verdict = a.verdict, pl_gap = a.pl_gap, unknown = a.unknown,
         est_s_to_die = a.their_ttk and math.floor(a.their_ttk), est_s_to_kill = a.my_ttk and math.floor(a.my_ttk),
+        est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi),
         hp = me.hp, max_hp = me.max_hp, aggro_m = cfg.aggro_m })
 end
 
@@ -4845,9 +4984,15 @@ function M.combat_brief(log, target, ctx)
             if e.consumable == "food" and (e.heal or 0) > 0 then d.food[#d.food + 1] = { item = e.item, name = e.name, heal = e.heal, count = e.count } end
         end
     end
-    -- the estimate, as information
-    local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, cr) or {}
+    -- the estimate, as information: with what is in his hands, at his real rate (M.fight_rate)
+    local held = M.held_weapon(pawn)
+    local rate, rate_src = M.fight_rate(held)
+    local dps_obs, dps_src = M.enemy_dps(cr.name)
+    local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = rate }, { name = cr.name, hp = cr.hp, max_hp = cr.max_hp,
+        pl = cr.pl, boss = cr.boss, dps_obs = dps_obs }) or {}
     d.assessment = { verdict = a.verdict, est_s_to_kill = a.my_ttk and math.floor(a.my_ttk), est_s_to_die = a.their_ttk and math.floor(a.their_ttk),
+                     est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi), unknown = a.unknown,
+                     with = held and held.name or "bare hands", my_rate_from = rate_src, damage_from = dps_src,
                      pl_gap = a.pl_gap }
     -- what Claude has learned about this creature's attacks (per attack key)
     local D = mod("defense")
@@ -4866,6 +5011,18 @@ function M.combat_brief(log, target, ctx)
     end
     d.orders = M.orders
     return out
+end
+
+-- The weapon profile in his hands (weapons_data; a tool or nothing = nil: bare hands). Property reads and the
+-- equipment component's own getters, as state_extras uses them. -> profile | nil
+function M.held_weapon(pawn)
+    local eq = U.valid(pawn) and U.try(function() return pawn.PlayerEquipmentComponent end)
+    if not U.valid(eq) then return nil end
+    local rk = U.short(U.try(function() return eq:GetHeldEquipmentDataRight() end)) or ""
+    local lk = U.short(U.try(function() return eq:GetHeldEquipmentDataLeft() end)) or ""
+    local items = M.weapons().items or {}
+    local w = items[rk] or items[lk]
+    return w and w.role == "weapon" and w or nil
 end
 
 -- get_state extras (client_bridge calls state_extras on every module): what his hands can do.
@@ -4891,8 +5048,8 @@ function M.state_extras(api, data)
         local me = read_me(pawn, pc)
         local items = M.weapons().items or {}
         local w = items[r] or items[l]
-        local dps = (w and w.role == "weapon" and M.dps(w)) or 12
-        local odds = M.fight_odds(me, dps, data and data.nearby_entities)
+        local dps, dps_src = M.fight_rate(w and w.role == "weapon" and w or nil) -- (a tool or nothing in hand: bare hands)
+        local odds = M.fight_odds(me, dps, data and data.nearby_entities, { weapon = w and w.role == "weapon" and w.name or "bare hands", from = dps_src })
         -- a fight that is not an easy win: what he knows about the creature, and the odds with what he
         -- OWNS and CAN CAST (information; prep eval 2026-10-26). The inventory / spell / journal reads
         -- happen only then, and at most every odds_prep_s.
@@ -5295,37 +5452,87 @@ function M.prepared_odds(me, e, list, cast, known, attack_level)
     heal = math.min(heal, 2 * (me.max_hp or 100)) -- a short fight: about two bars of food get eaten
     local uses = { table.unpack(cap.uses) }
     if heal > 0 then hp = hp + heal; uses[#uses + 1] = string.format("%d food (+%d HP)", cap.nfood, math.floor(heal)) end
-    local a = M.assess_vs({ hp = hp, max_hp = hp, pl = me.pl, dps = cap.dps }, e)
+    -- his real rate with that weapon (its hit / cadence vs the weakness, x the measured uptime; bare hands when none)
+    local rate = M.fight_rate(cap.weapon, cap.weapon and cap.dps or nil)
+    local row = e
+    if e.dps_obs == nil then
+        local d = M.enemy_dps(e.name)
+        if d then row = {}; for k, v in pairs(e) do row[k] = v end; row.dps_obs = d end
+    end
+    local a = M.assess_vs({ hp = hp, max_hp = hp, pl = me.pl, dps = rate }, row)
     if not a then return nil end
     -- the times decide here (the PL-gap label "too_strong" would hide what the preparation changes)
     local verdict = a.verdict
-    if verdict == "too_strong" then verdict = (a.u_fight or 0) >= M.cfg.fight_enter and "likely_win" or "likely_lose" end
+    if verdict == "too_strong" then
+        verdict = (a.unknown and "unknown") or (a.kill_hi < a.die_lo and "likely_win") or (a.kill_lo > a.die_hi and "likely_lose") or "uncertain"
+    end
     return { verdict = verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk), uses = uses,
+             est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi), unknown = a.unknown,
              not_counted = "blocking, dodging, armour, a second fighter" }
 end
 
--- {id -> {verdict, kill_s, die_s, pl_gap}} for up to cfg.odds_max living, non-follower creatures within cfg.odds_m.
-function M.fight_odds(me, dps, entities)
+-- A census row is hostile: the game's Aggressive archetype (sense: "Aggressive"; combat's read_creature: 0) or attitude.
+local function row_hostile(e)
+    return e.hostile == true or e.archetype == "Aggressive" or e.archetype == 0
+end
+
+-- Metres between two census rows (positions in metres, [x, y, z] or {X, Y, Z}). -> m | nil
+local function row_dist(a, b)
+    local p, q = a.position, b.position
+    if type(p) ~= "table" or type(q) ~= "table" then return nil end
+    local ax, ay, az = tonumber(p[1] or p.X or p.x), tonumber(p[2] or p.Y or p.y), tonumber(p[3] or p.Z or p.z) or 0
+    local bx, by, bz = tonumber(q[1] or q.X or q.x), tonumber(q[2] or q.Y or q.y), tonumber(q[3] or q.Z or q.z) or 0
+    if not (ax and ay and bx and by) then return nil end
+    return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2 + (az - bz) ^ 2)
+end
+
+-- {id -> {verdict, kill_s, die_s, kill/die bands, pack, hostiles, unknown, pl_gap, ...}} for up to cfg.odds_max living,
+-- non-follower creatures within cfg.odds_m. `dps` = his real rate with what he holds (M.fight_rate); `held` =
+-- {weapon, from} said back. Fighting one means fighting every hostile within aggro range of it too (cfg.aggro_m;
+-- fight study 2026-11-18: packs met on one creature's odds killed him twice), so each row's odds count that pack.
+function M.fight_odds(me, dps, entities, held)
     local out, n = {}, 0
-    local list = {}
+    local list, all = {}, {}
     for _, e in ipairs(type(entities) == "table" and entities or {}) do
         local d = tonumber(e.distance_m or e.distance)
-        if type(e) == "table" and e.id and e.alive ~= false and not e.follower and (not d or d <= M.cfg.odds_m) then list[#list + 1] = e end
+        if type(e) == "table" and e.id and e.alive ~= false and not e.follower then
+            all[#all + 1] = e
+            if not d or d <= M.cfg.odds_m then list[#list + 1] = e end
+        end
     end
     table.sort(list, function(a, b) return (tonumber(a.distance_m or a.distance) or 1e9) < (tonumber(b.distance_m or b.distance) or 1e9) end)
+    local function with_dps(e) -- the reflex's own estimate of its damage rate (the same numbers decide fight or flight)
+        if e.dps_obs ~= nil then return e end
+        local d, src = M.enemy_dps(e.name)
+        if not d then return e end
+        local row = {}
+        for k, v in pairs(e) do row[k] = v end
+        row.dps_obs, row.dps_src = d, src
+        return row
+    end
+    local function en(e)
+        local r = with_dps(e)
+        return { name = r.name, hp = tonumber(r.hp or r.health), max_hp = tonumber(r.max_hp or r.max_health),
+                 pl = tonumber(r.power_level or r.pl), boss = r.boss == true, dps_obs = r.dps_obs }
+    end
     for _, e in ipairs(list) do
         if n >= M.cfg.odds_max then break end
-        -- the reflex's own estimate of its damage rate (the same numbers decide fight or flight)
-        local row = e
-        if e.dps_obs == nil then
-            local d = M.enemy_dps(e.name)
-            if d then row = {}; for k, v in pairs(e) do row[k] = v end; row.dps_obs = d end
+        local foes, group = { en(e) }, { e }
+        for _, o in ipairs(all) do
+            local dm = o ~= e and row_hostile(o) and row_dist(e, o)
+            if dm and dm <= M.cfg.aggro_m and #foes < M.cfg.odds_max then foes[#foes + 1] = en(o); group[#group + 1] = o end
         end
-        local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = dps or 12 }, row)
-        if a and a.verdict then
+        local ok, a = pcall(M.assess, { hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = dps }, foes, { reflexonly = true }, nil, M.cfg)
+        if ok and a and a.verdict then
             n = n + 1
+            local src = with_dps(e).dps_src
             out[e.id] = { verdict = a.verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk),
-                          pl_gap = a.pl_gap }
+                          kill_lo = math.floor(a.kill_lo), kill_hi = math.floor(a.kill_hi + 0.5),
+                          die_lo = math.floor(a.die_lo), die_hi = math.floor(a.die_hi + 0.5),
+                          est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi),
+                          pack = #foes > 1 and #foes or nil, hostiles = #foes > 1 and M.pack_words(group) or nil,
+                          unknown = a.unknown, damage_from = src, weapon = held and held.weapon or nil,
+                          weapon_from = held and held.from or nil, pl_gap = a.pl_gap }
         end
     end
     return out

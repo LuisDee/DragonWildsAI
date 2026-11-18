@@ -30,7 +30,7 @@ DEATH_SLACK_S = 1.5  # a death this long before the call started still counts (t
 NOT_RUN = frozenset({"invalid_args", "unknown_tool", "unknown_skill", "not_implemented", "busy", "still_running",
                      "state_unavailable", "unsafe"})  # refused before the body moved: no death to look for
 ODDS_WORDS = {"likely_win": "likely win", "likely_lose": "likely lose", "too_strong": "much stronger",
-              "outnumbered": "outnumbered", "boss": "a boss"}
+              "outnumbered": "outnumbered", "boss": "a boss", "uncertain": "could go either way", "unknown": "unknown"}
 BY_WORDS = {"chat": "when the player spoke", "fight": "when a fight started on you",
             "threat": "when hostiles your body doesn't rate a likely win came into sight"}
 
@@ -70,12 +70,27 @@ def level_words(name: str | None, game_pl=None) -> str | None:
 
 
 def _odds(f: dict) -> str | None:
+    """'likely lose (with Giant Rat x2; kills you in 40-190 s; you it in 270 s to over 10 min) (the body's estimate,
+    a range from your real fights)'. The bands (est_die, est_kill) and the pack come from combat.assess (2026-11-18,
+    calibrated on his fights of 16-18 Nov); a creature with no damage data is said so, never given a time to die."""
     v = f.get("verdict")
     if not v:
         return None
-    t = [x for x in (f"kills you ~{_num(f['est_s_to_die']):g} s" if _num(f.get("est_s_to_die")) is not None else "",
-                     f"you it ~{_num(f['est_s_to_kill']):g} s" if _num(f.get("est_s_to_kill")) is not None else "") if x]
-    return ODDS_WORDS.get(str(v), str(v)) + (f" ({'; '.join(t)})" if t else "") + " (the body's estimate)"
+    if f.get("unknown"):
+        die = str(f["unknown"])
+    elif f.get("est_die"):
+        die = f"kills you in {f['est_die']}"
+    else:
+        die = f"kills you ~{_num(f['est_s_to_die']):g} s" if _num(f.get("est_s_to_die")) is not None else ""
+    kill = (f"you it in {f['est_kill']}" if f.get("est_kill") else
+            f"you it ~{_num(f['est_s_to_kill']):g} s" if _num(f.get("est_s_to_kill")) is not None else "")
+    # the hostiles the odds counted: threat_seen's fight group, or combat_started's (it carries the reflex's decision)
+    group = f.get("fight_hostiles") or (f.get("hostiles") if f.get("decision") else None)
+    n = _num(f.get("fight_pack")) or (_num(f.get("pack")) if f.get("decision") else None)
+    t = [x for x in ((f"with {group}" if group and n and n > 1 else ""), die, kill) if x]
+    banded = bool(f.get("est_die") or f.get("est_kill"))
+    return (ODDS_WORDS.get(str(v), str(v)) + (f" ({'; '.join(t)})" if t else "")
+            + (" (the body's estimate, a range from your real fights)" if banded else " (the body's estimate)"))
 
 
 def fight_situation(events: list[Activity], state: dict, running: dict | None, by: str) -> dict:

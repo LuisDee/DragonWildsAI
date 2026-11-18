@@ -93,7 +93,7 @@ def creature_rows(state: dict) -> list[dict]:
         if note := creature_note(e, odds):
             row["note"] = note
         if e.get("hostile") and hostile > 1:
-            row["hostiles_in_sight"] = hostile  # the body's odds are for this one alone
+            row["hostiles_in_sight"] = hostile  # the body's odds count only those within aggro range of this one
         out.append(row)
     return out
 

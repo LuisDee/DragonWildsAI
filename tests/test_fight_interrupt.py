@@ -203,6 +203,37 @@ def test_the_late_result_of_a_walk_left_running_says_he_died(tmp_path):
         "when a fight started on you" in late[0]["note"], late[0]
 
 
+# --------------------------------------------------------------------------- the odds say their range and the pack
+
+
+# 010135 at 592.8 s as the calibrated body now sends it (combat.assess 2026-11-18): bare hands, the rat and the one
+# that joined, his real rate; the measured truth was 74 s to die, 90 of 100 HP dealt
+RAT_START_BANDED = dict(RAT_START, verdict="likely_lose", decision="flee", because="losing", est_s_to_kill=320,
+                        est_s_to_die=116, est_kill="270 s to over 10 min", est_die="40-190 s", pack=2,
+                        hostiles="Giant Rat x2", my_rate_from="estimate")
+CAMP_BANDED = dict(CAMP, verdict="unknown", fight_pack=3, fight_hostiles="Goblin Archer x2, Goblin Warrior",
+                   unknown="no damage data for Goblin Archer", est_kill="60-190 s", est_die="2-10 s")
+
+
+def test_the_fight_turn_says_the_band_and_the_pack_the_odds_counted():
+    s = fight_news.fight_situation([_ev(RAT_START_BANDED)], {"health": 100.0, "max_health": 100.0}, None, "fight")
+    assert s["odds"] == ("likely lose (with Giant Rat x2; kills you in 40-190 s; you it in 270 s to over 10 min)"
+                         " (the body's estimate, a range from your real fights)"), s["odds"]
+
+
+def test_no_damage_data_is_said_not_guessed():
+    s = fight_news.fight_situation([_ev(CAMP_BANDED)], {"health": 100.0, "max_health": 100.0}, None, "threat")
+    assert s["odds"].startswith("unknown (with Goblin Archer x2, Goblin Warrior; no damage data for Goblin Archer;"
+                                " you it in 60-190 s)"), s["odds"]
+    assert "kills you" not in s["odds"]
+    assert s["hostiles_in_sight"].startswith("Goblin Archer x2, Goblin Warrior x2, Goblin Runt (5"), s
+
+
+def test_could_go_either_way_has_words():
+    s = fight_news.fight_situation([_ev(dict(RAT_START_BANDED, verdict="uncertain"))], {}, None, "fight")
+    assert s["odds"].startswith("could go either way ("), s["odds"]
+
+
 # --------------------------------------------------------------------------- the Planner sees the odds
 
 

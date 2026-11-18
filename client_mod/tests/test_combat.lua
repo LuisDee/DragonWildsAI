@@ -421,7 +421,7 @@ do
     check("best shield = Bronze Shield", best.shield and best.shield.entry.item == "ITEM_Shield_Bronze")
     do -- fight odds for get_state (prep information, the same estimate as combat_brief)
         local me = { hp = 100, max_hp = 100, pl = 1 }
-        local odds = Cm.fight_odds(me, 12, {
+        local odds = Cm.fight_odds(me, Cm.fight_rate(nil), { -- (nothing in his hands: bare hands at his real rate)
             { id = "k1", name = "Kebbit", hp = 30, max_hp = 30, power_level = 1, distance = 5 },
             { id = "d1", name = "Grey Drake", hp = 900, max_hp = 900, power_level = 6, distance = 20 },
             { id = "far", name = "Troll", hp = 900, power_level = 8, distance = 90 },
@@ -2577,7 +2577,14 @@ do
     -- 20 dmg x (1 hit + 1) / (3 resolved + 2) / 2 s = 4
     check("expected_dps: damage x share landed / rhythm", dps and math.abs(dps - 4) < 0.01, dps)
     check("expected_dps: explains itself", why and why.interval_s == 2 and why.n == 3, why and why.n)
-    check("enemy_dps reads it", math.abs((Cm.enemy_dps("Goblin Runt") or 0) - 4) < 0.01)
+    -- the game's attack damage outranks it (defense's per-attack rate read 2-3x low against his real deaths, 16-18 Nov)
+    local gd, gsrc = Cm.enemy_dps("Goblin Runt")
+    check("enemy_dps: the game's attack data first (mean 24.67 x landed rate)", gd and math.abs(gd - 24.67 * Cm.cfg.odds_landed_per_s) < 0.01
+        and gsrc == "game attack data", tostring(gd) .. " " .. tostring(gsrc))
+    Cm.set_data("creature_attacks", {})
+    local dd, dsrc = Cm.enemy_dps("Goblin Runt")
+    check("enemy_dps: no game data -> defense's learned rate, labelled rough", dd and math.abs(dd - 4) < 0.01 and tostring(dsrc):find("rough", 1, true) ~= nil, dsrc)
+    Cm.set_data("creature_attacks", nil) -- reload the real data file
     check("enemy_dps: unknown creature = nil (the prior decides)", Cm.enemy_dps("Troll") == nil)
     _G.DWDefense = nil
 
@@ -2640,6 +2647,8 @@ do
     for _, l in ipairs(read_activity()) do if l:find('"kind":"combat_started"', 1, true) then ev = l end end
     check("combat_started event: decision, weapon, estimates", ev and ev:find('"decision":"fight"', 1, true) and ev:find('"weapon":"', 1, true)
         and ev:find('"est_s_to_kill":', 1, true), ev)
+    check("combat_started event: the bands, the pack and where his rate comes from", ev and ev:find('"est_die":"', 1, true)
+        and ev:find('"est_kill":"', 1, true) and ev:find('"pack":', 1, true) and ev:find('"my_rate_from":"', 1, true), ev)
     local res = Cm._state().last.result
     check("result reports held_back_s", res and type(res.data.held_back_s) == "table", res and res.data.held_back_s)
     Cm.guard_stop(nil); A.reset(nil)
@@ -3387,6 +3396,70 @@ do
         s[1] and tostring(s[1].verdict))
     Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
     reset_world()
+end
+
+-- Fight odds against what his fights really did (16-18 Nov 2026, tools/fight_odds_truth.py; run 20261118-010135 at
+-- 592.8 s: bare hands vs a 100 HP Giant Rat read "likely win, 14 s to kill, 80 s to die"; a second rat joined, he dealt
+-- 90 in 74 s and died). The odds now count the pack, use his real rate and say their uncertainty.
+do
+    local st = Cm._state()
+    local saved_hits, saved_mem = st.hit_dmg, st.mem
+    st.hit_dmg, st.mem = {}, nil
+    local me = { hp = 100, max_hp = 100, pl = 1 }
+    local function rat(hp) local d, src = Cm.enemy_dps("Giant Rat"); return { name = "Giant Rat", hp = hp, max_hp = hp, pl = hp > 50 and 2 or 1, dps_obs = d, dps_src = src } end
+    -- bare hands: his real rate is a fraction of hit / cadence
+    local hands, hsrc = Cm.fight_rate(nil)
+    check("odds: bare hands at the measured rate (~1.3/s, not ~9/s)", hands and hands > 0.8 and hands < 2 and hsrc == "estimate", hands)
+    local a1 = Cm.assess({ hp = 100, max_hp = 100, pl = 1, dps = hands }, { rat(100), rat(50) }, Cm.orders)
+    check("odds: bare hands vs a rat and the one joining it is no likely win", a1.verdict ~= "likely_win" and a1.my_ttk > 60, tostring(a1.verdict) .. " " .. tostring(a1.my_ttk))
+    check("odds: the real 74 s to die falls inside the band", a1.die_lo <= 74 and a1.die_hi >= 74, tostring(a1.die_lo) .. "-" .. tostring(a1.die_hi))
+    check("odds: the band in words", Cm.band_words(a1.die_lo, a1.die_hi) ~= nil and Cm.band_words(a1.die_lo, a1.die_hi):find("%d+%-%d+ s") ~= nil, Cm.band_words(a1.die_lo, a1.die_hi))
+    local a0 = Cm.assess({ hp = 100, max_hp = 100, pl = 1, dps = hands }, { rat(100) }, Cm.orders)
+    check("odds: the same rat alone is still not called a likely win bare-handed", a0.verdict == "uncertain" or a0.verdict == "likely_lose", a0.verdict)
+    -- the sword he one-shots rats with (learned 48/hit): a likely win in a few seconds (measured median 6 s)
+    st.hit_dmg["Bronze Sword"] = 48.3
+    local sword = Cm.weapons().items.ITEM_Sword_Bronze
+    local a2 = Cm.assess({ hp = 100, max_hp = 100, pl = 1, dps = Cm.fight_rate(sword) }, { rat(50) }, Cm.orders)
+    check("odds: sword vs a 50 HP rat is a likely win, kill band around the measured 6 s", a2.verdict == "likely_win" and a2.kill_lo <= 6.3 and a2.kill_hi >= 6.3,
+        tostring(a2.verdict) .. " " .. tostring(a2.kill_lo) .. "-" .. tostring(a2.kill_hi))
+    -- a creature with no damage data at all: said so, not guessed into a verdict
+    local a3 = Cm.assess({ hp = 100, max_hp = 100, pl = 2, dps = Cm.fight_rate(sword) }, { { name = "Goblin Archer", hp = 120, max_hp = 120, pl = 2 } }, Cm.orders)
+    check("odds: no damage data -> unknown, naming the creature", a3.verdict == "unknown" and a3.unknown == "no damage data for Goblin Archer",
+        tostring(a3.verdict) .. " " .. tostring(a3.unknown))
+    -- get_state's per-creature odds count every hostile within aggro range of it
+    local odds = Cm.fight_odds(me, hands, {
+        { id = "r1", name = "Goblin Runt", hp = 60, max_hp = 60, power_level = 1, distance = 10, hostile = true, archetype = "Aggressive", position = { 10, 0, 0 } },
+        { id = "r2", name = "Goblin Runt", hp = 60, max_hp = 60, power_level = 1, distance = 15, hostile = true, archetype = "Aggressive", position = { 15, 0, 0 } },
+        { id = "r3", name = "Goblin Runt", hp = 60, max_hp = 60, power_level = 1, distance = 20, hostile = true, archetype = "Aggressive", position = { 20, 0, 0 } },
+        { id = "k1", name = "Kebbit", hp = 30, max_hp = 30, power_level = 1, distance = 35, hostile = false, archetype = "NeutralUntilAttacked", position = { 35, 0, 0 } } },
+        { weapon = "bare hands", from = hsrc })
+    local o1 = odds.r1 or {}
+    check("fight_odds: a runt's odds count its pack (3 within aggro range)", o1.pack == 3 and o1.hostiles == "Goblin Runt x3" and o1.verdict ~= "likely_win",
+        tostring(o1.pack) .. " " .. tostring(o1.hostiles) .. " " .. tostring(o1.verdict))
+    check("fight_odds: bands and sources said", o1.est_die ~= nil and o1.est_kill ~= nil and o1.damage_from == "game attack data" and o1.weapon == "bare hands",
+        tostring(o1.est_die) .. " " .. tostring(o1.damage_from))
+    check("fight_odds: a kebbit 15 m from the nearest runt fights alone", (odds.k1 or {}).pack == nil, (odds.k1 or {}).pack)
+    -- his own record replaces the priors (combat memory history; record_fight writes these fields)
+    local F = { t0 = 10, engage_t = 12, fought_until = 30, t = 36, max_pack = 1, dmg = 50, profile = { name = "Stone Club" },
+                target_name = "Giant Rat", kills = 1, dmg_taken = 12, phase_log = {} }
+    check("fight_span: first engage to the loot", Cm.fight_span(F) == 18, Cm.fight_span(F))
+    local m = { history = {} }
+    Cm.record_fight(m, F, { ok = true, data = {} })
+    Cm.record_fight(m, F, { ok = true, data = {} })
+    local h = m.history["giant rat"][1]
+    check("record_fight: fight_s, pack, dealt, hands", h.fight_s == 18 and h.pack == 1 and h.dealt == 50 and h.hands == "Stone Club",
+        tostring(h.fight_s) .. " " .. tostring(h.hands))
+    st.mem = m
+    local lr = Cm.learned_rates()
+    check("learned_rates: his rate with the club = dealt / (engaged - reach)", lr.mine["Stone Club"] and math.abs(lr.mine["Stone Club"].rate - 50 / 17) < 0.01,
+        lr.mine["Stone Club"] and lr.mine["Stone Club"].rate)
+    check("learned_rates: the rat's intake per attacker", lr.theirs["giant rat"] and math.abs(lr.theirs["giant rat"].dps - 12 / 18) < 0.01)
+    local club = Cm.weapons().items.ITEM_Club_Stone
+    local cr, csrc = Cm.fight_rate(club)
+    check("fight_rate: his own fights first", math.abs(cr - 50 / 17) < 0.01 and csrc == "his last 2 fights with it", csrc)
+    local ed, esrc = Cm.enemy_dps("Giant Rat")
+    check("enemy_dps: his own fights first", math.abs(ed - 12 / 18) < 0.01 and esrc == "his last 2 fights with it", esrc)
+    st.hit_dmg, st.mem = saved_hits, saved_mem
 end
 
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))

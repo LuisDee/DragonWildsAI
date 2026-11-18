@@ -185,13 +185,23 @@ def _resource_note(row: dict) -> str | None:
 # or other weapon is counted. Said so, because "too strong" read as final (prep eval 2026-10-26: Haiku
 # declined 4/4 hard fights without looking at combat_brief or his options).
 ODDS_WORDS = {"likely_win": "likely win", "likely_lose": "likely lose", "too_strong": "much stronger",
-              "outnumbered": "outnumbered", "boss": "a boss"}
+              "outnumbered": "outnumbered", "boss": "a boss", "uncertain": "could go either way",
+              "unknown": "unknown"}
 
 
 def _odds_times(o: dict) -> list[str]:
-    """'kills you ~20 s', 'you it ~75 s' from one odds row (now or prepared)."""
-    return [t for t in (f"kills you ~{o['die_s']:g} s" if _num(o.get("die_s")) is not None else "",
-                        f"you it ~{o['kill_s']:g} s" if _num(o.get("kill_s")) is not None else "") if t]
+    """'kills you in 40-180 s', 'you it in 25-80 s' from one odds row (now or prepared): the body's bands (its
+    estimate's measured spread over his real fights, combat.assess) when it sends them, else '~20 s'. A row with no
+    damage data for a creature says so ('no damage data for Goblin Archer') in place of a made-up time to die."""
+    if o.get("unknown"):
+        die = str(o["unknown"])
+    elif o.get("est_die"):
+        die = f"kills you in {o['est_die']}"
+    else:
+        die = f"kills you ~{o['die_s']:g} s" if _num(o.get("die_s")) is not None else ""
+    kill = (f"you it in {o['est_kill']}" if o.get("est_kill") else
+            f"you it ~{o['kill_s']:g} s" if _num(o.get("kill_s")) is not None else "")
+    return [t for t in (die, kill) if t]
 
 
 def _creature_note(e: dict, odds: dict) -> str | None:
@@ -210,6 +220,8 @@ def _creature_note(e: dict, odds: dict) -> str | None:
         t = _odds_times(o) if o["verdict"] != "likely_win" else []  # times matter in a hard fight (line budget)
         if _num(o.get("pl_gap")) and o["verdict"] != "likely_win":
             t.insert(0, f"PL +{o['pl_gap']:g}")
+        if o.get("hostiles") and _num(o.get("pack")) and o["pack"] > 1:  # the hostiles within aggro range of it
+            t.insert(0, f"with {o['hostiles']}")
         bits.append(f"odds now: {ODDS_WORDS.get(o['verdict'], o['verdict'])}" + (f" ({'; '.join(t)})" if t else ""))
         known = o.get("known") if isinstance(o.get("known"), dict) else {}
         if known:  # what he knows of its damage-type affinities, each with its source (learned/journal/prior)
@@ -1188,8 +1200,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         return isinstance(o, dict) and bool(o.get("verdict")) and o["verdict"] != "likely_win"
     creatures = sorted(_group([t for t in things if t.kind == "creature"]),
                        key=lambda g: (not (g.hostile or _hard(g)), g.distance if g.distance is not None else 1e9))
-    odds_note = (" (the body's odds, you alone: 'now' = as equipped; 'prepared' = with what you own and can cast;"
-                 " blocking, dodging and armour not counted)") if state.get("fight_odds") else ""
+    odds_note = (" (the body's odds, you alone against it and the hostiles near it, times as the range your real fights"
+                 " gave: 'now' = as equipped; 'prepared' = with what you own and can cast)") if state.get("fight_odds") else ""
     lines.append(_line("Creatures" + odds_note, [("hostile " if g.hostile else "") + g.label() for g in creatures],
                        CREATURE_LINE_CHARS if odds_note else LINE_CHARS) if creatures else no_creatures_line(state, far))
 

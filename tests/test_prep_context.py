@@ -54,8 +54,32 @@ def test_an_easy_creature_shows_easy_odds():
 
 
 def test_the_odds_say_what_they_assume():
-    """Truthful scope: the estimate counts only what he holds now (no shield, buff, enchant, food)."""
-    assert line("Creatures").startswith("Creatures (the body's odds, you alone: 'now' = as equipped; 'prepared' = with what you own and can cast; blocking, dodging and armour not counted): ")
+    """Truthful scope: the estimate counts only what he holds now (no shield, buff, enchant, food), the hostiles near
+    the creature, and its times are the range his real fights gave (calibrated: his blocks and dodges are in it)."""
+    assert line("Creatures").startswith("Creatures (the body's odds, you alone against it and the hostiles near it, times as "
+                                        "the range your real fights gave: 'now' = as equipped; 'prepared' = with what you own "
+                                        "and can cast): ")
+
+
+def test_bands_pack_and_unknown_are_said():
+    """The calibrated odds (combat.fight_odds 2026-11-18): a band, not a point; the pack within aggro range; no made-up
+    time to die for a creature with no damage data; 'could go either way' when the bands overlap."""
+    st = dict(STATE)
+    st["nearby_entities"] = [
+        {"id": "r1", "name": "Giant Rat", "distance": 8, "hostile": True, "hp": 100, "max_hp": 100, "power_level": 2, "alive": True},
+        {"id": "a1", "name": "Goblin Archer", "distance": 25, "hostile": True, "hp": 120, "max_hp": 120, "power_level": 2, "alive": True}]
+    st["fight_odds"] = {
+        "r1": {"verdict": "likely_lose", "kill_s": 320, "die_s": 116, "est_kill": "270 s to over 10 min", "est_die": "40-190 s",
+               "pack": 2, "hostiles": "Giant Rat x2", "pl_gap": 1},
+        "a1": {"verdict": "unknown", "kill_s": 5, "die_s": 13, "est_kill": "5-14 s", "est_die": "5-21 s",
+               "unknown": "no damage data for Goblin Archer", "pl_gap": 1}}
+    c = next(l for l in summary(st) if l.startswith("Creatures"))
+    assert "odds now: likely lose (with Giant Rat x2; PL +1; kills you in 40-190 s; you it in 270 s to over 10 min)" in c, c
+    assert "odds now: unknown (PL +1; no damage data for Goblin Archer; you it in 5-14 s)" in c, c
+    assert "kills you in 5-21 s" not in c  # a guess is not shown as a time to die
+    st["fight_odds"]["r1"]["verdict"] = "uncertain"
+    c = next(l for l in summary(st) if l.startswith("Creatures"))
+    assert "odds now: could go either way (with Giant Rat x2" in c, c
 
 
 def test_his_own_level_is_beside_them():
