@@ -218,9 +218,23 @@ def test_the_first_done_trial_is_kept_as_the_next_checkpoint_once_the_game_has_s
         os.utime(qc.SAVE_DIR / f"{ns.character}.json", (q.time.time() + 60, q.time.time() + 60))  # the autosave after it
         return 0
     monkeypatch.setattr(q, "cmd_run", run)
+    # the checkpoint is a pair (tools/checkpoint_pair.py, tested there): the save and the world after the run; here
+    # the window must hand it the fork that played and the run's end, the world part faked
+    from tools import checkpoint_pair as cp
+    asked = []
+
+    def keep(self, label, name, t_end, wait_s, note="", window=""):
+        asked.append((label, name, wait_s))
+        assert (qc.SAVE_DIR / f"{name}.json").stat().st_mtime > t_end  # the game's save after the run
+        (qc.CHECKPOINT_DIR / f"{label}.json").write_bytes((qc.SAVE_DIR / f"{name}.json").read_bytes())
+        return {"kept": True, "label": label}
+    monkeypatch.setattr(cp.Pairs, "keep", keep)
     assert q.cmd_step(step_args(k=1, save_as="rm_part3")) == 0
     kept = json.loads((qc.CHECKPOINT_DIR / "rm_part3.json").read_text(encoding="utf-8"))
     assert kept["meta_data"]["char_name"].startswith("ClaudeS")  # the fork's save, as the game wrote it after the run
+    assert asked == [("rm_part3", kept["meta_data"]["char_name"], q.AUTOSAVE_S)]
+    row = json.loads(q.STEP_OUT.read_text(encoding="utf-8"))
+    assert row["saved_as"].endswith("rm_part3.json") and row["saved_pair"]["kept"] is True
 
 
 def test_the_window_stops_forking_when_the_time_left_would_not_fit_a_trial(window, monkeypatch):

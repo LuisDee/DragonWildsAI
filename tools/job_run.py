@@ -22,6 +22,10 @@ A mid-job checkpoint (the window recipe, each window from the named world, in th
         its save can hold the whole job (window 1118d: job_n1_mid had all 20 ash and 10 stone carried).
     then per step, a new restore and: job_run trial --job N1 --interrupt I<n> -k 5   (from data/jobs.json interrupt_from)
 A probe (--until first_step or mid) is recorded with probe: true and is never a trial (not_counted, failure_ledger).
+--save-as keeps a checkpoint PAIR (tools/checkpoint_pair.py): his save and the world, both written after the trial
+ended (the client and server are stopped for the world copy, up to 5.5 min of waiting first). A trial --from a pair
+restores its world and plays the checkpoint's own character (same guid and name) instead of a new fork, so what he
+built or claimed before the checkpoint is still his; --from ClaudeDev or a plain checkpoint forks freshly as before.
     .venv\\Scripts\\python.exe -m tools.job_run rates            # pass rate and streak per job and per step; held-out apart
     .venv\\Scripts\\python.exe -m tools.job_run show RUN         # one run's scores (a held-out run's trace stays hidden)
 
@@ -1981,6 +1985,17 @@ def cmd_window(a, step: str | None) -> int:
     if (why := save_unfit(src)) is not None:
         print(f"not running: {why}")
         return 3
+    # a checkpoint pair (tools/checkpoint_pair.py): every trial restores the checkpoint's world and plays its own
+    # character (same guid and name); a job's start or a plain checkpoint forks freshly as before
+    from tools import checkpoint_pair as cpair
+    others_ok = getattr(a, "others_ok", "") or ""
+    pairs, pair, why = cpair.window_pair(ref, others_ok, a.save_as)
+    if why:
+        print(f"not running: {why}")
+        return 2
+    if pair:
+        print(f"{ref} is a checkpoint pair: each trial restores world {pair['world']} and plays {pair['char_name']} "
+              f"(guid {pair['char_guid']}) as that checkpoint saved him")
     print(f"{a.job}{' / ' + rung if rung else ''}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
           + (f"the interruption goes in at {trigger}; " if step else "") +
           f"each up to {a.max_haiku} Haiku calls (controller) plus the Planner (Sonnet), capped at ${a.usd} a trial on "
@@ -1991,25 +2006,42 @@ def cmd_window(a, step: str | None) -> int:
     forks = [f"ClaudeJ{stamp}{chr(97 + i)}" for i in range(min(a.k, 26))]
     out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "job": a.job, "step": step, "from": ref,
            "source": str(src), "k": a.k, "place": place, "holder": a.holder, "trials": []}
+    if pair:
+        out["pair"] = {k: pair[k] for k in ("world", "char_name", "char_guid", "char_saved_at")}
     used = []
     old = os.environ.get("DW_GATE_DIRECTOR")
     os.environ["DW_GATE_DIRECTOR"] = "1" if a.holder == "board" else "0"  # chat_ladder.start_brain reads it
     try:
         with q.clone_window(a.wait, out, WINDOW_OUT) as (sw, cli, t0):
-            for name in forks:
+            for i, name in enumerate(forks):
                 if STOP_FILE.exists():
                     out["trials"].append({"character": name, "skipped": f"{STOP_FILE.name} present"})
                     break
-                left = a.window_s - a.reserve_s - (time.time() - t0) - q.SWITCH_S
+                left = a.window_s - a.reserve_s - (time.time() - t0) - q.SWITCH_S - (cpair.PAIR_S if pair else 0)
                 if left < 120:
                     out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left"})
                     break
                 try:
-                    quest_clone.fork(ref, name)
+                    got = cpair.start_character(ref, name, pair, pairs, quest_clone.fork, others_ok)
                 except SystemExit as exc:
                     raise RuntimeError(f"fork: {exc}") from None
-                used.append(name)
+                except cpair.Refused as exc:
+                    raise RuntimeError(f"checkpoint pair: {exc}") from None
+                name = got["name"]
+                if not got["paired"]:
+                    used.append(name)
+                else:
+                    print(f"[{time.time() - t0:6.1f}s] {ref}: world {pair['world']} restored and {name} written back "
+                          f"in {got['prep']['s']} s; parked {got['prep']['parked']}; "
+                          f"deaths forgotten {len(got['prep']['deaths_forgotten'])}")
                 made = sw.ensure(name, create=False, wait_s=150)
+                fault = cpair.identity_fault(made, pair)
+                if fault:  # the harness's: every trial of this pair would meet it
+                    out["trials"].append({"character": name, "skipped": fault, "void": "harness"})
+                    print(f"{name}: {fault}")
+                    break
+                if got["paired"]:
+                    got["prep"]["file_after_join"] = pairs.file_check(pair, got["prep"]["written_at"])
                 bad_start = unfit(cli)  # the body this fork starts as (an unread state refuses too)
                 if bad_start:
                     out["trials"].append({"character": name, "skipped": bad_start})
@@ -2023,7 +2055,9 @@ def cmd_window(a, step: str | None) -> int:
                 dev = default_dev()
                 dev.brain_running = lambda: False
                 dev.character_guid, dev.character_name = made["guid"], name  # the fixture guard wants the fork's guid
-                ns = argparse.Namespace(**{**vars(a), "world": f"dev_{name}", "in_lock": True, "start_brain": True,
+                # the brain's per-world memory: a fresh one per trial (a pair's trials share a name, never a memory)
+                memory = f"dev_{name}_{chr(97 + i)}" if got["paired"] else f"dev_{name}"
+                ns = argparse.Namespace(**{**vars(a), "world": memory, "in_lock": True, "start_brain": True,
                                            "use_running_brain": False})
                 from tools import chat_ladder as cl
                 nav_why = wait_nav(cl.nav_not_ready, time.sleep)  # I4 of window 1118d: skipped on a stale heartbeat
@@ -2061,18 +2095,35 @@ def cmd_window(a, step: str | None) -> int:
                 out["trials"].append(row)
                 print(json.dumps(scores_of(rec), default=str)[:600] if job.get("held_out") else
                       json.dumps(row, default=str))
+                if got["paired"]:
+                    out["trials"][-1]["prep"] = {k: got["prep"].get(k) for k in
+                                                 ("s", "parked", "deaths_forgotten", "file_after_join")}
+                keep_tried = False
                 if a.save_as and "saved_as" not in out:
                     good, why_save = save_ok(rec, a.until)
-                    if good:
-                        kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=q.AUTOSAVE_S)
-                        out["saved_as"] = str(kept) if kept else f"no save of {name} within {q.AUTOSAVE_S:.0f} s"
-                        out["saved_at"] = rec.get("mid") or {"ended": rec["ended"]}
-                        if rung and kept:  # what he made so far goes with the save, for the next rung
-                            out["ladder"] = str(write_ladder(rec, a.save_as, ladder))
+                    if good:  # the pair: his save and the world, both written after the trial ended
+                        keep_tried = True
+                        try:
+                            kept = pairs.keep(a.save_as, name, t_end=t_end, wait_s=q.AUTOSAVE_S,
+                                              note=f"job {a.job} run {rec['run']}", window=out["window"])
+                        except cpair.Refused as exc:
+                            kept = {"kept": False, "why": str(exc)}
+                        good = kept["kept"]
+                        if good:
+                            out["saved_as"] = str(pairs.checkpoint_dir / f"{a.save_as}.json")
+                            out["saved_pair"] = kept
+                            out["saved_at"] = rec.get("mid") or {"ended": rec["ended"]}
+                            if rung:  # what he made so far goes with the save, for the next rung
+                                out["ladder"] = str(write_ladder(rec, a.save_as, ladder))
+                        else:  # the next trial tries again
+                            why_save = f"{why_save}; pair not kept: {kept['why']}"
+                            out["trials"][-1]["not_saved"] = why_save
                     else:
                         out["trials"][-1]["not_saved"] = why_save
                     print(f"{name}: {'saved as ' + a.save_as if good else 'not saved'}: {why_save}")
-                if a.regrow_days > 0:  # on the fork that has played, never on the one about to
+                # on the fork that has played, never on the one about to; not when the next trial restores the world
+                # anyway (a pair), nor after a pair keep (it stopped the client)
+                if a.regrow_days > 0 and not got["paired"] and not keep_tried:
                     out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
                                                                   vitals=q.vitals_of(cli))
     finally:
@@ -2082,6 +2133,8 @@ def cmd_window(a, step: str | None) -> int:
             os.environ["DW_GATE_DIRECTOR"] = old
     if out.get("back") and not a.keep_forks:
         print("parked:", quest_clone.park(used))
+        if pair:  # the last trial's end, as the record of where it ended (never over an earlier one)
+            print("parked:", pairs.park(pair["char_name"], time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())))
     done_ = [t for t in out["trials"] if "pass" in t]
     print(f"== {a.job}{' / ' + rung if rung else ''}{' / ' + step if step else ''} from {ref}: {sum(1 for t in done_ if t['pass'])} of {len(done_)} passed")
     return 0 if done_ and all(t["pass"] for t in done_) else 1
@@ -2165,6 +2218,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--reserve-s", type=float, default=240.0)
         p.add_argument("--regrow-days", type=int, default=3)
         p.add_argument("--keep-forks", action="store_true")
+        p.add_argument("--others-ok", default="", metavar="WORDS", help="a checkpoint pair's world is restored "
+                       "although another player joined since it was kept (world_snapshot's rule): Luis's words")
         p.add_argument("--dirty-ok", metavar="REASON")
     rt = sub.add_parser("rates")
     rt.add_argument("-n", type=int, default=10)

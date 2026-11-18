@@ -27,6 +27,10 @@ undo-<UTC time>, then empties the world's folders (the server loads the NEWEST .
 a cache cell the snapshot does not have would be stale), copies the snapshot back and checks every sha256.
 Snapshots live in logs/world_snapshots/<label>/ (logs/ is gitignored: saves are never committed) with manifest.json.
 
+tools/checkpoint_pair.py keeps a world as ck-<checkpoint> beside a character checkpoint and restores it between the
+trials of one window: it passes own_pid (the live lock its own window holds is not a blocker) and stops the client and
+server itself; the rules above are otherwise the same.
+
 Only the two world folders are read or written. Character saves (SaveCharacters, ClaudeDev.json), client_io/ and the
 server's config are not this tool's. evals/bench/snapshot.py (route B, never run live) is the older tool for a world
 plus one character with its own stop/start; this one is the world alone and touches no process.
@@ -238,8 +242,10 @@ class Store:
                 "missing": missing, "changed": changed, "extra": extra}
 
     # ------------------------------------------------------------------------------------------------- guards
-    def blockers(self, lock: bool) -> list[str]:
-        """Why a copy must not run now ([] = it may). Read only: nothing is stopped, started or claimed."""
+    def blockers(self, lock: bool, own_pid: int | None = None) -> list[str]:
+        """Why a copy must not run now ([] = it may). Read only: nothing is stopped, started or claimed.
+        own_pid: the live lock held by this pid is the caller's own window (tools/checkpoint_pair.py restores a
+        checkpoint's world between the trials of one window, with the client stopped), not someone driving him."""
         out = []
         r = self.running()
         if r is None:
@@ -252,7 +258,7 @@ class Store:
                        "stop it with tools\\stop_server.ps1 -Hold")
         if lock:
             cur = self.lock()
-            if cur and not cur.get("stale"):
+            if cur and not cur.get("stale") and not (own_pid and cur.get("pid") == own_pid):
                 out.append(f"the live lock is held ({cur.get('text')}): someone is driving his body")
         return out
 
@@ -266,13 +272,14 @@ class Store:
                 "checked_from": first}
 
     # ------------------------------------------------------------------------------------------------ writing
-    def keep(self, label: str, note: str = "", _undo_of: str | None = None, _lock: bool = False) -> dict:
+    def keep(self, label: str, note: str = "", _undo_of: str | None = None, _lock: bool = False,
+             _own_pid: int | None = None) -> dict:
         if not LABEL_RE.fullmatch(label or "") or (label.startswith(UNDO) and _undo_of is None):
             raise Refused(f"{label!r} is not a plain label (letters, digits, _ and -, at most 40; {UNDO}* is restore's)")
         dest = self.root / label
         if dest.exists():
             raise Refused(f"snapshot {label!r} exists: a label is never overwritten")
-        why = self.blockers(lock=_lock)
+        why = self.blockers(lock=_lock, own_pid=_own_pid)
         if why:
             raise Refused("; ".join(why))
         files = self.world_files()
@@ -308,7 +315,7 @@ class Store:
             raise
         return man
 
-    def plan(self, label: str, others_ok: str = "") -> dict:
+    def plan(self, label: str, others_ok: str = "", own_pid: int | None = None) -> dict:
         """What restore would do, from a snapshot that is whole (it is hashed first). Changes nothing."""
         man = self.manifest(label)
         v = self.verify(label)
@@ -316,7 +323,7 @@ class Store:
             raise Refused(f"snapshot {label!r} is not whole (missing {v['missing']}, changed {v['changed']}, "
                           f"extra {v['extra']}): not restoring from it")
         d = self.root / label
-        why, seen, notes = self.blockers(lock=True), self.others_since(man.get("taken_at")), []
+        why, seen, notes = self.blockers(lock=True, own_pid=own_pid), self.others_since(man.get("taken_at")), []
         if seen["others"]:
             names = ", ".join(sorted({n for _, n in seen["others"]}))
             said = (f"{names} joined the server after this snapshot was kept (first at {seen['others'][0][0]}): the "
@@ -337,31 +344,44 @@ class Store:
                 "copy": [(str(d / Path(rel)), str(self.saved / Path(rel)), rec["size"]) for rel, rec in man["files"].items()],
                 "build_now": self.build()}
 
-    def restore(self, label: str, others_ok: str = "") -> dict:
-        """Keep the world as undo-<utc>, empty the world's folders, copy the snapshot back, check every sha256."""
-        pl = self.plan(label, others_ok)
+    def restore(self, label: str, others_ok: str = "", own_pid: int | None = None, undo: bool = True) -> dict:
+        """Keep the world as undo-<utc>, empty the world's folders, copy the snapshot back, check every sha256.
+        own_pid: see blockers. undo=False keeps no undo first: only for putting an undo back over a world a restore
+        left torn (tools/checkpoint_pair.py), which is not worth keeping. A Refused raised after the world was
+        touched carries .undo, the label that puts it back (None when no undo was kept)."""
+        pl = self.plan(label, others_ok, own_pid)
         if pl["blockers"]:
             raise Refused("; ".join(pl["blockers"]))
         man = pl["manifest"]
-        undo = self.keep(pl["undo"], note=f"the world before restore of {label}" + (f"; others ok: {others_ok}" if others_ok else ""),
-                         _undo_of=label, _lock=True)
-        back = f"the world before it is kept as {pl['undo']} (restore {pl['undo']} --confirm puts it back)"
+        if undo:
+            kept = self.keep(pl["undo"], note=f"the world before restore of {label}" + (f"; others ok: {others_ok}" if others_ok else ""),
+                             _undo_of=label, _lock=True, _own_pid=own_pid)
+            gone, undo_label = list(kept["files"]), pl["undo"]
+            back = f"the world before it is kept as {undo_label} (restore {undo_label} --confirm puts it back)"
+        else:
+            gone, undo_label, back = self.world_files(), None, "no undo was kept (undo=False)"
+
+        def torn(msg: str, cause: BaseException | None = None) -> Refused:
+            exc = Refused(msg)
+            exc.undo = undo_label
+            exc.__cause__ = cause
+            return exc
         try:
-            for rel in undo["files"]:  # only files the undo snapshot holds, hashed, are removed
+            for rel in gone:  # only files the undo snapshot holds, hashed, are removed
                 (self.saved / rel).unlink()
             for rel in man["files"]:
                 to = self.saved / rel
                 to.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(self.root / label / rel, to)  # with its time: of two .sav the newer stays the newer
         except OSError as exc:
-            raise Refused(f"restore of {label} stopped half way ({exc}): the world folders are NOT whole; {back}") from exc
+            raise torn(f"restore of {label} stopped half way ({exc}): the world folders are NOT whole; {back}", exc)
         bad = [rel for rel, rec in man["files"].items()
                if not (self.saved / rel).is_file() or sha256(self.saved / rel) != rec["sha256"]]
         stray = sorted(set(self.world_files()) - set(man["files"]))
         if bad or stray or self.running() is not False:
-            raise Refused(f"restore of {label} did not verify (wrong sha256: {bad}; files not in the snapshot: {stray}; "
-                          f"server running: {self.running()}): do not start the server on it; {back}")
-        return {"restored": label, "files": len(man["files"]), "bytes": man.get("total_bytes"), "undo": pl["undo"],
+            raise torn(f"restore of {label} did not verify (wrong sha256: {bad}; files not in the snapshot: {stray}; "
+                       f"server running: {self.running()}): do not start the server on it; {back}")
+        return {"restored": label, "files": len(man["files"]), "bytes": man.get("total_bytes"), "undo": undo_label,
                 "to": str(self.saved)}
 
 

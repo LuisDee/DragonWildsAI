@@ -15,7 +15,8 @@ Working one quest (or one step of it) alone, before any chain (docs/GOAL-2026-11
     ... -m tools.quest_run step --confirm --from rm_part2 --quest "Rune Mysteries" -k 5    # 5 trials from a checkpoint
     ... -m tools.quest_run rates                                  # pass rate and streak per item, void runs left out
 `step` forks a checkpoint (tools/quest_clone.py) into K new characters in ONE lock window, runs the quest on each and
-prints passes of K. `fresh` (the whole chain: the 3-in-a-row gate) refuses to start while a quest in it has not passed
+prints passes of K. A checkpoint kept by --save-as is a pair (tools/checkpoint_pair.py: the save and the world of
+that moment); each trial from a pair restores its world and plays its own character (same guid) instead of a fork. `fresh` (the whole chain: the 3-in-a-row gate) refuses to start while a quest in it has not passed
 4 of its last 5 counted trials.
 """
 from __future__ import annotations
@@ -816,24 +817,43 @@ def cmd_step(a) -> int:
     if a.save_as and (quest_clone.CHECKPOINT_DIR / f"{a.save_as}.json").exists():
         print(f"checkpoint {a.save_as!r} exists already: pick a new --save-as label")
         return 2
+    # a checkpoint pair (tools/checkpoint_pair.py): every trial restores its world and plays its own character
+    from tools import checkpoint_pair as cpair
+    others_ok = getattr(a, "others_ok", "") or ""
+    pairs, pair, why = cpair.window_pair(a.checkpoint, others_ok, a.save_as)
+    if why:
+        print(f"not running: {why}")
+        return 2
     stamp = time.strftime("%d%H%M", time.gmtime())
     forks = [f"ClaudeS{stamp}{chr(97 + i)}" for i in range(min(a.k, 26))]
     out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "checkpoint": a.checkpoint, "source": str(src),
            "quest": a.quest, "until_step": a.until_step, "k": a.k, "place": place, "trials": []}
+    if pair:
+        out["pair"] = {k: pair[k] for k in ("world", "char_name", "char_guid", "char_saved_at")}
     used = []
     with clone_window(a.wait, out, STEP_OUT) as (sw, cli, t0):
-        for name in forks:
-            left = a.window_s - a.reserve_s - (time.time() - t0) - SWITCH_S
+        for i, name in enumerate(forks):
+            left = a.window_s - a.reserve_s - (time.time() - t0) - SWITCH_S - (cpair.PAIR_S if pair else 0)
             if left < 90:
                 out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left"})
                 break
             try:
-                quest_clone.fork(a.checkpoint, name)
+                got = cpair.start_character(a.checkpoint, name, pair, pairs, quest_clone.fork, others_ok)
             except SystemExit as exc:  # a refusal (the name is taken): the window's error, and the forks before it still get parked
                 raise RuntimeError(f"fork: {exc}") from None
-            used.append(name)
+            except cpair.Refused as exc:
+                raise RuntimeError(f"checkpoint pair: {exc}") from None
+            name = got["name"]
+            if not got["paired"]:
+                used.append(name)
             made = sw.ensure(name, create=False, wait_s=150)
             print(f"[{time.time() - t0:6.1f}s] on {name}: {made}")
+            fault = cpair.identity_fault(made, pair)
+            if fault:
+                out["trials"].append({"character": name, "skipped": fault, "void": "harness"})
+                break
+            if got["paired"]:
+                got["prep"]["file_after_join"] = pairs.file_check(pair, got["prep"]["written_at"])
             start = to_start(cli, place)
             if start is not None:
                 print(f"[{time.time() - t0:6.1f}s] to the checkpoint's place: {start}")
@@ -842,18 +862,34 @@ def cmd_step(a) -> int:
                     out["trials"].append({"character": name, "start": start, "skipped": "not at the checkpoint's place"
                                           if not start["ok"] else f"window: {left:.0f} s left after the walk"})
                     continue
+            memory = f"dev_{name}_{chr(97 + i)}" if got["paired"] else f"dev_{name}"  # a pair's trials share a name only
             ns = ap_.Namespace(confirm=True, quest=a.quest, line=list(line), until="complete", until_step=a.until_step,
-                               deadline=min(a.deadline, left), max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}",
+                               deadline=min(a.deadline, left), max_haiku=a.max_haiku, usd=a.usd, world=memory,
                                wait=0, grant=[], judge=False, in_lock=True, no_heal=True, character=name,
                                checkpoint=a.checkpoint)
             rc = cmd_run(ns)
             t_end = time.time()
             last = _last_run()
             out["trials"].append({"character": name, "rc": rc, "at_s": round(t_end - t0, 1), "start": start, **_summary(last)})
+            if got["paired"]:
+                out["trials"][-1]["prep"] = {k: got["prep"].get(k) for k in
+                                             ("s", "parked", "deaths_forgotten", "file_after_join")}
+            keep_tried = False
             if a.save_as and last.get("done") and "saved_as" not in out:
-                kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=AUTOSAVE_S)
-                out["saved_as"] = str(kept) if kept else f"no save of {name} within {AUTOSAVE_S:.0f} s"
-            if a.regrow_days > 0:  # now, on the fork that has played (after any --save-as): never on one about to play
+                keep_tried = True
+                try:  # the pair: his save and the world, both written after the trial ended
+                    kept = pairs.keep(a.save_as, name, t_end=t_end, wait_s=AUTOSAVE_S,
+                                      note=f"quest {a.quest} run {last.get('run')}", window=out["window"])
+                except cpair.Refused as exc:
+                    kept = {"kept": False, "why": str(exc)}
+                if kept["kept"]:
+                    out["saved_as"] = str(pairs.checkpoint_dir / f"{a.save_as}.json")
+                    out["saved_pair"] = kept
+                else:  # the next done trial tries again
+                    out["trials"][-1]["not_saved"] = f"pair not kept: {kept['why']}"
+            # now, on the fork that has played (after any --save-as): never on one about to play; not for a pair's
+            # trials (the next one restores the world) nor after a pair keep (it stopped the client)
+            if a.regrow_days > 0 and not got["paired"] and not keep_tried:
                 from evals.bench.devrun import default_dev
                 dev = default_dev()
                 dev.brain_running = lambda: False
@@ -866,6 +902,8 @@ def cmd_step(a) -> int:
                 print(f"[{time.time() - t0:6.1f}s] game clock moved on: {grown}")
     if out.get("back") and not a.keep_forks:  # back on ClaudeDev: the forks' saves leave the character list
         print("parked:", quest_clone.park(used))
+        if pair:
+            print("parked:", pairs.park(pair["char_name"], time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())))
     done = [t for t in out["trials"] if "pass" in t]
     print(f"== {a.quest} from {a.checkpoint}: {sum(1 for t in done if t['pass'])} of {len(done)} passed "
           f"({', '.join('PASS' if t['pass'] else 'FAIL ' + str(t['ended']) for t in done)})")
@@ -945,6 +983,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--deadline", type=float, default=600.0, help="per trial")
     st.add_argument("--save-as", metavar="LABEL", help="keep the first done trial's next save as this checkpoint")
     st.add_argument("--keep-forks", action="store_true", help="leave the forks in the character list")
+    st.add_argument("--others-ok", default="", metavar="WORDS", help="a checkpoint pair's world is restored although "
+                    "another player joined since it was kept (world_snapshot's rule): Luis's words")
     st.add_argument("--regrow-days", type=int, default=3, help="game days the dev clock is moved on after each trial, so "
                     "what it mined has grown back for the next (0: leave the clock alone)")
     st.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")

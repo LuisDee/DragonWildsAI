@@ -315,3 +315,41 @@ def test_server_joins_reads_the_servers_own_log_lines(tmp_path):
     assert ws.server_joins(tmp_path) == ([("2026-11-17T14:18:20Z", "Claude"), ("2026-11-17T15:02:00Z", "Some One")],
                                          "2026-11-17T14:18:13Z")
     assert ws.server_joins(tmp_path / "none") == ([], None)
+
+
+# ------------------------------------------------------------------ inside a window's own lock (tools/checkpoint_pair.py)
+def test_restore_inside_the_lock_this_process_holds(tmp_path):
+    """A trial from a checkpoint pair restores its world between trials, inside the window's own lock: the lock held
+    by this pid is not a blocker; one held by any other pid still is."""
+    r = Rig(tmp_path)
+    kept = tree(r.saved)
+    r.s.keep("base")
+    moved_on(r)
+    r.lock = {"owner": "jobs", "text": "jobs 2026-11-18T07:00:00Z pid=4242", "pid": 4242, "stale": False}
+    with pytest.raises(ws.Refused, match="live lock is held"):
+        r.s.restore("base")
+    with pytest.raises(ws.Refused, match="live lock is held"):
+        r.s.restore("base", own_pid=99)
+    r.s.restore("base", own_pid=4242)
+    assert tree(r.saved) == kept
+
+
+def test_restore_without_an_undo_and_a_half_way_stop_names_its_undo(tmp_path, monkeypatch):
+    r = Rig(tmp_path)
+    kept = tree(r.saved)
+    r.s.keep("base")
+    moved_on(r)
+    r.s.restore("base", undo=False)  # the recovery of a torn restore: the torn world is not kept
+    assert tree(r.saved) == kept and r.labels() == ["base"]
+    moved_on(r)
+    real_copy = ws.shutil.copy2
+
+    def disk_full(src, dst, *a, **k):
+        if "SpudCache" in str(dst) and "snaps" not in str(dst):
+            raise OSError("disk full")
+        return real_copy(src, dst, *a, **k)
+    monkeypatch.setattr(ws.shutil, "copy2", disk_full)
+    r.now = T0 + 60
+    with pytest.raises(ws.Refused, match="half way") as e:
+        r.s.restore("base")
+    assert e.value.undo == "undo-20261118T110740Z"
