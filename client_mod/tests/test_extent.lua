@@ -105,6 +105,12 @@ check("census: the row tells where that nearest point is and how big the water i
 local chest_row
 for _, x in ipairs(rows) do if tostring(x.id):find("WorldChest", 1, true) then chest_row = x end end
 check("census: a thing with no extent 99 m off stays out of an 80 m look", chest_row == nil)
+-- id_has (collect_water's far look for the nearest pond): only those things are described, nothing else in the radius
+local function ids_of(cc) local t = {}; for _, x in ipairs((cc and cc.interactables) or {}) do t[#t + 1] = tostring(x.id) end; return t end
+local all = ids_of(S.census(nil, { radius_m = 200, kinds = { interactables = true } }))
+local only = ids_of(S.census(nil, { radius_m = 200, kinds = { interactables = true }, lean = true, id_has = "WaterVolume" }))
+check("census: without id_has the chest 99 m off is listed in 200 m", #all == 2, table.concat(all, ","))
+check("census: id_has lists the pond alone", #only == 1 and only[1]:find("WaterVolume", 1, true) ~= nil, table.concat(only, ","))
 c = S.census(nil, { radius_m = 60 })
 row = nil
 for _, x in ipairs((c and c.interactables) or {}) do if tostring(x.id):find("WaterVolume", 1, true) then row = x end end

@@ -1197,7 +1197,8 @@ function M.census(log, opts)
         if id and seen[id] and by_id[id] and not by_id[id].prompt then
             -- an already-listed entity that is also interactable (gatherable "Collect", sapling "Uproot")
             by_id[id].prompt = text(U.try(function() return ic.InteractionPrompt end))
-        elseif id and not seen[id] then
+        elseif id and not seen[id] and (not opts.id_has or id:find(opts.id_has, 1, true)) then
+            -- opts.id_has (one kind of thing looked for far out, e.g. "WaterVolume"): no other interactable is described
             -- a thing with an extent (a pond) is in the radius when its nearest point is, and that far off
             local ext = M.extent_of(a, id)
             local edge = ext and M.box_nearest(origin, ext.mid, ext.ha, ext.hb, ext.hz, ext.yaw) or nil

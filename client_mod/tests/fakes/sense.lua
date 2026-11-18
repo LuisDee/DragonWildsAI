@@ -127,6 +127,16 @@ function M.census(log, opts)
             end
         end
         table.sort(list, function(a, b) return a.distance < b.distance end)
+        -- opts.id_has (as the real census): an interactable whose id lacks it is not described
+        if opts and opts.id_has and cat == "interactables" then
+            local kept = {}
+            for _, c in ipairs(list) do if tostring(c.id):find(opts.id_has, 1, true) then kept[#kept + 1] = c end end
+            list = kept
+        end
+        -- FAKE.census_caps: the real census's per-category cap (the max nearest of each category but players)
+        if F.census_caps and cat ~= "players" then
+            for i = #list, ((opts and opts.max) or 40) + 1, -1 do list[i] = nil end
+        end
         out[cat] = list
     end
     out.beyond = F.beyond -- the kinds the real census's caps cut off (sense.digest_cut); the fake cuts nothing

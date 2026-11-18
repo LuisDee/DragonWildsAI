@@ -1039,7 +1039,9 @@ M.CENSUS_FIND_MAX = 2000
 local function census_things(radius_m, max_per_cat, near, opts)
     opts = opts or {}
     local max = max_per_cat or 40
-    local r = call("sense", "census", { radius_m = radius_m, max = opts.keep and M.CENSUS_FIND_MAX or max, near = near, kinds = opts.kinds })
+    -- opts.id_has: only interactables whose id holds it are described (a lean census: no other category's pass)
+    local r = call("sense", "census", { radius_m = radius_m, max = opts.keep and M.CENSUS_FIND_MAX or max, near = near, kinds = opts.kinds,
+                                        id_has = opts.id_has, lean = opts.id_has ~= nil and opts.kinds ~= nil or nil })
     if not r.ok then return nil, r end
     local out = {}
     for _, cat in ipairs(CATS) do

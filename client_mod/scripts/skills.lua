@@ -3217,6 +3217,34 @@ end
 -- episode (bank spot from move.shore_point, arrival within water_reach_m of the surface, the detector must read
 -- the volume / "Collect Water", one press, an item must come in), repeated per count (the source never runs
 -- dry). Partial results are reported as such; nothing is claimed without the inventory gain.
+-- No water in the search: the nearest pond he can see further out (a census of water volumes only, out to water_far_m)
+-- is named with its distance, direction and id, so the model can walk to it. Thirst spiral B03 (run
+-- brain-live-20261116-063517-8648): told only "I can't see any water I could collect near me.", he explored 6 min,
+-- passed 50 m from two ponds and asked the player for a drink.
+M.cfg.water_far_m = 1000
+local COMPASS8 = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" } -- game axes: +X east, +Y SOUTH (navmem.compass)
+function W.compass(a, b)
+    local deg = math.deg(math.atan(-(b[2] - a[2]), b[1] - a[1])) % 360
+    return COMPASS8[math.floor((deg + 22.5) / 45) % 8 + 1]
+end
+-- -> { id, name, distance, position, direction } | nil, and the sentence that says it (or that none is in sight)
+function W.nearest_far_water(api)
+    local best
+    -- id_has: the census describes water volumes only (their bounds are read in every census already), so the wide
+    -- radius adds no other actor's reads
+    for _, t in ipairs(api.census_things(M.cfg.water_far_m, 1, nil, { kinds = { interactables = true }, keep = W.is_water,
+                                                                      id_has = "WaterVolume" }) or {}) do
+        if W.is_water(t) and (not best or (t.distance or 1e9) < (best.distance or 1e9)) then best = t end
+    end
+    if not best then return nil, "I can't see any pond within " .. M.cfg.water_far_m .. " m either." end
+    local here = api.my_position()
+    local to = type(best.nearest) == "table" and best.nearest or best.position
+    local dir = (type(here) == "table" and type(to) == "table" and type(to[1]) == "number") and W.compass(here, to) or nil
+    local d = math.floor((tonumber(best.distance) or 0) + 0.5)
+    local row = { id = best.id, name = best.name, distance = d, position = best.position, nearest = best.nearest, direction = dir }
+    return row, string.format("The nearest water I can see is %s, %d m %s of me (id %s).", tostring(best.name or "a pond"), d,
+        dir or "away", tostring(best.id))
+end
 local function start_collect_water(api, args, ctx)
     local want = math.max(1, math.floor(tonumber(args.count) or 1))
     local t0, src
@@ -3233,9 +3261,13 @@ local function start_collect_water(api, args, ctx)
         for _, t in ipairs(api.census_things(M.cfg.water_search_m, 40, nil, { kinds = { interactables = true }, keep = W.is_water }) or {}) do
             if W.is_water(t) and (not src or (t.distance or 1e9) < (src.distance or 1e9)) then src = t end
         end
-        if not src then return api.fail(asked_for and "unknown_target" or "nothing_in_range", { target = asked_for, radius_m = M.cfg.water_search_m,
-            detail = asked_for and ("I can't find '" .. asked_for .. "', and I can't see any water I could collect within " .. M.cfg.water_search_m .. " m.")
-                or "I can't see any water I could collect near me." }) end
+        if not src then
+            local far, said = W.nearest_far_water(api)
+            return api.fail(asked_for and "unknown_target" or "nothing_in_range", { target = asked_for, radius_m = M.cfg.water_search_m,
+                far_radius_m = M.cfg.water_far_m, nearest_water = far,
+                detail = (asked_for and ("I can't find '" .. asked_for .. "', and I can't see any water I could collect within ")
+                    or "I can't see any water I could collect within ") .. M.cfg.water_search_m .. " m. " .. said })
+        end
     end
     local expected = W.water_item(api, src)
     if not expected then

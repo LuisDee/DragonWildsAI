@@ -2374,6 +2374,42 @@ test("collect_water: truthful failures (no water near, the water doesn't take, a
     assert(r and r.ok and r.data.partial and r.data.count == 2 and r.data.detail:find("2 of 3"), json.encode(r))
 end)
 
+-- Thirst spiral B03 (run brain-live-20261116-063517-8648, 81.4 s): collect_water read "I can't see any water I could
+-- collect near me." with the pond 111 m off, because the 150 m census kept only the 40 nearest interactables before
+-- the water filter (fixed 64f2f85). The census here cuts as the real one does.
+test("collect_water: a pond 111 m off behind 45 nearer interactables is found (B03, the census cap)", function()
+    local w, restore = water_world()
+    w.position = { 111, 2, 3 }
+    for i = 1, 45 do
+        table.insert(F.world.interactables, { id = "BP_BaseBuilding_Crate_C_" .. i, class = "BP_BaseBuilding_Crate_C", name = "Crate",
+            kind = "interactable", prompt = "Open", position = { 10 + i, 20, 3 } })
+    end
+    F.census_caps = true
+    local _, id = rpc("collect_water", { count = 1 })
+    local r = run(id, 120)
+    F.census_caps = nil
+    restore()
+    assert(r and r.ok and r.data.target == w.id, json.encode(r))
+end)
+
+-- B03's report: he was told "near me", not how far he had looked, nor where the nearest water he could see was;
+-- he explored for 6 min and asked the player for a drink. The report says the search and the nearest water beyond it.
+test("collect_water: no water in 150 m -> the report says how far it looked and where the nearest water beyond is", function()
+    local w, restore = water_world()
+    w.position = { 401, 2, 3 } -- 400 m east of him (game axes: +X east)
+    local r = rpc("collect_water", {})
+    assert(r.reason == "nothing_in_range" and r.data.radius_m == 150 and r.data.detail:find("within 150 m", 1, true), json.encode(r))
+    local nw = r.data.nearest_water
+    assert(type(nw) == "table" and nw.id == w.id and math.abs(nw.distance - 400) < 1 and nw.direction == "E", json.encode(r))
+    assert(r.data.detail:find("400 m E", 1, true) and r.data.detail:find(w.id, 1, true), json.encode(r))
+    -- none at all he can see: the two distances it looked, nothing invented
+    F.world.interactables = {}
+    r = rpc("collect_water", {})
+    restore()
+    assert(r.reason == "nothing_in_range" and r.data.nearest_water == nil and r.data.detail:find("within 150 m", 1, true)
+        and r.data.detail:find(tostring(B.module("skills").cfg.water_far_m) .. " m", 1, true), json.encode(r))
+end)
+
 -- ------------------------------------------------------------------ run
 test("collect_water: unrelated inventory gains never count as water", function()
     local w, restore = water_world()
