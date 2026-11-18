@@ -36,6 +36,7 @@ from . import grounding
 from .geom import WIRE_COORDINATES
 from . import persona as persona_file
 from . import item_stats
+from . import open_ask
 from . import situation as sit
 from .interface import (BRAIN_TOOLS, PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
@@ -220,6 +221,8 @@ class Decision:
     held_say: str | None = None  # a say the model made beside a read this turn (held until the turn acts)
     read_rounds: int = 0  # model calls of this turn that only read (their results went back to the model)
     talk_checked: bool = False  # this turn already had the TALK_ONLY_NOTE check
+    facts_shown: list[str] | None = None  # the open ask's kept facts as this request last showed them (next_turn)
+    reads: list[dict] = field(default_factory=list)  # read calls this turn ran inline, {tool, args} (agent: a parked ask)
 
 
 def current_observation(state: dict | None) -> dict:
@@ -382,6 +385,10 @@ class Controller:
                  knowledge=None):
         self.llm = llm
         self.queued_goal: str | None = None  # a goal queued and not begun (the agent sets it before a run): a situation line
+        # the open ask this run is for and what the game told him about it, {player, words, known_facts} (the agent
+        # sets it for a run on the ask when facts are kept: agent._open_view); shown on the first turn and again on a
+        # later turn when the facts changed
+        self.open_request: dict | None = None
         self._logged: tuple[int, dict | None] = (0, None)  # the last prompt row's message count and last message
         self.knowledge = knowledge  # brain.knowledge.Knowledge | None: the lookup tool is offered only with one
         self.game = game
@@ -609,6 +616,8 @@ class Controller:
                 self.log.log("recent_activity_error", error=repr(exc))
         if body_event:
             ctx["body_event"] = model_view(body_event)
+        if self._open_request_shown(body_event):  # the open ask and what the game told him about it (agent sets it)
+            ctx["open_request"] = self.open_request
         if text and state and not state.get("unavailable"):
             refs = grounding.hints(grounding.read(text, sit.perceived(state), exclude=[player, self.name]))
             if refs:
@@ -676,6 +685,13 @@ class Controller:
             self.log.log("situation_error", where="next_turn", error=repr(exc))
             return None
 
+    def _open_request_shown(self, body_event: dict | None) -> bool:
+        """The open-request block goes in the first turn's context when the agent set one with facts and the run's
+        event does not carry them itself (a goal's stuck or done event has request_facts beside its request)."""
+        o = self.open_request
+        return bool(isinstance(o, dict) and o.get("known_facts")
+                    and not (isinstance(body_event, dict) and body_event.get("request_facts")))
+
     def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
                body_event: dict | None = None) -> Decision:
         self._state_for_reads = state
@@ -684,6 +700,8 @@ class Controller:
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
         d = Decision(situation=context.get("situation"))
+        if "open_request" in context or (isinstance(body_event, dict) and body_event.get("request_facts")):
+            d.facts_shown = (self.open_request or {}).get("known_facts")  # (an event's own: its step result beside)
         self._turn_goal = active_goal  # next_turn's situation lines use the same goal and tasks
         if addressed and (text or "").strip() and body_event is None:
             d.effort = self.addressed_effort  # a player's line to him: think a little more (latency budget M1)
@@ -720,6 +738,7 @@ class Controller:
             messages = messages + [assistant_message(resp)]
             d.read_rounds += 1
             for call in reads:
+                d.reads.append({"tool": call.name, "args": dict(call.arguments or {})})
                 messages.append(tool_result_message(call, self._read(call, d)))
             self._answer_says(messages, resp, d)
             if step == self.max_calls - 2:
@@ -885,6 +904,11 @@ class Controller:
         lines = self._situation_lines(state)
         if lines is not None:
             observation["situation"] = lines if lines != d.situation else "unchanged since you last saw it"
+        # what the game told him about the ask this run is for, when it changed since this request last showed it (a
+        # step of this run added one): the first turn's block stays in the messages, so an unchanged one is not resent
+        facts = (self.open_request or {}).get("known_facts") if request else None
+        if facts and open_ask.facts_key(facts) != open_ask.facts_key(d.facts_shown):
+            observation["open_request_facts"] = facts
         msgs.append({"role": "user", "content": "Current observation: " + json.dumps(observation, ensure_ascii=False)})
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
@@ -895,7 +919,8 @@ class Controller:
             "reply with no text at all. A line saying you'll do something comes with its tool call in this same "
             "reply.")})
         self._state_for_reads = state or {}
-        d2 = Decision(effort=d.effort, situation=lines or d.situation)  # the same request keeps its effort (and cache)
+        d2 = Decision(effort=d.effort, situation=lines or d.situation,  # the same request keeps its effort (and cache)
+                      facts_shown=facts or d.facts_shown)
         resp, msgs = self._loop(msgs, d2, label="turn")
         msgs = msgs + [assistant_message(resp)]
         speech = self.speech_of(resp) or self._release_held(resp, d2)

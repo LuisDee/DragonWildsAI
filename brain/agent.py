@@ -142,6 +142,20 @@ POST_ACTION_REUSE_S = 1.0  # the executor's own verification read is this fresh:
 
 
 
+_ITEM_NAMES: list[str] | None = None
+
+
+def _item_names() -> list[str]:
+    """Every game item's display name (the recipe dump's items and the gear catalog), read once."""
+    global _ITEM_NAMES
+    if _ITEM_NAMES is None:
+        names = {str(e.get("name")) for e in (needs.catalog().get("items") or {}).values()
+                 if isinstance(e, dict) and e.get("name")}
+        names |= {str(e.get("name")) for e in item_stats.catalog().values() if isinstance(e, dict) and e.get("name")}
+        _ITEM_NAMES = sorted(n for n in names if len(n) >= 3)
+    return _ITEM_NAMES
+
+
 def _task_label(t: Task) -> str:
     bits = [str(v) for k, v in t.args.items() if k in ("resource", "item", "target", "player", "count") and v is not None]
     return f"{t.skill} {' '.join(bits)}".strip()
@@ -239,6 +253,14 @@ class Agent:
         self._open_request: tuple | None = None
         self.keep_asks_open = True  # an open ask survives one silent turn (oa, the open-ask turn)
         self._ask_seen: dict[tuple, tuple[float, dict]] = {}  # (player, words) -> (when, the state read then)
+        # what the game and his knowledge told him while working on the open ask (oa.keep_fact): kept with that ask,
+        # shown with it while it is open, dropped when it ends (live 20261118-010135, 389 s: the tier fact was gone)
+        self._ask_facts: list[dict] = []
+        self._ask_facts_for: tuple | None = None
+        self._serving_ask: tuple | None = None  # the ask the run or goal now acting is for (facts kept only then)
+        # the ask he parked last, {ask, facts, names}: a later call of his on one of its items opens it again
+        # (oa.serves; live 20261118-034204: parked at 48 s, taken up at 64 s, 12 min standing from 210 s)
+        self._parked: dict | None = None
         self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -515,9 +537,15 @@ class Agent:
                 knowledge=getattr(ctl, "knowledge", None), places=getattr(ctl, "places", None), log=self.log)
         except Exception as exc:  # facts are a bonus; the failure stands without them
             self.log.log("craft_sources_error", error=repr(exc))
-            return
+            line = None
         if line:
             task.detail = (f"{task.detail} " if task.detail else "") + line
+        data = outcome.data if isinstance(outcome.data, dict) else {}
+        short = str(data.get("detail") or "").split(". ", 1)[0].rstrip(".")  # "I need 8 Animal Bone ... and I have 0"
+        if short or line:
+            item = (task.args or {}).get("item") or data.get("item")
+            self._keep_ask_fact(f"craft:{item}", f"craft {item} {outcome.reason}",
+                                ". ".join(x for x in (short, line) if x), raw=line or short)
 
     def _run_task(self, task: Task) -> Outcome:
         """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""
@@ -540,6 +568,13 @@ class Agent:
                 if isinstance(outcome.data, dict):
                     outcome.data["knowledge"] = got[1]
                 task.detail = (f"{task.detail} " if task.detail else "") + f"({got[1]})"
+                self._keep_ask_fact("node:" + got[1].split(":", 1)[0], f"{task.skill} {got[0]!r} {outcome.reason}",
+                                    got[1])  # (one per node: "wiki, Copper Ore Node")
+            if outcome.reason == Reason.WRONG_TOOL and task.detail:  # the body's own words: what tool it lacks
+                what = (task.args or {}).get("resource") or (task.args or {}).get("target") or ""
+                self._keep_ask_fact(f"wrong_tool:{task.skill}:{what}",
+                                    f"{task.skill} {what!r} wrong_tool" if what else f"{task.skill} wrong_tool",
+                                    str(detail), raw=str(detail)[:TASK_DETAIL_CHARS])
         if not outcome.ok and task.skill == "craft" and outcome.reason == Reason.MISSING_MATERIALS:
             self._craft_sources(task, outcome)
         self._killed_note(task, outcome)
@@ -560,13 +595,19 @@ class Agent:
     # ---------------------------------------------------------------- commands
 
     def _command(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
-        if self._directed is None or not event.text:
-            return self._command_run(event, addressed, body_events)
-        prev, self._directed_origin = self._directed_origin, "chat"  # a chat command nested in a board run
+        # a run nested in a goal's step (a need, a fight) sets its own ask; the goal's is back when it ends
+        serving, shown = self._serving_ask, getattr(self.controller, "open_request", None)
         try:
-            return self._command_run(event, addressed, body_events)
+            if self._directed is None or not event.text:
+                return self._command_run(event, addressed, body_events)
+            prev, self._directed_origin = self._directed_origin, "chat"  # a chat command nested in a board run
+            try:
+                return self._command_run(event, addressed, body_events)
+            finally:
+                self._directed_origin = prev
         finally:
-            self._directed_origin = prev
+            self._serving_ask = serving
+            self.controller.open_request = shown
 
     def _command_run(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
         """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
@@ -595,6 +636,30 @@ class Agent:
         if heard:
             self._open_request = (event.player, event.text)
             self._note_ask(self._open_request, state, new=True)  # a line heard now is a new ask
+            self._drop_ask_facts("a new line")
+            self._parked = None  # his new line is the ask now
+        # the request this run is for: his line, the one a goal came from at its end, or the one still open. A goal's
+        # end is goal_done or stuck: live 2026-11-18 00:24Z (brain-live-20261118-012330-23088), the goal for "thirty
+        # copper ore in the chest" got stuck on its craft step; the stuck run ran inside run_goal with active_goal still
+        # set, so it carried no request, made a stone pickaxe, found no copper in range, said why and stopped: no
+        # open-ask turn, no row, 25 min standing with the ask open
+        ended = next((e for e in body_events or [] if e.get("type") in GOAL_ENDS and e.get("request")), None)
+        goal_for = (ended.get("from"), ended["request"]) if ended else None
+        if goal_for:  # a goal's end is the next step of what he asked: open again, whatever the run before said
+            if not oa.same_ask(goal_for, self._open_request):
+                self._drop_ask_facts("another ask reopened")
+            if self._parked and oa.same_ask(self._parked["ask"], goal_for):  # parked, and its goal ended: its facts
+                self._ask_facts, self._ask_facts_for = list(self._parked["facts"]), self._parked["ask"]
+                self._parked = None
+            self._open_request = goal_for
+            self._note_ask(goal_for, state)  # (kept when it was heard in this session: the baseline is the ask's)
+        # ...a goal still running is doing the open one: a body run beside it (a need, an attack) is not for it
+        run_asked = (event.player, event.text) if event.text else goal_for or (
+            None if self.active_goal or self.pending_goal else self._open_request)
+        run_for = "line" if event.text else GOAL_ENDS[ended["type"]] if ended else "carried" if run_asked else None
+        # what the game told him about the ask, kept with it (oa.keep_fact), shown on every turn of a run for it
+        self._serving_ask = run_asked if oa.same_ask(run_asked, self._open_request) else None
+        self.controller.open_request = self._open_view(run_asked, body_ctx, where="turn")
         # a goal he queued that has not begun (step() starts it after this run): the run is told of it. Run
         # 20261117-041914: "chopping them now" + start_goal, a hunger event came in before the goal began, and the
         # run for it knew nothing of the waiting goal: it chopped the 48 logs and handed them in itself (260 s),
@@ -636,25 +701,15 @@ class Agent:
         failed_any, handed, open_checked = False, False, False  # OPEN_JOB_NOTE: an open failure, a long-job tool, the check
         last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
         open_ask, open_asked, open_prev = False, False, False  # the open-ask turn: now, once in this chain, the last one
-        # the request this run is for: his line, the one a goal came from at its end, or the one still open. A goal's
-        # end is goal_done or stuck: live 2026-11-18 00:24Z (brain-live-20261118-012330-23088), the goal for "thirty
-        # copper ore in the chest" got stuck on its craft step; the stuck run ran inside run_goal with active_goal still
-        # set, so it carried no request, made a stone pickaxe, found no copper in range, said why and stopped: no
-        # open-ask turn, no row, 25 min standing with the ask open
-        ended = next((e for e in body_events or [] if e.get("type") in GOAL_ENDS and e.get("request")), None)
-        goal_for = (ended.get("from"), ended["request"]) if ended else None
-        if goal_for:  # a goal's end is the next step of what he asked: open again, whatever the run before said
-            self._open_request = goal_for
-            self._note_ask(goal_for, state)  # (kept when it was heard in this session: the baseline is the ask's)
-        # ...a goal still running is doing the open one: a body run beside it (a need, an attack) is not for it
-        run_asked = (event.player, event.text) if event.text else goal_for or (
-            None if self.active_goal or self.pending_goal else self._open_request)
-        run_for = "line" if event.text else GOAL_ENDS[ended["type"]] if ended else "carried" if run_asked else None
         # every call this request ran and how it went, for a hand-on's fresh run (a handed-on request carries its own on)
         work: list[dict] = [*(body_ctx.get("done_so_far") or []), *(body_ctx.get("last_results") or [])]             if isinstance(body_ctx, dict) and body_ctx.get("type") == CHAIN_BUDGET else []
         while True:
             if d.interrupts and self.active_goal and self._replaces_job(d, event):
                 self._cancelled = True
+            if run_asked is None and (reopened := self._reopen_parked(d)) is not None:
+                # he took the parked ask up himself: this run is on it now (its stop gets the one open-ask turn)
+                run_asked, run_for, self._serving_ask = reopened, "reopened", reopened
+                self.controller.open_request = self._open_view(reopened, None, where=None)
             t = self._run_turn(d, state, event)
             work.extend(_work_rows(d, t, WORK_DETAIL_CHARS))
             nonbody_success = not t["ran"] and any(r.get("ok", True) for r in t["results"].values())
@@ -792,6 +847,8 @@ class Agent:
             news = self._news()
             try:
                 promise_for = promise_check and goal_asked
+                # (a fact this run's own steps added shows on the next turn: next_turn shows them when they changed)
+                self.controller.open_request = self._open_view(run_asked, None, where=None)
                 shown = self._open_ask_block(run_asked, state) if open_ask else None
                 say_res = {"ok": True, "note": "said"} if line_said else \
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
@@ -866,7 +923,10 @@ class Agent:
             self.director.on_player_command(event.player, ran_all + (["run_skill"] if d.skill else []), event.text)
         if d.goal and not d.skill:
             self.pending_goal = d.goal
-            self._pending_asked = self._asked  # a body-only run before the goal starts clears self._asked
+            # a body-only run before the goal starts clears self._asked. A body run on the open ask (no line, no
+            # asked_at in its event) queues it for that ask: live 20261118-010135 row 567, a run after a fight queued
+            # "Mine 30 copper ore", and its stuck event (row 692) reached the model with no request
+            self._pending_asked = self._asked if (self._asked or {}).get("request") else self._asked_of(run_asked)
         if self.pending_goal:
             self._goal_episode = self.log.episode_id  # the goal's rows stay in the episode that asked for it
 
@@ -995,6 +1055,91 @@ class Agent:
         while len(self._ask_seen) > ASKS_SEEN:
             self._ask_seen.pop(next(iter(self._ask_seen)))
 
+    def _asked_of(self, ask: tuple | None) -> dict | None:
+        """The goal's asked_at for an ask with no line in this run (a body run on the open ask): the ask's words, and
+        where he stood when it was asked when that read is kept."""
+        if not ask or not oa.same_ask(ask, self._open_request):
+            return self._asked
+        seen = self._ask_seen.get(self._open_request) or self._ask_seen.get(ask)
+        pos = (seen[1] or {}).get("position") if seen else None
+        ok = isinstance(pos, (list, tuple)) and len(pos) >= 3
+        return {"position": [round(float(v), 1) for v in pos[:3]] if ok else None, "request": ask[1],
+                "player": ask[0], "player_at": None}
+
+    # what the game told him about the open ask (oa.keep_fact): kept while a run or goal acts on it, shown with it
+
+    def _keep_ask_fact(self, key: str, source: str, text: str, raw: str | None = None) -> None:
+        ask = self._open_request
+        if not (ask and oa.same_ask(self._serving_ask, ask)):
+            return  # a run beside the ask (a need, a fight) or no ask: not about it
+        if not oa.same_ask(self._ask_facts_for, ask):
+            self._ask_facts = []
+        self._ask_facts_for = ask
+        self._ask_facts = oa.keep_fact(self._ask_facts, key, source, text, raw=raw, t=self.clock())
+        self.log.log("ask_fact_kept", request=ask[1], key=key, source=source, chars=len(text or ""),
+                     kept=len(self._ask_facts))
+
+    def _request_facts(self, exclude: str | None = None, where: str | None = None) -> list[str]:
+        """The open ask's kept facts as shown (newest first, bounded), [] when none or no ask is open. ``where``: a
+        row says they were shown there (tools.unseen signature request_facts_shown)."""
+        ask = self._open_request
+        if not (ask and self._ask_facts and oa.same_ask(self._ask_facts_for, ask)):
+            return []
+        view = oa.facts_view(self._ask_facts, exclude=exclude, now=self.clock())
+        if view and where:
+            self.log.log("request_facts_shown", where=where, request=ask[1], n=len(view),
+                         chars=sum(len(s) for s in view))
+        return view
+
+    def _drop_ask_facts(self, why: str) -> None:
+        if self._ask_facts:
+            self.log.log("ask_facts_dropped", request=(self._ask_facts_for or (None, None))[1], why=why,
+                         n=len(self._ask_facts))
+        self._ask_facts, self._ask_facts_for = [], None
+
+    def _open_view(self, ask: tuple | None, body_ctx: dict | None, where: str | None) -> dict | None:
+        """The Controller's open_request block for a run on the open ask: his words and the kept facts; None when the
+        run is not for it or nothing is kept. A goal's end event carries them itself (request_facts)."""
+        if not (ask and oa.same_ask(ask, self._open_request)):
+            return None
+        carried = isinstance(body_ctx, dict) and body_ctx.get("request_facts")
+        facts = self._request_facts(where=None if carried else where)
+        return {"player": ask[0], "words": ask[1], "known_facts": facts} if facts else None
+
+    def _park(self, ask: tuple | None, reason: str | None) -> None:
+        """park_request: the ask, its facts and the game item names it names are kept, so a later step of his on one
+        of those items opens it again (``_reopen_parked``)."""
+        if not ask:
+            self._parked = None
+            return
+        facts = self._ask_facts if oa.same_ask(self._ask_facts_for, ask) else []
+        text = " ".join([str(ask[1] or ""), str(reason or ""), *(f.get("text") or "" for f in facts)])
+        try:
+            names = oa.names_in(text, _item_names())
+        except Exception:  # item data is best effort: the park stands without it
+            names = set()
+        self._parked = {"ask": ask, "facts": list(facts), "names": sorted(names)}
+
+    def _reopen_parked(self, d) -> tuple | None:
+        """With no ask open and none being worked on, a call of this turn (a body action, an inline read, or the goal
+        it queues) on an item the parked ask names opens that ask again with its facts; returns it, else None."""
+        p = self._parked
+        if not p or self._open_request is not None or self.active_goal or not p.get("names"):
+            return None
+        calls = [{"tool": c.name, "args": c.arguments} for c in d.actions] + list(getattr(d, "reads", None) or [])
+        hit = oa.serves(calls, set(p["names"]))
+        if hit is None and d.goal:
+            named = oa.names_in(d.goal, p["names"])
+            hit = ("start_goal", d.goal[:80], sorted(named)[0]) if named else None
+        if hit is None:
+            return None
+        ask = p["ask"]
+        self._open_request, self._parked = ask, None
+        self._ask_facts, self._ask_facts_for = list(p["facts"]), ask if p["facts"] else None
+        self.log.log("request_reopened", request=ask[1], player=ask[0], tool=hit[0], arg=hit[1], item=hit[2],
+                     facts=len(p["facts"]))
+        return ask
+
     def _no_open_ask_turn(self) -> str | None:
         """Why the chain cannot run the open-ask turn now, or None. The turn budget and the deadline do not bar it: it
         is one call, at most one per chain, and a stop at the limit is still a stop with the ask open (the chain stops
@@ -1026,12 +1171,18 @@ class Agent:
             except Exception:  # names fall back to the body's own and the id
                 cat = {}
             changed = oa.changes(seen[1], state, cat)
-        return oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed)
+        return oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed,
+                        known=self._request_facts(where="open_ask") if oa.same_ask(ask, self._open_request) else None)
 
     def _close_ask(self, call, extra: list[str]) -> dict:
         """request_done / park_request: the open ask ends here. The claim or the reason is recorded, never judged; a
         park reason is said (the player hears it, as the tool says)."""
         ask, self._open_request = self._open_request, None
+        if call.name == oa.PARK:
+            self._park(ask, (call.arguments or {}).get(oa.ARG[oa.PARK]))
+        else:
+            self._parked = None
+        self._drop_ask_facts(call.name)
         words = str((call.arguments or {}).get(oa.ARG[call.name]) or "").strip() or None
         who, what = ask or (None, None)
         if call.name == oa.PARK:
@@ -1310,7 +1461,7 @@ class Agent:
         self._situations.append({"type": "stuck", "goal": goal, "failed": task.skill if task else None,
                                  "reason": reason, "question": question,
                                  **({"result": task.detail} if task and task.detail else {}),  # what the step said
-                                 **self._goal_request()})
+                                 **self._goal_request(exclude=task.detail if task else None, where="stuck")})
         self.flush_situations()
         return "stuck"
 
@@ -1323,22 +1474,35 @@ class Agent:
         craft and talk left, nothing said it had, and he stood with the quest open until the trial ran out."""
         return bool(event.text) or bool(d.goal or d.skill) or any(a.name in STANDING for a in d.actions)
 
-    def _goal_request(self) -> dict:
+    def _goal_request(self, exclude: str | None = None, where: str | None = None) -> dict:
         """The player's own words the running goal came from, for the run that hears how the goal ended. The goal is
         the model's wording of them and may cover less: fresh chain 20261116-065203, "go and see Zanik and do her
         quest" became the goal "chop 50 Ash Logs ... bring them to Zanik"; that goal ended 290 s after the line (the
         rolling chat keeps 240 s), so the run that heard goal_done knew only the goal, and he stopped with the
-        quest's next part open (583 s standing)."""
+        quest's next part open (583 s standing).
+        With them, what the game told him about that ask while he worked on it (request_facts; ``exclude``: the
+        step result shown beside them, not repeated)."""
         a = self._goal_asked
         if not (isinstance(a, dict) and a.get("request")):
             return {}
         # the words alone: replayed on that turn 10 times each, he stopped or went looking for a bed 9/10 without
         # them, went on with the quest 10/10 with them, and stopped 6/10 with a note beside them saying what a
         # goal's end means
-        return {"request": a["request"], "from": a.get("player"), "asked_at": a}
+        out = {"request": a["request"], "from": a.get("player"), "asked_at": a}
+        if oa.same_ask((a.get("player"), a["request"]), self._open_request) and (
+                facts := self._request_facts(exclude=exclude, where=where)):
+            out["request_facts"] = facts
+        return out
 
-    def _planner_notes(self, goal: str | None = None, state: dict | None = None) -> dict:
+    def _planner_notes(self, goal: str | None = None, state: dict | None = None, exclude: str | None = None,
+                       where: str | None = None) -> dict:
         notes = dict(self.store.prompt_notes())
+        # the ask this goal serves and what the game told him about it (a replan sees the failed step's own words)
+        a = self._goal_asked
+        if isinstance(a, dict) and a.get("request") and oa.same_ask((a.get("player"), a["request"]),
+                                                                   self._open_request):
+            if facts := self._request_facts(exclude=exclude, where=where):
+                notes["open_request"] = {"player": a.get("player"), "words": a["request"], "known_facts": facts}
         # the Planner cannot look a recipe up: what the recipe of a thing the goal or a quest step names takes
         if isinstance(state, dict) and (rows := needs.named_recipes(state, [goal, *sit.quest_texts(state)])):
             notes["recipes"] = rows
@@ -1357,6 +1521,7 @@ class Agent:
         self.controller.job_started()
         start = time.monotonic()
         result: GoalResult = "stuck"
+        serving = self._serving_ask
         try:
             result = self._run_goal(goal, tasks)
         except StateUnavailable:  # the planner needs fresh state too
@@ -1364,6 +1529,7 @@ class Agent:
         finally:
             self.active_goal = None
             self._quiet_goal = False
+            self._serving_ask = serving
         elapsed = time.monotonic() - start
         if skill and self.skills and result != "interrupted":
             self.skills.record_run(skill, result == "done", elapsed, self._last_reason)
@@ -1379,10 +1545,14 @@ class Agent:
         # about, and he stood 9.3 s (5 of the 32 goal ends of 15 to 17 Nov that followed a chat run's start_goal)
         asked, self._pending_asked = self._pending_asked or self._asked, None
         self._goal_asked = asked
+        # its steps act on that ask while it is the open one: what the game tells them is kept with it (oa.keep_fact)
+        mine = (asked.get("player"), asked["request"]) if isinstance(asked, dict) and asked.get("request") else None
+        self._serving_ask = mine if oa.same_ask(mine, self._open_request) else None
         if given is None:
             try:
                 state = self.executor.state()
-                plan = self.planner.plan(goal, sit.with_asked(state, asked), self._planner_notes(goal, state))
+                plan = self.planner.plan(goal, sit.with_asked(state, asked),
+                                         self._planner_notes(goal, state, where="plan"))
             except PlanError as exc:
                 return self._stuck(goal, None, str(exc))
             if not plan.tasks:
@@ -1416,7 +1586,7 @@ class Agent:
             try:
                 state = self.executor.state()
                 new = self.planner.replan(tree, task, outcome.reason, sit.with_asked(state, asked),
-                                          self._planner_notes(goal, state))
+                                          self._planner_notes(goal, state, exclude=task.detail, where="replan"))
             except PlanError as exc:
                 return self._stuck(goal, task, str(exc))
             self.store.progress("replanned", goal=goal, explanation=new.explanation, ask_help=new.ask_help)
@@ -1436,6 +1606,6 @@ class Agent:
         if self._quiet_goal:
             return "done"
         self._situations.append({"type": "goal_done", "goal": goal, "steps": len(tree.tasks),
-                                 "results": _step_results(tree.tasks), **self._goal_request()})
+                                 "results": _step_results(tree.tasks), **self._goal_request(where="goal_done")})
         self.flush_situations()
         return "done"
