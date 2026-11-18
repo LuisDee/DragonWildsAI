@@ -127,13 +127,14 @@ def test_a_correction_without_a_call_replaces_a_line_it_cannot_back_up(tmp_path)
 
 
 def test_turn_zero_promise_note_offers_the_honest_out_and_its_line_is_said(tmp_path):
-    from brain.agent import PROMISE_NOTE
+    from brain.agent import PROMISE_FOR_NOTE  # his ask is open: the note names it (study ask_vs_act 2026-11-18)
     r = Replay(tmp_path, STATES[5], tools=TOOLS)
     r.model.replies["get some sleep"] = FakeLLM.say("heading to a flat spot for the shelter")
     r.model.turns = [FakeLLM.say("actually can't pick a flat spot from here, no ground info")]
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude get some sleep"})
     r.at(0).step()
-    assert PROMISE_NOTE in _notes(r) and "what's stopping you" in PROMISE_NOTE
+    note = PROMISE_FOR_NOTE.format(player="Zezima", request="claude get some sleep")
+    assert note in _notes(r) and "what's stopping you" in note
     assert r.body.said == ["heading to a flat spot for the shelter",
                            "actually can't pick a flat spot from here, no ground info"]
 
@@ -212,7 +213,7 @@ def test_a_later_turn_that_reads_then_only_promises_gets_the_promise_note(tmp_pa
     """Farming 2026-11-02 23:05Z (logs/brain-live-20261102-000358-9988.jsonl): after work that went fine he looked
     flax up, said "I'll go look" with no call, and stood 483 s. A line after reads in the same turn is a plan: the
     one-time PROMISE_NOTE (turn shape only). A talk-only report straight after a verified action stays free."""
-    from brain.agent import PROMISE_NOTE
+    from brain.agent import PROMISE_FOR_NOTE  # his ask is open: the note names it (study ask_vs_act 2026-11-18)
     r = Replay(tmp_path, STATES[5], tools=TOOLS | {"inventory"})
     r.body.act("interact", ok(target=MEAT))
     r.model.replies["grab that meat"] = FakeLLM.say("", FakeLLM.call("interact", target=MEAT))
@@ -222,7 +223,7 @@ def test_a_later_turn_that_reads_then_only_promises_gets_the_promise_note(tmp_pa
                      FakeLLM.say("", FakeLLM.call("go_to", target="Zezima")),  # the note's answer: the call
                      FakeLLM.say("")]
     _run(r)
-    assert PROMISE_NOTE in _notes(r)
+    assert PROMISE_FOR_NOTE.format(player="Zezima", request="claude grab that meat") in _notes(r)
     assert [c[0] for c in r.body.calls] == ["interact", "go_to"]
 
 

@@ -255,6 +255,7 @@ class Agent:
         self._open_request: tuple | None = None
         self.keep_asks_open = True  # an open ask survives one silent turn (oa, the open-ask turn)
         self._ask_seen: dict[tuple, tuple[float, dict]] = {}  # (player, words) -> (when, the state read then)
+        self._last_line: dict[str, tuple[str, float]] = {}  # player -> (his last chat line, when): _told_back
         # what the game and his knowledge told him while working on the open ask (oa.keep_fact): kept with that ask,
         # shown with it while it is open, dropped when it ends (live 20261118-010135, 389 s: the tier fact was gone)
         self._ask_facts: list[dict] = []
@@ -683,6 +684,8 @@ class Agent:
     def _command(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
         # a run nested in a goal's step (a need, a fight) sets its own ask; the goal's is back when it ends
         serving, shown = self._serving_ask, getattr(self.controller, "open_request", None)
+        if event.text:  # every chat line reaches here (addressed or not): the player's last line, for _told_back
+            self._last_line[event.player] = (event.text, self.clock())
         try:
             if self._directed is None or not event.text:
                 return self._command_run(event, addressed, body_events)
@@ -854,6 +857,12 @@ class Agent:
             # gets the same one turn (the request stays open after it: _left_open)
             goal_asked = None if event.text else run_asked
             asked = bool(event.text) or bool(goal_asked)
+            # ...and a chat run whose own ask is still open names it too: PROMISE_NOTE's "(you only answered or asked
+            # something) reply with no text at all" made a question on the ask terminal (window l2_v1_1118l, 4 of 4
+            # copper runs ended on "where's a copper vein?"; replayed the turn after it: 0/18 act; with this note and
+            # the say result told back, 12/18). No ask open (a line not addressed to him): PROMISE_NOTE as before.
+            promise_ask = goal_asked or (run_asked if event.text and run_asked and run_asked == self._open_request
+                                         else None)
             promise_check = (self.check_promises and asked and not t["ran"] and not t["failure"]
                              and bool(d.speech) and not (d.actions or d.goal or d.skill)
                              and (turn == 0 or (not stop_checked and getattr(d, "read_rounds", 0) > 0
@@ -936,13 +945,22 @@ class Agent:
             self.request_parked = parked or self.request_parked
             news = self._news()
             try:
-                promise_for = promise_check and goal_asked
+                promise_for = promise_check and promise_ask
                 # (a fact this run's own steps added shows on the next turn: next_turn shows them when they changed)
                 self.controller.open_request = self._open_view(run_asked, None, where=None)
                 shown = self._open_ask_block(run_asked, state) if open_ask else None
                 say_res = {"ok": True, "note": "said"} if line_said else \
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
                      else "not said (too close to a line you just said)"}
+                if line_said and run_asked and run_asked == self._open_request:  # a line on his open ask: told back
+                    told = self._told_back(run_asked, state, t, d, handed)
+                    say_res = {**say_res, **told}
+                    self.log.log("say_told_back", request=run_asked[1], player=run_asked[0], turn=turn,
+                                 heard_by=told["heard_by"], working_on_it=told["his_request"]["working_on_it"],
+                                 note="open_ask" if open_ask else "promise_for" if promise_for else
+                                 "promise" if promise_check else "other" if (parked or last_turn or fail_check
+                                                                            or open_check or stop_check or stop_for
+                                                                            or unheard) else None)
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
                                               note=oa.NOTE_PREFIX + json.dumps(shown, ensure_ascii=False, default=str)
                                               if open_ask else PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
@@ -951,8 +969,8 @@ class Agent:
                                                   for f in unreported)) if fail_check else
                                               OPEN_JOB_NOTE.format(request=event.text, tool=job_tool) if open_check else
                                               PROMISE_FOR_NOTE.format(
-                                                  player=goal_asked[0] or self.controller.player,
-                                                  request=goal_asked[1])
+                                                  player=promise_ask[0] or self.controller.player,
+                                                  request=promise_ask[1])
                                               if promise_for else
                                               PROMISE_NOTE if promise_check else UNHEARD_NOTE if unheard else
                                               STOP_NOTE.format(line=stop_line) if stop_check else
@@ -1251,6 +1269,38 @@ class Agent:
         self.log.log("request_left_open", request=ask[1], player=ask[0], run_for=run_for,
                      after_open_ask_turn=after_open_ask_turn,
                      **({} if after_open_ask_turn else {"no_open_ask_turn": why}))
+
+    def _told_back(self, ask: tuple, state: dict | None, t: dict, d, handed: bool) -> dict:
+        """What is true about a line he just said on the open ask, for its say result (study ask_vs_act 2026-11-18,
+        variant V2): who could hear it (players in perception), the asking player's last line and how long ago, and
+        what works on his request now. Facts read by code, no advice: he may still ask and wait."""
+        state = state or {}
+        me = getattr(self.controller, "name", None)
+        names = [str(p["name"]) for p in state.get("players") or []
+                 if isinstance(p, dict) and p.get("name") and not (me and sit.same_player(p["name"], me))]
+        who = ask[0] or self.controller.player
+        asker: dict = {"in_sight": any(sit.same_player(n, who) for n in names)}
+        if not asker["in_sight"]:
+            mark = next((r for r in state.get("map_players") or []
+                         if isinstance(r, dict) and sit.same_player(r.get("name"), who)), None)
+            dist = sit.num(mark.get("distance")) if mark else None
+            if dist is not None:
+                asker["map_marker"] = f"{dist:.0f} m {mark.get('direction') or ''}".strip()
+        last = next((v for k, v in self._last_line.items() if sit.same_player(k, who)), None)
+        asker["last_line"] = last[0] if last else None
+        asker["last_line_s_ago"] = round(self.clock() - last[1]) if last else None
+        work = []
+        if d.goal or d.skill:
+            work.append(f"a goal queued: {d.goal or d.skill}")
+        elif self.active_goal or self.pending_goal:
+            work.append(f"a goal {'running' if self.active_goal else 'queued'}: {self.active_goal or self.pending_goal}")
+        elif handed:
+            work.append("a long job handed on in this run")
+        if t.get("ran"):
+            work.append("this turn's calls: " + ", ".join(t["ran"]))
+        return {"heard_by": "in sight: " + ", ".join(names) if names else "nobody in sight", who: asker,
+                "his_request": {"words": ask[1], "open": True,
+                                "working_on_it": "; ".join(work) or "nothing: no job and no step under way"}}
 
     def _open_ask_block(self, ask: tuple, state: dict) -> dict:
         """The open ask as data, from fresh state against the state read when it was asked (facts, no advice)."""
