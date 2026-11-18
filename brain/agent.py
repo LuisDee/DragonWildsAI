@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from typing import Literal
 
-from . import fight_news, item_stats, needs
+from . import ask_store, fight_news, item_stats, needs
 from . import open_ask as oa
 from . import result_knowledge
 from . import situation as sit
@@ -133,6 +134,7 @@ ASKS_SEEN = 8  # baselines kept for asks (where the game stood when each was ask
 # A goal's end, either way, hands the player's words back to the run that hears it (as the open request):
 GOAL_ENDS = {"goal_done": "goal_done", "stuck": "goal_stuck"}
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
+ASK_STEP_DETAIL_CHARS = 240  # a step's result words kept with the open ask on disk (brain/ask_store.py)
 GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
@@ -261,6 +263,16 @@ class Agent:
         # the ask he parked last, {ask, facts, names}: a later call of his on one of its items opens it again
         # (oa.serves; live 20261118-034204: parked at 48 s, taken up at 64 s, 12 min standing from 210 s)
         self._parked: dict | None = None
+        # the open ask on disk (brain/ask_store.py, goal item 1 of docs/GOAL-2026-11-17-long-jobs.md): written to the
+        # world store whenever it changes, read back at startup (attach_ask_store); None: memory only (tests, tools).
+        # Run 20261118-021010-N1-I5: killed 4 s into a gather for the chest job, the new brain knew no ask
+        self.ask_dir: Path | None = None
+        self._ask_steps: list[dict] = []  # the last body calls made for the open ask, with their outcomes
+        self._ask_steps_for: tuple | None = None
+        self._ask_in_flight: dict | None = None  # the body call running now while an ask is kept
+        self._ask_written: dict | None = None  # the record last written (unchanged: no write)
+        self._ask_on_disk = False
+        self.wall = time.time
         self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -616,7 +628,14 @@ class Agent:
         self.broker.action_started(task.skill, task.args, continuing=bool(continues and continues(task)))
         self.broker.note_busy()
         started = time.monotonic()
-        outcome = self.executor.run_task(task)
+        self._ask_call_started(task)
+        try:
+            outcome = self.executor.run_task(task)
+        except Exception:  # an error the brain lives through: no call is lost (a killed brain runs nothing here)
+            self._ask_in_flight = None
+            self._save_ask()
+            raise
+        self._ask_call_ended(task, outcome)
         self._death_truth(task, outcome, started)
         detail = (outcome.data or {}).get("detail") if isinstance(outcome.data, dict) else None
         task.detail = str(detail)[:TASK_DETAIL_CHARS] if detail else None
@@ -675,6 +694,7 @@ class Agent:
         finally:
             self._serving_ask = serving
             self.controller.open_request = shown
+            self._save_ask()
 
     def _command_run(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
         """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
@@ -705,6 +725,8 @@ class Agent:
             self._note_ask(self._open_request, state, new=True)  # a line heard now is a new ask
             self._drop_ask_facts("a new line")
             self._parked = None  # his new line is the ask now
+            self._ask_steps, self._ask_steps_for = [], self._open_request
+            self._save_ask()  # on disk before the first model call: a brain killed while thinking keeps it
         # the request this run is for: his line, the one a goal came from at its end, or the one still open. A goal's
         # end is goal_done or stuck: live 2026-11-18 00:24Z (brain-live-20261118-012330-23088), the goal for "thirty
         # copper ore in the chest" got stuck on its craft step; the stuck run ran inside run_goal with active_goal still
@@ -720,6 +742,7 @@ class Agent:
                 self._parked = None
             self._open_request = goal_for
             self._note_ask(goal_for, state)  # (kept when it was heard in this session: the baseline is the ask's)
+            self._save_ask()
         # ...a goal still running is doing the open one: a body run beside it (a need, an attack) is not for it
         run_asked = (event.player, event.text) if event.text else goal_for or (
             None if self.active_goal or self.pending_goal else self._open_request)
@@ -1145,6 +1168,7 @@ class Agent:
         self._ask_facts = oa.keep_fact(self._ask_facts, key, source, text, raw=raw, t=self.clock())
         self.log.log("ask_fact_kept", request=ask[1], key=key, source=source, chars=len(text or ""),
                      kept=len(self._ask_facts))
+        self._save_ask()
 
     def _request_facts(self, exclude: str | None = None, where: str | None = None) -> list[str]:
         """The open ask's kept facts as shown (newest first, bounded), [] when none or no ask is open. ``where``: a
@@ -1185,7 +1209,7 @@ class Agent:
             names = oa.names_in(text, _item_names())
         except Exception:  # item data is best effort: the park stands without it
             names = set()
-        self._parked = {"ask": ask, "facts": list(facts), "names": sorted(names)}
+        self._parked = {"ask": ask, "facts": list(facts), "names": sorted(names), "reason": reason}
 
     def _reopen_parked(self, d) -> tuple | None:
         """With no ask open and none being worked on, a call of this turn (a body action, an inline read, or the goal
@@ -1205,6 +1229,7 @@ class Agent:
         self._ask_facts, self._ask_facts_for = list(p["facts"]), ask if p["facts"] else None
         self.log.log("request_reopened", request=ask[1], player=ask[0], tool=hit[0], arg=hit[1], item=hit[2],
                      facts=len(p["facts"]))
+        self._save_ask()
         return ask
 
     def _no_open_ask_turn(self) -> str | None:
@@ -1250,6 +1275,7 @@ class Agent:
         else:
             self._parked = None
         self._drop_ask_facts(call.name)
+        self._save_ask()  # done: the file goes; parked: kept as parked, with the reason
         words = str((call.arguments or {}).get(oa.ARG[call.name]) or "").strip() or None
         who, what = ask or (None, None)
         if call.name == oa.PARK:
@@ -1259,6 +1285,123 @@ class Agent:
         else:
             self.log.log("request_done_claimed", request=what, player=who, evidence=words)
         return {"ok": True, "note": "request parked" if call.name == oa.PARK else "request closed as finished"}
+
+    # ---------------------------------------------------------------- the open ask on disk (brain/ask_store.py)
+
+    def _ask_record(self) -> dict | None:
+        """The kept ask as written: his words, who, when, open or parked (and why), its facts, the last calls for it
+        and the call running now; None when no ask is kept. Times as unix seconds (monotonic does not survive)."""
+        if self._open_request:
+            ask, state, reason, names = self._open_request, "open", None, []
+            facts = self._ask_facts if oa.same_ask(self._ask_facts_for, ask) else []
+        elif self._parked:
+            p = self._parked
+            ask, state, reason = p["ask"], "parked", p.get("reason")
+            names, facts = p.get("names") or [], p.get("facts") or []
+        else:
+            return None
+        now_m, now_w = self.clock(), self.wall()
+
+        def wall(t):
+            return None if not isinstance(t, (int, float)) else round(now_w - (now_m - t))
+        seen = self._ask_seen.get(ask)
+        steps = self._ask_steps if oa.same_ask(self._ask_steps_for, ask) else []
+        return {"player": ask[0], "words": ask[1], "state": state, "park_reason": reason, "names": list(names),
+                "asked_unix": wall(seen[0]) if seen else None,
+                "baseline": ask_store.baseline(seen[1]) if seen else None,
+                "goal": self.active_goal if self.active_goal and oa.same_ask(self._serving_ask, ask) else None,
+                "facts": [{"key": f.get("key"), "source": f.get("source"), "text": f.get("text"), "raw": f.get("raw"),
+                           "t_unix": wall(f.get("t"))} for f in facts],
+                "steps": list(steps)[-ask_store.STEPS_KEPT:], "in_flight": self._ask_in_flight}
+
+    def _save_ask(self) -> None:
+        """Write the kept ask to the world store when it changed; remove it when none is kept (done, or never one)."""
+        if self.ask_dir is None:
+            return
+        try:
+            rec = self._ask_record()
+            if rec is None:
+                if self._ask_on_disk and ask_store.clear(self.ask_dir):
+                    self.log.log("ask_cleared", path=str(ask_store.path(self.ask_dir)))
+                self._ask_on_disk, self._ask_written = False, None
+                return
+            if rec == self._ask_written:
+                return
+            ask_store.save(self.ask_dir, {**rec, "saved_unix": round(self.wall(), 1)})
+            self._ask_written, self._ask_on_disk = rec, True
+        except (OSError, TypeError, ValueError) as exc:  # memory is best effort: the ask stays in memory
+            self.log.log("ask_save_error", error=repr(exc)[:200])
+
+    def _ask_call_started(self, task: Task) -> None:
+        if self.ask_dir is None or not (self._open_request or self._parked):
+            return
+        self._ask_in_flight = {"tool": task.skill, "args": dict(task.args or {}), "t_unix": round(self.wall(), 1),
+                               "for_request": oa.same_ask(self._serving_ask, self._open_request)}
+        self._save_ask()
+
+    def _ask_call_ended(self, task: Task, outcome: Outcome) -> None:
+        fl, self._ask_in_flight = self._ask_in_flight, None
+        if fl is None:
+            return
+        if fl.get("for_request") and self._open_request:
+            if not oa.same_ask(self._ask_steps_for, self._open_request):
+                self._ask_steps = []
+            self._ask_steps_for = self._open_request
+            data = outcome.data if isinstance(outcome.data, dict) else {}
+            detail = data.get("detail") or data.get("why")
+            self._ask_steps = [*self._ask_steps, {
+                "tool": task.skill, "args": dict(task.args or {}), "ok": outcome.ok, "reason": outcome.reason,
+                "detail": str(detail)[:ASK_STEP_DETAIL_CHARS] if detail else None,
+                "t_unix": round(self.wall(), 1)}][-ask_store.STEPS_KEPT:]
+        self._save_ask()
+
+    def attach_ask_store(self, directory: Path, state: dict | None = None,
+                         containers: dict | None = None) -> dict | None:
+        """Keep the open ask in ``directory`` (the world's state folder) from now on, and bring back the one a brain
+        before this one kept there: open or parked as it was, with its facts, steps and the baseline its open-ask turn
+        compares against. The first run then decides on a ``brain_restarted`` situation (ask_store.where_you_were): the
+        ask, how long ago, what the game shows now, and a call that was running when the old brain stopped, said as
+        unknown. Returns that situation, or None when nothing was kept."""
+        self.ask_dir = Path(directory)
+        rec = ask_store.load(self.ask_dir)
+        if rec is None:
+            self._ask_on_disk = ask_store.path(self.ask_dir).exists()  # unreadable: the next save replaces it
+            return None
+        now_m, now_w = self.clock(), self.wall()
+
+        def mono(tu):
+            return None if not isinstance(tu, (int, float)) else now_m - max(0.0, now_w - tu)
+        ask = (rec.get("player"), str(rec["words"]))
+        facts = [{"key": f.get("key"), "source": f.get("source"), "text": f["text"], "raw": f.get("raw"),
+                  "t": mono(f.get("t_unix"))} for f in rec.get("facts") or [] if isinstance(f, dict) and f.get("text")]
+        if rec["state"] == "open":
+            self._open_request, self._parked = ask, None
+            self._ask_facts, self._ask_facts_for = facts, ask if facts else None
+        else:
+            self._parked = {"ask": ask, "facts": facts, "names": list(rec.get("names") or []),
+                            "reason": rec.get("park_reason")}
+        base = rec.get("baseline")
+        if isinstance(base, dict) and "inventory" in base:
+            t = mono(rec.get("asked_unix"))
+            self._ask_seen[ask] = (now_m if t is None else t, base)
+        self._ask_steps = [s for s in rec.get("steps") or [] if isinstance(s, dict)][-ask_store.STEPS_KEPT:]
+        self._ask_steps_for = ask
+        self._ask_on_disk, self._ask_written = True, None  # the next save writes it afresh (the lost call said once)
+        if state is None:
+            state = self._fresh_state()
+        try:
+            cat = item_stats.catalog()
+        except Exception:  # names fall back to the body's own and the id
+            cat = {}
+        event = ask_store.where_you_were(rec, now_w, state, containers, cat)
+        self._situations.append(event)
+        w = event["where_you_were"]
+        self.log.log("ask_restored", request=ask[1], player=ask[0], state=rec["state"],
+                     asked_s_ago=w["open_request"].get("asked_s_ago"), saved_s_ago=w.get("record_saved_s_ago"),
+                     lost_call=(rec.get("in_flight") or {}).get("tool"), facts=len(facts),
+                     steps=len(self._ask_steps), containers=len(w["game_now"].get("containers_seen") or []),
+                     carried_read=not str(w["game_now"].get("carried")).startswith("unknown"))
+        return event
 
     def _note_progress(self, t: dict, before: dict, after: dict, player: str) -> str | None:
         """The no-progress breaker (brain/progress.py), on the turn's body results before the model reads them:

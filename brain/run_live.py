@@ -481,6 +481,16 @@ class LiveSession:
         if self.agent.budget is None or self.agent.budget.allows("warmup"):
             self.controller.warm_up()
         self.raise_standing_lows()
+        self.restore_ask()
+
+    def restore_ask(self) -> None:
+        """The open ask a brain before this one kept in the world store (brain/ask_store.py): back as it was, and the
+        first run hears where he was (Agent.attach_ask_store). From now on the ask is written there whenever it
+        changes. A harness starts a trial fresh with ``python -m brain.ask_store clear <world guid>``."""
+        try:
+            self.agent.attach_ask_store(self.store.dir, containers=self.stash.snapshot())
+        except Exception as exc:  # memory is best effort: the brain runs without the kept ask
+            self.log.log("ask_restored", ok=False, error=repr(exc)[:200])
 
     def raise_standing_lows(self) -> None:
         """A need already under its line when the brain (re)starts: the body's vitals_low from before was sent to
