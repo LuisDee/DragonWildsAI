@@ -50,7 +50,7 @@ def doc():
 # ------------------------------------------------------------------ the data
 def test_jobs_file_has_the_goals_jobs_and_steps(doc):
     jobs = doc["jobs"]
-    assert set(jobs) == {"L1", "L2", "L3", "N1", "H1", "H2", "H3"}
+    assert set(jobs) == {"L1", "L2", "L3", "N1", "N2", "H1", "H2", "H3"}
     assert {k for k, v in jobs.items() if v["held_out"]} == {"H1", "H2", "H3"}
     for k, v in jobs.items():
         assert "\n" not in v["line"] and v["line"].startswith("claude, "), k
@@ -450,7 +450,8 @@ def test_i3_waits_for_the_respawn_away_from_the_death():
 def test_i4_fills_his_bag_until_no_slot_is_left():
     io = FakeIO(room=[12, 2, 0])
     out = j.apply_interruption(io, "I4", {"filler": "ITEM_FishingNet_CoarseNet", "rounds": 3}, T0)
-    assert [kw["count"] for v, kw in io.fixtures] == [12, 2] and out["took"]
+    # full_read, not took: the fill is an interruption only once a call of his meets it (job_run.bag_watch)
+    assert [kw["count"] for v, kw in io.fixtures] == [12, 2] and out["full_read"] and out["took"] is None
     io = FakeIO(room=[5, 5, 5, 5])
     assert not j.apply_interruption(io, "I4", {"filler": "x", "rounds": 3}, T0)["took"]
 
@@ -500,7 +501,9 @@ def test_run_job_i5_resumes_after_the_restart(doc):
     after = model(T0 + 30) + [call(T0 + 33, "g2", "gather", {"resource": "copper"}),
                               result(T0 + 60, "g2", "gather", data={"detail": "Got 5 copper ore."})]
     script = model(T0 + 1) + [call(T0 + 3, "g1", "gather"), result(T0 + 20, "g1", "gather", data={"detail": "Got 3."})]
-    io = FakeIO(script=script + after, states=lambda t: state(mine=[CRATE]))
+    # the gather after the restart moved the job by the game's reads (5 copper on him after it): serves_test
+    io = FakeIO(script=script + after, states=lambda t: state(carried={"ITEM_Resources_CopperOre": 5} if t >= T0 + 60
+                                                               else None, mine=[CRATE]))
     rec = j.run_job(io, j.job_of("L2", doc), {"step": "I5", "interruptions": doc["interruptions"], "confirm_s": 20})
     assert io.restarts == 1
     assert rec["interruption"]["took"] and rec["interruption"]["t_put"] == 20.0  # polled every 0.5 s while awaited
@@ -594,7 +597,7 @@ def test_the_window_refuses_when_the_save_it_forks_is_under_the_bar(tmp_path, mo
     monkeypatch.setattr(q, "refuse_dirty", lambda a: False)
     monkeypatch.setattr(q, "clone_window", no_window)
     monkeypatch.setattr(j, "load_jobs", lambda: {"jobs": {"L9": {"start": "ClaudeDev"}}})
-    monkeypatch.setattr(j, "start_ref", lambda job, step, override: ("ClaudeDev", "the job's start"))
+    monkeypatch.setattr(j, "start_ref", lambda job, step, override, spec=None: ("ClaudeDev", "the job's start"))
     monkeypatch.setattr(quest_clone, "CHECKPOINT_DIR", tmp_path / "no_checkpoints")
     monkeypatch.setattr(quest_clone, "place_of", lambda ref: None)
     monkeypatch.setattr(quest_clone, "fork", no_fork)
@@ -633,7 +636,7 @@ def test_the_window_skips_a_fork_that_starts_starved(tmp_path, monkeypatch):
     monkeypatch.setattr(q, "clone_window", window)
     monkeypatch.setattr(q, "to_start", walked)
     monkeypatch.setattr(j, "load_jobs", lambda: {"jobs": {"L9": {"start": "cp"}}})
-    monkeypatch.setattr(j, "start_ref", lambda job, step, override: ("cp", "the job's start"))
+    monkeypatch.setattr(j, "start_ref", lambda job, step, override, spec=None: ("cp", "the job's start"))
     monkeypatch.setattr(j, "STOP_FILE", tmp_path / "none.stop")
     monkeypatch.setattr(quest_clone, "source_of", lambda ref: fit_save(tmp_path / "cp.json"))
     monkeypatch.setattr(quest_clone, "place_of", lambda ref: [0.0, 0.0, 0.0])

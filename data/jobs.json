@@ -109,6 +109,35 @@
       "interrupt_trigger_note": "mid-job: 4 s into his first work call (job_run.first_work: the first call of work_tools he starts, whatever it returns). From job_n1_midjob he carries 20 ash and 5 stone, so the job left is one gather of 5 stone (6 to 15 s) and two stores; 'first_deposit|progress:0.5' came due only between the end of his first store and the end of his second (2.1 to 2.8 s, and 0.7 s with no call open for I4's between_calls) and was never put in in 5 of 6 trials of window n1_i2i4_1118h (it fired in n1_i1_1118g only because those second stores ran 2.2 to 3.9 s). The interruption now lands inside his gather, with the stores still to do. job_n1_mid (window 1118d, --until first_step) was saved with all 20 ash and 10 stone carried, and I2 from it was done at 21 s: never used.",
       "work_tools": ["gather", "pickup", "craft", "build", "store", "take", "interact", "cast"]
     },
+    "N2": {
+      "line": "claude, put ten flax in a chest at your base",
+      "held_out": false,
+      "vehicle_for": "I4",
+      "vehicle_note": "I4 (a full bag) cannot bite on N1: stone and ash logs stack to 99 and he already holds both, so every unit merges into a stack and a store needs no bag room (study 2026-11-18 i4_i5). N2 asks for a kind he holds none of, so his first unit of it needs a new slot. Its first three I4 trials are scored before their traces are read.",
+      "check_live": true,
+      "candidates": [
+        {"item": "ITEM_Resources_Flax", "line": "claude, put ten flax in a chest at your base", "chosen": true, "check_live": ["flax plants within 60 m of his base in the restored world (Luis picked flax in the 2026-11-01 baseline, pickup family)", "ClaudeDev and the I4 checkpoint carry no flax", "a full item page refuses a flax pickup (the bite) and the body's result says so"]},
+        {"item": "ITEM_Resources_Weeds", "line": "claude, put ten weeds in a chest at your base", "check_live": ["weeds from bushes near his base (world items read ITEM_Resources_Weeds, stack 99: DISCOVERIES census)", "he carries none at the checkpoint"]},
+        {"item": "ITEM_Resources_Wood_Oak", "line": "claude, put ten oak logs in a chest at your base", "check_live": ["an oak near his base (Temple Woods is ash)", "his axe fells oak", "he carries none at the checkpoint"]}
+      ],
+      "end": {
+        "in_own_chest": [
+          {"item": "ITEM_Resources_Flax", "count": 10, "gained": true, "label": "flax put in during the run"}
+        ]
+      },
+      "not_carried_at_start": ["ITEM_Resources_Flax"],
+      "bar": {
+        "parts": [
+          {"family": "pickup", "per_item": true, "n": 10, "why": "10 flax at his pickup rate (the pickup family holds his 'pick flax' window)"},
+          {"family": "pickup", "n": 2, "why": "open the chest and one stack moved (store), at his press time"}
+        ],
+        "note": "a floor: the walk to the flax and back to his chest is in the per-run human_bar. Unverified live: where flax grows near his base (check_live)."
+      },
+      "start": "ClaudeDev",
+      "interrupt_trigger": "at:0",
+      "interrupt_trigger_note": "I4: the bag is filled as soon as no call of his is open after the line (between_calls), while he holds no flax (needs_new_slot), so his first flax pickup is the first call that can meet it. Later triggers (work:4) land after that pickup has given him a flax stack, and a full bag no longer bites. A pickup started during the fill can still land in a free slot: then needs_new_slot or 'never bit' leaves the trial out (not counted).",
+      "work_tools": ["gather", "pickup", "craft", "build", "store", "take", "interact", "cast"]
+    },
     "L3": {
       "line": "claude, gear up for the vault",
       "held_out": false,
@@ -207,15 +236,20 @@
       "filler": "ITEM_FishingNet_CoarseNet",
       "rounds": 3,
       "between_calls": true,
+      "needs_new_slot": true,
+      "job": "N2",
+      "job_note": "on N1 every unit he still needs merges into a stack he holds (stacks of 99) and a store needs no bag room: a full bag never meets a call of his (study 2026-11-18 i4_i5)",
+      "from": "job_n1_done",
+      "from_note": "a checkpoint pair saved by a whole N1 run that ended done (job_run trial --confirm --job N1 -k 3 --save-as job_n1_done): at home, his crate built, no flax on him (rule 8: from a run, never hand-built). Until it exists the window starts from N2's start (ClaudeDev: 5 stone, 1 ash, no flax).",
       "resume_within_s": 120,
-      "note": "Coarse Net: weight 1, a stack of 1, so N empty slots take N nets with little weight (a full bag, not an over-weight one). Unverified: whether one grant of N unstackable items fills N slots; job_run re-reads the empty slots and grants again up to 'rounds' times. between_calls: the grant waits until no call of his is open, so the bag is full before his next gather, not inside one."
+      "note": "Coarse Net: weight 1, a stack of 1, so N empty slots take N nets with little weight (a full bag, not an over-weight one). Unverified: whether one grant of N unstackable items fills N slots; job_run re-reads the empty slots and grants again up to 'rounds' times. between_calls: the grant waits until no call of his is open, so the bag is full before his next gather, not inside one. needs_new_slot: the grant waits until he carries none of an asked kind. The fill is full_read only: the step took when a call of his met the full bag (job_run.bag_watch: a result inventory_full, or a gather or pickup of the unheld kind that came back short), cleared at the first read with room after that, and he resumed when a call after the clear moved the job by the game's reads (job_run.serves_test). A full bag that met no call is not counted. The body's own gather check counts every page (inventory.lua empty_slots, 164 live), so today a refused pickup reads as a short gather, not inventory_full (body fix owed)."
     },
     "I5": {
       "what": "a brain restart",
       "how": "the harness's own brain process (chat_ladder.start_brain) is ended (stop_brain: taskkill /T) and started again on the same world store (DW_WORLD_GUID); the body is not touched",
       "gap_s": 5,
       "resume_within_s": 120,
-      "note": "the new brain reads back only what state_store keeps (the board, off unless DW_DIRECTOR=1): today the ask is lost, so I5 is expected to fail until the ask is on disk."
+      "note": "the open ask is on disk per world guid (brain/ask_store.py): job_run clears it at each trial's start (Live.clear_ask, no brain running) and keeps it across the restart inside the trial; the record says whether the new brain logged ask_restored (beside the verdict, not a bar). The record keeps the call open at the kill (moment.open_call), the stop, start and ready times apart, and at_clear: his bag and his containers read at ready. A job the in-flight call finished (at_clear done) is not counted (run 021010). He resumed only with a call after ready that moved the job by the game's reads (job_run.serves_test): upkeep and fuel do not count."
     }
   }
 }

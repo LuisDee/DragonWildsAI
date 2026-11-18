@@ -164,20 +164,23 @@ def test_i4_waits_until_no_call_is_open_so_the_bag_fills_before_the_next_gather(
     extra = [call(T0 + 29, "g2", "gather", {"resource": "stone"}),
              result(T0 + 47, "g2", "gather", data={"detail": "Got 5 stone."})]
     extra += model(T0 + 60) + [call(T0 + 62, "s2", "store", {"item": "Stone"}),
-                               result(T0 + 65, "s2", "store", ok=False, reason="bag_full")]
+                               result(T0 + 65, "s2", "store", ok=False, reason="inventory_full")]
+    spec = {**doc["interruptions"], "I4": {**doc["interruptions"]["I4"], "needs_new_slot": False}}
     io = FakeIO(script=n1_script(extra=extra), states=lambda t: state(mine=[CRATE]), room=[12, 0])
-    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I4", "interruptions": doc["interruptions"], "confirm_s": 10,
-                                              "trigger": DEP})
+    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I4", "interruptions": spec, "confirm_s": 10, "trigger": DEP})
     intr = rec["interruption"]
-    assert intr["t_put"] >= 47.0 and intr["took"]
+    assert intr["t_put"] >= 47.0 and intr["full_read"]
     assert [v for v, kw in io.fixtures] == ["grant"]
-    assert rec["resume"]["resumed"] and rec["resume"]["call"]["tool"] == "store"
+    # the result inventory_full is the bite; no read with room after it: bitten, never cleared, not resumed
+    assert intr["took"] and intr["bite"]["t"] == 65.0 and intr["t_clear"] is None and not rec["resume"].get("resumed")
 
 
 def test_i5_score_reads_the_new_brains_first_work_call(doc):
     after = model(T0 + 70) + [call(T0 + 74, "g2", "gather", {"resource": "stone", "count": 10}),
                               result(T0 + 90, "g2", "gather", data={"detail": "Got 10 stone."})]
-    io = FakeIO(script=n1_script(extra=after), states=lambda t: state(mine=[CRATE]))
+    # the new brain's gather moved the job by the game's reads (10 stone on him after it): serves_test
+    io = FakeIO(script=n1_script(extra=after), states=lambda t: state(carried={STONE: 10} if t >= T0 + 90 else None,
+                                                                      mine=[CRATE]))
     rec = j.run_job(io, j.job_of("N1", doc), {"step": "I5", "interruptions": doc["interruptions"], "confirm_s": 20,
                                               "trigger": DEP})
     assert io.restarts == 1 and rec["interruption"]["took"]

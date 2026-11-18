@@ -166,7 +166,8 @@ def snapshot(data: dict | None) -> dict:
     HeldRight, held_right ...); consumables {food, drink} that do no harm, and the ones left out; position; dead;
     own_containers (ids get_state marks mine: the client's ledger of what he built); container_kinds {id: census
     kind}; container_where {id: position} of his (an actor's name is per client session and changes when the game
-    re-creates it; where it stands does not); empty_slots (the game's count over every page); bag_room (bag_room()); unread (why the read is not a
+    re-creates it; where it stands does not); empty_slots (the game's count over every page); bag_room (bag_room(), else
+    get_state's item-page bag {capacity - used}) and bag_room_from ("pages" or "bag"); unread (why the read is not a
     reading of him: a failed get_state is never an empty character)."""
     d = data or {}
     if isinstance(d.get("data"), dict) and ("ok" in d):
@@ -219,12 +220,18 @@ def snapshot(data: dict | None) -> dict:
              if isinstance(e, dict) and e.get("mine") and e.get("id") and isinstance(e.get("position"), (list, tuple))
              and len(e["position"]) >= 2}
     pl = d.get("power_level")
+    room, room_from = bag_room(d), "pages"
+    b = d.get("bag") if isinstance(d.get("bag"), dict) else {}
+    if room is None and all(isinstance(b.get(k), (int, float)) and not isinstance(b.get(k), bool) for k in ("used", "capacity")):
+        # get_state's bag {used, capacity}: the item page only (skills.lua), so a sample reads room without a request;
+        # 0 here may still be room in the hotbar (bag_watch then asks the raw pages)
+        room, room_from = max(0, int(b["capacity"]) - int(b["used"])), "bag"
     unread = d.get("unread") or (None if rows is not None or d.get("inventory") or d.get("position") is not None
                                  else "the read carried no position and no inventory")
     out = {"carried": carried, "worn": worn, "worn_detail": worn_detail, "instances": instances, "held_detail": held,
            "consumables": cons, "position": d.get("position"),
            "dead": bool(d.get("dead")), "own_containers": sorted(own), "container_kinds": kinds, "container_where": where,
-           "empty_slots": d.get("empty_slots"), "bag_room": bag_room(d),
+           "empty_slots": d.get("empty_slots"), "bag_room": room, "bag_room_from": room_from if room is not None else None,
            "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
     if left_out:
         out["consumables_left_out"] = left_out
@@ -1233,28 +1240,92 @@ def first_work(calls: list[dict], job: dict) -> float | None:
     return next((round(float(c["t"]), 1) for c in calls if _work_call(c, job.get("work_tools"))), None)
 
 
-def resumed(calls: list[dict], interruption: dict, work_tools=None, lines: list[dict] | None = None) -> dict:
+def resumed(calls: list[dict], interruption: dict, work_tools=None, lines: list[dict] | None = None,
+            serves=None) -> dict:
     """Did he take the job up again after the interruption: the first work call that STARTED after it cleared
     (t_clear; seconds into the run), or one he started while it lasted and that was still running when it cleared and
     then ended ok (through: he kept the job going through it; run 034838-N1-I2 stored stone through the fight and was
     in a store when it cleared, with nothing left to start after); how many seconds after, and whether a line from the
-    player came in between (lines: [{t, line}] sent after the first)."""
+    player came in between (lines: [{t, line}] sent after the first). serves(call) (I4, I5: serves_test): only a call
+    that moved the job by the game's reads counts; upkeep or fuel does not (run 021010-N1-I5 took a 3-ash pickup for
+    a fire as the resume). first_work_call: the first work call after the clear, serving or not."""
     clear = interruption.get("t_clear")
     if clear is None:
         return {"resumed": False, "why": "the interruption has not cleared"}
     clear = float(clear)
     put = float(interruption.get("t_put") if interruption.get("t_put") is not None else clear)
+    ok_ = serves or (lambda c: True)
     through = next((c for c in calls if _work_call(c, work_tools) and put <= float(c.get("t") or 0) < clear
                     and c.get("ok") is True and c.get("dur_s") is not None
-                    and float(c["t"]) + float(c["dur_s"]) >= clear), None)
-    nxt = through or next((c for c in calls if float(c.get("t") or 0) >= clear and _work_call(c, work_tools)), None)
+                    and float(c["t"]) + float(c["dur_s"]) >= clear and ok_(c)), None)
+    after = [c for c in calls if float(c.get("t") or 0) >= clear and _work_call(c, work_tools)]
+    nxt = through or next((c for c in after if ok_(c)), None)
     new_lines = [l for l in lines or [] if float(l.get("t") or 0) >= put]
+    first = ({"first_work_call": {"tool": after[0].get("tool"), "args": after[0].get("args"), "ok": after[0].get("ok"),
+                                  "t": float(after[0]["t"])}} if after else {})
     if nxt is None:
-        return {"resumed": False, "new_line": bool(new_lines), "why": "no work call after the interruption cleared"}
+        why = ("no work call after the interruption cleared" if not after else
+               "no work call after the interruption cleared moved the job (by the game's reads)")
+        return {"resumed": False, "new_line": bool(new_lines), "why": why, **first}
     t = clear if through else float(nxt["t"])
     return {"resumed": True, "t": t, "after_s": round(t - clear, 1), "call": {"tool": nxt.get("tool"), "args": nxt.get("args"),
             "ok": nxt.get("ok"), "t": float(nxt["t"])}, "through": bool(through),
-            "new_line": any(float(l.get("t") or 0) <= t for l in new_lines)}
+            "new_line": any(float(l.get("t") or 0) <= t for l in new_lines), **first,
+            **({"served": True} if serves else {})}
+
+
+def asked_carried(job: dict, snap: dict | None) -> dict[str, int]:
+    """{asked item pattern: n he carries} of a chest job, from one read ({} for a job with no item counts)."""
+    return {w["item"]: count_of((snap or {}).get("carried") or {}, w["item"]) for w in _chest_wants(job)}
+
+
+def unheld_wants(job: dict, snap: dict | None) -> list[str]:
+    """The asked kinds he carries none of: the next unit of one needs a new slot (I4 can bite only there)."""
+    return [k for k, n in asked_carried(job, snap).items() if n == 0] if snap and not snap.get("unread") else []
+
+
+def _store_result(rows: list[dict], t0: float, c: dict, tol: float = 0.25) -> dict | None:
+    """The result row of a timeline call, by its end (seconds into the run, to the timeline's 0.1 s)."""
+    end = t0 + float(c["t"]) + float(c["dur_s"])
+    near = [r for r in rows if r.get("kind") == "tool_result" and r.get("tool") == c.get("tool")
+            and abs(float(r.get("ts") or 0) - end) <= tol]
+    return min(near, key=lambda r: abs(float(r["ts"]) - end)) if near else None
+
+
+def serves_test(job: dict, rows: list[dict], t0: float, samples: list[dict], intr: dict):
+    """serves(call) for resumed() on I4 and I5, read from the game, never from the model's words: a store whose body
+    result moved an asked item into a container (moved_by), or any other work call after whose end a read shows the
+    units of an asked kind he was short of at the clear above their level then (carried, plus what his stores put in
+    since the clear). The level at the clear: intr["at_clear"]["carried"] (I5: the read at ready; I4: the read with
+    room), else the first sample at or after the clear. None for a job with no item counts (no test: any work call)."""
+    wants = {w["item"]: int(w["count"]) for w in _chest_wants(job)}
+    clear = intr.get("t_clear")
+    if not wants or clear is None:
+        return None
+    clear = float(clear)
+    base = (intr.get("at_clear") or {}).get("carried")
+    if not isinstance(base, dict):
+        s0 = next((s for s in samples if s["t"] >= clear), None)
+        base = s0["carried"] if s0 else None
+
+    def stored_since(pattern: str, t_rel: float) -> int:
+        return sum(n for r in rows if t0 + clear <= float(r.get("ts") or 0) <= t0 + t_rel
+                   for k, n in moved_by(r).items() if matches(k, pattern))
+
+    def serves(c: dict) -> bool:
+        if c.get("ok") is not True or c.get("dur_s") is None:
+            return False
+        if c.get("tool") == "store":
+            r = _store_result(rows, t0, c)
+            return bool(r) and any(n > 0 and any(matches(k, p) for p in wants) for k, n in moved_by(r).items())
+        if base is None:
+            return False  # no read at the clear: never a resume on a reading that is not there
+        end = float(c["t"]) + float(c["dur_s"])
+        s = next((s for s in samples if s["t"] >= end), None)
+        return bool(s) and any(int(base.get(p, 0)) < n and
+                               int(s["carried"].get(p, 0)) + stored_since(p, s["t"]) > int(base.get(p, 0))
+                               for p, n in wants.items())
+    return serves
 
 
 def _chest_wants(job: dict) -> list[dict]:
@@ -1344,7 +1415,10 @@ def verdict(rec: dict) -> dict:
     if rec.get("kind") == "interrupt":
         r = rec.get("resume") or {}
         lim = rec.get("resume_within_s")
-        bars = {"interrupted": bool((rec.get("interruption") or {}).get("took")), "resumed": bool(r.get("resumed")),
+        intr = rec.get("interruption") or {}
+        # I4: the bag read full AND a call of his met it (bag_watch); every other step: it took
+        took = (bool(intr.get("full_read")) and bool(intr.get("bite"))) if rec.get("step") == "I4" else bool(intr.get("took"))
+        bars = {"interrupted": took, "resumed": bool(r.get("resumed")),
                 "no_new_line": not r.get("new_line"),
                 "in_time": r.get("after_s") is not None and (lim is None or r["after_s"] <= float(lim)),
                 "counted": not rec.get("not_counted")}
@@ -1456,6 +1530,11 @@ def scores_of(rec: dict) -> dict:
         r = rec.get("resume") or {}
         out.update(resumed=r.get("resumed"), resumed_after_s=r.get("after_s"), new_line=r.get("new_line"),
                    interruption={k: (rec.get("interruption") or {}).get(k) for k in ("step", "took", "t_put", "t_clear")})
+        for k in ("full_read", "bite", "t_ready"):  # I4's fill and bite, I5's ready
+            if (rec.get("interruption") or {}).get(k) is not None:
+                out["interruption"][k] = rec["interruption"][k]
+        if rec.get("ask_restored") is not None:  # beside the verdict, never a bar
+            out["ask_restored"] = rec["ask_restored"].get("seen")
     return out
 
 
@@ -1500,13 +1579,24 @@ def apply_interruption(io, step: str, spec: dict, t0: float) -> dict:
                 io.fixture("grant", purpose, item=spec["filler"], count=int(room))
                 filled += int(room)
             left = io.bag_room()
-            out.update(took=left == 0, t_clear=rel() if left == 0 else None,
-                       how=f"{filled} {spec['filler']} granted; " + (
+            # full_read: the bag reads full. Not yet an interruption: it took (and later clears) only when a call of
+            # his meets it (bag_watch); the fill's own time is never the clear (study 2026-11-18: a false pass)
+            out.update(full_read=left == 0, filled=filled, left=left, took=None if left == 0 else False,
+                       t_clear=None, how=f"{filled} {spec['filler']} granted; " + (
                            "bag room unread (no hotbar and item page sizes in the inventory read)" if left is None
                            else f"{left} free hotbar and item slot(s) left"))
         elif step == "I5":
-            ready = io.restart_brain(float(spec.get("gap_s", 5)))
-            out.update(took=bool(ready), t_clear=rel() if ready else None,
+            # the old brain stopped, the gap, the new one started, ready (its warm-up logged): times apart (run
+            # 021010 took 50 s against a 5 s gap). io.restart_brain gives {ready, t_stopped, t_started, t_ready}
+            got = io.restart_brain(float(spec.get("gap_s", 5)))
+            info = got if isinstance(got, dict) else {"ready": bool(got)}
+            ready = bool(info.get("ready"))
+            for k in ("t_stopped", "t_started", "t_ready"):
+                if isinstance(info.get(k), (int, float)):
+                    out[k] = round(float(info[k]) - t0, 1)
+            if ready:
+                out.setdefault("t_ready", rel())
+            out.update(took=ready, t_clear=out.get("t_ready") if ready else None,
                        how="brain ended and started again" if ready else "the new brain did not start")
     except Exception as exc:  # a fixture that failed: the trial says so; it is the harness's fault (void)
         out.update(took=False, how=f"fixture failed: {exc!r}"[:300])
@@ -1536,6 +1626,89 @@ def fight_cleared(rows: list[dict], intr: dict, t0: float, wait_s: float) -> dic
         out["t_clear"] = round(ended - t0, 1)
     elif started is None and max((float(r.get("ts") or 0) for r in rows), default=put) - put > wait_s:
         out.update(took=False, how=(intr.get("how") or "") + f"; no fight within {wait_s:.0f} s")
+    return out
+
+
+GATHER_TOOLS = ("gather", "pickup")
+
+
+def bag_watch(calls: list[dict], intr: dict, samples: list[dict]) -> dict:
+    """I4 read from the game (study 2026-11-18 section 3): the bag read full (full_read) is not yet an interruption.
+    bite = the first call of his after the fill that met it: a result with reason inventory_full, or a gather or
+    pickup ended short while he held none of an asked kind (moment.unheld): failed, or ok with the next read showing
+    none of it. took turns True there. Room read before any call met it: freed_before_bite, never a bite. t_clear =
+    the first read at or after the bite with room (samples: [{t, carried, room}], seconds into the run), with the call
+    that freed it (the last that ended in between) and that read as at_clear. Never the fill's own time."""
+    out = dict(intr)
+    if not out.get("full_read") or out.get("t_clear") is not None:
+        return out
+    put = float(out.get("t_put") or 0)
+    unheld = list((out.get("moment") or {}).get("unheld") or [])
+    after = [s for s in samples if s["t"] >= put]
+    if not out.get("bite"):
+        if out.get("freed_before_bite"):
+            return out
+        room_at = next((s for s in after if (s.get("room") or 0) > 0), None)
+        bite = None
+        for c in sorted(calls, key=lambda c: float(c.get("t") or 0)):
+            if float(c.get("t") or 0) < put or c.get("dur_s") is None:
+                continue
+            end = round(float(c["t"]) + float(c["dur_s"]), 1)
+            if room_at and end > room_at["t"]:
+                break
+            if c.get("reason") == "inventory_full":
+                bite = (c, end, "inventory_full")
+            elif c.get("tool") in GATHER_TOOLS and unheld:
+                if c.get("ok") is not True:
+                    bite = (c, end, f"short: {c.get('reason')} while he held none of {', '.join(unheld)}")
+                else:
+                    nxt = next((s for s in after if s["t"] >= end), None)
+                    if nxt is None:
+                        break  # undecided until a read after it ended
+                    if all(int(nxt["carried"].get(k, 0)) == 0 for k in unheld):
+                        bite = (c, end, f"short: ok, but the read at {nxt['t']} s shows none of {', '.join(unheld)}")
+            if bite:
+                break
+        if bite:
+            c, end, how = bite
+            out.update(took=True, bite={"t": end, "how": how, "call": {"tool": c.get("tool"), "args": c.get("args"),
+                                                                      "ok": c.get("ok"), "reason": c.get("reason"),
+                                                                      "t": float(c["t"])}})
+        elif room_at:
+            out["freed_before_bite"] = {"t": room_at["t"], "room": room_at.get("room")}
+            return out
+        else:
+            return out
+    b = float(out["bite"]["t"])
+    s = next((s for s in samples if s["t"] >= b and (s.get("room") or 0) > 0), None)
+    if s:
+        freed = [c for c in calls if c.get("dur_s") is not None and b <= float(c["t"]) + float(c["dur_s"]) <= s["t"]]
+        last = max(freed, key=lambda c: float(c["t"]) + float(c["dur_s"]), default=None)
+        out.update(t_clear=s["t"], at_clear={"t": s["t"], "room": s.get("room"), "carried": dict(s["carried"])},
+                   freed_by=({"tool": last.get("tool"), "args": last.get("args"), "ok": last.get("ok"),
+                              "t": float(last["t"])} if last else None))
+    return out
+
+
+def clear_read(io, job: dict, start: dict, seen, rows: list[dict], rel: float) -> dict:
+    """I5's read at ready (study 2026-11-18 section 3): his bag and his containers as the game shows them, because a
+    call in flight at the kill may have moved the job with no row to show it (run 021010: the store finished in the
+    gap). carried and chests: the asked kinds only; done: the job's end read on it."""
+    _, snap = _read_state(io)
+    out: dict = {"t": round(rel, 1)}
+    if snap.get("unread"):
+        out["unread"] = snap["unread"]
+        return out
+    seen.see(snap)
+    snap.update(evidence(rows))
+    seen.into(snap)
+    out["carried"] = asked_carried(job, snap)
+    wants = [w["item"] for w in _chest_wants(job)]
+    if "in_own_chest" in (job.get("end") or {}):
+        snap["chest_end"] = chest_reads(io, chest_candidates(start, snap))
+        out["chests"] = {cid: {k: n for k, n in (r.get("items") or {}).items() if any(matches(k, p) for p in wants)}
+                         for cid, r in snap["chest_end"].items() if r.get("read")}
+    out["done"], out["done_why"] = done(job, start, snap)
     return out
 
 
@@ -1622,6 +1795,13 @@ def run_job(io, job: dict, opts: dict) -> dict:
     until = opts.get("until") or ("resumed" if step else "done")
     bar = bar_s(job) if job.get("bar") else None
     lo_hi = mid_range(until)
+    # the open ask on disk (brain/ask_store.py) is per world guid: cleared here, with no brain running, so this trial
+    # never meets the last trial's ask; never at the restart inside the trial (I5 measures that it survives)
+    clear_ask = getattr(io, "clear_ask", None)
+    try:
+        ask_cleared = clear_ask() if clear_ask else None
+    except Exception as exc:  # recorded; the brain then may read an old ask, which the record shows
+        ask_cleared = {"error": repr(exc)[:200]}
     if not io.start_brain():  # the reason (window 1118d I1: the sender's prove, not the brain, failed)
         why_not = getattr(io, "start_why", None)
         return {"error": "brain did not start" + (f": {why_not}" if why_not else "")}
@@ -1662,6 +1842,9 @@ def run_job(io, job: dict, opts: dict) -> dict:
     rows: list[dict] = []
     res: dict = {}
     cur: dict | None = None
+    samples: list[dict] = []  # [{t, carried (asked kinds), room}] of every read: I4's bite and clear, I4/I5's serves
+    t_done: float | None = None  # the first read of the job done (seconds into the run)
+    gate_blocked = False  # I4's needs_new_slot held the fill back while the trigger was due
     while True:
         now = io.now()
         rel = now - t0
@@ -1691,23 +1874,45 @@ def run_job(io, job: dict, opts: dict) -> dict:
                 if ok is None and chest_job and done(job, start, {**cur, "chest_end": _open_reads(cur)})[0] is True:
                     cur["chest_end"] = chest_reads(io, chest_candidates(start, cur))  # his opens say done: read it now
                     ok, ok_why = done(job, start, cur)
+                if ok is True and t_done is None:
+                    t_done = round(rel, 1)
+                room = cur.get("bag_room")
+                if step == "I4" and intr is not None and intr.get("full_read") and intr.get("t_clear") is None \
+                        and not (room or 0) > 0:
+                    room = io.bag_room()  # get_state's bag is the item page only: the raw pages decide "no room"
+                samples.append({"t": round(rel, 1), "carried": asked_carried(job, cur), "room": room})
         busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
         open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
         open_tool = any(c.get("dur_s") is None for c in tl["calls"]) or bool(tl["body_busy"])
         if step and intr is None and ok is not True:
             dep_t, share = first_deposit(rows, job, t0), progress(job, start, cur, rows)
             # between_calls (I4): wait for no open call, so the bag fills before his next gather, not inside one
-            if trigger_due(trigger, first_t, rel, bar, dep_t, share, work_t) and not (spec.get("between_calls") and open_tool):
+            due = trigger_due(trigger, first_t, rel, bar, dep_t, share, work_t) and not (spec.get("between_calls") and open_tool)
+            # needs_new_slot (I4): only while he carries none of an asked kind, so his next unit needs a new slot; a
+            # unit that merges into a stack he holds never meets a full bag (N1: stacks of 99)
+            unheld = unheld_wants(job, cur)
+            if due and spec.get("needs_new_slot") and not unheld:
+                gate_blocked, due = True, False
+            if due:
+                open_c = [c for c in tl["calls"] if c.get("dur_s") is None]
                 moment = {"trigger": trigger, "at_s": round(rel, 1), "first_work_s": work_t, "first_step_s": first_t,
-                          "first_deposit_s": dep_t, "progress": share, "carried": {w["item"]: count_of((cur or {}).get("carried") or {}, w["item"])
-                                                         for w in _chest_wants(job)} or None}
+                          "first_deposit_s": dep_t, "progress": share, "carried": asked_carried(job, cur) or None,
+                          "unheld": unheld,
+                          # the call open at this moment (I5: the body runs it on with no brain to log its result)
+                          "open_call": ({k: open_c[-1].get(k) for k in ("tool", "args", "t")} if open_c else None)}
                 intr = apply_interruption(io, step, spec, t0)
                 intr["moment"] = moment
-                print(f"[{rel:6.1f}s] {step} put in at {json.dumps(moment)}: {intr.get('how')}")
+                print(f"[{rel:6.1f}s] {step} put in at {json.dumps(moment, default=str)}: {intr.get('how')}")
+                if step == "I5" and intr.get("t_clear") is not None:  # what the game shows at ready
+                    rows = io.rows(t0 - 1, io.now() + 1)
+                    intr["at_clear"] = clear_read(io, job, start, seen, rows, io.now() - t0)
         if intr is not None and step == "I2" and intr.get("t_clear") is None:
             intr = fight_cleared(rows, intr, t0, float(spec.get("fight_wait_s", 40)))
+        if intr is not None and step == "I4" and intr.get("full_read") and intr.get("t_clear") is None:
+            intr = bag_watch(tl["calls"], intr, samples)
         if intr is not None and intr.get("t_clear") is not None:
-            res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:])
+            serves = serves_test(job, rows, t0, samples, intr) if step in ("I4", "I5") else None
+            res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:], serves)
         quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
         share_now = progress(job, start, cur, rows) if lo_hi else None
         if entered:
@@ -1753,12 +1958,19 @@ def run_job(io, job: dict, opts: dict) -> dict:
         seen_from_end(end["chest_end"], end.get("container_where") or {}, end.get("position"))
         end["held_in_run"] = held_in_run(rows, seen.bags)  # start, every sample and end (seen.see)
     ok, ok_why = done(job, start, end)
+    if ok is True and t_done is None:
+        t_done = round(ended - t0, 1)
+    if not end.get("unread"):  # the end read is the last sample (a call that ended just before it)
+        samples.append({"t": round(ended - t0, 1), "carried": asked_carried(job, end), "room": end.get("bag_room")})
     tl = q.timeline(rows, t0, ended)
     calls = cl.model_calls(rows)
     if intr is not None and step == "I2" and intr.get("took") is None:
         intr = fight_cleared(rows, intr, t0, float(spec.get("fight_wait_s", 40)))
+    if intr is not None and step == "I4" and intr.get("full_read") and intr.get("t_clear") is None:
+        intr = bag_watch(tl["calls"], intr, samples)
     if intr is not None and intr.get("t_clear") is not None:
-        res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:])
+        serves = serves_test(job, rows, t0, samples, intr) if step in ("I4", "I5") else None
+        res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:], serves)
         if res.get("resumed"):
             intr["t_resumed"] = res["t"]
     active = round(tl["last_busy"] - t0, 1) if why == "quiet" else round(ended - t0, 1)
@@ -1790,16 +2002,39 @@ def run_job(io, job: dict, opts: dict) -> dict:
         rec["mid"] = mid_read(job, start, end, rows, t0, lo_hi)
     if step:
         rec["resumed"] = bool(res.get("resumed"))
-        never = f"never put in: {trigger} was not due when the run ended ({why})"
+        never = f"never put in: {trigger} was not due when the run ended ({why})" + (
+            "; when it was due he carried some of every asked kind, so no unit needed a new slot (needs_new_slot)"
+            if gate_blocked else "")
         rec.update(interruption=intr or {"step": step, "took": False, "how": never},
                    resume=res, resume_within_s=spec.get("resume_within_s"),
                    says_after_put=[s for s in tl["says"] if intr and intr.get("t_put") is not None and s["t"] >= intr["t_put"]])
+        rec["ask_store"] = ask_cleared
+        rec["job_done_s"] = t_done
+    if step == "I5" and intr:  # beside the verdict, never a bar: did the new brain bring the ask back from disk
+        t_new = t0 + float(intr.get("t_started") if intr.get("t_started") is not None else intr.get("t_put") or 0)
+        ar = [r for r in rows if r.get("kind") == "ask_restored" and float(r.get("ts") or 0) >= t_new]
+        rec["ask_restored"] = {"seen": bool(ar), "note": "beside the verdict, not a bar"}
+        if ar:
+            rec["ask_restored"].update(t=round(float(ar[0]["ts"]) - t0, 1), ok=ar[0].get("ok", True),
+                                       request=ar[0].get("request"), lost_call=ar[0].get("lost_call"),
+                                       error=ar[0].get("error"))
     # a head start is a whole job's rule: a step trial from a mid-job checkpoint carries the job's things by design
     nc = None if step else not_counted(job, start)
+    clear_t = (intr or {}).get("t_clear")
     if step and not intr:  # the harness's moment never came: no trial of the step, never a fail (window 1118h)
         nc = ("the job was done before the interruption was due: the step says nothing" if ok is True
-              else f"the interruption was never put in ({trigger} not due when the run ended: {why}): "
-                   "the step says nothing")
+              else f"the interruption was never put in ({trigger} not due when the run ended: {why}"
+                   + ("; needs_new_slot held it back" if gate_blocked else "") + "): the step says nothing")
+    elif step == "I4" and intr.get("full_read") and not intr.get("bite"):
+        fb = intr.get("freed_before_bite")
+        nc = "the full bag met no call of his: the step says nothing" + (
+            f" (room again at {fb['t']} s before any call met it)" if fb else "")
+    elif step == "I5" and (intr.get("at_clear") or {}).get("done") is True:
+        oc = (intr.get("moment") or {}).get("open_call") or {}
+        nc = (f"finished by the in-flight call ({oc.get('tool') or 'none open'}) before the new brain was ready: "
+              "the step says nothing")
+    elif step and ok is True and clear_t is not None and t_done is not None and t_done <= float(clear_t):
+        nc = f"the job read done at {t_done} s, at or before the interruption cleared: the step says nothing"
     elif step and ok is True and not res.get("resumed") and why == "job done":
         nc = "the job was done before he could take it up again: the step says nothing"
     if nc:
@@ -1861,12 +2096,24 @@ class Live:
         self.files.append(f)
         return True
 
-    def restart_brain(self, gap_s: float) -> bool:
+    def restart_brain(self, gap_s: float) -> dict:
+        """I5: the brain stopped, the gap, a new one on the same world store; the open ask on disk is kept (only a
+        trial's start clears it). {ready, t_stopped, t_started, t_ready} (unix times)."""
         from tools import chat_ladder as cl
         for p in self.procs:
             cl.stop_brain(p)
+        t_stopped = time.time()
         time.sleep(gap_s)
-        return self.start_brain()
+        t_started = time.time()
+        ready = self.start_brain()
+        return {"ready": bool(ready), "t_stopped": t_stopped, "t_started": t_started,
+                "t_ready": time.time() if ready else None}
+
+    def clear_ask(self) -> dict:
+        """The trial's fresh start: the open ask of this trial's world (DW_WORLD_GUID = a.world) removed, with no
+        brain running (brain/ask_store.clear_world), so trial N+1 never reads trial N's ask."""
+        from brain import ask_store
+        return {"world": self.a.world, "had_ask": ask_store.clear_world(self.a.world)}
 
     def brain_logs(self) -> list[str]:
         return [f.name for f in self.files]
@@ -1926,12 +2173,18 @@ class Live:
 
 
 # ------------------------------------------------------------------ the window (K trials on forks)
-def start_ref(job: dict, step: str | None, override: str | None) -> tuple[str, str]:
-    """(checkpoint or save to fork, why): --from, else a mid-job checkpoint for an interruption step when it exists,
-    else the job's start (the interruption then comes after his first verified step)."""
+def start_ref(job: dict, step: str | None, override: str | None, spec: dict | None = None) -> tuple[str, str]:
+    """(checkpoint or save to fork, why): --from, else the step's own checkpoint on its vehicle (spec "from" when the
+    job is spec "job": I4 on N2), else a mid-job checkpoint for an interruption step when it exists, else the job's
+    start (the interruption then comes after his first verified step)."""
     from tools import quest_clone
     if override:
         return override, "--from"
+    spec = spec or {}
+    if step and spec.get("from") and spec.get("job") == job.get("id"):
+        if (quest_clone.CHECKPOINT_DIR / f"{spec['from']}.json").exists():
+            return spec["from"], f"{step}'s checkpoint"
+        return job["start"], f"the job's start ({spec['from']} not made yet)"
     mid = job.get("interrupt_from")
     if step and mid and (quest_clone.CHECKPOINT_DIR / f"{mid}.json").exists():
         return mid, "the job's mid-job checkpoint"
@@ -1955,14 +2208,19 @@ def cmd_window(a, step: str | None) -> int:
     if not a.confirm:
         print("refusing: a live trial relaunches the client on forked characters; pass --confirm")
         return 2
-    if q.refuse_dirty(a):
-        return 7
     doc = load_jobs()
     job = job_of(a.job, doc)
+    spec = (doc.get("interruptions") or {}).get(step) or {}
+    if step and spec.get("job") and spec["job"] != a.job:  # the step bites only on its vehicle (I4: N1 cannot)
+        print(f"{step}'s vehicle is {spec['job']} (data/jobs.json interruptions.{step}.job), not {a.job}: "
+              + (spec.get("job_note") or "the step says nothing on another job"))
+        return 2
+    if q.refuse_dirty(a):
+        return 7
     rung = getattr(a, "rung", None)
     if rung:  # a rung of the job's ladder: the job's line, the rung's end and start (from)
         job = rung_job(job, rung)
-    ref, ref_why = start_ref(job, step, a.checkpoint)
+    ref, ref_why = start_ref(job, step, a.checkpoint, spec)
     ladder = read_ladder(ref) if rung else {}  # what he made in the earlier rungs, from the checkpoint's record
     if rung:
         ref_why = (f"rung {rung}'s from" if ref_why == "the job's start" else ref_why) + (

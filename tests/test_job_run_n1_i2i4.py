@@ -92,11 +92,13 @@ def test_n1_puts_the_interruption_inside_his_first_work_call(doc):
 
 def test_between_calls_finds_the_short_gap_after_his_gather(doc):
     # I4 waits for no open call: the gap after the gather (15.1-16.5 s) is 1.4 s, under the 3 s poll
+    # needs_new_slot off: on N1 it never lets the fill in (he holds both kinds); the gap is what this tests
+    spec = {**doc["interruptions"], "I4": {**doc["interruptions"]["I4"], "needs_new_slot": False}}
     io = FakeIO(script=run_035300(), states=carried, chests=crate, room=[4, 0, 0])
-    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I4", "interruptions": doc["interruptions"], "deadline": 60})
+    rec = j.run_job(io, j.job_of("N1", doc), {"step": "I4", "interruptions": spec, "deadline": 60})
     m = rec["interruption"]["moment"]
     assert 15.1 <= m["at_s"] < 16.5, m
-    assert rec["interruption"]["took"] is True
+    assert rec["interruption"]["full_read"] is True and rec["interruption"]["took"] is None  # filled, never bit
 
 
 def test_the_old_trigger_at_the_old_poll_misses_the_window_shape(doc, monkeypatch):
