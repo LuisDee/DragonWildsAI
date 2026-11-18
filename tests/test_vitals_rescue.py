@@ -147,7 +147,7 @@ def test_a_rescue_sets_the_bars_as_a_logged_harness_rescue_and_waits_for_the_sav
     cmd["clock"].hooks[1020] = lambda: write_save(cmd["save"], 94.0, 94.5, mtime=1019.0)
     assert vr.main(["--purpose", "before job window L2"]) == 0
     verbs = [(v, a.get("stat")) for v, _, a in cmd["dev"].calls]
-    assert verbs == [("set_health", None), ("set_stat", "sustenance"), ("set_stat", "hydration")]
+    assert verbs == [("set_health", None), ("set_stat", "endurance"), ("set_stat", "sustenance"), ("set_stat", "hydration")]
     assert all(p.startswith("harness rescue") and "before job window L2" in p for _, p, _ in cmd["dev"].calls)
     assert cmd["lock"] == [("claim", "vitals"), ("release", "vitals")]  # the switch cannot come before the save
     (row,) = [json.loads(ln) for ln in vr.LOG.read_text(encoding="utf-8").splitlines()]

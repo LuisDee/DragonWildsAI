@@ -118,10 +118,12 @@ def wait_saved(path: Path, after: float, pct: float | None = None, timeout_s: fl
 
 
 def rescue(dev, pct: float, purpose: str) -> dict:
-    """The rescue itself: full health, food and water to pct % of their max, each a logged dev fixture."""
+    """The rescue itself: full health, his Rest bar, then food and water to pct % of their max, each a logged dev
+    fixture. Rest first: under 25 rest the game caps food and water at 75 ("Knackered", DISCOVERIES), so a rescue at
+    100 % read back 75 and a 4-minute checkpoint run drained him under the fit bar (2026-11-18 07:42Z, job_n1_pair)."""
     p = f"harness rescue (vitals, {getattr(dev, 'character_name', 'ClaudeDev')}): {purpose}"
     out = {"health": dev.setup("set_health", purpose=p, pct=100).get("health")}
-    for stat in ("sustenance", "hydration"):
+    for stat in ("endurance", "sustenance", "hydration"):
         out[stat] = dev.setup("set_stat", purpose=p, stat=stat, pct=float(pct)).get("after")
     return out
 
