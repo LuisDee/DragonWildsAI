@@ -2267,3 +2267,31 @@ Window now: `thread_1118t`, L2 V1 ×4 then N1 I5 ×4. Named first: a bone pickax
 **Also:** the patch pipeline now scans client_mod (360 files, BROKEN 0); H3 is gradable (grader only, c9a0f43); the unseen ledger scans the watchdog log; the client smoke walk is 5 m.
 
 Spend 18 Nov: $8.96; no more model windows today. Unseen 8 open (cap): tomorrow's first window is a confirm window (V1 with the camrig aim and the gather tiers after their replay).
+
+## 2026-11-18 15:50Z-22:50Z: the design question, the job tree, the ledger that outlived its world, jumps reproduced
+
+**Luis asked whether the fixes were root causes or patches.** An audit of about 60 changes since 15 Nov (docs/research/2026-11-18-fix-audit.md) found:
+- **Copper was whack-a-mole:** about 16 changes, 9 of them facts added to tool results, each moving the first failure one link along the chain with no pass. Rule 5 (search after two fixes that do not move the number) was skipped.
+- **The interruptions (I1, I3, I5) and the course jumps converged**, each on one fix at the right layer.
+- **Smells:** second code paths that skip a shared service (four times), one harness flaw (forks are not "him") patched in five places, the jump judge changed four times.
+
+**Research** (docs/research/2026-11-18-job-tree-architecture.md: GITM, Optimus-1, XENON, ADaPT, Plancraft): keeping the dependency tree as data, with recovery at the failed node, is the measured lever on deep tech trees. Decision: adapt, not rebuild. Chain facts for copper are frozen.
+
+**The job tree (1861b5f, behind DW_JOB_TREE=1):**
+- Built by code from game data for the open ask; each node's status is read from game state every turn, with its last two failures; saved with the ask.
+- Replay: he worked the job in 9 of 30 tries with it, against 1 of 30 without (p = 0.012). Its prompt cost is 2-4 % more, not less.
+- First live trial (215658): failed quiet at 1024 s, 11 misses. Scored, trace unread until the third trial.
+
+**The wheel that was not there.** Restoring `base` removed the roofed Spinning Wheel he built at 10:48Z, but his own ledger (my_pieces.json) was never part of a snapshot and still listed it. Three V1 trials were told of it and failed on "no Spinning Wheel near here": voided, harness. Fix 3f16ab5: the ledger goes with the world; a snapshot without a copy cuts it back to its own time (the first restore after it dropped 6 entries). Copper: 0 of 12 counted.
+
+**Bark to Bones** through camrig: 2 of 2 casts done live (confirmed). Bestiary: behaviour sentences kept (magpie and gyrfalcon fly off).
+
+**Jumps.**
+- The honest real-play rate is 25-29 %, not 18 %: that figure included harness walks (study jump_real_1118).
+- 61412a5 decided: **keep** (its rule bins it at 51 % falls; real play 3 of 21).
+- The two real causes were put on the course (3e3cca4). jump_rock_step reproduced 10 of 10 strikes; the pond bank did not.
+- The cost fix a8e2961 (a jump onto a one-cell top pays its time and retries) did not move it: 6 of 6. The leg's goal is on the rock, so there is no way round. Every double jump there tops out at +87 to +144 cm from a standstill: the second jump adds no height. Being studied.
+
+**Capstone readiness** (study): ClaudeDev is power level 0 (tunic and leggings broken), with no food or water. "Inside a vault" has never read true. Shortest path: a probe, K1 and K2 ×3, then whole runs ($6-9). The patch changed no vault class.
+
+Spend 18 Nov: about $9.4. The job-tree window's trials 2 and 3 run after 00:00Z.
