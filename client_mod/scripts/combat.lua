@@ -4569,8 +4569,17 @@ local function guard_tick(log)
     do local oka, err = pcall(M.ambient_tick, log, pawn, pc); if not oka then c.ambient_err = tostring(err) end end
     if c.ambient and (c.ambient.escape or c.ambient.token) then return end -- busy getting out of something
     if U.try(function() return pawn.HealthComponent:IsDead() end) == true then return end
-    local threats = M.pick_threats(creatures_near(origin, math.max(cfg.aggro_m, cfg.assist_m)), c.attackers, c.ally_attackers, M.orders, t, cfg,
-        c.telegraphs)
+    -- one creature scan per tick: on a tick threat_watch is due the census is read out to odds_m here, so its rows
+    -- come from this cache (no second FindAllOf of creatures); the reflex still sees only what is within its reach
+    local reach_m = math.max(cfg.aggro_m, cfg.assist_m)
+    local watch_due = not (c.threat_t and t - c.threat_t < (cfg.threat_scan_s or 2) and t >= c.threat_t)
+    local rows = creatures_near(origin, watch_due and math.max(reach_m, cfg.odds_m or 0) or reach_m)
+    if watch_due then
+        local near = {}
+        for _, r in ipairs(rows) do if (r.distance_m or 1e9) <= reach_m then near[#near + 1] = r end end
+        rows = near
+    end
+    local threats = M.pick_threats(rows, c.attackers, c.ally_attackers, M.orders, t, cfg, c.telegraphs)
     c.guard_seen = #threats
     -- what he just ran from (within refled_s) is no new reason to run again while it only stands near: one
     -- bounded flee, not a chain of them (the Rung 1 night: flees dragged him 134-200 m off route); if it

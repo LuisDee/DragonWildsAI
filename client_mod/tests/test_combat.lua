@@ -3394,6 +3394,19 @@ do
     s = seen()
     check("threat_seen: a pack of likely wins is reported as the pack", #s == 1 and s[1].pack == 3 and s[1].verdict == "outnumbered",
         s[1] and tostring(s[1].verdict))
+    -- one creature scan per guard tick (review 2026-11-18): threat_watch's odds_m rows come from the guard's own
+    -- census, widened on the ticks it is due, never from a second FindAllOf of creatures in the same tick
+    local real_find, scans = FindAllOf, 0
+    FindAllOf = function(cls, ...) if cls == "DominionAICharacter" then scans = scans + 1 end return real_find(cls, ...) end
+    local worst, ticks = 0, 0
+    for _ = 1, 3 do -- a tick with the census stale and threat_watch due: the worst case
+        Cm._state().census, Cm._state().threat_t, scans = nil, nil, 0
+        Cm._guard_tick(nil)
+        ticks = ticks + 1; if scans > worst then worst = scans end
+        step(250)
+    end
+    FindAllOf = real_find
+    check("threat_seen: one creature scan per guard tick, threat_watch reuses it", worst == 1 and ticks > 0, worst .. " max in a tick, " .. ticks .. " ticks")
     Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
     reset_world()
 end
