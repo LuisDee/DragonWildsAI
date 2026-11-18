@@ -650,15 +650,26 @@ def ensure_sender(tries: int = 3, wait_s: float = 10.0, sleep=time.sleep) -> tup
     return ok, f"proven, register {'ok' if ok else 'FAILED'}: {detail[-120:]}"
 
 
+def brain_env(a, spent: float | None) -> dict:
+    """The live brain's environment for a harness trial. DW_FORKED_FROM (brain/fork_line.py): the characters this
+    trial's character was copied from, when the harness plays a fork (a.forked_from); never inherited otherwise."""
+    from brain import fork_line
+    env = {**os.environ, "DW_BODY": "client", "DW_BRIDGE_DIR": str(CLIENT_BRIDGE), "DW_PLAYER_NAME": TESTER,
+           "DW_DIRECTOR": os.environ.get("DW_GATE_DIRECTOR", "0"),  # 1: compare a gate item with the Director on
+           "DW_WORLD_GUID": a.world, "DW_SPEND_CAP_USD": f"{(spent or 0.0) + a.usd:.2f}",
+           "PYTHONIOENCODING": "utf-8"}
+    env.pop(fork_line.ENV, None)
+    if getattr(a, "forked_from", None):
+        env[fork_line.ENV] = a.forked_from
+    return env
+
+
 def start_brain(a, spent: float | None) -> tuple[subprocess.Popen, Path | None]:
     from tools import live_guard
     live_guard.check("a live brain start (brain.run_live on the client)")
     from evals.bench.devrun import user_env
     user_env()
-    env = {**os.environ, "DW_BODY": "client", "DW_BRIDGE_DIR": str(CLIENT_BRIDGE), "DW_PLAYER_NAME": TESTER,
-           "DW_DIRECTOR": os.environ.get("DW_GATE_DIRECTOR", "0"),  # 1: compare a gate item with the Director on
-           "DW_WORLD_GUID": a.world, "DW_SPEND_CAP_USD": f"{(spent or 0.0) + a.usd:.2f}",
-           "PYTHONIOENCODING": "utf-8"}
+    env = brain_env(a, spent)
     log = open(paths.log_dir() / "brain-chat-ladder-console.log", "a", encoding="utf-8")
     t0 = time.time()
     p = childproc.popen([sys.executable, "-m", "brain.run_live", "--body", "client", "--player", TESTER],

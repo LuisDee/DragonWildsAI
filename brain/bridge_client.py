@@ -107,6 +107,9 @@ class BridgeClient(GameInterface):
         self.state_hooks: list[Callable[[dict], None]] = []
         # called with (tool, args, result) after every answered request (brain/stash.py: containers he saw inside)
         self.result_hooks: list[Callable[[str, dict, dict], None]] = []
+        # set by run_live on a harness fork (brain/fork_line.py, DW_FORKED_FROM): rewords, in place, what the body read
+        # before anything in the brain sees it (bridge_recv keeps the game's read); None = the body's words as sent
+        self.data_filter: Callable[[dict], object] | None = None
 
     # ---------------------------------------------------------------- plumbing
 
@@ -237,7 +240,7 @@ class BridgeClient(GameInterface):
                     self.log.log("bridge_recv", msg=reply)
                     if reply["type"] == "error":
                         return fail(reply.get("reason") or Reason.BODY_ERROR, detail=reply.get("detail"))
-                    return from_wire(reply)
+                    return self._from_wire(reply)
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -311,6 +314,15 @@ class BridgeClient(GameInterface):
         self.log.log("bridge_timeout", id=req_id, tool=tool, timeout=round(deadline - sent_at, 1))
         return fail(Reason.TIMEOUT, tool=tool, id=req_id)
 
+    def _from_wire(self, reply: dict) -> ActionResult:
+        res = from_wire(reply)
+        if self.data_filter is not None and res["data"]:
+            try:
+                self.data_filter(res["data"])
+            except Exception as exc:  # a wording filter never breaks a tool call
+                self.log.log("data_filter_error", error=repr(exc))
+        return res
+
     def _detach(self, req_id: str, tool: str, args: dict, sent_at: float, deadline: float,
                 started0, by: str = "chat") -> ActionResult | None:
         """Stop waiting (the player spoke) without failing the action: the body keeps doing it. Its result,
@@ -352,7 +364,7 @@ class BridgeClient(GameInterface):
         event (once; the body's own task event for that id is then a duplicate)."""
         rid = msg["id"]
         rec = self._detached.pop(rid, None) or {}
-        res = from_wire(msg) if msg.get("type") == "result" else \
+        res = self._from_wire(msg) if msg.get("type") == "result" else \
             fail(msg.get("reason") or Reason.BODY_ERROR, detail=msg.get("detail"))
         self._late[rid] = res
         while len(self._late) > KEEP_IDS:

@@ -263,7 +263,8 @@ def _item_id(name: str | None) -> str | None:
 # a container's owner as the body read it from the game (client_mod/scripts/sense.lua owner_row: the actor's
 # UOwnershipComponent.OwningCharacterGuid, "yours" / a character name / "nobody"; same_account: the placer's account
 # (OwningPlayerId) against his own); owner and owner_guid first (game_owner); mine last (chests_seen sets it)
-OWNER_KEYS = ("owner", "owner_guid", "owner_name", "same_account", "private", "mine")
+# copied_from: the brain showed it as his because a character he was copied from owns it (brain/fork_line.py)
+OWNER_KEYS = ("owner", "owner_guid", "owner_name", "same_account", "private", "copied_from", "mine")
 
 
 def chests_seen(rows: list[dict]) -> dict[str, dict]:
@@ -1160,7 +1161,7 @@ def self_owned(src: Any, self_guid: str | None) -> bool | None:
     his account is not him (a fork finds ClaudeDev's crates "ClaudeDev's, not mine")."""
     if not isinstance(src, dict) or not any(src.get(k) is not None for k in ("owner", "owner_guid", "mine")):
         return None
-    if src.get("mine") is True or src.get("owner") == "yours":
+    if src.get("owner") == "yours" or (src.get("mine") is True and not src.get("copied_from")):
         return True
     g = src.get("owner_guid")
     return bool(g and self_guid and str(g).upper() == str(self_guid).upper())
@@ -2432,7 +2433,9 @@ def cmd_window(a, step: str | None) -> int:
                 # the brain's per-world memory: a fresh one per trial (a pair's trials share a name, never a memory)
                 memory = f"dev_{name}_{chr(97 + i)}" if got["paired"] else f"dev_{name}"
                 ns = argparse.Namespace(**{**vars(a), "world": memory, "in_lock": True, "start_brain": True,
-                                           "use_running_brain": False})
+                                           "use_running_brain": False,
+                                           # whose copy he is (brain/fork_line.py): ClaudeDev's crates are his
+                                           "forked_from": q.forked_from(src, made.get("guid"))})
                 from tools import chat_ladder as cl
                 nav_why = wait_nav(cl.nav_not_ready, time.sleep)  # I4 of window 1118d: skipped on a stale heartbeat
                 if nav_why:

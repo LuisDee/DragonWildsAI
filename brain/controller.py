@@ -34,6 +34,7 @@ from typing import Callable
 
 from . import grounding
 from .geom import WIRE_COORDINATES
+from . import fork_line
 from . import persona as persona_file
 from . import item_stats
 from . import open_ask
@@ -659,6 +660,9 @@ class Controller:
         fallback when the file is missing), then Luis's house rules. Guidance for one tool is in that tool's
         description, so the persona is the same whichever tools this body offers."""
         persona = persona_file.render(persona_file.template(fallback=PERSONA), name=self.name, player=self.player)
+        copy = fork_line.identity(fork_line.from_env())  # a harness fork only (DW_FORKED_FROM): who he was copied from
+        if copy:
+            persona += "\n\n" + copy
         if not self.say_channel:
             persona += "\n\n" + TEXT_CHANNEL_NOTE
         if self.director is not None:

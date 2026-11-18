@@ -42,7 +42,7 @@ from typing import Callable
 # fetch can stall startup for many seconds; LiteLLM docs / CrewAI community report). Set before import.
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from . import needs_options, paths, worlds
+from . import fork_line, needs_options, paths, worlds
 from .agent import Agent, GoalResult
 from .bridge_client import BridgeClient
 from .budget import Budget, default_spend_fn
@@ -407,6 +407,12 @@ class LiveSession:
         d = Path(opts.bridge_dir)
         to_body, to_brain = endpoint_files(opts.body)
         self.client = BridgeClient(JsonlFileTransport(d / to_body, d / to_brain), self.log)
+        # a harness fork (DW_FORKED_FROM, set by job_run/quest_run only): what the characters he was copied from own
+        # is shown as his (brain/fork_line.py); real play has no such variable and nothing changes
+        line = fork_line.from_env()
+        self.client.data_filter = fork_line.data_filter(line, self.log)
+        if line:
+            self.log.log("fork_line", line=[{"name": n, "guid": g} for n, g in line])
         self.rtt = self._connect()
         self.caps: Capabilities = discover(self.client, self.log, opts.probe_timeout)
         # Per-world memory (design 15): notes, places, rule snapshot, task tree and learned skills

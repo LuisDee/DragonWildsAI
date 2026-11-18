@@ -710,9 +710,9 @@ def cmd_fresh(a) -> int:
     out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "character": name, "runs": []}
     if blocked:
         out["chain_anyway"] = {"reason": a.chain_anyway, "guard": blocked}
+    from tools import quest_clone
     with clone_window(a.wait, out, FRESH_OUT) as (sw, cli, t0):
         if not sw.exists(name):
-            from tools import quest_clone
             if quest_clone.main(["make", "--name", name]) != 0:
                 raise RuntimeError(f"quest_clone could not make {name}")
         made = sw.ensure(name, create=False, wait_s=150)
@@ -730,7 +730,9 @@ def cmd_fresh(a) -> int:
                 break
             ns = ap_.Namespace(confirm=True, quest=quest, line=[line], until="complete", deadline=min(deadline, left),
                                max_haiku=a.max_haiku, usd=a.usd, world=f"dev_{name}", wait=0, grant=[], judge=False,
-                               in_lock=True, no_heal=True, character=name, chain_held=chain_held)
+                               in_lock=True, no_heal=True, character=name, chain_held=chain_held,
+                               forked_from=forked_from(quest_clone.SAVE_DIR / f"{quest_clone.SOURCE}.json",
+                                                       made.get("guid")))
             rc = cmd_run(ns)
             out["runs"].append({"quest": quest, "rc": rc, "at_s": round(time.time() - t0, 1), **_summary(_last_run())})
             if rc != 0:
@@ -743,6 +745,29 @@ AUTOSAVE_S = 330.0  # the client writes a character's save every 5 minutes
 
 
 START_M = 6.0  # a trial starts within this of where the checkpoint's save was written
+
+
+def save_identity(path: Path) -> tuple[str | None, str | None]:
+    """(char_name, char_guid) of a character save or checkpoint (meta_data; read only), (None, None) when unread."""
+    try:
+        d = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except (OSError, ValueError):
+        return None, None
+    d = d.get("result", d) if isinstance(d, dict) else {}
+    meta = (d.get("meta_data") or {}) if isinstance(d, dict) else {}
+    g = meta.get("char_guid")
+    return meta.get("char_name"), (str(g).upper() if g else None)
+
+
+def forked_from(src: Path, played_guid: str | None) -> str:
+    """DW_FORKED_FROM for a trial's character (brain/fork_line.py): ClaudeDev, every fork's first source, and the save
+    this one was copied from, less the played character itself (a checkpoint pair plays its own). The world's base
+    crates are ClaudeDev's; told the truth about whose copy he is, the fork uses them as ClaudeDev would (2026-11-18
+    runs 091424, 092356, 101804, 102841-N1-I5: "the crates here are ClaudeDev's, not mine")."""
+    from brain import fork_line
+    from tools import quest_clone
+    return fork_line.value([save_identity(quest_clone.SAVE_DIR / f"{quest_clone.SOURCE}.json"), save_identity(src)],
+                           played_guid)
 
 
 def to_start(cli, place: list[float] | None, tries: int = 4, timeout: float = 200.0) -> dict | None:
@@ -880,7 +905,7 @@ def cmd_step(a) -> int:
             ns = ap_.Namespace(confirm=True, quest=a.quest, line=list(line), until="complete", until_step=a.until_step,
                                deadline=min(a.deadline, left), max_haiku=a.max_haiku, usd=a.usd, world=memory,
                                wait=0, grant=[], judge=False, in_lock=True, no_heal=True, character=name,
-                               checkpoint=a.checkpoint)
+                               checkpoint=a.checkpoint, forked_from=forked_from(src, made.get("guid")))
             rc = cmd_run(ns)
             t_end = time.time()
             last = _last_run()
