@@ -223,6 +223,7 @@ class Decision:
     read_rounds: int = 0  # model calls of this turn that only read (their results went back to the model)
     talk_checked: bool = False  # this turn already had the TALK_ONLY_NOTE check
     facts_shown: list[str] | None = None  # the open ask's kept facts as this request last showed them (next_turn)
+    job_shown: dict | None = None  # the open ask's job tree as this request last showed it (next_turn, DW_JOB_TREE=1)
     reads: list[dict] = field(default_factory=list)  # read calls this turn ran inline, {tool, args} (agent: a parked ask)
 
 
@@ -390,6 +391,9 @@ class Controller:
         # sets it for a run on the ask when facts are kept: agent._open_view); shown on the first turn and again on a
         # later turn when the facts changed
         self.open_request: dict | None = None
+        # (state, where) -> the open ask's compact job tree or None (agent._job_view, DW_JOB_TREE=1): a follow-up turn
+        # of a run on the ask gets it again when it changed (status is read from the game each turn)
+        self.job_view: Callable[[dict | None, str | None], dict | None] | None = None
         self._logged: tuple[int, dict | None] = (0, None)  # the last prompt row's message count and last message
         self.knowledge = knowledge  # brain.knowledge.Knowledge | None: the lookup tool is offered only with one
         self.game = game
@@ -693,8 +697,8 @@ class Controller:
         """The open-request block goes in the first turn's context when the agent set one with facts and the run's
         event does not carry them itself (a goal's stuck or done event has request_facts beside its request)."""
         o = self.open_request
-        return bool(isinstance(o, dict) and o.get("known_facts")
-                    and not (isinstance(body_event, dict) and body_event.get("request_facts")))
+        return bool(isinstance(o, dict) and (o.get("known_facts") or o.get("job_tree"))
+                    and not (isinstance(body_event, dict) and body_event.get("request_facts") and not o.get("job_tree")))
 
     def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
                body_event: dict | None = None) -> Decision:
@@ -706,6 +710,8 @@ class Controller:
         d = Decision(situation=context.get("situation"))
         if "open_request" in context or (isinstance(body_event, dict) and body_event.get("request_facts")):
             d.facts_shown = (self.open_request or {}).get("known_facts")  # (an event's own: its step result beside)
+        if "open_request" in context:
+            d.job_shown = (self.open_request or {}).get("job_tree")
         self._turn_goal = active_goal  # next_turn's situation lines use the same goal and tasks
         if addressed and (text or "").strip() and body_event is None:
             d.effort = self.addressed_effort  # a player's line to him: think a little more (latency budget M1)
@@ -913,6 +919,15 @@ class Controller:
         facts = (self.open_request or {}).get("known_facts") if request else None
         if facts and open_ask.facts_key(facts) != open_ask.facts_key(d.facts_shown):
             observation["open_request_facts"] = facts
+        if request and self.job_view is not None:  # DW_JOB_TREE=1: the tree again when its status changed
+            try:
+                tree = self.job_view(state, "next_turn")
+            except Exception as exc:  # context is best effort
+                self.log.log("job_tree_error", where="next_turn", error=repr(exc)[:200])
+                tree = None
+            if tree and tree != d.job_shown:
+                observation["job_tree"] = tree
+                d.job_shown = tree
         msgs.append({"role": "user", "content": "Current observation: " + json.dumps(observation, ensure_ascii=False)})
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "

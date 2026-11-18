@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from . import ask_store, fight_news, item_stats, needs
+from . import ask_store, fight_news, item_stats, job_tree, needs
 from . import open_ask as oa
 from . import result_knowledge
 from . import situation as sit
@@ -274,6 +274,14 @@ class Agent:
         self._ask_written: dict | None = None  # the record last written (unchanged: no write)
         self._ask_on_disk = False
         self.wall = time.time
+        # the job tree of the open ask (brain/job_tree.py), behind DW_JOB_TREE=1: its target from his words, each node
+        # checked against the game state each turn, the last failures per node; shown in place of the kept facts
+        self.jobs: job_tree.Keeper | None = None
+        if job_tree.enabled():
+            self.jobs = job_tree.Keeper(lambda: job_tree.GameData.default(
+                knowledge=getattr(self.controller, "knowledge", None), places=getattr(self.controller, "places", None)),
+                log=self.log, wall=lambda: self.wall())
+            self.controller.job_view = self._job_view
         self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -725,6 +733,8 @@ class Agent:
         heard = addressed and bool(event.text)
         if heard:
             self._open_request = (event.player, event.text)
+            if self.jobs is not None:
+                self.jobs.open(self._open_request)
             self._note_ask(self._open_request, state, new=True)  # a line heard now is a new ask
             self._drop_ask_facts("a new line")
             self._parked = None  # his new line is the ask now
@@ -752,7 +762,7 @@ class Agent:
         run_for = "line" if event.text else GOAL_ENDS[ended["type"]] if ended else "carried" if run_asked else None
         # what the game told him about the ask, kept with it (oa.keep_fact), shown on every turn of a run for it
         self._serving_ask = run_asked if oa.same_ask(run_asked, self._open_request) else None
-        self.controller.open_request = self._open_view(run_asked, body_ctx, where="turn")
+        self.controller.open_request = self._open_view(run_asked, body_ctx, where="turn", state=state)
         # a goal he queued that has not begun (step() starts it after this run): the run is told of it. Run
         # 20261117-041914: "chopping them now" + start_goal, a hunger event came in before the goal began, and the
         # run for it knew nothing of the waiting goal: it chopped the 48 logs and handed them in itself (260 s),
@@ -1206,11 +1216,29 @@ class Agent:
                          n=len(self._ask_facts))
         self._ask_facts, self._ask_facts_for = [], None
 
-    def _open_view(self, ask: tuple | None, body_ctx: dict | None, where: str | None) -> dict | None:
+    def _job_view(self, state: dict | None = None, where: str | None = None) -> dict | None:
+        """The compact job tree of the open ask (DW_JOB_TREE=1) from this state (a fresh read when None); None when
+        there is no tree for it."""
+        if self.jobs is None or not self.jobs.active(self._open_request):
+            return None
+        if state is None:
+            try:
+                state = self._fresh_state(reuse=True)
+            except Exception:  # a state that can't be read: no tree this turn
+                return None
+        return self.jobs.compact_view(state, where=where)
+
+    def _open_view(self, ask: tuple | None, body_ctx: dict | None, where: str | None,
+                   state: dict | None = None) -> dict | None:
         """The Controller's open_request block for a run on the open ask: his words and the kept facts; None when the
-        run is not for it or nothing is kept. A goal's end event carries them itself (request_facts)."""
+        run is not for it or nothing is kept. A goal's end event carries them itself (request_facts). With the job
+        tree on (DW_JOB_TREE=1) the tree takes the facts' place."""
         if not (ask and oa.same_ask(ask, self._open_request)):
             return None
+        if self.jobs is not None and self.jobs.active(ask):
+            view = self._job_view(state, where=where)
+            if view:
+                return {"player": ask[0], "words": ask[1], "job_tree": view}
         carried = isinstance(body_ctx, dict) and body_ctx.get("request_facts")
         facts = self._request_facts(where=None if carried else where)
         return {"player": ask[0], "words": ask[1], "known_facts": facts} if facts else None
@@ -1313,6 +1341,11 @@ class Agent:
             except Exception:  # names fall back to the body's own and the id
                 cat = {}
             changed = oa.changes(seen[1], state, cat)
+        tree = self._job_view(state, where="open_ask") if oa.same_ask(ask, self._open_request) else None
+        if tree:  # DW_JOB_TREE=1: the tree in the facts' place
+            blk = oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed)
+            blk["open_request"]["job_tree"] = tree
+            return blk
         return oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed,
                         known=self._request_facts(where="open_ask") if oa.same_ask(ask, self._open_request) else None)
 
@@ -1324,6 +1357,8 @@ class Agent:
             self._park(ask, (call.arguments or {}).get(oa.ARG[oa.PARK]))
         else:
             self._parked = None
+            if self.jobs is not None:
+                self.jobs.close()
         self._drop_ask_facts(call.name)
         self._save_ask()  # done: the file goes; parked: kept as parked, with the reason
         words = str((call.arguments or {}).get(oa.ARG[call.name]) or "").strip() or None
@@ -1390,6 +1425,13 @@ class Agent:
         self._save_ask()
 
     def _ask_call_ended(self, task: Task, outcome: Outcome) -> None:
+        if self.jobs is not None and not outcome.ok and self.jobs.active(self._open_request):
+            data = outcome.data if isinstance(outcome.data, dict) else {}
+            try:  # a failure kept on the job tree's nodes it is about (job_tree.nodes_for)
+                self.jobs.record(task.skill, dict(task.args or {}), outcome.ok, outcome.reason,
+                                 str(data.get("detail") or data.get("why") or "") or None)
+            except Exception as exc:  # bookkeeping is best effort
+                self.log.log("job_tree_error", where="record", error=repr(exc)[:200])
         fl, self._ask_in_flight = self._ask_in_flight, None
         if fl is None:
             return
@@ -1413,6 +1455,8 @@ class Agent:
         ask, how long ago, what the game shows now, and a call that was running when the old brain stopped, said as
         unknown. Returns that situation, or None when nothing was kept."""
         self.ask_dir = Path(directory)
+        if self.jobs is not None:
+            self.jobs.dir = self.ask_dir
         rec = ask_store.load(self.ask_dir)
         if rec is None:
             self._ask_on_disk = ask_store.path(self.ask_dir).exists()  # unreadable: the next save replaces it
@@ -1424,6 +1468,8 @@ class Agent:
         ask = (rec.get("player"), str(rec["words"]))
         facts = [{"key": f.get("key"), "source": f.get("source"), "text": f["text"], "raw": f.get("raw"),
                   "t": mono(f.get("t_unix"))} for f in rec.get("facts") or [] if isinstance(f, dict) and f.get("text")]
+        if self.jobs is not None and not self.jobs.attach(self.ask_dir, ask):
+            self.jobs.open(ask)  # no tree kept for it: its target again from his words
         if rec["state"] == "open":
             self._open_request, self._parked = ask, None
             self._ask_facts, self._ask_facts_for = facts, ask if facts else None
@@ -1779,7 +1825,12 @@ class Agent:
         a = self._goal_asked
         if isinstance(a, dict) and a.get("request") and oa.same_ask((a.get("player"), a["request"]),
                                                                    self._open_request):
-            if facts := self._request_facts(exclude=exclude, where=where):
+            tree = None
+            if self.jobs is not None and self.jobs.active(self._open_request):
+                tree = self.jobs.full_view(state, where=where)  # DW_JOB_TREE=1: the whole tree, in the facts' place
+            if tree:
+                notes["open_request"] = {"player": a.get("player"), "words": a["request"], "job_tree": tree}
+            elif facts := self._request_facts(exclude=exclude, where=where):
                 notes["open_request"] = {"player": a.get("player"), "words": a["request"], "known_facts": facts}
         # the Planner cannot look a recipe up: what the recipe of a thing the goal or a quest step names takes
         if isinstance(state, dict) and (rows := needs.named_recipes(state, [goal, *sit.quest_texts(state)])):
