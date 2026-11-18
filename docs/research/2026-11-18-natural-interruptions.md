@@ -20,3 +20,23 @@ Goal item 1 asks for one ask carried through hunger and thirst, a fight, his dea
 Only one of the 18 I1b non-resumes was a thirst spiral. 13 (8 I1b, 5 I1a) were a sub-goal that ended with the ask still open (the Zanik runs: "One part of Rune Mysteries is complete, but Rune Mysteries is not over"; he drank in the same turn and stood), all before the open-ask turn (3ec85ff); since it, 8 I1 rows, and every non-resume among them was an honest park on the blocked copper ask (the agent gave 5 resumed and 5 parks, which do not add to 8: recount before quoting). 7 were blocked before the drink (copper out of reach, a grave he could not see, a talk that did not open), 4 were asks already done (the measure's fault: a completed quest or finished request must end the ask). The one real spiral (B03): `collect_water` said "I can't see any water I could collect near me" (150 m search) with ponds at 111 m and 113 m, and two explores passed 49-51 m from them; not yet explained.
 
 So by rule 2 the biggest open target is fights (13 not resumed, 7 of them fatal), then death and the grave; thirst is mostly covered. Report: the agent's thirst_spiral.md (scratchpad, 2026-11-18).
+
+## Recount with the fixed measure (ee62b94)
+
+Rules fixed: an ask ends at "Quest X is complete" or the asked count got or stored; an ask that stalled before (a quest part handed in, a hard failure, 120 s idle) is `stalled_before` and not judged; a serving call running through counts as resumed; a Take All counts for one death. Rows: `data/measure/natural_interruptions_20261118b.json`.
+
+| 16 Nov on | judged | resumed (through) | not | stalled before |
+|---|---|---|---|---|
+| I1a reflex ate/drank | 43 | 43 (38) | 0 | 8 |
+| I1b stopped to eat/drink | 112 | 109 | 3 | 16 |
+| I2 fight | 19 | 17 (9) | 2 | 10 |
+| I3 death | 9 | 5 | 4 | 2 |
+
+| since 17 Nov 19:50Z (open-ask turn) | judged | resumed | not | stalled before |
+|---|---|---|---|---|
+| I1a | 2 | 2 | 0 | 1 |
+| I1b | 9 | 8 | 1 | 4 |
+| I2 | 5 | 4 | 1 | 0 |
+| I3 | 3 | 2 | 1 | 0 |
+
+Every miss since the open-ask turn is in one run (010135, closed after his third death). Death is the weakest kind (5 of 9), and the deaths themselves (all inside long calls, unseen) are the target; no full-bag rows exist, so I4 is measured only induced.
