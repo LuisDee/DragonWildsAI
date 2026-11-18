@@ -62,6 +62,10 @@ class ReadContext:
 
 
 def _lookup(ctx: ReadContext, args: dict) -> Any:
+    from .knowledge import node_gates  # the gates of the nodes he perceives: a gathered item's card names them
+    gates = node_gates(ctx.snap.get("state"))
+    if gates:
+        return ctx.knowledge.lookup(str(args.get("query") or ""), args.get("kind"), gates=gates)
     return ctx.knowledge.lookup(str(args.get("query") or ""), args.get("kind"))
 
 

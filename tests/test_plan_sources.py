@@ -158,7 +158,7 @@ def test_the_log_line_says_what_was_added():
     log = Log()
     ps.enrich_result(plan(), state={}, spells=[BARK], knowledge=KB(), log=log)
     assert log.rows == [("plan_sources", {"sources": ["Animal Bone", "Animal Hide"], "trader_to_obtain": ["Animal Hide"],
-                                          "wiki_builds": ["Tannery"]})]
+                                          "wiki_builds": ["Tannery"], "cards": ["Bone Pickaxe"]})]
 
 
 def test_the_controller_read_of_craft_plan_carries_them(rig, monkeypatch):

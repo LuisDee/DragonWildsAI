@@ -754,7 +754,10 @@ class Knowledge:
         return {"title": quest, "source": "wiki", "section": "Walkthrough", "text": _clip("\n".join(steps), limit),
                 "url": rows[0][2].split("#")[0]}
 
-    def lookup(self, query: str, kind: str | None = None, k_game: int = GAME_K, k_wiki: int = WIKI_K) -> dict:
+    def lookup(self, query: str, kind: str | None = None, k_game: int = GAME_K, k_wiki: int = WIKI_K,
+               gates: dict[str, tuple[str, int]] | None = None) -> dict:
+        """``gates``: item id -> (tool, tier) of the nodes he perceives (``node_gates``): the rock's own gate, which a
+        gathered item's card names over the wiki's."""
         terms = [w for w in dict.fromkeys(words(query)) if w not in STOP]
         if not terms:
             return {"ok": False, "reason": "invalid_args", "data": {"error": "empty query"}}
@@ -786,10 +789,13 @@ class Knowledge:
                     if r["heading"]:
                         item["section"] = r["heading"]
                     item["url"] = r["url"]
-                elif r["kind"] == "item" and NO_RECIPE in r["body"] and (node := self._node_line(r["title"])):
+                elif r["kind"] == "item" and NO_RECIPE in r["body"] and (
+                        node := self._node_line(r["title"], r.get("ref"), gates)):
                     item["wiki_node"] = node
                 out.append(item)
         data: dict[str, Any] = {"query": query, "results": out, "note": NOTE}
+        if any((r.get("wiki_node") or {}).get("tool_source") == NODE_WIKI_ONLY for r in out):
+            data["note"] = NOTE + " " + NODE_NOTE
         quest = next((r["title"] for r in out if r.get("source") == "wiki" and r.get("kind") == "quest"
                       and _terms(r["title"]) <= qterms), None)
         if quest and (walk := self.walkthrough(quest)):
@@ -800,18 +806,33 @@ class Knowledge:
             data["note"] = "Nothing found in game data or the wiki. Say you don't know rather than guess."
         return {"ok": True, "reason": None, "data": data}
 
-    def _node_line(self, title: str) -> dict | None:
+    def _node_line(self, title: str, ref: str | None = None, gates: dict | None = None) -> dict | None:
         """The wiki's node for a gathered item, beside that item's game-data card: the tool it takes and where it
         grows. Park study 2026-11-18 (runs 053839, 054931): lookup "copper ore" led with the game card ("buy from
         Beartach"), no tool and no region; "bone pickaxe or better" was only in the 5th result, and the Planner made a
-        Stone Pickaxe. Labelled wiki: the card stays game data."""
+        Stone Pickaxe. Labelled wiki: the card stays game data.
+
+        The tool: the node's own gate when he perceives one that drops this item (``gates``; the rock actor's
+        RequiredCategory/RequiredTier, DISCOVERIES "Rocks"); else the wiki's tool, with the game's tier of the tool it
+        names ("Bone pickaxe or better": pickaxe tier 2) and, since the game data holds no node gates, as the only
+        source (planner stone study 2026-11-18: the wiki fact under "may be outdated" lost to a silent game card)."""
         try:
             nf = self.node_facts(title)
         except Exception:  # the card stands without it
+            nf = None
+        gate = (gates or {}).get(ref) if ref else None
+        if not nf and not gate:
             return None
-        if not nf:
-            return None
-        out = {"source": "wiki", "node": nf["title"], "tool": nf.get("tool"), "found_in": nf.get("location")}
+        nf = nf or {}
+        out: dict[str, Any] = {"source": "wiki", "node": nf.get("title"), "tool": nf.get("tool"),
+                               "found_in": nf.get("location")}
+        if gate:
+            out["tool"], out["tool_source"] = f"{gate[0]} tier {gate[1]}", NODE_GAME
+        elif nf.get("tool"):
+            tier = tool_tier(nf["tool"])
+            if tier:
+                out["tool_tier"] = tier
+            out["tool_source"] = NODE_WIKI_ONLY
         return {k: v for k, v in out.items() if v}
 
     def node_facts(self, query: str) -> dict | None:
@@ -879,6 +900,43 @@ class Knowledge:
 
 
 NO_RECIPE = "No crafting recipe makes it"  # an item card's line for a thing gathered, dropped or found
+NODE_GAME = "game: the node's own gate, as he saw it"
+NODE_WIKI_ONLY = "wiki, the only source: the game data holds no gate for this node"
+NODE_NOTE = ("A game card's wiki_node with tool_source \"wiki, the only source\" is the wiki's fact where the game data "
+             "has none: no game data contradicts it.")
+
+
+def tool_tier(tool: str | None) -> str | None:
+    """The game's tier of the tool a wiki line names ("Bone pickaxe or better" -> "pickaxe tier 2"), from the item
+    data; "Any pickaxe" -> "pickaxe tier 1"; None when the name is no item."""
+    if not tool:
+        return None
+    name = re.sub(r"\s+or better\s*$", "", tool.strip(), flags=re.I).strip().lower()
+    m = re.match(r"any (\w+)$", name)
+    if m:
+        return f"{m.group(1)} tier 1"
+    from . import item_stats
+    for e in item_stats.catalog().values():
+        if (e.get("name") or "").lower() == name and e.get("tier"):
+            return f"{e.get('category') or 'tool'} tier {e['tier']}"
+    return None
+
+
+def node_gates(state: dict | None) -> dict[str, tuple[str, int]]:
+    """item id -> (tool, tier) from the resource rows he perceives (nearby_resources, further_off, nearby_entities:
+    the rock actor's own gate, read live as tool / tool_tier with its drop item)."""
+    out: dict[str, tuple[str, int]] = {}
+    if not isinstance(state, dict):
+        return out
+    for key in ("nearby_resources", "further_off", "nearby_entities"):
+        for r in state.get(key) or []:
+            if not isinstance(r, dict):
+                continue
+            iid = r.get("item") or r.get("drop_item")
+            tier = r.get("tool_tier")
+            if isinstance(iid, str) and r.get("tool") and isinstance(tier, (int, float)) and not isinstance(tier, bool):
+                out.setdefault(iid, (str(r["tool"]), int(tier)))
+    return out
 NODE_GENERIC = frozenset({"ore", "node", "tree", "plant", "bush", "rock", "deposit"})
 
 

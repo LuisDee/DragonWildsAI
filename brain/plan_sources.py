@@ -21,10 +21,13 @@ What is added (bounded: MAX_ITEMS items, MAX_PER_ITEM sources each, every line a
   other ways to it, becomes an obtain step with its sources (the trader one of them), not "obtain the currency first".
 * ``build`` on a ``find_station`` step the client could not answer from his unlocked pieces: the wiki's build-menu
   cost and unlock line for that station, and what of the cost he carries.
+* ``is`` on the item planned (the root) and on each candidate of an ambiguous name: the item's own game card, its
+  category, tier and description from the item data (``item_card``), as the crafting menu shows them.
 """
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -332,6 +335,63 @@ def _to_obtain(data: dict, n: dict, lines: list[str]) -> None:
     n["alternatives"] = [alt, *(n.get("alternatives") or [])]
 
 
+# ------------------------------------------------------------------------------ the item's own card
+# Planner stone study 2026-11-18 (runs 053839, 054931): craft_plan "Pickaxe" named 8 candidates as {name, status, item}
+# and craft_plan Stone Pickaxe read "missing: []"; nothing on either said what a Stone Pickaxe mines. The Planner made a
+# Stone Pickaxe first 3 of 3 for a copper job; a replay with the cards on the rows: 0 of 3.
+
+CARD_CHARS = 240
+
+
+def item_card(item: str | None, name: str | None = None) -> str | None:
+    """'<name> (<category>, tier N): <description>' from the game's item data (data/items_<build>.json: ``category``,
+    ``tier``, ``flavour``), or None when the data has neither a tier nor a description for ``item``."""
+    from . import item_stats
+    e = item_stats.catalog().get(item) if item else None
+    if not e:
+        return None
+    flav = re.sub(r"\{[A-Za-z]+\}", "", str(e.get("flavour") or "")).strip()
+    tier = e.get("tier")
+    if not flav and not tier:
+        return None
+    what = ", ".join(str(b) for b in (e.get("category"), tier and f"tier {tier}") if b)
+    card = f"{name or e.get('name') or item}" + (f" ({what})" if what else "") + (f": {flav}" if flav else "")
+    return card if len(card) <= CARD_CHARS else card[: CARD_CHARS - 1].rsplit(" ", 1)[0] + "…"
+
+
+def _carded(row: dict) -> tuple[dict, str | None]:
+    """``row`` with ``is`` (its item card) right after its name or its item, whichever comes first, so it is read
+    before the rest (a plan's root lists its name after the whole input tree)."""
+    card = item_card(row.get("item"), row.get("name")) if isinstance(row.get("item"), str) else None
+    if card is None or row.get("is") == card:
+        return row, None
+    after = next(k for k in row if k in ("name", "item"))
+    out: dict = {}
+    for k, v in row.items():
+        if k != "is":
+            out[k] = v
+        if k == after:
+            out["is"] = card
+    return out, str(row.get("name") or row.get("item"))
+
+
+def add_cards(data: dict) -> list[str]:
+    """``is`` on the root of a plan and on each ``candidates`` row (in place); the names that got one."""
+    named: list[str] = []
+    if isinstance(data.get("root"), dict):
+        data["root"], nm = _carded(data["root"])
+        named += [nm] if nm else []
+    if isinstance(data.get("candidates"), list):
+        rows = []
+        for c in data["candidates"]:
+            if isinstance(c, dict):
+                c, nm = _carded(c)
+                named += [nm] if nm else []
+            rows.append(c)
+        data["candidates"] = rows
+    return named
+
+
 def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, log=None, via: str | None = None) -> dict:
     """Add the sources of what the plan can't craft (on its obtain steps; ``sources`` for the rest) and find_station
     ``build`` facts to a craft_plan result's data (in place; returned). ``log``: a JsonlLogger for the plan_sources
@@ -374,19 +434,41 @@ def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, 
         st.pop("build_unlocked", None)
     builds = [st.get("name") for st in data.get("steps") or [] if isinstance(st, dict) and st.get("do") == "find_station"
               and isinstance(st.get("build"), dict) and "wiki" in st["build"]]
-    if log is not None and (found or builds):
-        log.log("plan_sources", sources=sorted(found), trader_to_obtain=converted, wiki_builds=builds,
-                **({"via": via} if via else {}))
+    try:
+        cards = add_cards(data)
+    except Exception:  # the plan stands without them
+        cards = []
+    _log(log, found, converted, builds, cards, via)
     return data
 
 
+def _log(log, found, converted, builds, cards, via) -> None:
+    if log is not None and (found or builds or cards):
+        log.log("plan_sources", sources=sorted(found), trader_to_obtain=converted, wiki_builds=builds,
+                **({"cards": cards} if cards else {}), **({"via": via} if via else {}))
+
+
+AMBIGUOUS = "ambiguous_target"
+
+
+def enriches(res) -> bool:
+    """A craft_plan result these facts go on: an ok plan, or a name that could be several things (its candidates)."""
+    return isinstance(res, dict) and isinstance(res.get("data"), dict) and (
+        bool(res.get("ok")) or res.get("reason") == AMBIGUOUS)
+
+
 def enrich_result(res: dict, **kw) -> dict:
-    """``enrich`` on an ok craft_plan tool result; any other result unchanged."""
-    if isinstance(res, dict) and res.get("ok") and isinstance(res.get("data"), dict):
-        try:
+    """``enrich`` on an ok craft_plan tool result; an ambiguous name's candidates get their item cards; any other
+    result unchanged."""
+    if not enriches(res):
+        return res
+    try:
+        if res.get("ok"):
             enrich(res["data"], **kw)
-        except Exception:  # never break a read on the facts it adds
-            pass
+        else:
+            _log(kw.get("log"), {}, [], [], add_cards(res["data"]), kw.get("via"))
+    except Exception:  # never break a read on the facts it adds
+        pass
     return res
 
 
@@ -409,7 +491,7 @@ def body_read(agent, tool: str, args: dict, via: str | None = None) -> dict:
     Chit, trader Iasadair", while the same read enriched showed Bark to Bones, Deer drops and a buildable Tannery; it
     chose the Stone Pickaxe, which cannot mine copper. None of three windows had a plan_sources row."""
     res = agent.game.call(tool, args)
-    if tool == "craft_plan" and isinstance(res, dict) and res.get("ok"):
+    if tool == "craft_plan" and enriches(res):
         try:
             state = agent._fresh_state(reuse=True)
         except Exception:  # a state that can't be read leaves the facts that don't need it

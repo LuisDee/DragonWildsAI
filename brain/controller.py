@@ -981,10 +981,11 @@ class Controller:
         else:
             res = self.game.call(call.name, args)
         self.log.log("tool_result", tool=call.name, result=res, read_only=True)
-        if call.name == "craft_plan" and res.get("ok"):
-            # where each thing the plan cannot craft comes from (his spells, creatures that drop it, nodes, traders) and
-            # whether a station he lacks is his to build (brain/plan_sources.py; facts, he decides)
-            from . import plan_sources
+        from . import plan_sources
+        if call.name == "craft_plan" and plan_sources.enriches(res):
+            # where each thing the plan cannot craft comes from (his spells, creatures that drop it, nodes, traders),
+            # whether a station he lacks is his to build, and each item's own game card on the plan's root or on an
+            # ambiguous name's candidates (brain/plan_sources.py; facts, he decides)
             res = plan_sources.enrich_for(res, self, getattr(self, "_state_for_reads", None) or {}, log=self.log,
                                           via="controller")
         if call.name == "inventory" and res.get("ok"):
@@ -1021,7 +1022,9 @@ class Controller:
     def _brain_read(self, tool: str, args: dict) -> dict:
         if tool == "lookup" and self.knowledge is not None:
             try:  # the registry's handler (the Planner and the Director call the same one)
-                return tool_registry.DECLARED["lookup"].handler(tool_registry.ReadContext(knowledge=self.knowledge), args)
+                snap = {"state": getattr(self, "_state_for_reads", None) or {}}  # perceived node gates (node_gates)
+                return tool_registry.DECLARED["lookup"].handler(tool_registry.ReadContext(snap=snap, knowledge=self.knowledge),
+                                                                args)
             except Exception as exc:  # knowledge is best effort; never break the turn on it
                 return {"ok": False, "reason": Reason.BODY_ERROR, "data": {"error": repr(exc)[:200]}}
         return {"ok": False, "reason": Reason.NOT_IMPLEMENTED, "data": {"tool": tool}}
