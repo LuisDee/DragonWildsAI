@@ -7,6 +7,8 @@ STATE confirms, whole (L1 to L3, held-out H1 to H3) or with one interruption put
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job N1 --interrupt I1 -k 5   # the same, near home
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V1 -k 5 --save-as job_l2_v1
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V2 --from job_l2_v1 -k 5 --save-as job_l2_v2
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K1 -k 3 --save-as vault_door   # the vault
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K2 -k 3                       # from vault_door
 
 A rung (data/jobs.json L2 "rungs", the goal's venture ladder) is a trial of the job itself, his ask the job's line: it
 sets only where the trial ends (its own end, read from the game) and where it starts (its "from": the checkpoint a
@@ -58,6 +60,7 @@ import fnmatch
 import json
 import math
 import os
+import re
 import sys
 import time
 from functools import lru_cache
@@ -280,11 +283,41 @@ def snapshot(data: dict | None) -> dict:
            "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
     if (v := vitals(d)) is not None:
         out["vitals"] = v
+    # the vault (goal item 4, the capstone): the game's own in-a-vault flag and the vault that holds him (sense.vault_here,
+    # absent when unread: None here, never False), the vault rows in reach (a door's destination / leads_to / locked, a
+    # lever's switch_position, a chest's chest_state: sense.vault_row), his last kills (combat recent_kills, newest first)
+    # and the fight he is in
+    iv = d.get("in_vault")
+    out["in_vault"] = iv if isinstance(iv, bool) else None
+    out["vault"] = str(d["vault"]) if isinstance(d.get("vault"), str) and d["vault"] else None
+    out["vault_rows"] = [vault_row(e) for e in d.get("interactables") or []
+                         if isinstance(e, dict) and is_vault_row(e)][:VAULT_ROWS_MAX]
+    out["recent_kills"] = [dict(k) for k in d.get("recent_kills") or [] if isinstance(k, dict)]
+    for k in ("fight", "boss_fight"):
+        out[k] = d[k] if isinstance(d.get(k), dict) else None
     if left_out:
         out["consumables_left_out"] = left_out
     if unread:
         out["unread"] = str(unread)
     return out
+
+
+# the fields sense.vault_row adds to an interactable row (a vault's door teleporter, lever or chest)
+VAULT_FIELDS = ("destination", "arrives_at", "leads_to", "locked", "switch_position", "switch_highest", "drives",
+                "chest_state")
+VAULT_ROWS_MAX = 20
+DOOR_PROMPTS = ("Enter",)
+
+
+def is_vault_row(e: dict) -> bool:
+    """A row sense.vault_row described (any vault field), or a door by its prompt (the door row of 1-2 Nov had name
+    and prompt "Enter" before the vault fields existed)."""
+    return any(e.get(k) is not None for k in VAULT_FIELDS) or e.get("prompt") in DOOR_PROMPTS
+
+
+def vault_row(e: dict) -> dict:
+    keep = ("id", "name", "prompt", "position", "actor_position", "distance") + VAULT_FIELDS
+    return {k: e[k] for k in keep if e.get(k) is not None}
 
 
 def _item_id(name: str | None) -> str | None:
@@ -1066,10 +1099,159 @@ def p_venture_gear(spec: dict, start: dict, end: dict) -> tuple[bool | None, str
     return True, f"power level {pl:g} (bar {need}) for {place} ({where['how']}), {gear} and a weapon, made by him"
 
 
+# ------------------------------------------------------------------ the vault (goal item 4: Crasorak Kara, stages K1-K4)
+VAULT_ENDS = ("at_place", "in_vault", "boss_killed", "left_vault")
+
+
+def _xy(p: Any) -> list[float] | None:
+    return [float(p[0]), float(p[1])] if isinstance(p, (list, tuple)) and len(p) >= 2 and all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) for v in p[:2]) else None
+
+
+def p_at_place(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """He stands within spec r_m of a place: the door named spec door when the read lists its row (its actor_position,
+    else position: the game's), else spec at (the data's, from his body's earlier reads). His position is the game's."""
+    me = _xy(end.get("position"))
+    if me is None:
+        return None, "no position in the read"
+    r_m = float(spec.get("r_m", 10))
+    door = spec.get("door")
+    rows = [e for e in end.get("vault_rows") or [] if door and e.get("name") == door
+            and _xy(e.get("actor_position") or e.get("position"))]
+    at = _xy(spec.get("at"))
+    if rows:
+        row = min(rows, key=lambda e: math.dist(_xy(e.get("actor_position") or e.get("position")), at or me))
+        target, how = _xy(row.get("actor_position") or row.get("position")), f"the {door} row ({row.get('id')})"
+    elif at:
+        target, how = at, f"{[round(v, 1) for v in at]} (data; no {door} row in this read)" if door else "the data's spot"
+    else:
+        return None, f"no {door} row in the read and no 'at' in the spec"
+    dist = math.dist(me, target)
+    inside = " (the game reads him inside a vault)" if end.get("in_vault") is True else ""
+    return dist <= r_m, f"{dist:.1f} m from {how}, within {r_m:g}{inside}"
+
+
+def p_in_vault(spec: Any, start: dict, end: dict) -> tuple[bool | None, str]:
+    """The game's own flag (get_state in_vault: ULocalPlayerAudioSubsystem.bInDungeon) and, for spec vault, the vault
+    the registry puts him in (get_state vault). Unread when either read is missing: never a pass on a guess."""
+    want = spec.get("vault") if isinstance(spec, dict) else None
+    iv, v = end.get("in_vault"), end.get("vault")
+    if iv is None:
+        return None, "in_vault not read (get_state has no in_vault)"
+    if iv is False:
+        return False, "the game reads him outside any vault"
+    if not want:
+        return True, f"inside a vault ({v or 'which one unread'})"
+    if v is None:
+        return None, f"inside a vault, but the registry names none (sense.vault_list complete=false?): {want} unread"
+    return v == want, f"inside {v}" + ("" if v == want else f", not {want}")
+
+
+@lru_cache(maxsize=1)
+def _bestiary() -> dict:
+    try:
+        d = json.loads((ROOT / "data" / "bestiary.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return d.get("creatures") or {} if isinstance(d, dict) else {}
+
+
+def _norm(s: Any) -> str:
+    return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
+
+
+def class_stem(cls: Any) -> str | None:
+    """A game class word as the bestiary keeps it (sense.clean_class without the spaces): BP_AI_RuntGoblin_Character_C
+    -> RuntGoblin."""
+    if not cls:
+        return None
+    s = re.sub(r"^BP_AI_|^BP_", "", str(cls))
+    s = re.sub(r"_C$", "", s)
+    s = re.sub(r"_Character$", "", s)
+    s = re.sub(r"_\d+$", "", s)
+    return s or None
+
+
+def creature_names(name: str, cls: str | None = None) -> set[str]:
+    """Every name a creature goes by, normalised: the bestiary entry's name, title, aliases and game class stems
+    (data/bestiary.json class_names), and spec class when given (its class word read live)."""
+    e = _bestiary().get(name) or next((v for v in _bestiary().values() if _norm(v.get("name")) == _norm(name)), None) or {}
+    out = {_norm(n) for n in [name, e.get("name"), e.get("title"), *(e.get("aliases") or []),
+                              *(e.get("class_names") or [])] if n}
+    if cls:
+        out.add(_norm(class_stem(cls) or cls))
+    return out
+
+
+def _kill_key(k: dict) -> tuple:
+    return (k.get("creature"), k.get("class"), k.get("iso"), k.get("mine"))
+
+
+def p_boss_killed(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """A kill in the run (a recent_kills row the start read did not hold) of spec creature: by its game class or its
+    name, matched to the bestiary entry (creature_names); spec mine: his own kill (the fatal hit's instigator);
+    spec vault: the first read that listed it had him in that vault (run_job keeps every kill a sample saw in
+    kills_seen, with the in_vault and vault of that read)."""
+    want = spec.get("creature")
+    names = creature_names(want, spec.get("class"))
+    before = {_kill_key(k) for k in start.get("recent_kills") or []}
+    seen = end.get("kills_seen")
+    if seen is None:
+        seen = [{**k, "in_vault": end.get("in_vault"), "vault": end.get("vault")} for k in end.get("recent_kills") or []]
+    new = [k for k in seen if _kill_key(k) not in before]
+    hits = [k for k in new if _norm(k.get("creature")) in names or _norm(class_stem(k.get("class"))) in names]
+    if not hits:
+        others = ", ".join(sorted({str(k.get("creature")) for k in new})[:6])
+        return False, f"no kill of {want} in the run" + (f" (killed: {others})" if others else "")
+    if spec.get("mine"):
+        mine = [k for k in hits if k.get("mine") is True]
+        if not mine:
+            return False, f"{want} died, not by his hand (killed_by {hits[0].get('killed_by')})"
+        hits = mine
+    vault = spec.get("vault")
+    if vault:
+        inside = [k for k in hits if k.get("in_vault") is True and k.get("vault") == vault]
+        if not inside:
+            if any(k.get("in_vault") is True and k.get("vault") is None for k in hits):
+                return None, f"{want} killed inside a vault the registry did not name: {vault} unread"
+            if all(k.get("in_vault") is None for k in hits):
+                return None, f"{want} killed; in_vault unread at that read"
+            return False, f"{want} killed outside {vault} ({hits[0].get('vault') or 'no vault'})"
+        hits = inside
+    k = hits[0]
+    return True, (f"{k.get('creature')} ({k.get('class') or 'class unread'}) killed {k.get('iso')}"
+                  + (" by him" if k.get("mine") else "") + (f" in {vault}" if vault else ""))
+
+
+def p_left_vault(spec: Any, start: dict, end: dict) -> tuple[bool | None, str]:
+    """He was inside (a read in the run with in_vault true, and for spec vault that vault) and the last read has him
+    outside (in_vault false). run_job keeps every read's in_vault in vault_trace."""
+    want = spec.get("vault") if isinstance(spec, dict) else None
+    trace = end.get("vault_trace")
+    if trace is None:  # a read on its own (no run around it): only itself
+        trace = [{"t": None, "in_vault": end.get("in_vault"), "vault": end.get("vault")}]
+    trace = [r for r in trace if r.get("in_vault") is not None]
+    if not trace:
+        return None, "in_vault never read"
+    ins = [i for i, r in enumerate(trace) if r["in_vault"] is True]
+    if not ins:
+        return False, "never inside a vault in the run"
+    named = [i for i in ins if trace[i].get("vault") == want] if want else ins
+    if not named:
+        if any(trace[i].get("vault") is None for i in ins):
+            return None, f"inside a vault the registry did not name: {want} unread"
+        return False, f"inside {trace[ins[0]].get('vault')}, never {want}"
+    last = trace[-1]
+    if last["in_vault"] is True:
+        return False, "still inside at the last read"
+    return True, f"inside{' ' + want if want else ''} at t {trace[named[0]].get('t')} s, outside at the last read"
+
+
 PREDICATES = {"worn_made_in_run": p_worn_made_in_run, "in_own_chest": p_in_own_chest, "carried_gain": p_carried_gain,
               "made_in_run": p_made_in_run, "near_start_m": p_near_start_m,
               "consumables_carried": p_consumables_carried, "gear_target": p_gear_target,
-              "next_tier_tools": p_next_tier_tools, "made_carried": p_made_carried, "venture_gear": p_venture_gear}
+              "next_tier_tools": p_next_tier_tools, "made_carried": p_made_carried, "venture_gear": p_venture_gear,
+              "at_place": p_at_place, "in_vault": p_in_vault, "boss_killed": p_boss_killed, "left_vault": p_left_vault}
 
 
 def rung_job(job: dict, rung: str) -> dict:
@@ -1893,7 +2075,7 @@ def clear_read(io, job: dict, start: dict, seen, rows: list[dict], rel: float) -
     if snap.get("unread"):
         out["unread"] = snap["unread"]
         return out
-    seen.see(snap)
+    seen.see(snap, rel)
     snap.update(evidence(rows))
     seen.into(snap)
     out["carried"] = asked_carried(job, snap)
@@ -1937,12 +2119,22 @@ class _Seen:
         self.where: dict[str, list] = {}
         self.first: dict[str, dict] = {}
         self.bags: list[dict] = []
+        self.vault_trace: list[dict] = []  # {t, in_vault, vault} at each change (the vault ends: left_vault)
+        self.kills: list[dict] = []  # every recent_kills row a read listed, once, with that read's in_vault and vault
 
-    def see(self, snap: dict) -> None:
+    def see(self, snap: dict, t: float | None = None) -> None:
         self.own |= set(snap.get("own_containers") or [])
         self.kinds.update(snap.get("container_kinds") or {})
         self.where.update(snap.get("container_where") or {})
         self.bags.append({"carried": snap.get("carried") or {}})
+        at = {"in_vault": snap.get("in_vault"), "vault": snap.get("vault")}
+        last = self.vault_trace[-1] if self.vault_trace else None
+        if at["in_vault"] is not None and (last is None or (last["in_vault"], last["vault"]) != (at["in_vault"], at["vault"])):
+            self.vault_trace.append({"t": None if t is None else round(t, 1), **at})
+        known = {_kill_key(k) for k in self.kills}
+        for k in snap.get("recent_kills") or []:  # a kill is tagged with the first read that listed it
+            if _kill_key(k) not in known:
+                self.kills.append({**k, **at, "t": None if t is None else round(t, 1)})
 
     def read_new(self, io, snap: dict, t: float) -> None:
         """Read each container of his that this read lists (so within 30 m of him: inside the client's 80 m inspect
@@ -1960,6 +2152,8 @@ class _Seen:
         snap["container_kinds"] = {**self.kinds, **(snap.get("container_kinds") or {})}
         snap["container_where"] = {**self.where, **(snap.get("container_where") or {})}
         snap["chest_first"] = dict(self.first)
+        snap["vault_trace"] = list(self.vault_trace)
+        snap["kills_seen"] = list(self.kills)
 
 
 def seen_from_end(reads: dict, where: dict, pos: Any) -> None:
@@ -2008,11 +2202,14 @@ def run_job(io, job: dict, opts: dict) -> dict:
     if opts.get("ladder_made"):  # what he made in the ladder's earlier rungs (the checkpoint's ladder record)
         start["ladder_made"] = opts["ladder_made"]
     venture = "venture_gear" in (job.get("end") or {})
+    # a vault end (K1-K4): read every FAST_SAMPLE_S, so a stand at the door before he presses Enter, a walk in, or a
+    # kill among five is not missed between two 15 s reads
+    vault_job = any(k in VAULT_ENDS for k in (job.get("end") or {}))
     entered: dict | None = None  # the read that put him inside a copper region (V2): its facts end the trial
     chest_job = "in_own_chest" in (job.get("end") or {})
     seen = _Seen()
     if not start.get("unread"):
-        seen.see(start)
+        seen.see(start, 0.0)
     if "gear_target" in (job.get("end") or {}):
         try:
             start["gear_target"] = io.gear_target(raw0)
@@ -2051,13 +2248,14 @@ def run_job(io, job: dict, opts: dict) -> dict:
             first_t = first_step(tl["calls"], job)
         if work_t is None:
             work_t = first_work(tl["calls"], job)
-        fast = bool(lo_hi) or until == OWN_CHEST or (bool(step) and intr is None and by_progress) or venture
+        fast = bool(lo_hi) or until == OWN_CHEST or (bool(step) and intr is None and by_progress) or venture \
+            or vault_job
         if now - last_sample >= (FAST_SAMPLE_S if fast else SAMPLE_S):
             last_sample = now
             read = snapshot(io.state())
             if not read.get("unread"):  # a failed read is skipped, never judged
                 cur = read
-                seen.see(cur)
+                seen.see(cur, rel)
                 if chest_job:
                     seen.read_new(io, cur, rel)
                 cur.update(evidence(rows))
@@ -2149,7 +2347,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
     _, end = _read_state(io)
     rows = io.rows(t0 - 1, ended + 3)
     if not end.get("unread"):
-        seen.see(end)
+        seen.see(end, ended - t0)
     end.update(evidence(rows))
     seen.into(end)
     if entered:
@@ -2657,7 +2855,7 @@ def main(argv: list[str] | None = None) -> int:
     it.add_argument("--step", required=True, choices=STEPS)
     tr.add_argument("--interrupt", dest="step", choices=STEPS, default=None,
                     help="put this interruption in mid-job (the same as the interrupt command with --step)")
-    tr.add_argument("--rung", default=None, metavar="V1|V2",
+    tr.add_argument("--rung", default=None, metavar="V1|V2|K1..K4",
                     help="one rung of the job's ladder (data/jobs.json rungs): his ask is the job's line; the trial "
                          "starts from the rung's from (or --from) and ends at the rung's end read from the game")
     for p in (tr, it):

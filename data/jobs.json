@@ -208,6 +208,66 @@
       "start": "ClaudeDev",
       "interrupt_from": null,
       "work_tools": ["gather", "pickup", "attack", "craft", "build", "equip", "interact", "take", "store", "cast"]
+    },
+    "K": {
+      "line": "claude, let's take on Crasorak Kara. Clear it out and get the boss",
+      "held_out": false,
+      "goal_item": "4: the vault capstone (docs/GOAL-2026-11-17-long-jobs.md; scratchpad study capstone_ready 2026-11-18 section 4). K, not V: V1-V6 are L2's venture rungs.",
+      "end": {
+        "boss_killed": {"creature": "Vault Overlord", "vault": "Crasorak Kara", "mine": true},
+        "carried_gain": {"ITEM_Resources_VaultCore": 1},
+        "left_vault": {"vault": "Crasorak Kara"}
+      },
+      "end_note": "K-whole, the capstone itself: only after L1 to L3, I3 and the jump course are at standard (goal section 4); its first three trials are held-out scores. 'prepared' (venture_gear with entry_bar min_below_power 1, consumables_carried 5 and 5 at the vault entry) is scored apart and not wired yet. Held-out line (not a job yet): 'claude, that vault in the temple woods, the one east of home. think you can beat whatever's at the bottom of it?'.",
+      "not_carried_at_start": [],
+      "bar": null,
+      "bar_note": "no bar until Luis's recorded vault run (W4); human_bar per run.",
+      "start": "ClaudeDev",
+      "interrupt_from": null,
+      "work_tools": ["go_to", "attack", "gather", "pickup", "craft", "build", "equip", "interact", "take", "store", "cast", "consume"],
+      "work_tools_note": "go_to counts here (L-jobs leave it out because after a death it may be the walk to his grave): the first stage of this job IS the walk to the door. K has no interruption steps.",
+      "rungs_note": "The capstone in stages, each a trial of K itself (his ask is K's line, sent once): a stage sets only where the trial ends (its end, read from the game) and where it starts (from: ClaudeDev, or a checkpoint pair a PASSING run of the stage before saved with --save-as; rule 8, never a fixture-built bag or a teleport). Window commands: `job_run trial --confirm --job K --rung K1 -k 3 --save-as vault_door`, then `job_run trial --confirm --job K --rung K2 -k 3` (from vault_door). Every window starts from a named world (rule 9) and stops on a new crash dump, a pause not lifted in 90 s, ue4ss_prop_guard stale, or HP under 60 %.",
+      "rungs": {
+        "K1": {
+          "from": "ClaudeDev",
+          "goal": "walk to Crasorak Kara's door (a real walk from home, no fixture teleport)",
+          "end": {
+            "at_place": {"door": "Crasorak Kara", "at": [374.58, 1918.74], "r_m": 8}
+          },
+          "note": "Done: his position (get_state, the game's) within 8 m of the door: the door row (name 'Crasorak Kara', prompt 'Enter') when the read lists it (its actor_position), else the data's spot (tools/vault_probe.py DOOR_AT, read live 23 times on 1-2 Nov, build 26161880). Read every 3 s, so the stand at the door is caught before he presses Enter.",
+          "unverified_live": ["the door row in get_state's interactables (census 50 m, 20 nearest): seen in look, never in get_state", "the vault fields destination, arrives_at, leads_to, locked on the door row (no vault_targets line exists: teleport_targets runs only with a teleporter in range)", "the walk: 235 m from home in 42 s was a fixture-free walk once (2 Nov); rat packs of PL 1-2 stand 25-35 m from the door and he died there on 2 Nov"]
+        },
+        "K2": {
+          "from": "vault_door",
+          "goal": "enter the vault",
+          "end": {
+            "in_vault": {"vault": "Crasorak Kara"}
+          },
+          "note": "Done: the game's own flag (get_state in_vault: ULocalPlayerAudioSubsystem.bInDungeon) true and the registry box that holds him named Crasorak Kara (get_state vault, sense.vault_here). In a vault with the vault unnamed reads unread (not counted), never a pass. from: the checkpoint pair a passing K1 run saved (--save-as vault_door); until it exists the stage cannot run.",
+          "unverified_live": ["in_vault true was never read (7 of 7 reads false, outside)", "the registry reads complete=false (32 entries, one without a box): if Crasorak's is that one, vault stays nil and every K2 trial is unread", "the press on the door: with the teleport hooks off (default) it answers verification_failed or nothing while the world streams; with them on companion_down 'I'm being teleported'. Neither says 'inside': only the end read does", "the teleport through the stream-out with the hooks off is the R16/R17 crash class: run K2 with ProcDump on the client"]
+        },
+        "K3": {
+          "from": "vault_door",
+          "goal": "the first room: the entry hall's Hulk killed inside the vault (a calibration stage for the odds, not a goal rung)",
+          "end": {
+            "in_vault": {"vault": "Crasorak Kara"},
+            "boss_killed": {"creature": "Vault Guardian Hulk", "vault": "Crasorak Kara", "mine": true}
+          },
+          "note": "boss_killed is the kill predicate (any creature): a recent_kills row the start read did not hold, matched to the bestiary entry by name, alias or game class stem, his own kill, first listed by a read that had him in Crasorak Kara. Stop at HP under 40 % and leave by the inside teleporter.",
+          "unverified_live": ["the Hulk's AIName, class word, PL 2 HP ('TBA' on the wiki) and that recent_kills lists it", "the reflex flees a PL 2 Hulk at PL 0 (losing, prior 'die 4-17 s'): only a commanded attack fights it", "recent_kills class is new in the body (combat.lua): its class word was never read live"]
+        },
+        "K4": {
+          "from": "vault_boss_door",
+          "goal": "the boss: lever, the Overlord killed, core 3 carried, out",
+          "end": {
+            "boss_killed": {"creature": "Vault Overlord", "vault": "Crasorak Kara", "mine": true},
+            "carried_gain": {"ITEM_Resources_VaultCore": 1},
+            "left_vault": {"vault": "Crasorak Kara"}
+          },
+          "note": "from: vault_boss_door comes by --save-as from a K run that reached the lever (rule 8), never from a fixture probe. left_vault: a read in the run had him inside Crasorak Kara and the last read has him outside.",
+          "unverified_live": ["the interior positions (the lever stairs, the boss door): unknown until K2/K3 reads or the metabot map", "the lever pull reads ok by its own switch_position (interact changed 'switched', new in skills.lua and client_bridge.lua): SwitchState.SwitchPosition was never read live", "the Overlord: AIName, bIsBoss (the reflex flees any boss), HP 1300 or 650", "the vault core is a WorldItem that interact picks up, and its item id ITEM_Resources_VaultCore (from the recipe data; never carried)"]
+        }
+      }
     }
   },
   "interruptions": {

@@ -50,7 +50,7 @@ def doc():
 # ------------------------------------------------------------------ the data
 def test_jobs_file_has_the_goals_jobs_and_steps(doc):
     jobs = doc["jobs"]
-    assert set(jobs) == {"L1", "L2", "L3", "N1", "N2", "H1", "H2", "H3"}
+    assert set(jobs) == {"L1", "L2", "L3", "N1", "N2", "H1", "H2", "H3", "K"}
     assert {k for k, v in jobs.items() if v["held_out"]} == {"H1", "H2", "H3"}
     for k, v in jobs.items():
         assert "\n" not in v["line"] and v["line"].startswith("claude, "), k
