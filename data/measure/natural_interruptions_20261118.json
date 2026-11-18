@@ -1,0 +1,5704 @@
+[
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-002006-3844.jsonl",
+  "induced": null,
+  "ask": "claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, plus a crafting table, firepit and crate, and put your spare logs in the crate",
+  "ask_player": "Tester",
+  "ask_s": 7.4,
+  "ask_end_s": 248.7,
+  "ask_end_why": "run_end",
+  "start_s": 89.1,
+  "end_s": 89.7,
+  "signals": [
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261115-232011"
+  ],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 4.5,
+  "resume_at_s": 94.2,
+  "resume_call": "build {\"pieces\": [{\"piece\": \"Square Foundation\"}, {\"piece\": \"Wall\", \"on\": \"#1:N\"}, {\"p",
+  "resume_ok": false,
+  "resume_reason": "ambiguous_target"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-002006-3844.jsonl",
+  "induced": null,
+  "ask": "claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, plus a crafting table, firepit and crate, and put your spare logs in the crate",
+  "ask_player": "Tester",
+  "ask_s": 7.4,
+  "ask_end_s": 248.7,
+  "ask_end_why": "run_end",
+  "start_s": 244.3,
+  "end_s": 244.3,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261115-232011"
+  ],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-003803-20116.jsonl",
+  "induced": null,
+  "ask": "claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, plus a crafting table, firepit and crate, and put your spare logs in the crate",
+  "ask_player": "Tester",
+  "ask_s": 8.1,
+  "ask_end_s": 333.1,
+  "ask_end_why": "run_end",
+  "start_s": 57.8,
+  "end_s": 57.8,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261115-233809"
+  ],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "deconstruct {\"target\": \"BuildingPiece_310\", \"whole\": true, \"include_stations\": false} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-003803-20116.jsonl",
+  "induced": null,
+  "ask": "claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, plus a crafting table, firepit and crate, and put your spare logs in the crate",
+  "ask_player": "Tester",
+  "ask_s": 8.1,
+  "ask_end_s": 333.1,
+  "ask_end_why": "run_end",
+  "start_s": 178.0,
+  "end_s": 178.0,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261115-233809"
+  ],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed",
+  "resume_s": 0.6,
+  "resume_at_s": 178.6,
+  "resume_call": "build {\"pieces\": [{\"piece\": \"Door\", \"on\": \"BuildingPiece_107:in\"}]}",
+  "resume_ok": false,
+  "resume_reason": "blocked"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-003803-20116.jsonl",
+  "induced": null,
+  "ask": "claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, plus a crafting table, firepit and crate, and put your spare logs in the crate",
+  "ask_player": "Tester",
+  "ask_s": 8.1,
+  "ask_end_s": 333.1,
+  "ask_end_why": "run_end",
+  "start_s": 324.3,
+  "end_s": 324.3,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261115-233809"
+  ],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-013808-18780.jsonl",
+  "induced": null,
+  "ask": "claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, plus a crafting table, firepit and crate, and put your spare logs in the crate",
+  "ask_player": "Tester",
+  "ask_s": 9.5,
+  "ask_end_s": 232.9,
+  "ask_end_why": "run_end",
+  "start_s": 70.3,
+  "end_s": 70.3,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-003814"
+  ],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "deconstruct {\"target\": \"BuildingPiece_392\", \"whole\": true} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-023746-9864.jsonl",
+  "induced": null,
+  "ask": "claude, tear down my house here, then build yourself a house with a foundation, walls, a roof and a door, plus a crafting table, firepit and crate, and put your spare logs in the crate",
+  "ask_player": "Tester",
+  "ask_s": 10.3,
+  "ask_end_s": 196.5,
+  "ask_end_why": "run_end",
+  "start_s": 80.6,
+  "end_s": 80.6,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-013753"
+  ],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "deconstruct {\"target\": \"BuildingPiece_444\", \"whole\": true} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-041441-7796.jsonl",
+  "induced": null,
+  "ask": "claude chop about 13 logs",
+  "ask_player": "Tester",
+  "ask_s": 17.2,
+  "ask_end_s": 142.8,
+  "ask_end_why": "run_end",
+  "start_s": 106.8,
+  "end_s": 107.2,
+  "signals": [
+   "consume {\"item\": \"Fillet\"}"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "done, got way more than 13, I'm at 151 ash logs now. grabbing a bite"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-041733-15508.jsonl",
+  "induced": null,
+  "ask": "claude mine about 10 stone",
+  "ask_player": "Tester",
+  "ask_s": 14.5,
+  "ask_end_s": 55.2,
+  "ask_end_why": "run_end",
+  "start_s": 51.2,
+  "end_s": 51.2,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-043559-14380.jsonl",
+  "induced": null,
+  "ask": "claude mine about 10 stone",
+  "ask_player": "Tester",
+  "ask_s": 19.0,
+  "ask_end_s": 78.4,
+  "ask_end_why": "run_end",
+  "start_s": 36.7,
+  "end_s": 40.8,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"stone_boulder\", \"count\": 10} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-043948-15396.jsonl",
+  "induced": null,
+  "ask": "claude mine about 10 stone",
+  "ask_player": "Tester",
+  "ask_s": 28.5,
+  "ask_end_s": 83.8,
+  "ask_end_why": "run_end",
+  "start_s": 79.2,
+  "end_s": 79.2,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-051919-4744.jsonl",
+  "induced": null,
+  "ask": "claude mine about 10 stone",
+  "ask_player": "Tester",
+  "ask_s": 18.2,
+  "ask_end_s": 66.9,
+  "ask_end_why": "run_end",
+  "start_s": 45.1,
+  "end_s": 45.1,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"stone_boulder\", \"count\": 10} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-055011-18988.jsonl",
+  "induced": null,
+  "ask": "claude kill that goblin with your attack spells",
+  "ask_player": "Tester",
+  "ask_s": 15.4,
+  "ask_end_s": 102.7,
+  "ask_end_why": "run_end",
+  "start_s": 57.6,
+  "end_s": 74.2,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-055458-19320.jsonl",
+  "induced": null,
+  "ask": "claude kill that goblin with your attack spells",
+  "ask_player": "Tester",
+  "ask_s": 14.1,
+  "ask_end_s": 74.4,
+  "ask_end_why": "run_end",
+  "start_s": 42.1,
+  "end_s": 74.1,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-060147-19572.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 9.8,
+  "ask_end_s": 270.0,
+  "ask_end_why": "run_end",
+  "start_s": 15.8,
+  "end_s": 15.8,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261116-050155"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "go_to {\"target\": \"Vannaka\"} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-060147-19572.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 9.8,
+  "ask_end_s": 270.0,
+  "ask_end_why": "run_end",
+  "start_s": 257.1,
+  "end_s": 257.1,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-050155"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "go_to {\"target\": \"Vannaka\"} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-060645-12424.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.2,
+  "ask_end_s": 730.6,
+  "ask_end_why": "run_end",
+  "start_s": 219.5,
+  "end_s": 219.8,
+  "signals": [
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-050652"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-050652",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "Rune Mysteries is done, Zanik's handed it in. Next step is mining rune essence over at the essence area."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-060645-12424.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.2,
+  "ask_end_s": 730.6,
+  "ask_end_why": "run_end",
+  "start_s": 504.3,
+  "end_s": 529.5,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261116-050652"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-050652",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-062404-15380.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 14.1,
+  "ask_end_s": 310.9,
+  "ask_end_why": "run_end",
+  "start_s": 102.7,
+  "end_s": 195.7,
+  "signals": [
+   "reflex fight end Giant Rat killed (28.6 s)",
+   "reflex fight Giant Rat (attacking_me)",
+   "reflex fight end Goblin Runt killed (14.9 s)",
+   "reflex fight Goblin Runt (hostile_near)",
+   "reflex fight end Goblin Runt killed (16.4 s)",
+   "reflex fight Goblin Runt (attacking_me)"
+  ],
+  "ledger_runs": [
+   "20261116-052416"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "I'm stuck on 'Do Zanik's Rune Mysteries quest: mine rune essence from\u2026'. explore keeps failing (nothing in range). Can y",
+   "I'm really thirsty and have nothing left. Could you bring me something to drink?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-062404-15380.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 14.1,
+  "ask_end_s": 310.9,
+  "ask_end_why": "run_end",
+  "start_s": 281.0,
+  "end_s": 308.0,
+  "signals": [
+   "reflex fight end Goblin Runt died (27.0 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261116-052416"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "fight_outcome": "died",
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [
+   "I'm stuck on 'Do Zanik's Rune Mysteries quest: mine rune essence from\u2026'. explore keeps failing (nothing in range). Can y",
+   "I'm really thirsty and have nothing left. Could you bring me something to drink?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261116-062404-15380.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 14.1,
+  "ask_end_s": 310.9,
+  "ask_end_why": "run_end",
+  "start_s": 308.0,
+  "end_s": 308.0,
+  "signals": [
+   "died to Goblin Runt (reflex)"
+  ],
+  "ledger_runs": [
+   "20261116-052416"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [
+   "I'm stuck on 'Do Zanik's Rune Mysteries quest: mine rune essence from\u2026'. explore keeps failing (nothing in range). Can y",
+   "I'm really thirsty and have nothing left. Could you bring me something to drink?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-063517-8648.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 911.1,
+  "ask_end_why": "run_end",
+  "start_s": 81.4,
+  "end_s": 553.7,
+  "signals": [
+   "collect_water {\"count\": 2}",
+   "go_to {\"target\": \"BP_RuneEssenceGeyser_B_C_UAID_AC1A3DB43E397A0102",
+   "explore {\"about\": \"water\", \"leg_m\": 30, \"max_legs\": 6}",
+   "explore {\"about\": \"water\", \"leg_m\": 50, \"max_legs\": 8}"
+  ],
+  "ledger_runs": [
+   "20261116-053527"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-053527",
+    "class": "skill",
+    "first_wrong": "miss: interact path_blocked",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "I'm at almost no health and no water. heading to my grave for food, it's the only thing close",
+   "I'm really thirsty and hungry and have nothing left. Could you bring me something to drink and something to eat?",
+   "no water in sight yet, I'll search around. food's ok on berries for now"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-063517-8648.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 911.1,
+  "ask_end_why": "run_end",
+  "start_s": 885.6,
+  "end_s": 908.2,
+  "signals": [
+   "interact {\"target\": \"BP_RuntimeSpawnedWorldItem_C_2147458823\", \"secon",
+   "reflex_use Redberries",
+   "interact {\"target\": \"BP_RuntimeSpawnedWorldItem_C_2147458823\", \"secon",
+   "reflex_use Redberries",
+   "explore {\"about\": \"water\", \"leg_m\": 40, \"max_legs\": 8}"
+  ],
+  "ledger_runs": [
+   "20261116-053527"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-053527",
+    "class": "skill",
+    "first_wrong": "miss: interact path_blocked",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [
+   "no water in sight yet, I'll search around. food's ok on berries for now"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-063517-8648.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 911.1,
+  "ask_end_why": "run_end",
+  "start_s": 614.3,
+  "end_s": 623.0,
+  "signals": [
+   "reflex fight end Goblin Runt died (8.7 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261116-053527"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-053527",
+    "class": "skill",
+    "first_wrong": "miss: interact path_blocked",
+    "void": false
+   }
+  ],
+  "fight_outcome": "died",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "I'm really thirsty and hungry and have nothing left. Could you bring me something to drink and something to eat?",
+   "no water in sight yet, I'll search around. food's ok on berries for now"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261116-063517-8648.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 911.1,
+  "ask_end_why": "run_end",
+  "start_s": 623.0,
+  "end_s": 623.0,
+  "signals": [
+   "died to Goblin Runt (reflex)"
+  ],
+  "ledger_runs": [
+   "20261116-053527"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-053527",
+    "class": "skill",
+    "first_wrong": "miss: interact path_blocked",
+    "void": false
+   }
+  ],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "I'm really thirsty and hungry and have nothing left. Could you bring me something to drink and something to eat?",
+   "no water in sight yet, I'll search around. food's ok on berries for now"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-065519-7956.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Doric outside the temple and do whatever he asks you to",
+  "ask_player": "Tester",
+  "ask_s": 9.5,
+  "ask_end_s": 66.0,
+  "ask_end_why": "run_end",
+  "start_s": 35.6,
+  "end_s": 35.6,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-055527"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-055527",
+    "class": "model",
+    "first_wrong": "miss: craft missing_materials",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 6, \"radius\": 20} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-065655-3692.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 9.9,
+  "ask_end_s": 303.0,
+  "ask_end_why": "run_end",
+  "start_s": 186.6,
+  "end_s": 186.9,
+  "signals": [
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-055702"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-055702",
+    "class": "skill",
+    "first_wrong": "miss: attack too_far",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.0,
+  "resume_at_s": 187.9,
+  "resume_call": "attack {\"target\": \"BP_AI_GiantRat_Character_C_2147463207\", \"weapon\": \"Stone Club\", \"for",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-070224-20240.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 10.2,
+  "ask_end_s": 904.4,
+  "ask_end_why": "run_end",
+  "start_s": 156.9,
+  "end_s": 156.9,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-060233"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-060233",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 50, \"mode\": null, \"radius\": 40.0} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-070224-20240.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 10.2,
+  "ask_end_s": 904.4,
+  "ask_end_why": "run_end",
+  "start_s": 430.0,
+  "end_s": 436.1,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261116-060233"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-060233",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-070224-20240.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 10.2,
+  "ask_end_s": 904.4,
+  "ask_end_why": "run_end",
+  "start_s": 702.6,
+  "end_s": 725.2,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261116-060233"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-060233",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-073324-10208.jsonl",
+  "induced": null,
+  "ask": "claude, go and talk to the Wise Old Man by the temple and do what he asks",
+  "ask_player": "Tester",
+  "ask_s": 9.1,
+  "ask_end_s": 46.7,
+  "ask_end_why": "run_end",
+  "start_s": 43.6,
+  "end_s": 43.6,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261116-063332"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed",
+  "resume_s": 0.7,
+  "resume_at_s": 44.2,
+  "resume_call": "craft {\"item\": \"Stone Club\"}",
+  "resume_ok": false,
+  "resume_reason": "missing_materials"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-073523-7756.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 8.3,
+  "ask_end_s": 158.7,
+  "ask_end_why": "run_end",
+  "start_s": 116.0,
+  "end_s": 116.0,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-063530"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "craft {\"input\": \"Raw Rat Meat\", \"station\": \"Campfire\"} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-073824-8340.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.8,
+  "ask_end_s": 902.7,
+  "ask_end_why": "run_end",
+  "start_s": 31.1,
+  "end_s": 31.1,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261116-063832"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-063832",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "go_to {\"target\": \"Zanik\"} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-073824-8340.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.8,
+  "ask_end_s": 902.7,
+  "ask_end_why": "run_end",
+  "start_s": 123.8,
+  "end_s": 211.3,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Clean Water",
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [
+   "20261116-063832"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-063832",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 50, \"mode\": null, \"radius\": 40.0} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-073824-8340.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.8,
+  "ask_end_s": 902.7,
+  "ask_end_why": "run_end",
+  "start_s": 404.3,
+  "end_s": 519.2,
+  "signals": [
+   "explore {\"about\": \"water\", \"leg_m\": 40, \"max_legs\": 8}",
+   "collect_water {\"count\": 2, \"target\": \"BP_WaterVolume_C_UAID_00BE4395530E73",
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 1, \"station\": \"BP_Station",
+   "consume {\"item\": \"Rat Roast\"}",
+   "consume {\"item\": \"Rat Roast\"}"
+  ],
+  "ledger_runs": [
+   "20261116-063832"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-063832",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-073824-8340.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.8,
+  "ask_end_s": 902.7,
+  "ask_end_why": "run_end",
+  "start_s": 669.4,
+  "end_s": 669.4,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-063832"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-063832",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-073824-8340.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.8,
+  "ask_end_s": 902.7,
+  "ask_end_why": "run_end",
+  "start_s": 789.9,
+  "end_s": 789.9,
+  "signals": [
+   "reflex_use Rat Roast"
+  ],
+  "ledger_runs": [
+   "20261116-063832"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-063832",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-080916-12664.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Doric outside the temple and do whatever he asks you to",
+  "ask_player": "Tester",
+  "ask_s": 9.4,
+  "ask_end_s": 159.0,
+  "ask_end_why": "run_end",
+  "start_s": 138.9,
+  "end_s": 139.5,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2"
+  ],
+  "ledger_runs": [
+   "20261116-070923"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-070923",
+    "class": "skill",
+    "first_wrong": "miss: collect_water nothing_in_range",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 3.7,
+  "resume_at_s": 143.2,
+  "resume_call": "craft {\"item\": \"Stone Club\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-081220-13488.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 9.7,
+  "ask_end_s": 483.7,
+  "ask_end_why": "run_end",
+  "start_s": 21.0,
+  "end_s": 21.0,
+  "signals": [
+   "reflex_use Vegetable Soup"
+  ],
+  "ledger_runs": [
+   "20261116-071227"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-071227",
+    "class": "skill",
+    "first_wrong": "miss: explore body_error",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "go_to {\"target\": \"Vannaka\"} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-081220-13488.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 9.7,
+  "ask_end_s": 483.7,
+  "ask_end_why": "run_end",
+  "start_s": 244.6,
+  "end_s": 449.7,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "reflex_use Dirty Water",
+   "craft {\"item\": \"Clean Water\", \"station\": \"BP_Station_Campfire_C_21",
+   "collect_water {\"count\": 6, \"target\": \"46.77,1791.41,-34.95\"}",
+   "craft {\"item\": \"Clean Water\", \"station\": \"BP_Station_Campfire_C_21",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-071227"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-071227",
+    "class": "skill",
+    "first_wrong": "miss: explore body_error",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.3,
+  "resume_at_s": 452.0,
+  "resume_call": "craft {\"item\": \"Rat Roast\", \"station\": \"BP_Station_Campfire_C_2147458432\", \"fuel\": \"As",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-083251-16516.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Doric outside the temple and do whatever he asks you to",
+  "ask_player": "Tester",
+  "ask_s": 14.8,
+  "ask_end_s": 216.2,
+  "ask_end_why": "run_end",
+  "start_s": 89.9,
+  "end_s": 181.1,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "reflex_use Redberries",
+   "reflex_use Redberries"
+  ],
+  "ledger_runs": [
+   "20261116-073259"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-073259",
+    "class": "skill",
+    "first_wrong": "miss: interact still_running",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.4,
+  "resume_at_s": 181.5,
+  "resume_call": "craft {\"item\": \"Stone Club\", \"station\": \"BP_Crafting_StartingBench_C_2147480103\"}",
+  "resume_ok": false,
+  "resume_reason": "missing_materials"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-083955-13972.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.6,
+  "ask_end_s": 892.9,
+  "ask_end_why": "run_end",
+  "start_s": 222.4,
+  "end_s": 223.0,
+  "signals": [
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-074002"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-074002",
+    "class": "skill",
+    "first_wrong": "miss: go_to verification_failed",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 7.5,
+  "resume_at_s": 230.5,
+  "resume_call": "go_to {\"target\": [268.65, 1763.18, -41.51]}",
+  "resume_ok": false,
+  "resume_reason": "verification_failed"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-083955-13972.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.6,
+  "ask_end_s": 892.9,
+  "ask_end_why": "run_end",
+  "start_s": 455.8,
+  "end_s": 601.3,
+  "signals": [
+   "consume {\"item\": \"Rat Roast\"}",
+   "collect_water {\"count\": 2}",
+   "collect_water {\"count\": 3, \"target\": \"BP_WaterVolume_C_UAID_00BE4395530E73",
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water",
+   "go_to {\"target\": [255.5, 1797.3, -35.8]}"
+  ],
+  "ledger_runs": [
+   "20261116-074002"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-074002",
+    "class": "skill",
+    "first_wrong": "miss: go_to verification_failed",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.8,
+  "resume_at_s": 603.2,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 10, \"radius\": 15}",
+  "resume_ok": false,
+  "resume_reason": "companion_down"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-083955-13972.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.6,
+  "ask_end_s": 892.9,
+  "ask_end_why": "run_end",
+  "start_s": 244.5,
+  "end_s": 346.8,
+  "signals": [
+   "reflex fight end Giant Rat killed (16.9 s)",
+   "reflex fight Giant Rat (hostile_near)",
+   "reflex fight end Giant Rat interrupted (13.8 s)",
+   "reflex fight Giant Rat (hostile_near)",
+   "reflex fight end Giant Rat killed (46.7 s)",
+   "reflex fight Giant Rat (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261116-074002"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-074002",
+    "class": "skill",
+    "first_wrong": "miss: go_to verification_failed",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "resumed",
+  "resume_s": 3.9,
+  "resume_at_s": 350.7,
+  "resume_call": "interact {\"target\": \"BP_BaseBuilding_BedRoll_C_2147455492\", \"secondary\": false}",
+  "resume_ok": false,
+  "resume_reason": "path_blocked"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-083955-13972.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.6,
+  "ask_end_s": 892.9,
+  "ask_end_why": "run_end",
+  "start_s": 384.3,
+  "end_s": 409.6,
+  "signals": [
+   "attack {\"target\": \"BP_AI_GiantRat_Character_C_2147456120\", \"force\":"
+  ],
+  "ledger_runs": [
+   "20261116-074002"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-074002",
+    "class": "skill",
+    "first_wrong": "miss: go_to verification_failed",
+    "void": false
+   }
+  ],
+  "fight_outcome": null,
+  "outcome": "resumed",
+  "resume_s": 2.1,
+  "resume_at_s": 411.7,
+  "resume_call": "build {\"piece\": \"Bedroll\", \"near\": \"BuildingPiece_204\"}",
+  "resume_ok": false,
+  "resume_reason": "path_blocked"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-083955-13972.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.6,
+  "ask_end_s": 892.9,
+  "ask_end_why": "run_end",
+  "start_s": 614.2,
+  "end_s": 665.3,
+  "signals": [
+   "reflex fight Goblin Runt (hostile_near)",
+   "reflex fight end Goblin Runt died (51.1 s)"
+  ],
+  "ledger_runs": [
+   "20261116-074002"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-074002",
+    "class": "skill",
+    "first_wrong": "miss: go_to verification_failed",
+    "void": false
+   }
+  ],
+  "fight_outcome": "died",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "got jumped by a pack of goblin runts at the essence spot and died. I'm respawning, then I'll grab my stuff from the grav",
+   "I'm really hungry and have nothing left. Could you bring me something to eat?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261116-083955-13972.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.6,
+  "ask_end_s": 892.9,
+  "ask_end_why": "run_end",
+  "start_s": 665.3,
+  "end_s": 665.7,
+  "signals": [
+   "died to Goblin Runt (reflex)",
+   "gather companion_down"
+  ],
+  "ledger_runs": [
+   "20261116-074002"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-074002",
+    "class": "skill",
+    "first_wrong": "miss: go_to verification_failed",
+    "void": false
+   }
+  ],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "got jumped by a pack of goblin runts at the essence spot and died. I'm respawning, then I'll grab my stuff from the grav",
+   "I'm really hungry and have nothing left. Could you bring me something to eat?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-095655-8044.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 8.2,
+  "ask_end_s": 316.2,
+  "ask_end_why": "run_end",
+  "start_s": 267.8,
+  "end_s": 314.7,
+  "signals": [
+   "craft {\"item\": \"Clean Water\", \"count\": 2, \"station\": \"BP_Station_C",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-085702"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-085702",
+    "class": "skill",
+    "first_wrong": "miss: attack unknown_target",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [
+   "Ratcatcher's done, Vannaka gave me a stone dagger. next is Zanik by the river, for Rune Mysteries."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-100238-16892.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 10.8,
+  "ask_end_s": 357.5,
+  "ask_end_why": "run_end",
+  "start_s": 301.2,
+  "end_s": 307.1,
+  "signals": [
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Vegetable Soup\"}"
+  ],
+  "ledger_runs": [
+   "20261116-090246"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-090246",
+    "class": "skill",
+    "first_wrong": "miss: move_item inventory_full",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.7,
+  "resume_at_s": 309.8,
+  "resume_call": "interact {\"target\": \"BP_AnimaVent_C_UAID_AC1A3DB43E2FF0CF02_2071211327\", \"secondary\": fal",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-102023-10384.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.1,
+  "ask_end_s": 438.8,
+  "ask_end_why": "run_end",
+  "start_s": 300.5,
+  "end_s": 372.2,
+  "signals": [
+   "collect_water {\"count\": 4}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 5, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-092031"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-092031",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "campfire only boiled 4 of my 5 dirty water, not a big deal. I'm fine on drink now"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-105250-10308.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 10.1,
+  "ask_end_s": 261.8,
+  "ask_end_why": "run_end",
+  "start_s": 127.0,
+  "end_s": 127.7,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}"
+  ],
+  "ledger_runs": [
+   "20261116-095259"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-095259",
+    "class": "skill",
+    "first_wrong": "miss: attack path_blocked",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.2,
+  "resume_at_s": 129.9,
+  "resume_call": "craft {\"item\": \"Rat Roast\", \"station\": \"BP_Station_Campfire_C_2147464789\"}",
+  "resume_ok": false,
+  "resume_reason": "station_busy"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-105740-18988.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.7,
+  "ask_end_s": 419.7,
+  "ask_end_why": "run_end",
+  "start_s": 104.4,
+  "end_s": 110.6,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-095746"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 50, \"radius\": 40} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-105740-18988.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.7,
+  "ask_end_s": 419.7,
+  "ask_end_why": "run_end",
+  "start_s": 379.1,
+  "end_s": 379.1,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-095746"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 10, \"mode\": null, \"radius\": null} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-112033-15280.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 8.9,
+  "ask_end_s": 401.5,
+  "ask_end_why": "run_end",
+  "start_s": 341.6,
+  "end_s": 342.1,
+  "signals": [
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-102041"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.6,
+  "resume_at_s": 342.7,
+  "resume_call": "go_to {\"target\": \"the Rune Altar near Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-114618-17240.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 11.1,
+  "ask_end_s": 907.8,
+  "ask_end_why": "run_end",
+  "start_s": 197.2,
+  "end_s": 197.9,
+  "signals": [
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-104628"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-104628",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "Talked to Zanik, the log step's done. Next up is mining rune essence and making air and astral runes."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-114618-17240.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 11.1,
+  "ask_end_s": 907.8,
+  "ask_end_why": "run_end",
+  "start_s": 387.7,
+  "end_s": 450.5,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 2}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-104628"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-104628",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-114618-17240.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 11.1,
+  "ask_end_s": 907.8,
+  "ask_end_why": "run_end",
+  "start_s": 581.1,
+  "end_s": 591.3,
+  "signals": [
+   "reflex fight Goblin Runt (hostile_near)",
+   "reflex fight end Goblin Runt killed (10.1 s)"
+  ],
+  "ledger_runs": [
+   "20261116-104628"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-104628",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-124857-13704.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.2,
+  "ask_end_s": 553.9,
+  "ask_end_why": "run_end",
+  "start_s": 418.8,
+  "end_s": 511.0,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 2}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-114904"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-114904",
+    "class": "model",
+    "first_wrong": "miss: craft verification_failed",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-132940-13784.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.7,
+  "ask_end_s": 909.2,
+  "ask_end_why": "run_end",
+  "start_s": 266.8,
+  "end_s": 310.1,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "craft {\"item\": \"Clean Water\", \"station\": \"BP_Station_Campfire_C_21",
+   "collect_water {\"count\": 2}"
+  ],
+  "ledger_runs": [
+   "20261116-122947"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-122947",
+    "class": "skill",
+    "first_wrong": "miss: craft verification_failed",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 7.6,
+  "resume_at_s": 317.7,
+  "resume_call": "go_to {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-132940-13784.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.7,
+  "ask_end_s": 909.2,
+  "ask_end_why": "run_end",
+  "start_s": 441.0,
+  "end_s": 456.4,
+  "signals": [
+   "craft {\"item\": \"Clean Water\", \"count\": 2, \"station\": \"BP_Station_C",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-122947"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-122947",
+    "class": "skill",
+    "first_wrong": "miss: craft verification_failed",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.5,
+  "resume_at_s": 458.9,
+  "resume_call": "craft {\"item\": \"Astral Rune\", \"count\": 5, \"station\": \"BP_Crafting_Rune_Altar_C_2147460",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-132940-13784.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 9.7,
+  "ask_end_s": 909.2,
+  "ask_end_why": "run_end",
+  "start_s": 682.2,
+  "end_s": 682.2,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-122947"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-122947",
+    "class": "skill",
+    "first_wrong": "miss: craft verification_failed",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-174804-1752.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Doric outside the temple and do whatever he asks you to",
+  "ask_player": "Tester",
+  "ask_s": 14.7,
+  "ask_end_s": 110.0,
+  "ask_end_why": "request_closed",
+  "start_s": 52.7,
+  "end_s": 62.5,
+  "signals": [
+   "reflex fight end Kebbit killed (9.8 s)",
+   "reflex fight Kebbit (attacking_me)"
+  ],
+  "ledger_runs": [
+   "20261116-164817"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-164817",
+    "class": "model",
+    "first_wrong": "miss: craft missing_materials",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 6, \"radius\": 30} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-192158-16776.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 21.5,
+  "ask_end_s": 255.3,
+  "ask_end_why": "run_end",
+  "start_s": 131.8,
+  "end_s": 210.4,
+  "signals": [
+   "collect_water {\"count\": 2}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 3, \"station\": \"BP_Station",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Rat Roast\"}",
+   "consume {\"item\": \"Rat Roast\"}"
+  ],
+  "ledger_runs": [
+   "20261116-182213"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-182213",
+    "class": "harness",
+    "first_wrong": "miss: explore still_running",
+    "void": true
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-192841-11952.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 22.7,
+  "ask_end_s": 147.2,
+  "ask_end_why": "run_end",
+  "start_s": 144.5,
+  "end_s": 144.5,
+  "signals": [
+   "collect_water {\"count\": 3}"
+  ],
+  "ledger_runs": [
+   "20261116-182858"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-182858",
+    "class": "harness",
+    "first_wrong": "miss: collect_water still_running",
+    "void": true
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [
+   "Rune Mysteries done, Zanik gave me a tome and some runes. Now I need a drink, badly."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-195329-9548.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.7,
+  "ask_end_s": 403.2,
+  "ask_end_why": "run_end",
+  "start_s": 231.2,
+  "end_s": 250.2,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-185340"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-185340",
+    "class": "skill",
+    "first_wrong": "miss: consume not_in_inventory",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 17.2,
+  "resume_at_s": 267.3,
+  "resume_call": "explore {\"about\": \"rune essence rocks in the Essence Area\", \"leg_m\": 50, \"max_legs\": 8}",
+  "resume_ok": null,
+  "resume_reason": null
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-204838-18768.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.3,
+  "ask_end_s": 115.3,
+  "ask_end_why": "run_end",
+  "start_s": 75.1,
+  "end_s": 103.9,
+  "signals": [
+   "reflex fight end Goblin Runt killed (28.8 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261116-194849"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "resumed",
+  "resume_s": 7.5,
+  "resume_at_s": 111.4,
+  "resume_call": "talk {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-211427-13140.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 440.4,
+  "ask_end_why": "run_end",
+  "start_s": 396.9,
+  "end_s": 436.3,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 2, \"station\": \"BP_Station",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Vegetable Soup\"}"
+  ],
+  "ledger_runs": [
+   "20261116-201438"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-201438",
+    "class": "game",
+    "first_wrong": "miss: gather body_restarted",
+    "void": true
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [
+   "on it, chopping ash for Zanik's 50 logs now"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-222100-15484.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 8.9,
+  "ask_end_s": 200.8,
+  "ask_end_why": "request_closed",
+  "start_s": 162.2,
+  "end_s": 163.6,
+  "signals": [
+   "go_to {\"target\": \"Vannaka\"}"
+  ],
+  "ledger_runs": [
+   "20261116-212108"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-212108",
+    "class": "skill",
+    "first_wrong": "miss: attack timeout",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.7,
+  "resume_at_s": 165.4,
+  "resume_call": "attack {\"target\": \"BP_AI_GiantRat_Character_C_2147462417\", \"force\": false}",
+  "resume_ok": false,
+  "resume_reason": "interrupted"
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261116-222100-15484.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 8.9,
+  "ask_end_s": 200.8,
+  "ask_end_why": "request_closed",
+  "start_s": 194.8,
+  "end_s": 194.8,
+  "signals": [
+   "died to Giant Rat (reflex)"
+  ],
+  "ledger_runs": [
+   "20261116-212108"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-212108",
+    "class": "skill",
+    "first_wrong": "miss: attack timeout",
+    "void": false
+   }
+  ],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "got swarmed by giant rats, died. respawning, will grab my gear from the grave after",
+   "still dead, once I respawn I'll go back to Vannaka"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-224239-21248.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.7,
+  "ask_end_s": 611.3,
+  "ask_end_why": "run_end",
+  "start_s": 484.2,
+  "end_s": 596.5,
+  "signals": [
+   "go_to {\"target\": [324.29, 1763.16, -46.72]}",
+   "collect_water {\"count\": 4, \"target\": \"BP_WaterVolume_C_UAID_00BE4395530E73",
+   "consume {\"item\": \"Dirty Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-214249"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-214249",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.4,
+  "resume_at_s": 596.9,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": null,
+  "resume_reason": null
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-224239-21248.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.7,
+  "ask_end_s": 611.3,
+  "ask_end_why": "run_end",
+  "start_s": 165.1,
+  "end_s": 199.7,
+  "signals": [
+   "reflex fight end Goblin Runt killed (34.6 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261116-214249"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-214249",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "resumed",
+  "resume_s": 23.7,
+  "resume_at_s": 223.4,
+  "resume_call": "attack {\"target\": \"BP_AI_GiantRat_Character_C_2147460993\"}",
+  "resume_ok": false,
+  "resume_reason": "companion_down"
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261116-224239-21248.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.7,
+  "ask_end_s": 611.3,
+  "ask_end_why": "run_end",
+  "start_s": 260.1,
+  "end_s": 260.2,
+  "signals": [
+   "died to Giant Rat (brain)",
+   "attack companion_down"
+  ],
+  "ledger_runs": [
+   "20261116-214249"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-214249",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "grave_recovered_s": null,
+  "grave_tried": true,
+  "outcome": "resumed",
+  "resume_s": 336.7,
+  "resume_at_s": 596.9,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": null,
+  "resume_reason": null
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261116-224239-21248.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.7,
+  "ask_end_s": 611.3,
+  "ask_end_why": "run_end",
+  "start_s": 442.6,
+  "end_s": 442.8,
+  "signals": [
+   "died to Giant Rat (reflex)",
+   "go_to companion_down"
+  ],
+  "ledger_runs": [
+   "20261116-214249"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261116-214249",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "resumed",
+  "resume_s": 154.0,
+  "resume_at_s": 596.9,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": null,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-225430-20580.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.4,
+  "ask_end_s": 184.0,
+  "ask_end_why": "run_end",
+  "start_s": 148.9,
+  "end_s": 163.2,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-215441"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-215441",
+    "class": "harness",
+    "first_wrong": "passed, not counted",
+    "void": true
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.3,
+  "resume_at_s": 164.5,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-231753-18560.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.3,
+  "ask_end_s": 172.8,
+  "ask_end_why": "request_closed",
+  "start_s": 140.9,
+  "end_s": 155.1,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-221803"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "Vannaka's quest is done, got a stone dagger and axe out of it. Next is Zanik by the river, want me to keep going?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-232230-19736.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.7,
+  "ask_end_s": 596.9,
+  "ask_end_why": "run_end",
+  "start_s": 307.9,
+  "end_s": 360.8,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water",
+   "go_to {\"target\": \"Windmill Area\"}",
+   "reflex_use Vegetable Soup"
+  ],
+  "ledger_runs": [
+   "20261116-222242"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-222242",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 3.3,
+  "resume_at_s": 364.1,
+  "resume_call": "attack {\"target\": \"Giant Rat\", \"force\": false}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-232230-19736.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.7,
+  "ask_end_s": 596.9,
+  "ask_end_why": "run_end",
+  "start_s": 503.1,
+  "end_s": 595.1,
+  "signals": [
+   "collect_water {\"count\": 3, \"target\": \"BP_WaterVolume_C_UAID_00BE4395530E73",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-222242"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261116-222242",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.8,
+  "resume_at_s": 596.9,
+  "resume_call": "go_to {\"target\": \"Zanik\"}",
+  "resume_ok": null,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-233416-19392.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.3,
+  "ask_end_s": 611.2,
+  "ask_end_why": "request_closed",
+  "start_s": 147.2,
+  "end_s": 198.8,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Vegetable Soup\"}"
+  ],
+  "ledger_runs": [
+   "20261116-223427"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.8,
+  "resume_at_s": 200.6,
+  "resume_call": "attack {\"target\": \"Giant Rat\", \"force\": false}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-233416-19392.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.3,
+  "ask_end_s": 611.2,
+  "ask_end_why": "request_closed",
+  "start_s": 477.8,
+  "end_s": 528.0,
+  "signals": [
+   "collect_water {\"count\": 3, \"target\": \"BP_WaterVolume_NoSlow_C_UAID_00BE439",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261116-223427"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.4,
+  "resume_at_s": 528.3,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261116-233416-19392.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.3,
+  "ask_end_s": 611.2,
+  "ask_end_why": "request_closed",
+  "start_s": 454.2,
+  "end_s": 469.9,
+  "signals": [
+   "reflex fight end Goblin Runt killed (15.7 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261116-223427"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "resumed",
+  "resume_s": 25.4,
+  "resume_at_s": 495.3,
+  "resume_call": "build {\"piece\": \"Campfire\", \"near\": \"me\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261116-235104-12040.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.9,
+  "ask_end_s": 245.7,
+  "ask_end_why": "run_end",
+  "start_s": 166.6,
+  "end_s": 177.9,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-225115"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 3.5,
+  "resume_at_s": 181.4,
+  "resume_call": "craft {\"input\": \"Raw Rat Meat\", \"station\": \"BP_Station_Campfire_C_2147464080\", \"fuel\":",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-003211-16480.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.5,
+  "ask_end_s": 261.6,
+  "ask_end_why": "run_end",
+  "start_s": 224.2,
+  "end_s": 237.3,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "consume {\"item\": \"Rat Roast\"}",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-233223"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.4,
+  "resume_at_s": 238.6,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-003810-16536.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.5,
+  "ask_end_s": 184.7,
+  "ask_end_why": "run_end",
+  "start_s": 152.9,
+  "end_s": 164.7,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-233820"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.9,
+  "resume_at_s": 165.5,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-004259-20756.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.2,
+  "ask_end_s": 187.2,
+  "ask_end_why": "run_end",
+  "start_s": 156.3,
+  "end_s": 166.8,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"fuel\": \"Ash Logs\", \"station\": \"BP_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-234311"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.2,
+  "resume_at_s": 168.0,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-004752-18692.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.5,
+  "ask_end_s": 167.6,
+  "ask_end_why": "run_end",
+  "start_s": 133.0,
+  "end_s": 146.7,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261116-234804"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 15.9,
+  "resume_at_s": 162.6,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-012334-13328.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.9,
+  "ask_end_s": 234.2,
+  "ask_end_why": "request_closed",
+  "start_s": 197.4,
+  "end_s": 211.9,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"count\": 1, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-002345"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 17.0,
+  "resume_at_s": 229.0,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-013502-8940.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.0,
+  "ask_end_s": 204.6,
+  "ask_end_why": "run_end",
+  "start_s": 166.8,
+  "end_s": 179.8,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-003515"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.5,
+  "resume_at_s": 181.3,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-014356-22084.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.9,
+  "ask_end_s": 287.6,
+  "ask_end_why": "run_end",
+  "start_s": 204.2,
+  "end_s": 223.2,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-004409"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.4,
+  "resume_at_s": 223.5,
+  "resume_call": "craft {\"input\": \"Raw Rat Meat\", \"station\": \"BP_Station_Campfire_C_2147464898\", \"fuel\":",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-021001-17520.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Doric outside the temple and do whatever he asks you to",
+  "ask_player": "Tester",
+  "ask_s": 14.3,
+  "ask_end_s": 534.5,
+  "ask_end_why": "run_end",
+  "start_s": 482.6,
+  "end_s": 497.0,
+  "signals": [
+   "craft {\"item\": \"Clean Water\", \"station\": \"BP_Station_Campfire_C_21",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-011014"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261117-011014",
+    "class": "skill",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.4,
+  "resume_at_s": 497.4,
+  "resume_call": "talk {\"target\": \"Doric\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-024157-15484.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 201.5,
+  "ask_end_why": "request_closed",
+  "start_s": 164.7,
+  "end_s": 176.4,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-014210"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.6,
+  "resume_at_s": 177.9,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-025159-22304.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 16.0,
+  "ask_end_s": 181.7,
+  "ask_end_why": "run_end",
+  "start_s": 129.1,
+  "end_s": 156.8,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"count\": 1, \"fuel\": \"Ash Logs\"}",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-015214"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.8,
+  "resume_at_s": 158.6,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-025656-19428.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.2,
+  "ask_end_s": 265.0,
+  "ask_end_why": "request_closed",
+  "start_s": 223.9,
+  "end_s": 237.6,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-015707"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.3,
+  "resume_at_s": 238.8,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-032943-21760.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.2,
+  "ask_end_s": 159.9,
+  "ask_end_why": "request_closed",
+  "start_s": 110.3,
+  "end_s": 133.5,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-022954"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.7,
+  "resume_at_s": 135.2,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-034220-11900.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 225.5,
+  "ask_end_why": "request_closed",
+  "start_s": 154.9,
+  "end_s": 169.6,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-024233"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261117-024233",
+    "class": "skill",
+    "first_wrong": "bar: time",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 50.1,
+  "resume_at_s": 219.7,
+  "resume_call": "interact {\"target\": \"SkeletalMeshActor_UAID_AC1A3DB43E39B61902_1148254933\", \"secondary\": ",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-040522-22332.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 14.0,
+  "ask_end_s": 444.4,
+  "ask_end_why": "request_closed",
+  "start_s": 234.6,
+  "end_s": 380.2,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 2}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-030535"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 4.3,
+  "resume_at_s": 384.6,
+  "resume_call": "interact {\"target\": \"BP_AnimaVent_C_UAID_4CD717762D1160B902_1755396652\", \"secondary\": fal",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-041449-8776.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 16.9,
+  "ask_end_s": 797.2,
+  "ask_end_why": "run_end",
+  "start_s": 188.0,
+  "end_s": 786.8,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "explore {\"about\": \"water\", \"leg_m\": 40, \"max_legs\": 6}",
+   "explore {\"about\": \"water\", \"leg_m\": 40, \"max_legs\": 8}",
+   "explore {\"about\": \"water\", \"leg_m\": 60, \"max_legs\": 8}",
+   "explore {\"about\": \"water\", \"leg_m\": 60, \"max_legs\": 8}"
+  ],
+  "ledger_runs": [
+   "20261117-031503"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-031503",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-041449-8776.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 16.9,
+  "ask_end_s": 797.2,
+  "ask_end_why": "run_end",
+  "start_s": 289.2,
+  "end_s": 306.3,
+  "signals": [
+   "reflex fight end Giant Rat killed (17.1 s)",
+   "reflex fight Giant Rat (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-031503"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-031503",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "no water in sight yet, searching further out",
+   "no water anywhere I've searched, I'm down to parched. can you point me to a pond or river?",
+   "still no water in sight, I'm about to hit 0. if you know a pond or river near you, point me to it"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-041449-8776.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 16.9,
+  "ask_end_s": 797.2,
+  "ask_end_why": "run_end",
+  "start_s": 643.7,
+  "end_s": 693.0,
+  "signals": [
+   "reflex fight end Giant Rat killed (28.7 s)",
+   "reflex fight Goblin Runt (hostile_near)",
+   "reflex fight end Goblin Runt killed (9.5 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-031503"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-031503",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "still no water in sight, I'm about to hit 0. if you know a pond or river near you, point me to it"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-043008-21308.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 798.7,
+  "ask_end_why": "run_end",
+  "start_s": 197.7,
+  "end_s": 787.3,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "go_to {\"target\": \"Zanik\"}",
+   "explore {\"about\": \"water\", \"leg_m\": 40, \"max_legs\": 6}",
+   "explore {\"about\": \"water\", \"leg_m\": 50, \"max_legs\": 8}",
+   "explore {\"about\": \"water\", \"leg_m\": 60, \"max_legs\": 8}",
+   "explore {\"about\": \"water\", \"leg_m\": 60, \"max_legs\": 6}"
+  ],
+  "ledger_runs": [
+   "20261117-033022"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-033022",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [
+   "no drink on me. checking for water nearby, then I'll go back for my gear"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-043008-21308.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 798.7,
+  "ask_end_why": "run_end",
+  "start_s": 264.5,
+  "end_s": 280.2,
+  "signals": [
+   "reflex fight end Giant Rat killed (15.7 s)",
+   "reflex fight Giant Rat (attacking_me)"
+  ],
+  "ledger_runs": [
+   "20261117-033022"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-033022",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "no water on me, need to find some fast",
+   "got killed by a goblin archer while parched. no water around here, my gear's in the grave. need a drink and a hand back ",
+   "no drink on me. checking for water nearby, then I'll go back for my gear"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-043008-21308.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 798.7,
+  "ask_end_why": "run_end",
+  "start_s": 409.9,
+  "end_s": 499.6,
+  "signals": [
+   "reflex fight end Goblin Runt killed (54.0 s)",
+   "reflex fight Goblin Runt (hostile_near)",
+   "reflex fight end Giant Rat killed (18.4 s)",
+   "reflex fight Giant Rat (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-033022"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-033022",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "no water on me, need to find some fast",
+   "got killed by a goblin archer while parched. no water around here, my gear's in the grave. need a drink and a hand back ",
+   "no drink on me. checking for water nearby, then I'll go back for my gear"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-043008-21308.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 798.7,
+  "ask_end_why": "run_end",
+  "start_s": 683.7,
+  "end_s": 698.5,
+  "signals": [
+   "reflex fight end Goblin Runt killed (14.8 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-033022"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-033022",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "got killed by a goblin archer while parched. no water around here, my gear's in the grave. need a drink and a hand back ",
+   "no drink on me. checking for water nearby, then I'll go back for my gear"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-043008-21308.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 798.7,
+  "ask_end_why": "run_end",
+  "start_s": 731.2,
+  "end_s": 770.5,
+  "signals": [
+   "reflex fight end Giant Rat killed (10.2 s)",
+   "reflex fight Giant Rat (attacking_me)",
+   "reflex fight Goblin Archer (attacking_me)",
+   "reflex fight end Goblin Archer died (17.1 s)"
+  ],
+  "ledger_runs": [
+   "20261117-033022"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-033022",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "fight_outcome": "died",
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [
+   "got killed by a goblin archer while parched. no water around here, my gear's in the grave. need a drink and a hand back ",
+   "no drink on me. checking for water nearby, then I'll go back for my gear"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261117-043008-21308.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 798.7,
+  "ask_end_why": "run_end",
+  "start_s": 770.5,
+  "end_s": 770.5,
+  "signals": [
+   "died to Goblin Archer (reflex)"
+  ],
+  "ledger_runs": [
+   "20261117-033022"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-033022",
+    "class": "skill",
+    "first_wrong": "miss: explore nothing_in_range",
+    "void": false
+   }
+  ],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "run_ended_within_30s",
+  "resume_s": null,
+  "said_after": [
+   "got killed by a goblin archer while parched. no water around here, my gear's in the grave. need a drink and a hand back ",
+   "no drink on me. checking for water nearby, then I'll go back for my gear"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-044529-18320.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 16.9,
+  "ask_end_s": 387.7,
+  "ask_end_why": "request_closed",
+  "start_s": 197.8,
+  "end_s": 265.3,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"fuel\": \"Ash Logs\"}",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-034544"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.9,
+  "resume_at_s": 267.2,
+  "resume_call": "talk {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-045406-23372.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.4,
+  "ask_end_s": 464.0,
+  "ask_end_why": "run_end",
+  "start_s": 241.0,
+  "end_s": 343.7,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 2}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 2, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-035417"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.4,
+  "resume_at_s": 346.1,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 20, \"radius\": 40}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-045406-23372.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.4,
+  "ask_end_s": 464.0,
+  "ask_end_why": "run_end",
+  "start_s": 306.4,
+  "end_s": 318.2,
+  "signals": [
+   "reflex fight end Giant Rat killed (11.8 s)",
+   "reflex fight Giant Rat (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-035417"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "talk {\"target\": \"Zanik\"} (in flight across it, ok)"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-045406-23372.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.4,
+  "ask_end_s": 464.0,
+  "ask_end_why": "run_end",
+  "start_s": 380.3,
+  "end_s": 391.6,
+  "signals": [
+   "reflex fight end Kebbit killed (11.3 s)",
+   "reflex fight Kebbit (attacking_me)"
+  ],
+  "ledger_runs": [
+   "20261117-035417"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 20, \"radius\": 40} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-051900-408.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 396.7,
+  "ask_end_why": "run_end",
+  "start_s": 59.7,
+  "end_s": 60.2,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}"
+  ],
+  "ledger_runs": [
+   "20261117-041914"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-041914",
+    "class": "skill",
+    "first_wrong": "miss: go_to unknown_target",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.5,
+  "resume_at_s": 60.6,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 48}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-051900-408.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 396.7,
+  "ask_end_why": "run_end",
+  "start_s": 244.9,
+  "end_s": 313.7,
+  "signals": [
+   "collect_water {\"count\": 3}",
+   "consume {\"item\": \"Dirty Water\"}",
+   "collect_water {\"count\": 4}",
+   "consume {\"item\": \"Dirty Water\"}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 5, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-041914"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-041914",
+    "class": "skill",
+    "first_wrong": "miss: go_to unknown_target",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 8.3,
+  "resume_at_s": 322.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 1, \"mode\": null, \"radius\": null}",
+  "resume_ok": false,
+  "resume_reason": "interrupted"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-051900-408.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 396.7,
+  "ask_end_why": "run_end",
+  "start_s": 320.6,
+  "end_s": 331.9,
+  "signals": [
+   "reflex fight Goblin Runt (hostile_near)",
+   "reflex fight end Goblin Runt killed (11.1 s)"
+  ],
+  "ledger_runs": [
+   "20261117-041914"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-041914",
+    "class": "skill",
+    "first_wrong": "miss: go_to unknown_target",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-052742-23320.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 11.7,
+  "ask_end_s": 389.2,
+  "ask_end_why": "run_end",
+  "start_s": 238.3,
+  "end_s": 287.5,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 4}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 4, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-042752"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.2,
+  "resume_at_s": 289.8,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 1}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-053613-20648.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.0,
+  "ask_end_s": 407.0,
+  "ask_end_why": "run_end",
+  "start_s": 211.8,
+  "end_s": 295.9,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-043623"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 3.8,
+  "resume_at_s": 299.7,
+  "resume_call": "go_to {\"target\": [255.5, 1797.3, -35.8]}",
+  "resume_ok": false,
+  "resume_reason": "goal_above"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-054455-23064.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.9,
+  "ask_end_s": 306.4,
+  "ask_end_why": "run_end",
+  "start_s": 187.5,
+  "end_s": 251.2,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-044508"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-044508",
+    "class": "skill",
+    "first_wrong": "stand over 5 s to the end",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-054455-23064.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.9,
+  "ask_end_s": 306.4,
+  "ask_end_why": "run_end",
+  "start_s": 216.5,
+  "end_s": 227.1,
+  "signals": [
+   "reflex fight end Goblin Runt killed (10.6 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-044508"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-044508",
+    "class": "skill",
+    "first_wrong": "stand over 5 s to the end",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-055158-20820.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 14.4,
+  "ask_end_s": 221.2,
+  "ask_end_why": "request_closed",
+  "start_s": 164.4,
+  "end_s": 220.2,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-045210"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-045210",
+    "class": "model",
+    "first_wrong": "stand over 5 s to the end",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-064803-24452.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.4,
+  "ask_end_s": 506.9,
+  "ask_end_why": "run_end",
+  "start_s": 51.5,
+  "end_s": 101.2,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-054814"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261117-054814",
+    "class": "skill",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 8.8,
+  "resume_at_s": 109.9,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 49, \"mode\": null, \"radius\": 60.0}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-064803-24452.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.4,
+  "ask_end_s": 506.9,
+  "ask_end_why": "run_end",
+  "start_s": 379.3,
+  "end_s": 385.4,
+  "signals": [
+   "reflex_use Clean Water",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-054814"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261117-054814",
+    "class": "skill",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 49, \"mode\": null, \"radius\": 60.0} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-065830-9468.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 14.2,
+  "ask_end_s": 323.7,
+  "ask_end_why": "run_end",
+  "start_s": 185.7,
+  "end_s": 294.7,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-055843"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.3,
+  "resume_at_s": 296.9,
+  "resume_call": "craft {\"item\": \"Air Rune\", \"station\": \"BP_Crafting_Rune_Altar_C_2147465051\", \"count\": ",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-070543-24176.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 11.9,
+  "ask_end_s": 300.2,
+  "ask_end_why": "run_end",
+  "start_s": 181.4,
+  "end_s": 219.9,
+  "signals": [
+   "collect_water {\"count\": 3}",
+   "reflex_use Vegetable Soup",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-060553"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.5,
+  "resume_at_s": 221.4,
+  "resume_call": "talk {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-071240-21300.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.9,
+  "ask_end_s": 349.4,
+  "ask_end_why": "request_closed",
+  "start_s": 210.0,
+  "end_s": 269.3,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-061251"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 19.5,
+  "resume_at_s": 288.8,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 10, \"radius\": 40}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-072036-20980.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 14.3,
+  "ask_end_s": 339.5,
+  "ask_end_why": "request_closed",
+  "start_s": 200.6,
+  "end_s": 254.6,
+  "signals": [
+   "reflex_use Vegetable Soup",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-062049"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.4,
+  "resume_at_s": 256.0,
+  "resume_call": "talk {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-073302-22132.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 12.7,
+  "ask_end_s": 360.9,
+  "ask_end_why": "run_end",
+  "start_s": 229.2,
+  "end_s": 289.7,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"fuel\": \"Ash Logs\"}",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-063313"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.5,
+  "resume_at_s": 290.2,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 10, \"radius\": 60}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-074111-23932.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.1,
+  "ask_end_s": 419.4,
+  "ask_end_why": "request_closed",
+  "start_s": 277.2,
+  "end_s": 352.4,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"Campfire\", ",
+   "reflex_use Clean Water",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-064122"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 4.2,
+  "resume_at_s": 356.6,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 10, \"radius\": 40}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-074111-23932.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.1,
+  "ask_end_s": 419.4,
+  "ask_end_why": "request_closed",
+  "start_s": 306.5,
+  "end_s": 320.4,
+  "signals": [
+   "reflex fight end Giant Rat killed (13.9 s)",
+   "reflex fight Giant Rat (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-064122"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "resumed",
+  "resume_s": 5.7,
+  "resume_at_s": 326.0,
+  "resume_call": "talk {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-075006-22712.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.7,
+  "ask_end_s": 366.9,
+  "ask_end_why": "request_closed",
+  "start_s": 236.2,
+  "end_s": 276.1,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-065018"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.7,
+  "resume_at_s": 277.7,
+  "resume_call": "talk {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-075813-22464.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 354.1,
+  "ask_end_why": "run_end",
+  "start_s": 239.8,
+  "end_s": 275.2,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-065825"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.5,
+  "resume_at_s": 276.7,
+  "resume_call": "talk {\"target\": \"Zanik\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-080608-16484.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.8,
+  "ask_end_s": 449.4,
+  "ask_end_why": "request_closed",
+  "start_s": 286.6,
+  "end_s": 351.9,
+  "signals": [
+   "consume {\"item\": \"Vegetable Soup\"}",
+   "collect_water {\"count\": 3, \"target\": \"BP_WaterVolume_C_UAID_00BE4395530E73",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-070620"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.3,
+  "resume_at_s": 354.2,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 20, \"radius\": 40}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-082950-23396.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.3,
+  "ask_end_s": 192.7,
+  "ask_end_why": "run_end",
+  "start_s": 155.1,
+  "end_s": 166.5,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-073001"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.2,
+  "resume_at_s": 168.7,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-083457-21092.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.9,
+  "ask_end_s": 178.7,
+  "ask_end_why": "request_closed",
+  "start_s": 145.9,
+  "end_s": 160.0,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-073510"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261117-073510",
+    "class": "skill",
+    "first_wrong": "miss: attack path_blocked",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "Ratcatcher's done, Vannaka gave me a stone dagger and axe. Next up is Zanik by the river for Rune Mysteries."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-083952-22396.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.3,
+  "ask_end_s": 229.0,
+  "ask_end_why": "run_end",
+  "start_s": 190.7,
+  "end_s": 202.3,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-074006"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 21.5,
+  "resume_at_s": 223.8,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-093029-18108.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.2,
+  "ask_end_s": 149.2,
+  "ask_end_why": "run_end",
+  "start_s": 111.1,
+  "end_s": 126.3,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-083040"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 15.9,
+  "resume_at_s": 142.2,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-093438-24416.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.0,
+  "ask_end_s": 200.5,
+  "ask_end_why": "request_closed",
+  "start_s": 155.7,
+  "end_s": 173.9,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-083451"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 3.3,
+  "resume_at_s": 177.2,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-094400-15224.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.0,
+  "ask_end_s": 180.1,
+  "ask_end_why": "run_end",
+  "start_s": 127.3,
+  "end_s": 139.9,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-084412"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.6,
+  "resume_at_s": 141.5,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-094847-24020.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.9,
+  "ask_end_s": 270.3,
+  "ask_end_why": "request_closed",
+  "start_s": 86.0,
+  "end_s": 100.7,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-084859"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.6,
+  "resume_at_s": 101.2,
+  "resume_call": "attack {\"target\": \"Giant Rat\", \"force\": false}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-100755-21532.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 10.9,
+  "ask_end_s": 392.6,
+  "ask_end_why": "request_closed",
+  "start_s": 257.5,
+  "end_s": 313.6,
+  "signals": [
+   "collect_water {\"count\": 4}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 5, \"fuel\": \"Ash Logs\"}",
+   "reflex_use Vegetable Soup",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Clean Water\"}"
+  ],
+  "ledger_runs": [
+   "20261117-090804"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 3.1,
+  "resume_at_s": 316.7,
+  "resume_call": "go_to {\"target\": [255.5, 1797.3, -35.8]}",
+  "resume_ok": false,
+  "resume_reason": "goal_above"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-103829-24556.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 239.3,
+  "ask_end_why": "run_end",
+  "start_s": 136.3,
+  "end_s": 157.5,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-093840"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.3,
+  "resume_at_s": 159.8,
+  "resume_call": "craft {\"input\": \"Raw Rat Meat\", \"station\": \"BP_Station_Campfire_C_2147465187\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-104407-22144.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 11.6,
+  "ask_end_s": 182.3,
+  "ask_end_why": "request_closed",
+  "start_s": 144.1,
+  "end_s": 157.6,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-094417"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.7,
+  "resume_at_s": 158.3,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-104856-24528.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.9,
+  "ask_end_s": 175.3,
+  "ask_end_why": "request_closed",
+  "start_s": 139.4,
+  "end_s": 153.2,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-094908"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 16.2,
+  "resume_at_s": 169.4,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-113741-21872.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 10.3,
+  "ask_end_s": 362.1,
+  "ask_end_why": "run_end",
+  "start_s": 249.0,
+  "end_s": 284.3,
+  "signals": [
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 4, \"station\": \"BP_Station_",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-103749"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.2,
+  "resume_at_s": 286.5,
+  "resume_call": "gather {\"resource\": \"rune_essence\", \"count\": 10, \"radius\": 60}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-115735-24480.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.8,
+  "ask_end_s": 130.3,
+  "ask_end_why": "run_end",
+  "start_s": 99.9,
+  "end_s": 113.5,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-105747"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-120534-8372.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 12.2,
+  "ask_end_s": 117.7,
+  "ask_end_why": "request_closed",
+  "start_s": 82.5,
+  "end_s": 116.3,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-110545"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "Ratcatcher done, Vannaka gave me a stone dagger. Next up is Zanik down the road by the river."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-123944-24108.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.0,
+  "ask_end_s": 254.4,
+  "ask_end_why": "run_end",
+  "start_s": 206.2,
+  "end_s": 230.6,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-113957"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.5,
+  "resume_at_s": 231.1,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-125432-23996.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.2,
+  "ask_end_s": 204.7,
+  "ask_end_why": "request_closed",
+  "start_s": 163.8,
+  "end_s": 175.7,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-115445"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 22.1,
+  "resume_at_s": 197.8,
+  "resume_call": "talk {\"target\": \"Vannaka\", \"choose\": \"1\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-125956-22596.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.2,
+  "ask_end_s": 201.8,
+  "ask_end_why": "run_end",
+  "start_s": 164.5,
+  "end_s": 176.2,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-120009"
+  ],
+  "run_done": true,
+  "ledger": [
+   {
+    "run": "20261117-120009",
+    "class": "skill",
+    "first_wrong": "miss: attack path_blocked",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.3,
+  "resume_at_s": 178.5,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-131447-23768.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.2,
+  "ask_end_s": 174.5,
+  "ask_end_why": "run_end",
+  "start_s": 101.9,
+  "end_s": 130.2,
+  "signals": [
+   "go_to {\"target\": \"Campfire BP_Station_Campfire_C_2147464952\"}",
+   "go_to {\"target\": [161.08, 1729.13, -4.04]}",
+   "craft {\"station\": \"BP_Station_Campfire_C_2147464952\", \"input\": \"Di",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-121459"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.1,
+  "resume_at_s": 132.3,
+  "resume_call": "craft {\"station\": \"BP_Station_Campfire_C_2147464952\", \"input\": \"Raw Rat Meat\", \"fuel\":",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-131943-15112.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 189.1,
+  "ask_end_why": "request_closed",
+  "start_s": 151.7,
+  "end_s": 166.1,
+  "signals": [
+   "craft {\"item\": \"Clean Water\", \"station\": \"BP_Station_Campfire_C_21",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-121954"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 17.2,
+  "resume_at_s": 183.2,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-132503-25172.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.4,
+  "ask_end_s": 482.5,
+  "ask_end_why": "request_closed",
+  "start_s": 145.3,
+  "end_s": 183.6,
+  "signals": [
+   "collect_water {\"count\": 2}",
+   "craft {\"item\": \"Clean Water\", \"input\": \"Dirty Water\", \"count\": 3, ",
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Vegetable Soup\"}"
+  ],
+  "ledger_runs": [
+   "20261117-122516"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.3,
+  "resume_at_s": 184.9,
+  "resume_call": "attack {\"target\": \"Giant Rat\", \"force\": false}",
+  "resume_ok": false,
+  "resume_reason": "companion_down"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-132503-25172.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.4,
+  "ask_end_s": 482.5,
+  "ask_end_why": "request_closed",
+  "start_s": 374.5,
+  "end_s": 382.0,
+  "signals": [
+   "reflex_use Clean Water",
+   "consume {\"item\": \"Clean Water\"}",
+   "consume {\"item\": \"Redberries\"}"
+  ],
+  "ledger_runs": [
+   "20261117-122516"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.3,
+  "resume_at_s": 384.4,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261117-132503-25172.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.4,
+  "ask_end_s": 482.5,
+  "ask_end_why": "request_closed",
+  "start_s": 227.1,
+  "end_s": 227.2,
+  "signals": [
+   "died to Goblin Runt (brain)",
+   "attack companion_down"
+  ],
+  "ledger_runs": [
+   "20261117-122516"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "grave_recovered_s": 146.6,
+  "grave_tried": true,
+  "outcome": "resumed",
+  "resume_s": 157.1,
+  "resume_at_s": 384.4,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-133508-22908.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.8,
+  "ask_end_s": 218.6,
+  "ask_end_why": "run_end",
+  "start_s": 182.2,
+  "end_s": 195.2,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-123523"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.1,
+  "resume_at_s": 195.3,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-134047-10588.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.8,
+  "ask_end_s": 305.8,
+  "ask_end_why": "run_end",
+  "start_s": 250.8,
+  "end_s": 278.9,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-124059"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 1.1,
+  "resume_at_s": 280.0,
+  "resume_call": "go_to {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-140049-22000.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 10.9,
+  "ask_end_s": 398.9,
+  "ask_end_why": "run_end",
+  "start_s": 307.8,
+  "end_s": 398.9,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"Campfire\", \"fuel\": \"Ash",
+   "reflex_use Vegetable Soup",
+   "reflex_use Clean Water",
+   "go_to {\"target\": \"Zanik\"}",
+   "collect_water {\"count\": 3}"
+  ],
+  "ledger_runs": [
+   "20261117-130059"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-141831-7796.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 388.5,
+  "ask_end_why": "run_end",
+  "start_s": 294.8,
+  "end_s": 388.5,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"Campfire\", \"fuel\": \"Ash",
+   "reflex_use Clean Water",
+   "collect_water {\"count\": 3}"
+  ],
+  "ledger_runs": [
+   "20261117-131842"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-141831-7796.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 388.5,
+  "ask_end_why": "run_end",
+  "start_s": 161.7,
+  "end_s": 174.8,
+  "signals": [
+   "reflex fight Giant Rat (hostile_near)",
+   "reflex fight end Giant Rat killed (13.1 s)"
+  ],
+  "ledger_runs": [
+   "20261117-131842"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "resumed_through",
+  "resume_s": 0.0,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 49, \"mode\": null, \"radius\": 40.0} (in flight across it, ok)"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-143823-23908.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Zanik and do her quest",
+  "ask_player": "Tester",
+  "ask_s": 13.0,
+  "ask_end_s": 306.9,
+  "ask_end_why": "run_end",
+  "start_s": 219.1,
+  "end_s": 306.9,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"Campfire\"}",
+   "reflex_use Clean Water",
+   "reflex_use Vegetable Soup",
+   "reflex_use Vegetable Soup",
+   "collect_water {\"count\": 4}"
+  ],
+  "ledger_runs": [
+   "20261117-133834"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-145916-25100.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 14.6,
+  "ask_end_s": 171.5,
+  "ask_end_why": "run_end",
+  "start_s": 130.8,
+  "end_s": 146.6,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-135928"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 19.9,
+  "resume_at_s": 166.5,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-150416-21768.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 16.6,
+  "ask_end_s": 191.2,
+  "ask_end_why": "run_end",
+  "start_s": 158.5,
+  "end_s": 170.4,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"fuel\": \"Ash Logs\"}",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-140431"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 0.8,
+  "resume_at_s": 171.2,
+  "resume_call": "talk {\"target\": \"Vannaka\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-151406-25244.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 15.8,
+  "ask_end_s": 202.5,
+  "ask_end_why": "run_end",
+  "start_s": 202.5,
+  "end_s": 202.5,
+  "signals": [
+   "craft {\"item\": \"Clean Water\", \"station\": \"BP_Station_Campfire_C_21"
+  ],
+  "ledger_runs": [
+   "20261117-141420"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-151932-23576.jsonl",
+  "induced": null,
+  "ask": "claude, go and see Vannaka near the windmill and do his quest",
+  "ask_player": "Tester",
+  "ask_s": 13.4,
+  "ask_end_s": 145.1,
+  "ask_end_why": "run_end",
+  "start_s": 115.4,
+  "end_s": 128.4,
+  "signals": [
+   "craft {\"input\": \"Dirty Water\", \"station\": \"BP_Station_Campfire_C_2",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-141943"
+  ],
+  "run_done": true,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "ask_done_no_resume_needed",
+  "resume_s": null,
+  "said_after": [],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-182130-17296.jsonl",
+  "induced": null,
+  "ask": "claude get all your stuff together and gear up properly",
+  "ask_player": "Tester",
+  "ask_s": 24.2,
+  "ask_end_s": 273.4,
+  "ask_end_why": "request_closed",
+  "start_s": 31.6,
+  "end_s": 31.6,
+  "signals": [
+   "reflex_use Fillet"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed",
+  "resume_s": 20.8,
+  "resume_at_s": 52.4,
+  "resume_call": "interact {\"target\": \"BP_RuntimeSpawnedWorldItem_C_2147464852\", \"secondary\": false}",
+  "resume_ok": false,
+  "resume_reason": "timeout"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-182130-17296.jsonl",
+  "induced": null,
+  "ask": "claude get all your stuff together and gear up properly",
+  "ask_player": "Tester",
+  "ask_s": 24.2,
+  "ask_end_s": 273.4,
+  "ask_end_why": "request_closed",
+  "start_s": 125.6,
+  "end_s": 125.6,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "I'm right on the grave spot but can't see it to open it, only ash trees and logs here. Looking around more.",
+   "still no grave in sight, just ash logs. might be a bug, I'll check the spot again."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-182130-17296.jsonl",
+  "induced": null,
+  "ask": "claude get all your stuff together and gear up properly",
+  "ask_player": "Tester",
+  "ask_s": 24.2,
+  "ask_end_s": 273.4,
+  "ask_end_why": "request_closed",
+  "start_s": 205.8,
+  "end_s": 248.2,
+  "signals": [
+   "reflex fight end Goblin Runt killed (12.3 s)",
+   "reflex fight Goblin Runt (hostile_near)",
+   "reflex fight Giant Rat (hostile_near)",
+   "reflex fight end Giant Rat killed (12.4 s)"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "I'm right on the grave spot but can't see it to open it, only ash trees and logs here. Looking around more.",
+   "still no grave in sight, just ash logs. might be a bug, I'll check the spot again."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-185006-26484.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 26.9,
+  "ask_end_s": 242.7,
+  "ask_end_why": "request_closed",
+  "start_s": 45.2,
+  "end_s": 75.1,
+  "signals": [
+   "reflex_use Fillet",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "reflex_only": true,
+  "outcome": "resumed",
+  "resume_s": 1.3,
+  "resume_at_s": 76.4,
+  "resume_call": "gather {\"resource\": \"ash\", \"count\": 3, \"mode\": null, \"radius\": 20.0}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261117-185006-26484.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 26.9,
+  "ask_end_s": 242.7,
+  "ask_end_why": "request_closed",
+  "start_s": 235.5,
+  "end_s": 235.5,
+  "signals": [
+   "explore companion_down"
+  ],
+  "ledger_runs": [],
+  "run_done": null,
+  "ledger": [],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "ouch, walked off a cliff while looking for copper and died. respawning now, back on the copper after."
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-205205-24152.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 20.2,
+  "ask_end_s": 912.7,
+  "ask_end_why": "request_parked",
+  "start_s": 461.7,
+  "end_s": 651.8,
+  "signals": [
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 5, \"station\": \"BP_Station",
+   "reflex_use Clean Water",
+   "reflex_use Rat Roast"
+  ],
+  "ledger_runs": [
+   "20261117-195219-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-195219-L2",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 2.2,
+  "resume_at_s": 653.9,
+  "resume_call": "explore {\"about\": \"copper ore rocks\", \"leg_m\": 50, \"max_legs\": 8}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-205205-24152.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 20.2,
+  "ask_end_s": 912.7,
+  "ask_end_why": "request_parked",
+  "start_s": 755.8,
+  "end_s": 755.8,
+  "signals": [
+   "reflex_use Rat Roast"
+  ],
+  "ledger_runs": [
+   "20261117-195219-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-195219-L2",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "resumed",
+  "resume_s": 130.3,
+  "resume_at_s": 886.2,
+  "resume_call": "gather {\"resource\": \"copper\", \"count\": 30, \"radius\": 100}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-205205-24152.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 20.2,
+  "ask_end_s": 912.7,
+  "ask_end_why": "request_parked",
+  "start_s": 897.7,
+  "end_s": 897.7,
+  "signals": [
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261117-195219-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-195219-L2",
+    "class": "model",
+    "first_wrong": "stand over 5 s",
+    "void": false
+   }
+  ],
+  "reflex_only": true,
+  "outcome": "parked",
+  "resume_s": null,
+  "said_after": [
+   "no copper anywhere near me, searched about 90 m. can you point me to a copper patch?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-211034-9796.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 14.2,
+  "ask_end_s": 476.3,
+  "ask_end_why": "request_parked",
+  "start_s": 318.2,
+  "end_s": 468.2,
+  "signals": [
+   "go_to {\"target\": [156.62, 1928.98, -35.38]}",
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 5, \"station\": \"BP_Station",
+   "consume {\"item\": \"Rat Roast\"}"
+  ],
+  "ledger_runs": [
+   "20261117-201046-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-201046-L2",
+    "class": "model",
+    "first_wrong": "miss: craft ambiguous_target",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "parked",
+  "resume_s": null,
+  "said_after": [
+   "got food and water sorted. still can't find any copper ore near the base, know where a patch is?",
+   "still no copper anywhere I've searched. need you to point me at a patch."
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-222439-20256.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.4,
+  "ask_end_s": 486.2,
+  "ask_end_why": "run_end",
+  "start_s": 295.8,
+  "end_s": 437.9,
+  "signals": [
+   "collect_water {\"count\": 3}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 7, \"station\": \"BP_Station",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 7, \"station\": \"BP_Station",
+   "reflex_use Rat Roast"
+  ],
+  "ledger_runs": [
+   "20261117-212448-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-212448-L2",
+    "class": "harness",
+    "first_wrong": "miss: craft ambiguous_target",
+    "void": true
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "no_resume_before_run_end",
+  "resume_s": null,
+  "said_after": [
+   "food's sorted, got rat roast. still no copper close by. want me to keep looking further out?"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-234028-19024.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 17.0,
+  "ask_end_s": 473.1,
+  "ask_end_why": "request_parked",
+  "start_s": 263.4,
+  "end_s": 430.1,
+  "signals": [
+   "collect_water {\"count\": 6}",
+   "craft {\"input\": \"Dirty Water\", \"count\": 6, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 8, \"station\": \"BP_Station",
+   "consume {\"item\": \"Rat Roast\"}"
+  ],
+  "ledger_runs": [
+   "20261117-224043-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-224043-L2",
+    "class": "skill",
+    "first_wrong": "miss: craft ambiguous_target",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 3.4,
+  "resume_at_s": 433.5,
+  "resume_call": "go_to {\"target\": \"BP_Crafting_StartingBench_C_2147472976\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261117-234028-19024.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 17.0,
+  "ask_end_s": 473.1,
+  "ask_end_why": "request_parked",
+  "start_s": 127.5,
+  "end_s": 144.2,
+  "signals": [
+   "reflex fight end Giant Rat killed (16.7 s)",
+   "reflex fight Giant Rat (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261117-224043-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-224043-L2",
+    "class": "skill",
+    "first_wrong": "miss: craft ambiguous_target",
+    "void": false
+   }
+  ],
+  "fight_outcome": "killed",
+  "outcome": "resumed",
+  "resume_s": 289.3,
+  "resume_at_s": 433.5,
+  "resume_call": "go_to {\"target\": \"BP_Crafting_StartingBench_C_2147472976\"}",
+  "resume_ok": true,
+  "resume_reason": null
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261117-235142-22072.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 10.5,
+  "ask_end_s": 285.0,
+  "ask_end_why": "request_parked",
+  "start_s": 273.8,
+  "end_s": 280.4,
+  "signals": [
+   "collect_water {\"count\": 3}"
+  ],
+  "ledger_runs": [
+   "20261117-225151-L2"
+  ],
+  "run_done": false,
+  "ledger": [
+   {
+    "run": "20261117-225151-L2",
+    "class": "skill",
+    "first_wrong": "miss: craft ambiguous_target",
+    "void": false
+   }
+  ],
+  "reflex_only": false,
+  "outcome": "parked",
+  "resume_s": null,
+  "said_after": [
+   "copper's out in Fractured Plains and my stone pickaxe can't mine it. need a bone pickaxe, which means 24 garou chit I do"
+  ],
+  "asked_question": false
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 265.6,
+  "end_s": 394.8,
+  "signals": [
+   "collect_water {\"count\": 3}",
+   "collect_water {\"count\": 3, \"target\": \"BP_WaterVolume_NoSlow_C_UAID_00BE439",
+   "craft {\"input\": \"Dirty Water\", \"count\": 3, \"station\": \"BP_Station_",
+   "reflex_use Clean Water",
+   "craft {\"input\": \"Raw Rat Meat\", \"count\": 4, \"station\": \"BP_Station",
+   "consume {\"item\": \"Rat Roast\"}"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 10.2,
+  "resume_at_s": 405.1,
+  "resume_call": "explore {\"about\": \"copper ore vein\", \"max_legs\": 8, \"leg_m\": 40}",
+  "resume_ok": false,
+  "resume_reason": "companion_down"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 675.9,
+  "end_s": 735.1,
+  "signals": [
+   "collect_water {\"count\": 2, \"target\": \"BP_WaterVolume_NoSlow_C_UAID_00BE439",
+   "craft {\"item\": \"Clean Water\", \"input\": \"Dirty Water\", \"count\": 2, ",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "resumed",
+  "resume_s": 205.6,
+  "resume_at_s": 940.6,
+  "resume_call": "gather {\"resource\": \"copper\", \"count\": 30, \"mode\": null, \"radius\": 100.0}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I1",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 916.9,
+  "end_s": 1125.1,
+  "signals": [
+   "reflex_use Rat Roast",
+   "consume {\"item\": \"Rat Roast\"}",
+   "reflex_use Clean Water",
+   "reflex_use Rat Roast",
+   "reflex_use Rat Roast",
+   "collect_water {\"count\": 2}",
+   "craft {\"input\": \"Dirty Water\", \"station\": \"Campfire\", \"fuel\": \"Ash",
+   "reflex_use Clean Water"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "reflex_only": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "still stuck on the copper. no copper anywhere near here and my pick and sword are in my grave 438 m off, where that arch"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 458.6,
+  "end_s": 472.6,
+  "signals": [
+   "reflex fight end Goblin Warrior died (14.0 s)",
+   "reflex fight Goblin Archer (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "fight_outcome": "died",
+  "outcome": "resumed",
+  "resume_s": 468.1,
+  "resume_at_s": 940.6,
+  "resume_call": "gather {\"resource\": \"copper\", \"count\": 30, \"mode\": null, \"radius\": 100.0}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 592.8,
+  "end_s": 666.5,
+  "signals": [
+   "reflex fight Giant Rat (hostile_near)",
+   "reflex fight end Giant Rat died (73.7 s)"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "fight_outcome": "died",
+  "outcome": "resumed",
+  "resume_s": 274.1,
+  "resume_at_s": 940.6,
+  "resume_call": "gather {\"resource\": \"copper\", \"count\": 30, \"mode\": null, \"radius\": 100.0}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 783.5,
+  "end_s": 886.1,
+  "signals": [
+   "reflex fight end Goblin Runt killed (102.6 s)",
+   "reflex fight Goblin Runt (hostile_near)"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "fight_outcome": "killed",
+  "outcome": "resumed",
+  "resume_s": 54.5,
+  "resume_at_s": 940.6,
+  "resume_call": "gather {\"resource\": \"copper\", \"count\": 30, \"mode\": null, \"radius\": 100.0}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I2",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 972.8,
+  "end_s": 1047.3,
+  "signals": [
+   "reflex fight end Goblin Archer died (74.5 s)",
+   "reflex fight Goblin Archer (attacking_me)"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "fight_outcome": "died",
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "I'm stuck on 'Mine 30 copper ore and put it in the chest at my base (the\u2026'. explore keeps failing (nothing in range). Ca",
+   "respawned with bare hands and no copper yet. grabbing water first then I'll get my gear back from the grave",
+   "boiling this dirty water at the fire first. no copper anywhere near me yet, I'll look further out after"
+  ],
+  "asked_question": true
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 472.6,
+  "end_s": 473.1,
+  "signals": [
+   "died to Goblin Warrior (reflex)",
+   "explore companion_down"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "grave_recovered_s": 443.7,
+  "grave_tried": true,
+  "outcome": "resumed",
+  "resume_s": 467.5,
+  "resume_at_s": 940.6,
+  "resume_call": "gather {\"resource\": \"copper\", \"count\": 30, \"mode\": null, \"radius\": 100.0}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 666.5,
+  "end_s": 666.5,
+  "signals": [
+   "died to Giant Rat (reflex)"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "grave_recovered_s": 249.7,
+  "grave_tried": true,
+  "outcome": "resumed",
+  "resume_s": 274.1,
+  "resume_at_s": 940.6,
+  "resume_call": "gather {\"resource\": \"copper\", \"count\": 30, \"mode\": null, \"radius\": 100.0}",
+  "resume_ok": false,
+  "resume_reason": "nothing_in_range"
+ },
+ {
+  "kind": "I3",
+  "run": "brain-live-20261118-010135-17424.jsonl",
+  "induced": null,
+  "ask": "claude, we need thirty copper ore in the chest at your base",
+  "ask_player": "Tester",
+  "ask_s": 12.8,
+  "ask_end_s": 1129.3,
+  "ask_end_why": "request_closed",
+  "start_s": 1047.3,
+  "end_s": 1047.3,
+  "signals": [
+   "died to Goblin Archer (reflex)"
+  ],
+  "ledger_runs": [
+   "20261118-000146-L2"
+  ],
+  "run_done": false,
+  "ledger": [],
+  "grave_recovered_s": null,
+  "grave_tried": false,
+  "outcome": "closed",
+  "resume_s": null,
+  "said_after": [
+   "I'm stuck on 'Mine 30 copper ore and put it in the chest at my base (the\u2026'. explore keeps failing (nothing in range). Ca",
+   "respawned with bare hands and no copper yet. grabbing water first then I'll get my gear back from the grave",
+   "boiling this dirty water at the fire first. no copper anywhere near me yet, I'll look further out after"
+  ],
+  "asked_question": true
+ }
+]
