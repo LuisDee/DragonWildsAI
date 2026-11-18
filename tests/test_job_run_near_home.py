@@ -39,7 +39,7 @@ def test_n1_is_a_near_home_chest_job_with_a_gained_count(doc):
     wants = {w["item"]: w for w in job["end"]["in_own_chest"]}
     assert wants[ASH]["count"] == 20 and wants[STONE]["count"] == 10
     assert all(w["gained"] for w in wants.values())
-    assert job["start"] == "ClaudeDev" and job["interrupt_from"] == "job_n1_midjob"
+    assert job["start"] == "ClaudeDev" and job["interrupt_from"] == "job_n1_own_chest"
     assert j.trigger_ok(job["interrupt_trigger"]) and "go_to" not in job["work_tools"]
     assert 60 < j.bar_s(job) < 200  # 20 logs at 3.15 s, 10 stone at 0.91 s, a crate, three presses
     assert doc["interruptions"]["I4"]["between_calls"] is True

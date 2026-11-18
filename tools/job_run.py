@@ -21,7 +21,14 @@ A mid-job checkpoint (the window recipe, each window from the named world, in th
         `not_saved: why` otherwise; the next trial tries again). `--until first_step` is kept for jobs with no counts:
         its save can hold the whole job (window 1118d: job_n1_mid had all 20 ash and 10 stone carried).
     then per step, a new restore and: job_run trial --job N1 --interrupt I<n> -k 5   (from data/jobs.json interrupt_from)
-A probe (--until first_step or mid) is recorded with probe: true and is never a trial (not_counted, failure_ledger).
+A checkpoint with a chest of his own (N1's interrupt_from and I4's from, both job_n1_own_chest):
+    job_run trial --job N1 --until own_chest --save-as job_n1_own_chest -k 3
+        ends a trial once the game shows a container whose owner is HIM (this character's guid, never ClaudeDev's or
+        his account's) holding an asked item put in after the line, the job not done; kept only when the end read
+        says so. A fork finds the base crates "ClaudeDev's, not mine" and asks which to use (2026-11-18 runs 052749,
+        053829, 080852-N1-I5): a mid checkpoint meets that question in every trial. A run that ends without his own
+        chest says why (`not_saved: he never made a chest of his own: ...`).
+A probe (--until first_step, mid or own_chest) is recorded with probe: true and is never a trial (not_counted, failure_ledger).
 --save-as keeps a checkpoint PAIR (tools/checkpoint_pair.py): his save and the world, both written after the trial
 ended (the client and server are stopped for the world copy, up to 5.5 min of waiting first). A trial --from a pair
 restores its world and plays the checkpoint's own character (same guid and name) instead of a new fork, so what he
@@ -76,7 +83,12 @@ SAMPLE_S = 15.0       # a get_state read for the end predicate and the body's st
 FAST_SAMPLE_S = 3.0
 AWAIT_POLL_S = 0.5    # the brain log is read this often while a step's interruption is awaited (rows only, no reads)
 MID_DEFAULT = (0.2, 0.6)  # --until mid: end a probe once this share of the job is got and nothing of it is stored
-UNTILS = ("done", "first_step", "resumed")
+# --until own_chest: end a probe once the game shows a container whose owner is HIM (this character, never his line or
+# his account) holding an asked item put in after the line, the job not done. Forks of ClaudeDev found the base crates
+# "ClaudeDev's, not mine" and asked the player which to use (2026-11-18 runs 052749, 053829, 080852-N1-I5); a mid
+# checkpoint stops before he has a chest of his own, so every trial from it met the same question.
+OWN_CHEST = "own_chest"
+UNTILS = ("done", "first_step", "resumed", OWN_CHEST)
 CONFIRM_S = 60.0      # an interruption trial goes on this long after he took the job up again (it was not a blip)
 TRACE_AFTER = 3       # the first three trials of anything are scored before its trace is read (goal: held-out)
 RESPAWN_M = 20.0
@@ -1067,12 +1079,14 @@ def done(job: dict, state_start: dict, state_end: dict) -> tuple[bool | None, st
 
 
 def is_probe(rec: dict) -> bool:
-    """A run that ends before the job's end on purpose (--until first_step or mid: a checkpoint probe): never a trial."""
-    return bool(rec.get("probe")) or rec.get("until") == "first_step" or str(rec.get("until") or "").startswith("mid")
+    """A run that ends before the job's end on purpose (--until first_step, mid or own_chest: a checkpoint probe):
+    never a trial."""
+    return (bool(rec.get("probe")) or rec.get("until") in ("first_step", OWN_CHEST)
+            or str(rec.get("until") or "").startswith("mid"))
 
 
 def until_ok(spec: str | None) -> bool:
-    """done, first_step, resumed, mid, or mid:LO-HI (0 <= LO < HI <= 1)."""
+    """done, first_step, resumed, own_chest, mid, or mid:LO-HI (0 <= LO < HI <= 1)."""
     if spec in UNTILS:
         return True
     try:
@@ -1104,6 +1118,9 @@ def save_ok(rec: dict, until: str | None) -> tuple[bool, str]:
     if lo_hi:
         m = rec.get("mid") or {}
         return bool(m.get("ok")), m.get("why") or "no mid read"
+    if until == OWN_CHEST:
+        oc = rec.get("own_chest") or {}
+        return bool(oc.get("ok")), oc.get("why") or "no own-chest read"
     if until == "first_step":
         return rec.get("ended") == "first step", f"ended {rec.get('ended')}"
     if rec.get("rung") and rec.get("job_done"):
@@ -1133,6 +1150,89 @@ def mid_read(job: dict, start: dict, end: dict, rows: list[dict], t0: float, lo_
         ok, why = True, f"progress {share} in {lo}-{hi}, nothing of the job stored"
     return {"progress": share, "deposited": dep is not None, "ok": ok, "why": why,
             "carried": {w["item"]: count_of(end.get("carried") or {}, w["item"]) for w in _chest_wants(job)}}
+
+
+def self_owned(src: Any, self_guid: str | None) -> bool | None:
+    """Is this read's container HIS, this character's, by the game's owner read: True, False, or None when the read
+    carried no owner. Stricter than game_owner: a character of his line (ClaudeDev, the save he was forked from) or of
+    his account is not him (a fork finds ClaudeDev's crates "ClaudeDev's, not mine")."""
+    if not isinstance(src, dict) or not any(src.get(k) is not None for k in ("owner", "owner_guid", "mine")):
+        return None
+    if src.get("mine") is True or src.get("owner") == "yours":
+        return True
+    g = src.get("owner_guid")
+    return bool(g and self_guid and str(g).upper() == str(self_guid).upper())
+
+
+def own_chest_read(job: dict, start: dict, snap: dict) -> dict:
+    """Every container a read of the run carried the game's owner for, split: his ({id: {items: the asked kinds put in
+    after the line, owner}}) and others ({id: owner}). The items come from the newest read of it: the end read
+    (chest_end, when it read), else his body's last store/take/inspect result (chests), else the harness's first
+    read (chest_first); for a 'gained' want, less what the start read (chest_start) found in it."""
+    me = start.get("self_guid")
+    wants = _chest_wants(job)
+    srcs = [snap.get("chest_end") or {}, snap.get("chests") or {}, snap.get("chest_first") or {},
+            start.get("chest_start") or {}]
+    his: dict[str, dict] = {}
+    others: dict[str, str] = {}
+    for cid in sorted({c for src in srcs for c in src}):
+        owner_src = next((src[cid] for src in srcs if self_owned(src.get(cid), me) is not None), None)
+        if owner_src is None:
+            continue
+        who = owner_src.get("owner") or owner_src.get("owner_guid") or "unnamed"
+        if not self_owned(owner_src, me):
+            others[cid] = str(who)
+            continue
+        end_r = srcs[0].get(cid) or {}
+        items_src = end_r if end_r.get("read") else (srcs[1].get(cid) or srcs[2].get(cid) or {})
+        items = items_src.get("items") or {}
+        base = (start.get("chest_start") or {}).get(cid) or {}
+        got = {}
+        for w in wants:
+            n = _want_count(items, w)
+            if w.get("gained") and base.get("read"):
+                n -= _want_count(base.get("items") or {}, w)
+            if n > 0:
+                got[w["item"]] = n
+        his[cid] = {"items": got, "owner": str(who)}
+    return {"his": his, "others": others}
+
+
+def own_chest_check(job: dict, start: dict, snap: dict, rows: list[dict], ended: str | None = None) -> dict:
+    """The read of an own_chest probe: ok when a container of HIS (self_owned) holds an asked item put in after the
+    line and the job is not done (progress under 1, read from the game); why in either case. ended: how the run ended,
+    for a probe that ends without it ("he never made a chest of his own: ...")."""
+    r = own_chest_read(job, start, snap)
+    share = progress(job, start, snap, rows)
+    holding = {cid: v for cid, v in r["his"].items() if v["items"]}
+    out = {"progress": share, "his": r["his"], "others": r["others"], "ok": False}
+    if holding:
+        cid = max(holding, key=lambda c: sum(holding[c]["items"].values()))
+        out.update(container=cid, items=holding[cid]["items"], owner=holding[cid]["owner"])
+        if share is None:
+            out["why"] = f"his own {cid} holds {holding[cid]['items']}, but progress is unread"
+        elif share >= 1 or done(job, start, snap)[0] is True:
+            out["why"] = f"the job was done (progress {share}): not a point before the job's end"
+        else:
+            out.update(ok=True, why=f"his own {cid} (owner: {holding[cid]['owner']}) holds {holding[cid]['items']}; "
+                                    f"progress {share}")
+        return out
+    tail = [f"the run ended {ended}"] if ended else []
+    said = [str(x.get("text") or (x.get("args") or {}).get("text")) for x in rows
+            if x.get("kind") == "say" and (x.get("text") or (x.get("args") or {}).get("text"))]
+    if said:
+        tail.append(f'his last words: "{said[-1][:200]}"')
+    if r["his"]:
+        out["why"] = "; ".join([f"he made a chest of his own ({', '.join(sorted(r['his']))}) but nothing the job "
+                                "asks for went into it"] + tail)
+        return out
+    used = sorted(set(snap.get("chests") or {}) | set(r["others"]))
+    what = ("he used " + ", ".join(f"{c} (owner: {r['others'].get(c, 'not read')})" for c in used)
+            if used else "he used no container")
+    builds = sum(1 for x in rows if x.get("kind") == "tool_call" and x.get("tool") == "build")
+    what += f"; {builds} build call(s)" if builds else "; no build call"
+    out["why"] = "he never made a chest of his own: " + "; ".join([what] + tail)
+    return out
 
 
 def wait_nav(check, sleep, max_s: float = 150.0, step_s: float = 5.0) -> str | None:
@@ -1809,6 +1909,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
     raw0, start = _read_state(io)
     if opts.get("own_guids"):  # the characters of his line: whose a container is, by the game (game_owner)
         start["own_guids"] = sorted({str(g).upper() for g in opts["own_guids"] if g})
+    if opts.get("self_guid"):  # this character alone (--until own_chest: a container of HIS, self_owned)
+        start["self_guid"] = str(opts["self_guid"]).upper()
     if opts.get("ladder_made"):  # what he made in the ladder's earlier rungs (the checkpoint's ladder record)
         start["ladder_made"] = opts["ladder_made"]
     venture = "venture_gear" in (job.get("end") or {})
@@ -1855,7 +1957,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
             first_t = first_step(tl["calls"], job)
         if work_t is None:
             work_t = first_work(tl["calls"], job)
-        fast = bool(lo_hi) or (bool(step) and intr is None and by_progress) or venture
+        fast = bool(lo_hi) or until == OWN_CHEST or (bool(step) and intr is None and by_progress) or venture
         if now - last_sample >= (FAST_SAMPLE_S if fast else SAMPLE_S):
             last_sample = now
             read = snapshot(io.state())
@@ -1915,12 +2017,17 @@ def run_job(io, job: dict, opts: dict) -> dict:
             res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:], serves)
         quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
         share_now = progress(job, start, cur, rows) if lo_hi else None
+        # own_chest: his body's container results are read every poll (the owner and contents the game showed him)
+        own_now = own_chest_check(job, start, {**cur, "chests": chests_seen(rows)}, rows) \
+            if until == OWN_CHEST and cur is not None else {}
         if entered:
             why = f"entered {entered['region']}"  # the rung's end: his power level there is the fact recorded
         elif ok:
             why = "job done"
         elif until == "first_step" and first_t is not None:
             why = "first step"
+        elif own_now.get("ok"):
+            why = "own chest"  # the game shows a container of his own holding some of the job, the job not done
         elif lo_hi and share_now is not None and share_now >= lo_hi[0] and first_deposit(rows, job, t0) is None:
             why = "mid-job"  # a moment read from the game: that share got, nothing of the job stored yet
         elif intr is not None and intr.get("took") is False:
@@ -2000,6 +2107,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
         rec["probe"] = True  # never a trial: not_counted, failure_ledger.scan and rates leave it out
     if lo_hi:
         rec["mid"] = mid_read(job, start, end, rows, t0, lo_hi)
+    if until == OWN_CHEST:  # the end read decides the save (save_ok), with why when it is not one
+        rec["own_chest"] = own_chest_check(job, start, end, rows, why)
     if step:
         rec["resumed"] = bool(res.get("resumed"))
         never = f"never put in: {trigger} was not due when the run ended ({why})" + (
@@ -2337,6 +2446,7 @@ def cmd_window(a, step: str | None) -> int:
                                         "max_haiku": a.max_haiku, "character": name, "checkpoint": ref,
                                         "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S),
                                         "own_guids": [made.get("guid"), src_guid, dev_guid],
+                                        "self_guid": made.get("guid"),
                                         "ladder_made": ladder.get("made")})
                 if "error" in rec:  # no trial ran: the harness's (void), with its reason
                     out["trials"].append({"character": name, "error": rec["error"], "void": "harness"})
@@ -2375,7 +2485,7 @@ def cmd_window(a, step: str | None) -> int:
                         if good:
                             out["saved_as"] = str(pairs.checkpoint_dir / f"{a.save_as}.json")
                             out["saved_pair"] = kept
-                            out["saved_at"] = rec.get("mid") or {"ended": rec["ended"]}
+                            out["saved_at"] = rec.get("mid") or rec.get("own_chest") or {"ended": rec["ended"]}
                             if rung:  # what he made so far goes with the save, for the next rung
                                 out["ladder"] = str(write_ladder(rec, a.save_as, ladder))
                         else:  # the next trial tries again
@@ -2464,13 +2574,16 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--job", required=True)
         p.add_argument("-k", type=int, default=3)
         p.add_argument("--from", dest="checkpoint", help="a checkpoint label or a save name to fork (default: the job's)")
-        p.add_argument("--until", default=None, metavar="done|first_step|resumed|mid[:LO-HI]",
+        p.add_argument("--until", default=None, metavar="done|first_step|resumed|own_chest|mid[:LO-HI]",
                        help="end at the job's end (trial default), when he took the job up again (interrupt default), "
                             "or a probe for --save-as: mid (a mid-job checkpoint: once LO of the asked units are got, "
                             f"read from the game, and nothing of the job is stored yet; default {MID_DEFAULT[0]}-"
-                            f"{MID_DEFAULT[1]}, kept only when the end read is inside) or first_step")
+                            f"{MID_DEFAULT[1]}, kept only when the end read is inside), own_chest (once a container "
+                            "whose owner is HIM, by the game, holds an asked item and the job is not done) or "
+                            "first_step")
         p.add_argument("--save-as", metavar="LABEL", help="keep the next save of the first trial that ends as --until "
-                       "asks (mid: inside the window by the end read; first_step; else done)")
+                       "asks (mid: inside the window by the end read; own_chest: his own chest by the end read; "
+                       "first_step; else done)")
         p.add_argument("--holder", choices=("default", "board"), default="default",
                        help="which holder carries the ask: the default path, or the board with the Director (DW_DIRECTOR=1)")
         p.add_argument("--deadline", type=float, default=1800.0, help="per trial")
@@ -2496,7 +2609,7 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
     if a.cmd in ("trial", "interrupt") and a.until and not until_ok(a.until):
-        print(f"unknown --until {a.until!r} (done, first_step, resumed, mid, mid:LO-HI)")
+        print(f"unknown --until {a.until!r} (done, first_step, resumed, own_chest, mid, mid:LO-HI)")
         return 2
     if a.cmd in ("trial", "interrupt") and a.trigger and not trigger_ok(a.trigger):
         print(f"unknown --trigger {a.trigger!r} (first_step, first_deposit, progress:F, share:F, at:SECONDS, a|b)")
