@@ -19,7 +19,9 @@ take the job up again without a new line from the player, and how many seconds a
 call, per job and per 5 minutes of work, split by the interruption; and a held-out guard on reading traces.
 
 Records: logs/evals/job_runs.jsonl (one per trial; failure_ledger finds them once the wiring diff in
-docs/research/2026-11-17-long-job-harness.md is in), logs/evals/job_windows.jsonl (one per lock window).
+docs/research/2026-11-17-long-job-harness.md is in), logs/evals/job_windows.jsonl (one per lock window),
+logs/evals/trace_reads.jsonl (one per trace `show` opened). A scored record carries trial_n and, for the first three
+of its item, first_three_blind (no trace of its job opened by `show` before it; tools/breadth.py reports it).
 """
 from __future__ import annotations
 
@@ -39,6 +41,8 @@ ROOT = paths.REPO_ROOT
 JOBS = ROOT / "data" / "jobs.json"
 OUT = ROOT / "logs" / "evals" / "job_runs.jsonl"
 WINDOW_OUT = ROOT / "logs" / "evals" / "job_windows.jsonl"
+# every trace `show` opened (run, job, when): a trial is scored blind when no trace of its job was opened before it
+TRACE_READS = ROOT / "logs" / "evals" / "trace_reads.jsonl"
 # a window is stopped by creating this file, never by killing it: the trial ends "stopped" and the window still
 # switches back to ClaudeDev (2026-11-17 18:04Z: a killed L2 window left the client on its fork, and the next
 # window's fixtures took him for another player)
@@ -926,8 +930,45 @@ def trace_allowed(rec: dict, recs: list[dict], void: set[str], read_trace: bool)
     return True, ""
 
 
+def trace_reads(path: Path | None = None) -> list[dict]:
+    p = path or TRACE_READS
+    if not p.exists():
+        return []
+    return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def note_trace_read(rec: dict, path: Path | None = None, now: float | None = None) -> None:
+    """`show` printed this run's trace: kept, so later trials of the job know it was read before them."""
+    p = path or TRACE_READS
+    p.parent.mkdir(parents=True, exist_ok=True)
+    t = time.time() if now is None else now
+    with p.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": time.strftime("%Y%m%d-%H%M%S", time.gmtime(t)), "run": rec.get("run"),
+                            "job": rec.get("job"), "item": item_key(rec)}) + "\n")
+
+
+def blind_mark(rec: dict, recs: list[dict], void: set[str], reads: list[dict]) -> dict:
+    """What a new record carries about the held-out rule (the first three trials of anything new are scored before
+    its trace is read): trial_n, its place among the scored trials of its item, and for the first TRACE_AFTER,
+    first_three_blind: True when no trace of a run of the same job was opened with `show` before this run began.
+    Only `show` is seen: a trace read another way (the brain log, replay_episode) is not. A probe or a run that does
+    not count gets neither (it is not a scored trial)."""
+    if rec.get("until") == "first_step" or not_counted(rec):
+        return {}
+    n = sum(1 for r, _ in scored(recs, void) if item_key(r) == item_key(rec) and r["run"] < rec["run"])
+    out: dict = {"trial_n": n + 1}
+    if n < TRACE_AFTER:
+        start = str(rec["run"])[:15]
+        read = [x for x in reads if x.get("job") == rec.get("job") and str(x.get("at", "")) < start]
+        out["first_three_blind"] = not read
+        if read:
+            out["trace_read_before"] = sorted({str(x.get("run")) for x in read})[:5]
+    return out
+
+
 SCORE_KEYS = ("run", "job", "step", "kind", "held_out", "character", "checkpoint", "holder", "ended", "wall_s",
-              "done", "done_why", "not_counted", "ratio", "bar_s", "longest_stand_s", "haiku", "sonnet", "usd")
+              "done", "done_why", "not_counted", "ratio", "bar_s", "longest_stand_s", "haiku", "sonnet", "usd",
+              "trial_n", "first_three_blind")
 
 
 def scores_of(rec: dict) -> dict:
@@ -1456,6 +1497,8 @@ def cmd_window(a, step: str | None) -> int:
                 if "error" in rec:
                     out["trials"].append({"character": name, "error": rec["error"]})
                     continue
+                from tools import failure_ledger
+                rec.update(blind_mark(rec, all_runs(), failure_ledger.voided(), trace_reads()))
                 write(rec)
                 t_end = time.time()
                 v = rec["verdict"]
@@ -1513,6 +1556,7 @@ def cmd_show(a) -> int:
         print(why)
     if not ok:
         return 0
+    note_trace_read(rec)
     for c in rec.get("tool_calls") or []:
         print(f"  {c['t']:6.1f}s {c['tool']:<12} {c.get('dur_s')!s:>6}s ok={c.get('ok')} {c.get('reason') or ''} "
               f"{json.dumps(c.get('args'))[:80]} | {c.get('detail', '')}")

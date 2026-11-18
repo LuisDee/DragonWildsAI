@@ -31,9 +31,9 @@ STANDSTILL = "2026-11-17T19:56:52Z"   # 8adf80f press from a near standstill (fi
 P0_SINCE = J.COMMIT_61412A5           # the planner as it is since 61412a5
 
 
-def brain_spans(since_ts: float) -> list[tuple[float, float, str]]:
+def brain_spans(since_ts: float, brain_glob: str | None = None) -> list[tuple[float, float, str]]:
     out = []
-    for f in sorted(glob.glob(J.BRAIN_GLOB)):
+    for f in sorted(glob.glob(brain_glob or J.BRAIN_GLOB)):
         if os.path.getmtime(f) < since_ts:
             continue
         lo = hi = None
@@ -52,10 +52,10 @@ def brain_spans(since_ts: float) -> list[tuple[float, float, str]]:
     return out
 
 
-def course_spans() -> list[tuple[float, float, str]]:
+def course_spans(ladder=None) -> list[tuple[float, float, str]]:
     span: dict[str, list[float]] = {}
     try:
-        fh = open(LADDER, encoding="utf-8", errors="replace")
+        fh = open(ladder or LADDER, encoding="utf-8", errors="replace")
     except OSError:
         return []
     with fh:
@@ -100,6 +100,38 @@ def tally(paths: list[J.Path_], verdicts: list[dict]) -> dict:
             "strike_at": [J.iso(p.ts) for p in strike], "fall_at": [J.iso(p.ts) for p in fall]}
 
 
+def play(since: str, until: str = "9", outside: bool = False, client_log=None, brain_glob: str | None = None,
+         ladder=None, traversal=None) -> dict:
+    """The client log's paths in brain play (or outside it) from `since` to `until` (ISO Z), none inside a jump
+    course window: {"all": every parsed path, "kept": the counted ones, "verdicts": their verdict lines, and how
+    many were left out}. The files default to jump_stats' and this module's (tools/breadth.py passes its own root's)."""
+    since_ts = J.epoch(since)
+    brains, courses = brain_spans(since_ts, brain_glob), course_spans(ladder)
+    try:
+        with open(client_log or J.CLIENT_LOG, encoding="utf-8", errors="replace") as fh:
+            lines = [ln for ln in fh if since <= ln[:20] <= until]
+    except OSError:
+        lines = []
+    paths = J.parse_lines(lines, since, until)
+    J.attach_self_edges(paths, J.load_self_edges(traversal) if traversal else J.load_self_edges())
+    verdicts = J.verdict_rows(lines, since, until)
+    kept, dropped_course, dropped_nobrain = [], 0, 0
+    for p in paths:
+        if inside(p.ts, courses):
+            dropped_course += 1
+            continue
+        s = inside(p.ts, brains)
+        if bool(s) == outside:
+            dropped_nobrain += 1
+            continue
+        p._session = s or "outside"
+        kept.append(p)
+    vk = [v for v in verdicts if not inside(J.epoch(v["iso"]), courses)
+          and bool(inside(J.epoch(v["iso"]), brains)) != outside]
+    return {"all": paths, "kept": kept, "verdicts": vk, "dropped_course": dropped_course,
+            "dropped_nobrain": dropped_nobrain}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--since", default=P0_SINCE)
@@ -108,26 +140,9 @@ def main() -> None:
                     help="count the paths outside every brain session and course window instead (harness walks: a trial's "
                          "walk to its start place, fixtures); model-free but not tuned")
     a = ap.parse_args()
-    since_ts = J.epoch(a.since)
-    brains, courses = brain_spans(since_ts), course_spans()
-    with open(J.CLIENT_LOG, encoding="utf-8", errors="replace") as fh:
-        lines = [ln for ln in fh if ln[:20] >= a.since and ln[:20] <= a.until]
-    paths = J.parse_lines(lines, a.since, a.until)
-    J.attach_self_edges(paths, J.load_self_edges())
-    verdicts = J.verdict_rows(lines, a.since, a.until)
-    kept, dropped_course, dropped_nobrain = [], 0, 0
-    for p in paths:
-        if inside(p.ts, courses):
-            dropped_course += 1
-            continue
-        s = inside(p.ts, brains)
-        if bool(s) == a.outside:
-            dropped_nobrain += 1
-            continue
-        p._session = s or "outside"
-        kept.append(p)
-    vk = [v for v in verdicts if not inside(J.epoch(v["iso"]), courses)
-          and bool(inside(J.epoch(v["iso"]), brains)) != a.outside]
+    p_ = play(a.since, a.until, a.outside)
+    paths, kept, vk = p_["all"], p_["kept"], p_["verdicts"]
+    dropped_course, dropped_nobrain = p_["dropped_course"], p_["dropped_nobrain"]
     periods = [(f"before the run-up ({a.since} to {RUNUP})", a.since, RUNUP),
                (f"run-up, before the whole judge ({RUNUP} to {JUDGE_ALL})", RUNUP, JUDGE_ALL),
                (f"whole judge, before the standstill press ({JUDGE_ALL} to {STANDSTILL})", JUDGE_ALL, STANDSTILL),

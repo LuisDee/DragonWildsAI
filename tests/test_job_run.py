@@ -327,6 +327,36 @@ def test_show_prints_scores_but_not_a_held_out_trace(tmp_path, monkeypatch, caps
     assert '"resumed": true' in text and "trace stays closed" in text and "gather" not in text
 
 
+def test_blind_mark_first_three_and_a_trace_read_before(tmp_path):
+    t = [irec(run=f"20261117-16000{i}-L2-I3") for i in range(4)]
+    assert j.blind_mark(t[0], [], set(), []) == {"trial_n": 1, "first_three_blind": True}
+    assert j.blind_mark(t[2], t[:2], set(), []) == {"trial_n": 3, "first_three_blind": True}
+    assert j.blind_mark(t[3], t[:3], set(), []) == {"trial_n": 4}                       # past the first three: no flag
+    assert j.blind_mark(t[3], t[:3], {t[1]["run"]}, [])["trial_n"] == 3                  # a void run is not a trial
+    reads = tmp_path / "reads.jsonl"
+    j.note_trace_read(t[0], reads, now=1795428000.0)                                     # 2026-11-23: after t[1]
+    early = [dict(r, at="20261117-155959") for r in j.trace_reads(reads)]
+    assert j.trace_reads(reads)[0]["job"] == "L2" and j.trace_reads(reads)[0]["item"] == "L2 / I3"
+    assert j.blind_mark(t[1], t[:1], set(), j.trace_reads(reads))["first_three_blind"] is True   # read after it
+    m = j.blind_mark(t[1], t[:1], set(), early)
+    assert m["first_three_blind"] is False and m["trace_read_before"] == [t[0]["run"]]
+    assert j.blind_mark(dict(t[1], until="first_step"), [], set(), []) == {}           # a probe is not a trial
+    assert j.blind_mark(dict(t[1], not_counted="head start"), [], set(), []) == {}
+
+
+def test_show_notes_an_opened_trace_and_scores_carry_the_flag(tmp_path, monkeypatch, capsys):
+    from tools import failure_ledger as fl
+    recs = [dict(irec(run=f"20261117-16000{i}-L2-I3"), trial_n=i + 1, first_three_blind=True) for i in range(3)]
+    out = tmp_path / "job_runs.jsonl"
+    out.write_text("".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8")
+    monkeypatch.setattr(j, "OUT", out)
+    monkeypatch.setattr(j, "TRACE_READS", tmp_path / "reads.jsonl")
+    monkeypatch.setattr(fl, "LEDGER", tmp_path / "ledger.jsonl")
+    assert j.main(["show", recs[0]["run"]]) == 0
+    assert '"first_three_blind": true' in capsys.readouterr().out
+    assert [r["run"] for r in j.trace_reads()] == [recs[0]["run"]]                     # three scored: it opened
+
+
 # ------------------------------------------------------------------ the interruptions, on a fake body
 class FakeIO:
     """The body, brain and fixtures as run_job sees them: a clock, scripted brain-log rows, scripted states."""
