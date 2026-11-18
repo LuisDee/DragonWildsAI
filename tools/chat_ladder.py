@@ -619,14 +619,26 @@ def _find_true(d, key: str) -> bool:
     return False
 
 
-def ensure_sender() -> tuple[bool, str]:
-    """The dev test sender: speech_direct proven this server run, and "Tester" registered (tools/m1_session)."""
+def ensure_sender(tries: int = 3, wait_s: float = 10.0, sleep=time.sleep) -> tuple[bool, str]:
+    """The dev test sender: speech_direct proven this server run, and "Tester" registered (tools/m1_session).
+    The prove is read-only and is tried up to `tries` times, wait_s apart. Its send refuses unproven, so without it
+    no player line reaches the brain: this is not optional. Window 1118d I1 (logs/mod/mod_20261118T014703Z.jsonl):
+    that server process's Lua found no method GetCharacterDisplayName on the DisplayNameComponent (and SetMobility
+    on a spawned component 25 s before): once in 25 server runs since 1 Nov; the next server run proved at once."""
     from tools import m1_session
-    st = _server_client().request("debug_run", {"module": "speech_direct", "args": {"action": "status"}}, timeout=30)
-    if not _find_true(st, "proven"):
+    pr = None
+    for i in range(max(1, tries)):
+        if i:
+            sleep(wait_s)
+        st = _server_client().request("debug_run", {"module": "speech_direct", "args": {"action": "status"}}, timeout=30)
+        if _find_true(st, "proven"):
+            break
         pr = _server_client().request("debug_run", {"module": "speech_direct", "args": {"action": "prove"}}, timeout=60)
-        if not (_find_true(pr, "pass") or _find_true(pr, "proven")):
-            return False, f"speech_direct prove failed: {obs.short(pr, 200)}"
+        if _find_true(pr, "pass") or _find_true(pr, "proven"):
+            break
+    else:
+        return False, (f"speech_direct prove failed after {max(1, tries)} tries (the server's Lua could not prove the "
+                       f"sender; restart the dev server): {obs.short(pr, 500)}")
     ok, detail = m1_session.register_sender()
     return ok, f"proven, register {'ok' if ok else 'FAILED'}: {detail[-120:]}"
 

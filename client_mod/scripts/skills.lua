@@ -2796,6 +2796,16 @@ local function took_left_words(label, taken, left, carry)
 end
 M._took_left_words = took_left_words
 
+-- The container row's owner fields (sense.owner_row: owner, owner_guid, mine, private) copied into a result's data,
+-- never over a field the result set itself. A row without them adds nothing.
+function W.owner_fields(t, data)
+    if type(t) ~= "table" or type(data) ~= "table" then return data end
+    for _, k in ipairs({ "owner", "owner_guid", "mine", "private" }) do
+        if t[k] ~= nil and data[k] == nil then data[k] = t[k] end
+    end
+    return data
+end
+
 local function start_transfer(api, args, ctx, deposit)
     local kind = deposit and "store" or "take"
     local invm = api.module("inventory")
@@ -2861,6 +2871,8 @@ local function start_transfer(api, args, ctx, deposit)
     local function finish(res)
         close()
         if IN then IN.release("container") end
+        -- whose it is, as look read it from the game (sense.owner_row): what he used or put in is told back with it
+        if type(res) == "table" and type(res.data) == "table" then W.owner_fields(t, res.data) end
         return res
     end
     job.cleanup = function() close(); if IN then IN.release("container") end end

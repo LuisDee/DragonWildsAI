@@ -146,9 +146,19 @@ local function prove(log)
     local s = st()
     local _, hps = host()
     if not hps then return { ok = false, error = "needs a connected player" } end
-    local gs = U.find_first("DominionGameStateBase")
-    local dn = gs and U.try(function() return gs.DisplayNameComponent end)
-    if not U.valid(dn) then return { ok = false, error = "no DisplayNameComponent" } end
+    -- the same resolution body/speech.lua's sends use (R17-guarded, checked to be a real DisplayNameComponent): a
+    -- server process where it is unusable says so plainly instead of three "nil method" errors (window 1118d I1)
+    local sp = fresh_speech()
+    local dn, why
+    if type(sp.display_name_component) == "function" then
+        dn, why = sp.display_name_component()
+    else -- an older body/speech.lua on the server
+        local gs = U.find_first("DominionGameStateBase")
+        dn = gs and U.try(function() return gs.DisplayNameComponent end)
+        why = "no DisplayNameComponent"
+        if not U.valid(dn) then dn = nil end
+    end
+    if not dn then return { ok = false, pass = false, error = why } end
     rawset(_G, "__dw_speech_direct_prove", M._prove_patch)
     local armed, aerr = hook_once(log, "prove_armed", M.DN_FN, "__dw_speech_direct_prove", true)
     if not armed then return { ok = false, error = "hook: " .. tostring(aerr) } end

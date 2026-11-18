@@ -2,9 +2,19 @@
 STATE confirms, whole (L1 to L3, held-out H1 to H3) or with one interruption put in by the harness (I1 to I5).
 
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 -k 3
-    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 -k 1 --until first_step --save-as job_l2_mid
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job N1 -k 3 --until mid --save-as job_n1_midjob
     .venv\\Scripts\\python.exe -m tools.job_run interrupt --confirm --step I3 --job L2 -k 5
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job N1 --interrupt I1 -k 5   # the same, near home
+
+A mid-job checkpoint (the window recipe, each window from the named world, in the foreground):
+    stop_server.ps1 -Hold; world_snapshot restore base --confirm; start_server.ps1 (nav_reset.ps1 restarts the helper)
+    job_run trial --job N1 --until mid --save-as job_n1_midjob -k 3
+        ends a trial once 0.2 of the asked units are got (read from the game every 3 s) with nothing of the job stored,
+        and keeps the save only when the END read is inside 0.2-0.6 and nothing was stored (the trial row says
+        `not_saved: why` otherwise; the next trial tries again). `--until first_step` is kept for jobs with no counts:
+        its save can hold the whole job (window 1118d: job_n1_mid had all 20 ash and 10 stone carried).
+    then per step, a new restore and: job_run trial --job N1 --interrupt I<n> -k 5   (from data/jobs.json interrupt_from)
+A probe (--until first_step or mid) is recorded with probe: true and is never a trial (not_counted, failure_ledger).
     .venv\\Scripts\\python.exe -m tools.job_run rates            # pass rate and streak per job and per step; held-out apart
     .venv\\Scripts\\python.exe -m tools.job_run show RUN         # one run's scores (a held-out run's trace stays hidden)
 
@@ -49,6 +59,11 @@ TRACE_READS = ROOT / "logs" / "evals" / "trace_reads.jsonl"
 STOP_FILE = ROOT / "logs" / "job_run.stop"
 STEPS = ("I1", "I2", "I3", "I4", "I5")
 SAMPLE_S = 15.0       # a get_state read for the end predicate and the body's state, this often
+# ... and this often while a moment read from his progress is awaited (--until mid, a progress trigger): a 15 s
+# sample let one 19-log gather take N1 from 0.03 to 0.63 between two reads (window 1118d, run 014312)
+FAST_SAMPLE_S = 3.0
+MID_DEFAULT = (0.2, 0.6)  # --until mid: end a probe once this share of the job is got and nothing of it is stored
+UNTILS = ("done", "first_step", "resumed")
 CONFIRM_S = 60.0      # an interruption trial goes on this long after he took the job up again (it was not a blip)
 TRACE_AFTER = 3       # the first three trials of anything are scored before its trace is read (goal: held-out)
 RESPAWN_M = 20.0
@@ -203,6 +218,11 @@ def _item_id(name: str | None) -> str | None:
         return None
 
 
+# a container's owner as the body read it from the game (client_mod/scripts/sense.lua owner_row: the actor's
+# UOwnershipComponent.OwningCharacterGuid, "yours" / a character name / "nobody"); mine last (chests_seen sets it)
+OWNER_KEYS = ("owner", "owner_guid", "private", "mine")
+
+
 def chests_seen(rows: list[dict]) -> dict[str, dict]:
     """What each container held when his body last had it open: {container id: {items: {item id: n}, t, tool, mine}}
     from the store / take / inspect results in the brain log. The counts are the body's read of the game's own
@@ -212,7 +232,10 @@ def chests_seen(rows: list[dict]) -> dict[str, dict]:
         got = _container_result(r)
         if got:
             cid, items, d = got
-            out[cid] = {"items": items, "t": r.get("ts"), "tool": r.get("tool"), "mine": bool(d.get("mine"))}
+            # mine/owner: the body's read of the game's owner (sense.owner_row); None when the result does not say
+            # (run 015315-N1-I2 recorded "mine": false for a store result that carried no owner at all)
+            out[cid] = {"items": items, "t": r.get("ts"), "tool": r.get("tool"), "mine": d.get("mine"),
+                        **{k: d[k] for k in OWNER_KEYS[:-1] if d.get(k) is not None}}
     return out
 
 
@@ -387,7 +410,8 @@ def read_container(reply: Any) -> dict:
     when the body could not find it or found no inventory on it: never an empty chest."""
     r = reply if isinstance(reply, dict) else {}
     d = r.get("data") if isinstance(r.get("data"), dict) else {}
-    out = {"kind": d.get("kind"), "class": d.get("class")}
+    out = {"kind": d.get("kind"), "class": d.get("class"),
+           **{k: d[k] for k in OWNER_KEYS if d.get(k) is not None}}  # the game's owner, when the body read it
     if r.get("ok") is not True or not isinstance(d.get("contents"), list):
         why = r.get("reason") or d.get("detail") or ("no inventory read on it" if r.get("ok") else "no reply")
         if r.get("reason") and d.get("detail"):  # the client's own words on it: "it's 89 m away, beyond 80 m" (000146)
@@ -405,12 +429,34 @@ def read_container(reply: Any) -> dict:
     return {**out, "read": True, "items": items}
 
 
+def game_owner(cid: str, start: dict, end: dict) -> tuple[bool | None, str]:
+    """Is this container his by the GAME's owner read (the actor's UOwnershipComponent, as the body reported it in an
+    inspect, look or store result): True, False, or None when no read of it carried an owner. His = owned by this
+    character (mine) or by a character of the same line (start["own_guids"]: the fork, the save it was forked from
+    and ClaudeDev; a fork is a new character guid, and the world 'base' crates belong to ClaudeDev: run 015315-N1-I2,
+    BP_BaseBuilding_Crate_C_2147472971, OwningCharacterGuid E71C5DC1... in the world save). The client ledger
+    (get_state structures "mine") is only the fallback when the game's owner was not read."""
+    guids = {str(g).upper() for g in start.get("own_guids") or []}
+    for src in ((end.get("chest_end") or {}).get(cid), (end.get("chest_first") or {}).get(cid),
+                (end.get("chests") or {}).get(cid), (start.get("chest_start") or {}).get(cid)):
+        if not isinstance(src, dict) or not any(src.get(k) is not None for k in OWNER_KEYS[:2]):
+            continue
+        who = src.get("owner")
+        if src.get("mine") is True or who == "yours":
+            return True, "owner: yours"
+        if src.get("owner_guid") and str(src["owner_guid"]).upper() in guids:
+            return True, f"owner: {who or src['owner_guid']} (a character of his line)"
+        return False, f"owner: {who or src.get('owner_guid')}"
+    return None, "owner not read"
+
+
 def chest_candidates(start: dict, end: dict) -> list[str]:
     """His containers worth an end read: every id a read in the run marked his (start, samples, end) and every one his
-    body's own container result marked his, less those known not to be storage."""
+    body's own container result marked his (by the game's owner read: game_owner), less those known not to be
+    storage."""
     kinds = {**(start.get("container_kinds") or {}), **(end.get("container_kinds") or {})}
     own = set(start.get("own_containers") or []) | set(end.get("own_containers") or [])
-    own |= {cid for cid, c in (end.get("chests") or {}).items() if c.get("mine")}
+    own |= {cid for cid in (end.get("chests") or {}) if game_owner(cid, start, end)[0]}
     return sorted(cid for cid in own if is_storage(cid, kinds) is not False)
 
 
@@ -505,6 +551,11 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
         r = reads.get(cid) or {}
         return r if (r.get("read") or r.get("no_inventory") or cid not in first) else first[cid]
 
+    # one truth on whose it is: the game's owner read wins over the client ledger (game_owner)
+    theirs = {cid: why for cid in sorted(own) for his, why in [game_owner(cid, start, end)] if his is False}
+    own -= set(theirs)
+    if not own:
+        return False, "the game says none of these is his: " + "; ".join(f"{c} ({w})" for c, w in theirs.items())
     storage = {cid: is_storage(cid, kinds, kind_read(cid)) for cid in sorted(own)}
     if not any(v is not False for v in storage.values()):
         return False, f"none of his containers is storage ({', '.join(sorted(own)[:4])})"
@@ -513,6 +564,7 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
               + (f"; seen {reads[cid]['seen_m']} m from where he ended" if (reads.get(cid) or {}).get("seen_m") else "")
               for cid, s in storage.items() if s is not False and cid not in good}
     short, doubt = [], []
+    used: set[str] = set()
     for want in spec:
         label = want.get("label") or want.get("item")
         n = int(want["count"])
@@ -537,6 +589,7 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
                    default=(None, 0))
         word = " put in during the run" if gained else ""
         if best[1] >= n and best[0] not in no_start:
+            used.add(best[0])
             continue
         if no_start:
             doubt.append(f"{label}: {best[1]} in {best[0]}, but what it held at the start was not read")
@@ -566,11 +619,13 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
                          f"last open of it ({opened[was[0]].get('tool')}) {was[1]}, and he took nothing out since")
             continue
         short.append(f"{label}: {best[1]} of {n}{word} (best: {best[0]})")
+    if theirs:  # what he put in a container that is not his is named, never counted
+        short += [f"not his: {c} ({w})" for c, w in theirs.items() if short or doubt]
     if short:
         return False, "; ".join(short + doubt)
     if doubt:
         return None, "unread: " + "; ".join(doubt)
-    return True, "in his chest (end read)"
+    return True, "in his chest (end read: " + "; ".join(f"{c}, {game_owner(c, start, end)[1]}" for c in sorted(used)) + ")"
 
 
 def p_carried_gain(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
@@ -690,6 +745,85 @@ def done(job: dict, state_start: dict, state_end: dict) -> tuple[bool | None, st
     return (ok and bool(whys)), "; ".join(whys)
 
 
+def is_probe(rec: dict) -> bool:
+    """A run that ends before the job's end on purpose (--until first_step or mid: a checkpoint probe): never a trial."""
+    return bool(rec.get("probe")) or rec.get("until") == "first_step" or str(rec.get("until") or "").startswith("mid")
+
+
+def until_ok(spec: str | None) -> bool:
+    """done, first_step, resumed, mid, or mid:LO-HI (0 <= LO < HI <= 1)."""
+    if spec in UNTILS:
+        return True
+    try:
+        return mid_range(spec) is not None
+    except ValueError:
+        return False
+
+
+def mid_range(spec: str | None) -> tuple[float, float] | None:
+    """(lo, hi) of a 'mid' until: the share of the job's asked units got at which a probe ends; None for any other.
+    A ValueError for a 'mid' spec that does not parse."""
+    s = str(spec or "")
+    if s == "mid":
+        return MID_DEFAULT
+    if not s.startswith("mid:"):
+        return None
+    lo, sep, hi = s[4:].partition("-")
+    lo_f, hi_f = float(lo), float(hi) if sep else float("nan")
+    if not (0.0 <= lo_f < hi_f <= 1.0):
+        raise ValueError(f"mid range {s[4:]!r}: want LO-HI with 0 <= LO < HI <= 1")
+    return lo_f, hi_f
+
+
+def save_ok(rec: dict, until: str | None) -> tuple[bool, str]:
+    """May this trial's next save be kept as the --save-as checkpoint, and why. mid: only when the END read (after
+    the brain and his last job were stopped, just before the save) has the share inside the window and nothing of
+    the job stored in the run (window 1118d: job_n1_mid was kept with the whole job carried)."""
+    lo_hi = mid_range(until) if str(until or "").startswith("mid") else None
+    if lo_hi:
+        m = rec.get("mid") or {}
+        return bool(m.get("ok")), m.get("why") or "no mid read"
+    if until == "first_step":
+        return rec.get("ended") == "first step", f"ended {rec.get('ended')}"
+    return bool(rec.get("job_done")), "job done" if rec.get("job_done") else f"job not done ({rec.get('ended')})"
+
+
+def mid_read(job: dict, start: dict, end: dict, rows: list[dict], t0: float, lo_hi: tuple[float, float]) -> dict:
+    """The end read of a mid probe: progress (the game's: carried more than at the start plus stored), whether any
+    asked item was stored in the run (first_deposit), and whether that is a checkpoint (ok) with why."""
+    share = progress(job, start, end, rows)
+    dep = first_deposit(rows, job, t0)
+    lo, hi = lo_hi
+    if share is None:
+        ok, why = False, "progress unread at the end"
+    elif dep is not None:
+        ok, why = False, f"he stored some of the job at {dep} s: not a point before the first deposit"
+    elif not lo <= share <= hi:
+        ok, why = False, f"progress {share} at the end read, outside {lo}-{hi}"
+    else:
+        ok, why = True, f"progress {share} in {lo}-{hi}, nothing of the job stored"
+    return {"progress": share, "deposited": dep is not None, "ok": ok, "why": why,
+            "carried": {w["item"]: count_of(end.get("carried") or {}, w["item"]) for w in _chest_wants(job)}}
+
+
+def wait_nav(check, sleep, max_s: float = 150.0, step_s: float = 5.0) -> str | None:
+    """Wait for the nav helper to offer routes (check: chat_ladder.nav_not_ready); None once it does, else the last
+    reason. Window 1118d I4: the helper is stopped at every server start (tools/nav_reset.ps1) and the watchdog may
+    restart it only 3 times in 30 min, so the fourth window's preflight met a 90 s old heartbeat and skipped."""
+    waited = 0.0
+    why = check()
+    while why and waited < max_s:
+        sleep(step_s)
+        waited += step_s
+        why = check()
+    return why
+
+
+def sender_fault(error: str | None) -> bool:
+    """A trial error that every later trial on this server run would meet too (the test sender is unproven)."""
+    return "sender:" in str(error or "")
+
+
 def not_counted(rec_or_job: dict, state_start: dict | None = None) -> str | None:
     """Why a trial does not count, or None. With a run record alone: what it says (failure_ledger.scan's argument),
     or that its end state was unread. With a job and its start state: the items it must not start with that he holds
@@ -697,6 +831,8 @@ def not_counted(rec_or_job: dict, state_start: dict | None = None) -> str | None
     if state_start is None:
         if rec_or_job.get("not_counted"):
             return rec_or_job["not_counted"]
+        if is_probe(rec_or_job):  # failure_ledger.scan took probe 20261118-014312-N1 for a failed trial
+            return f"a checkpoint probe (--until {rec_or_job.get('until')}), not a trial"
         return f"end state unread: {rec_or_job['unread']}" if rec_or_job.get("unread") else None
     held = {k: n for k, n in (state_start.get("carried") or {}).items() if n
             and any(matches(k, p) for p in rec_or_job.get("not_carried_at_start") or [])}
@@ -897,7 +1033,7 @@ def all_runs(path: Path | None = None) -> list[dict]:
 def scored(recs: list[dict], void: set[str]) -> list[tuple[dict, bool]]:
     """(run, passed) of the trials that say something: to the end (not a first_step probe), counted, not void."""
     return [(r, verdict(r)["pass"]) for r in recs
-            if r.get("until") != "first_step" and r["run"] not in void and not not_counted(r)]
+            if not is_probe(r) and r["run"] not in void and not not_counted(r)]
 
 
 def rates(recs: list[dict], void: set[str], n: int = 10) -> dict[str, dict]:
@@ -1146,10 +1282,14 @@ def run_job(io, job: dict, opts: dict) -> dict:
     spec = (opts.get("interruptions") or {}).get(step) or {}
     until = opts.get("until") or ("resumed" if step else "done")
     bar = bar_s(job) if job.get("bar") else None
-    if not io.start_brain():
-        return {"error": "brain did not start"}
+    lo_hi = mid_range(until)
+    if not io.start_brain():  # the reason (window 1118d I1: the sender's prove, not the brain, failed)
+        why_not = getattr(io, "start_why", None)
+        return {"error": "brain did not start" + (f": {why_not}" if why_not else "")}
     left_before = io.leave_dialogue()
     raw0, start = _read_state(io)
+    if opts.get("own_guids"):  # the characters of his line: whose a container is, by the game (game_owner)
+        start["own_guids"] = sorted({str(g).upper() for g in opts["own_guids"] if g})
     chest_job = "in_own_chest" in (job.get("end") or {})
     seen = _Seen()
     if not start.get("unread"):
@@ -1167,6 +1307,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
     if chest_job and not start.get("unread"):
         seen.read_new(io, start, 0.0)  # the start read of his containers (those chest_start did not read)
     trigger = opts.get("trigger") or job.get("interrupt_trigger") or "first_step"
+    by_progress = "progress" in str(trigger)
     t0 = io.now()
     sent = [{"t": 0.0, "line": job["line"], "sent": io.send(job["line"])}]
     intr = None
@@ -1185,7 +1326,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
         calls = cl.model_calls(rows)
         if first_t is None:
             first_t = first_step(tl["calls"], job)
-        if now - last_sample >= SAMPLE_S:
+        fast = bool(lo_hi) or (bool(step) and intr is None and by_progress)
+        if now - last_sample >= (FAST_SAMPLE_S if fast else SAMPLE_S):
             last_sample = now
             read = snapshot(io.state())
             if not read.get("unread"):  # a failed read is skipped, never judged
@@ -1217,10 +1359,13 @@ def run_job(io, job: dict, opts: dict) -> dict:
         if intr is not None and intr.get("t_clear") is not None:
             res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:])
         quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
+        share_now = progress(job, start, cur, rows) if lo_hi else None
         if ok:
             why = "job done"
         elif until == "first_step" and first_t is not None:
             why = "first step"
+        elif lo_hi and share_now is not None and share_now >= lo_hi[0] and first_deposit(rows, job, t0) is None:
+            why = "mid-job"  # a moment read from the game: that share got, nothing of the job stored yet
         elif intr is not None and intr.get("took") is False:
             why = "interruption did not take"
         elif until == "resumed" and res.get("resumed") and rel >= res["t"] + float(opts.get("confirm_s", CONFIRM_S)):
@@ -1267,13 +1412,22 @@ def run_job(io, job: dict, opts: dict) -> dict:
            "job": job["id"], "step": step, "held_out": bool(job.get("held_out")), "until": until,
            "character": opts.get("character"), "checkpoint": opts.get("checkpoint"), "holder": opts.get("holder"),
            "lines": sent, "ended": why, "wall_s": round(ended - t0, 1), "active_s": active,
-           "done": bool(res.get("resumed")) if step else ok is True, "job_done": ok is True, "done_why": ok_why,
+           # one truth: done is the job's end read from the game in every record (it was a step's resumption, and run
+           # 015315-N1-I2 read "done": false beside "job_done": true); a step's own verdict is "resumed"
+           "done": ok is True, "job_done": ok is True, "done_why": ok_why,
            "state_start": start, "state_end": {k: v for k, v in end.items() if k != "chests"}, "chests": end.get("chests"),
            "first_step_s": first_t, "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": idle_total, "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_logs": io.brain_logs(),
            "dialogue_left": {"before": left_before, "after": left_after}, "bar_s": bar}
+    for cid, c in (rec.get("chests") or {}).items():  # whose each container he used is, by the game (game_owner)
+        c["his"], c["his_why"] = game_owner(cid, start, end)
+    if is_probe({"until": until}):
+        rec["probe"] = True  # never a trial: not_counted, failure_ledger.scan and rates leave it out
+    if lo_hi:
+        rec["mid"] = mid_read(job, start, end, rows, t0, lo_hi)
     if step:
+        rec["resumed"] = bool(res.get("resumed"))
         rec.update(interruption=intr or {"step": step, "took": False, "how": "never put in (no first step)"},
                    resume=res, resume_within_s=spec.get("resume_within_s"),
                    says_after_put=[s for s in tl["says"] if intr and intr.get("t_put") is not None and s["t"] >= intr["t_put"]])
@@ -1324,14 +1478,17 @@ class Live:
     def start_brain(self) -> bool:
         from tools import chat_ladder as cl
         from tools import spend
+        self.start_why = None
         ok, how = cl.ensure_sender()
-        if not ok:
-            print("sender:", how)
+        if not ok:  # the player's line goes through the sender: no trial without it (run_job keeps this reason)
+            self.start_why = f"sender: {how}"
+            print(self.start_why)
             return False
         p, f = cl.start_brain(self.a, spend.spend_today()["spent_usd"])
         self.procs.append(p)
         if f is None:
             cl.stop_brain(p)
+            self.start_why = "no brain-live log with its session_start within 90 s (logs/brain-chat-ladder-console.log)"
             return False
         self.files.append(f)
         return True
@@ -1413,6 +1570,17 @@ def start_ref(job: dict, step: str | None, override: str | None) -> tuple[str, s
     return job["start"], "the job's start" + (f" ({mid} not made yet)" if step and mid else "")
 
 
+def char_guid(path: Path) -> str | None:
+    """A character save's meta_data.char_guid (read only), or None."""
+    try:
+        d = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    d = d.get("result", d) if isinstance(d, dict) else {}
+    g = (d.get("meta_data") or {}).get("char_guid") if isinstance(d, dict) else None
+    return str(g).upper() if g else None
+
+
 def cmd_window(a, step: str | None) -> int:
     from tools import quest_run as q
     from tools import quest_clone
@@ -1433,6 +1601,8 @@ def cmd_window(a, step: str | None) -> int:
     except SystemExit as exc:
         print(f"no start for {a.job}: {exc}")
         return 2
+    # his line (whose a container is: game_owner): the save forked from, and ClaudeDev (every fork's first source)
+    src_guid, dev_guid = char_guid(src), char_guid(quest_clone.SAVE_DIR / "ClaudeDev.json")
     if a.save_as and (quest_clone.CHECKPOINT_DIR / f"{a.save_as}.json").exists():
         print(f"checkpoint {a.save_as!r} exists already: pick a new --save-as label")
         return 2
@@ -1484,6 +1654,10 @@ def cmd_window(a, step: str | None) -> int:
                 dev.character_guid, dev.character_name = made["guid"], name  # the fixture guard wants the fork's guid
                 ns = argparse.Namespace(**{**vars(a), "world": f"dev_{name}", "in_lock": True, "start_brain": True,
                                            "use_running_brain": False})
+                from tools import chat_ladder as cl
+                nav_why = wait_nav(cl.nav_not_ready, time.sleep)  # I4 of window 1118d: skipped on a stale heartbeat
+                if nav_why:
+                    print(f"{name}: after {150:.0f} s: {nav_why}")
                 bad = q.preflight(ns)
                 if bad:
                     out["trials"].append({"character": name, "skipped": "preflight: " + "; ".join(bad)})
@@ -1493,9 +1667,15 @@ def cmd_window(a, step: str | None) -> int:
                 rec = run_job(io, job, {"step": step, "interruptions": doc.get("interruptions"), "until": a.until,
                                         "trigger": trigger, "deadline": min(a.deadline, left),
                                         "max_haiku": a.max_haiku, "character": name, "checkpoint": ref,
-                                        "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S)})
-                if "error" in rec:
-                    out["trials"].append({"character": name, "error": rec["error"]})
+                                        "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S),
+                                        "own_guids": [made.get("guid"), src_guid, dev_guid]})
+                if "error" in rec:  # no trial ran: the harness's (void), with its reason
+                    out["trials"].append({"character": name, "error": rec["error"], "void": "harness"})
+                    print(f"{name}: {rec['error']}")
+                    if sender_fault(rec["error"]):
+                        print("every trial on this server run would meet the same: restart the dev server "
+                              "(stop_server.ps1 -Hold, world_snapshot restore, start_server.ps1) and run the window again")
+                        break
                     continue
                 from tools import failure_ledger
                 rec.update(blind_mark(rec, all_runs(), failure_ledger.voided(), trace_reads()))
@@ -1509,9 +1689,15 @@ def cmd_window(a, step: str | None) -> int:
                 out["trials"].append(row)
                 print(json.dumps(scores_of(rec), default=str)[:600] if job.get("held_out") else
                       json.dumps(row, default=str))
-                if a.save_as and "saved_as" not in out and (rec["job_done"] or rec["ended"] == "first step"):
-                    kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=q.AUTOSAVE_S)
-                    out["saved_as"] = str(kept) if kept else f"no save of {name} within {q.AUTOSAVE_S:.0f} s"
+                if a.save_as and "saved_as" not in out:
+                    good, why_save = save_ok(rec, a.until)
+                    if good:
+                        kept = quest_clone.keep(name, a.save_as, newer_than=t_end, wait_s=q.AUTOSAVE_S)
+                        out["saved_as"] = str(kept) if kept else f"no save of {name} within {q.AUTOSAVE_S:.0f} s"
+                        out["saved_at"] = rec.get("mid") or {"ended": rec["ended"]}
+                    else:
+                        out["trials"][-1]["not_saved"] = why_save
+                    print(f"{name}: {'saved as ' + a.save_as if good else 'not saved'}: {why_save}")
                 if a.regrow_days > 0:  # on the fork that has played, never on the one about to
                     out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
                                                                   vitals=q.vitals_of(cli))
@@ -1585,10 +1771,13 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--job", required=True)
         p.add_argument("-k", type=int, default=3)
         p.add_argument("--from", dest="checkpoint", help="a checkpoint label or a save name to fork (default: the job's)")
-        p.add_argument("--until", choices=("done", "first_step", "resumed"), default=None,
-                       help="end at the job's end (trial default), at his first verified step (a probe, to --save-as a "
-                            "mid-job checkpoint), or when he took the job up again (interrupt default)")
-        p.add_argument("--save-as", metavar="LABEL", help="keep the next save of the first trial that ends done or at its first step")
+        p.add_argument("--until", default=None, metavar="done|first_step|resumed|mid[:LO-HI]",
+                       help="end at the job's end (trial default), when he took the job up again (interrupt default), "
+                            "or a probe for --save-as: mid (a mid-job checkpoint: once LO of the asked units are got, "
+                            f"read from the game, and nothing of the job is stored yet; default {MID_DEFAULT[0]}-"
+                            f"{MID_DEFAULT[1]}, kept only when the end read is inside) or first_step")
+        p.add_argument("--save-as", metavar="LABEL", help="keep the next save of the first trial that ends as --until "
+                       "asks (mid: inside the window by the end read; first_step; else done)")
         p.add_argument("--holder", choices=("default", "board"), default="default",
                        help="which holder carries the ask: the default path, or the board with the Director (DW_DIRECTOR=1)")
         p.add_argument("--deadline", type=float, default=1800.0, help="per trial")
@@ -1607,6 +1796,13 @@ def main(argv: list[str] | None = None) -> int:
     sh.add_argument("run")
     sh.add_argument("--read-trace", action="store_true")
     a = ap.parse_args(argv)
+    try:  # a window's output goes to a file: line by line, so a killed window still shows how far it got (I5, 1118d)
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+    if a.cmd in ("trial", "interrupt") and a.until and not until_ok(a.until):
+        print(f"unknown --until {a.until!r} (done, first_step, resumed, mid, mid:LO-HI)")
+        return 2
     if a.cmd in ("trial", "interrupt") and a.trigger and not trigger_ok(a.trigger):
         print(f"unknown --trigger {a.trigger!r} (first_step, first_deposit, progress:F, share:F, at:SECONDS, a|b)")
         return 2

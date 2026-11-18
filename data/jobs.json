@@ -77,9 +77,9 @@
         "note": "a floor: the walks between the trees, the stones and his chest are in the per-run human_bar. The near-home job for the interruption steps I1 to I5 (goal, venture ladder, Luis 2026-11-18): Temple Woods (power 1); every L2 run of 17 Nov got ash from sticks and trees and stone from loose stones and boulders within 60 m of his start (148-152, 1912). 'gained': only what went in after the line counts (a crate of his may hold logs from earlier runs: start read, else the body's read at his first store into it)."
       },
       "start": "ClaudeDev",
-      "interrupt_from": "job_n1_mid",
+      "interrupt_from": "job_n1_midjob",
       "interrupt_trigger": "first_deposit|progress:0.5",
-      "interrupt_trigger_note": "mid-job, read from the game: after his first store of ash or stone into a container (the store result's read of the container screen), or once half the 30 units are on him or in a chest (get_state samples and his store results), whichever comes first. From job_n1_mid (saved at his first verified step) he is past the start of the job when it fires.",
+      "interrupt_trigger_note": "mid-job, read from the game: after his first store of ash or stone into a container (the store result's read of the container screen), or once half the 30 units are on him or in a chest (get_state samples and his store results), whichever comes first (progress is read every 3 s while it is awaited). From job_n1_midjob (made by `trial --job N1 --until mid --save-as job_n1_midjob`: kept only when the end read has 0.2 to 0.6 of the 30 units got and nothing stored) he is past the start of the job and far from its end when it fires. job_n1_mid (window 1118d, --until first_step) was saved with all 20 ash and 10 stone carried, and I2 from it was done at 21 s: never used.",
       "work_tools": ["gather", "pickup", "craft", "build", "store", "take", "interact", "cast"]
     },
     "L3": {

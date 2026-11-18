@@ -505,7 +505,7 @@ def test_run_job_i5_resumes_after_the_restart(doc):
     assert io.restarts == 1
     assert rec["interruption"]["took"] and rec["interruption"]["t_put"] == 21.0
     assert rec["resume"]["resumed"] and rec["resume"]["call"]["tool"] == "gather" and not rec["resume"]["new_line"]
-    assert rec["ended"] == "resumed" and rec["done"] and not rec["job_done"] and rec["verdict"]["pass"]
+    assert rec["ended"] == "resumed" and rec["resumed"] and not rec["done"] and not rec["job_done"] and rec["verdict"]["pass"]
     assert rec["item"] == "job: L2 / I5" and rec["misses"]["by_phase"] == {"before": 0, "during": 0, "after": 0}
 
 
@@ -514,7 +514,7 @@ def test_run_job_i5_without_a_resumption_fails(doc):
     io = FakeIO(script=script, states=lambda t: state(mine=[CRATE]))
     rec = j.run_job(io, j.job_of("L2", doc), {"step": "I5", "interruptions": doc["interruptions"]})
     assert rec["ended"] in ("quiet", "no resumption") and not rec["resume"].get("resumed")
-    assert not rec["verdict"]["pass"] and not rec["done"]
+    assert not rec["verdict"]["pass"] and not rec["resumed"] and not rec["done"]
 
 
 def test_run_job_first_step_probe_for_a_mid_job_checkpoint(doc):

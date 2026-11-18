@@ -248,6 +248,29 @@ test("speech relay: say() queues; the next player line carries it as the bot; na
     assert(st.relay_armed and st.pending == 1 and st.capabilities.on_demand == false)
 end)
 
+test("speech names: a DisplayNameComponent read that is no UObject is never used, and says so", function()
+    -- live 2026-11-18 (window 1118d I1): gs.DisplayNameComponent was a userdata with IsValid() true and no methods
+    local w = chat_world()
+    local gs = W.first.DominionGameStateBase
+    local good = gs.DisplayNameComponent
+    gs.DisplayNameComponent = { IsValid = function() return true end } -- no GetFullName, no Server_RegisterCharacter
+    local dn, why = speech.display_name_component()
+    assert(dn == nil and why:find("no DisplayNameComponent", 1, true) and why:find("restart the dev server", 1, true), why)
+    assert(why:find("no UObject", 1, true), why)
+    local r = speech.register_names(H.log, "Tester", { force = true })
+    assert(r.registered == 0 and r.errors[1]:find("no DisplayNameComponent", 1, true), json.encode(r))
+    -- the native getter, when the property read is the bad one
+    gs.GetDisplayNameComponent = function() return good end
+    dn = speech.display_name_component()
+    assert(dn == good)
+    r = speech.register_names(H.log, "Tester", { force = true })
+    assert(r.registered == 1 and #w.registered == 1, json.encode(r))
+    -- and FindAllOf as the last way
+    gs.GetDisplayNameComponent = nil
+    add("DisplayNameComponent", good)
+    assert(speech.display_name_component() == good)
+end)
+
 test("speech relay: !as / !echo triggers, TTL drop, queue cap", function()
     local w = chat_world()
     speech.arm_relay(H.log, { triggers = true })

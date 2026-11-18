@@ -21,4 +21,13 @@ for ($i = 0; $i -lt 24; $i++) { # the mod logs bridge_started a few seconds afte
     if ($ok) { break }
 }
 if ($ok) { $helpers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
-Log "nav oracle policy for server pid $(if ($proc) { $proc.Id } else { '-' }): $(if ($ok) { 'written, helper restarted' } else { 'NOT written' })"
+# Start the helper here: this stop is planned, and the watchdog's helper restarts are capped at 3 in 30 min (window
+# 1118d: restarts at 01:37, 01:47 and 01:50Z, then the I4 window's preflight met a 90 s old heartbeat and skipped;
+# the next restart came at 02:07Z). Its single-instance lock (client_io\nav\oracle.lock) lets a racing second
+# start (the watchdog's) exit at once.
+if ($ok) {
+    Start-Sleep -Seconds 1
+    $cmd = "`"$python`" -u -m tools.nav_oracle serve >> logs\nav_oracle.log 2>&1"
+    Start-Process cmd.exe -ArgumentList '/c', $cmd -WorkingDirectory $RepoRoot -WindowStyle Hidden | Out-Null
+}
+Log "nav oracle policy for server pid $(if ($proc) { $proc.Id } else { '-' }): $(if ($ok) { 'written, helper restarted here' } else { 'NOT written' })"

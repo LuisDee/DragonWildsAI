@@ -90,13 +90,41 @@ local function now() return os.time() end
 -- connected player's real PlayerState.OwnerGuid: swap its CharacterGuid to M.GUID, call
 -- Server_RegisterCharacter(OwnerGuid, name), restore - all in the same tick. Verified for Luis
 -- (experiments/name_register, restore checked). Once per player per server run.
+-- The GameState's UDisplayNameComponent as a usable UObject, or nil and why (each read's outcome). Live 2026-11-18
+-- (window 1118d I1, and later server runs at 02:17Z and 02:30Z): in some server processes, for the whole process,
+-- `gs.DisplayNameComponent` came back as a userdata with IsValid() true but no UObject methods (GetFullName,
+-- GetClass, GetCharacterDisplayName all nil) and FindAllOf("DisplayNameComponent") was empty; in the same process
+-- nav_oracle's SetMobility on a component it had just added was nil too. That plain read of a Blueprint object's
+-- property is the R17 pattern (UE4SS's property cache), so it goes through U.prop here, and the object is accepted
+-- only when it answers GetFullName as a DisplayNameComponent. Then the native getter
+-- ADominionGameStateBase::GetDisplayNameComponent(), then FindAllOf. Cause of the bad process: open (not found).
+local function usable_dn(o)
+    local full = U.valid(o) and U.try(function() return o:GetFullName() end)
+    return type(full) == "string" and full:find("DisplayNameComponent", 1, true) ~= nil
+end
+function M.display_name_component()
+    local gs = U.find_first("DominionGameStateBase")
+    if not gs then return nil, "no DominionGameStateBase" end
+    local tried = {}
+    local dn = U.prop and U.prop(gs, "DisplayNameComponent") or U.try(function() return gs.DisplayNameComponent end)
+    if usable_dn(dn) then return dn end
+    tried[#tried + 1] = "the property: " .. (dn == nil and "nil (undeclared or stale cache: U.prop)" or "a userdata that is no UObject")
+    dn = U.try(function() return gs:GetDisplayNameComponent() end)
+    if usable_dn(dn) then return dn end
+    tried[#tried + 1] = "GetDisplayNameComponent(): " .. (dn == nil and "nil or not callable" or "not a DisplayNameComponent")
+    local all = U.find_all("DisplayNameComponent", { skip_defaults = true }) or {}
+    for _, o in ipairs(all) do if usable_dn(o) then return o end end
+    tried[#tried + 1] = "FindAllOf: " .. #all .. " usable"
+    return nil, "no DisplayNameComponent (" .. table.concat(tried, "; ") .. "): this server process cannot name the "
+        .. "test sender; restart the dev server"
+end
+
 local function register_one(log, ps, name)
     local g = U.try(function() return ps.OwnerGuid.CharacterGuid.InnerGuid end)
     local saved = g and U.guid_copy(g)
     if not saved then return false, "no OwnerGuid" end
-    local gs = U.find_first("DominionGameStateBase")
-    local dn = gs and U.try(function() return gs.DisplayNameComponent end)
-    if not U.valid(dn) then return false, "no DisplayNameComponent" end
+    local dn, why = M.display_name_component()
+    if not dn then return false, why end
     local ok, err = U.call(log, "speech.Server_RegisterCharacter", { name = name, owner = U.guid_hex(saved) }, function()
         U.guid_set(g, M.GUID)
         dn:Server_RegisterCharacter(ps.OwnerGuid, name)
@@ -143,9 +171,8 @@ local function entries(arr)
 end
 
 function M.names()
-    local gs = U.find_first("DominionGameStateBase")
-    local dn = gs and U.try(function() return gs.DisplayNameComponent end)
-    if not U.valid(dn) then return { ok = false, error = "no DisplayNameComponent" } end
+    local dn, why = M.display_name_component()
+    if not dn then return { ok = false, error = why } end
     return { ok = true, bot_guid = U.guid_hex(M.GUID),
              original = entries(dn.OriginalCharacterNames), sanitized = entries(dn.SanitizedCharacterNames) }
 end

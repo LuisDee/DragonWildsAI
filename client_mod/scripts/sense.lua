@@ -554,9 +554,60 @@ local function describe_interactable(a, ic, kind, origin)
         local who = text(U.try(function() return bed:GetClaimingCharacterName() end))
         if who then d.claimed_by = who end
     end
+    -- whose a crate or chest is, from the game (M.owner_row, below; property reads only)
+    if M.owner_row then pcall(M.owner_row, a, d) end
     -- a vault's door teleporter, lever or chest says what state it is in (M.vault_row, below; property reads only)
     if M.vault_row then pcall(M.vault_row, a, d) end -- a failed read adds nothing; the row stands as it was
     return d
+end
+
+-- ------------------------------------------------------------------ whose a container is (the game's owner)
+-- A crate or chest carries a UOwnershipComponent (dump 26574459: BP_BaseBuilding_Crate / _Chest.OwnershipComponent;
+-- Dominion.hpp UOwnershipComponent: OwningPlayerId, OwningCharacterGuid (FDomCharacterGuid, replicated: OnRep_),
+-- bIsPrivatelyOwned). The world save holds it per crate (CompanionDev.sav, named world 'base': every crate's actor
+-- record carries ClaudeDev's guid E71C5DC1-46F0A55B-69FF52A8-81255DEF). Until this read he had no way to tell whose a
+-- crate was (run 20261118-015315-N1-I2: look listed 7 crates and an Ash Chest with no owner). The building pieces
+-- themselves keep no owner (build.lua: the ledger marks those). UNVERIFIED live on the client.
+-- Row fields: owner = "yours" | the owner's character name | "a character not in the name list" | "nobody";
+-- owner_guid (hex, absent for "nobody"); mine = true/false (this character); private = true when it is locked to its
+-- owner. Nothing is added when the read fails: never a guess.
+local ZERO_GUID = "00000000000000000000000000000000"
+local owner_names = {} -- guid hex -> character name (the replicated name list is append-only)
+function M.my_char_guid()
+    local pc = M.local_pc and M.local_pc()
+    return pc and U.guid_hex(U.try(function() return pc.PlayerState.OwnerGuid.CharacterGuid.InnerGuid end)) or nil
+end
+-- A character's name from its guid, as the chat box resolves a sender (client_mod/scripts/chat.lua resolve_name:
+-- GameState DisplayNameComponent.SanitizedCharacterNames, CharacterGuid.InnerGuid -> CharacterName).
+function M.char_name(hex)
+    if not hex then return nil end
+    if owner_names[hex] then return owner_names[hex] end
+    local name
+    for _, dn in ipairs(U.find_all("DisplayNameComponent", { skip_defaults = true }) or {}) do
+        if name then break end
+        pcall(function()
+            dn.SanitizedCharacterNames:ForEach(function(_, elem)
+                if name then return end
+                local e = elem:get()
+                if U.guid_hex(e.CharacterGuid.InnerGuid) == hex then name = text(U.try(function() return e.CharacterName end)) end
+            end)
+        end)
+    end
+    if name then owner_names[hex] = name end
+    return name
+end
+function M.owner_row(a, d)
+    local oc = P(a, "OwnershipComponent") -- Blueprint-declared on the crate: R17 guarded read
+    if not U.valid(oc) then return end
+    local hex = U.guid_hex(U.try(function() return oc.OwningCharacterGuid.InnerGuid end)) -- native class: plain read
+    if not hex then return end
+    if U.try(function() return oc.bIsPrivatelyOwned end) == true then d.private = true end
+    if hex == ZERO_GUID then d.owner, d.mine = "nobody", false; return end
+    d.owner_guid = hex
+    local me = M.my_char_guid()
+    if me == hex then d.owner, d.mine = "yours", true; return end
+    if me then d.mine = false end
+    d.owner = M.char_name(hex) or "a character not in the name list"
 end
 
 -- ------------------------------------------------------------------ foliage (standing trees, bushes, pickups)
