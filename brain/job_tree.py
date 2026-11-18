@@ -241,10 +241,10 @@ def _node(kind: str, nid: str, name: str, **kw) -> dict:
     return {"id": nid, "kind": kind, "name": name, **{k: v for k, v in kw.items() if v is not None}, "children": []}
 
 
-def _or_status(ways: list[dict]) -> str:
+def _or_status(ways: list[str]) -> str:
     if not ways:
         return "open"
-    st = {w["status"] for w in ways}
+    st = set(ways)
     if "done" in st or "ready" in st:
         return "ready"
     if st <= {"blocked", "cycle"}:
@@ -252,8 +252,8 @@ def _or_status(ways: list[dict]) -> str:
     return "open"
 
 
-def _and_status(reqs: list[dict]) -> str:
-    return "ready" if all(r["status"] == "done" for r in reqs) else "blocked"
+def _and_status(reqs: list[str]) -> str:
+    return "ready" if all(r == "done" for r in reqs) else "blocked"
 
 
 class _Builder:
@@ -541,14 +541,14 @@ class _Builder:
             first = self.expanded.get(n["item"])
             st = self.rescaled(n, first, busy) if first is not None and first is not n else "open"
         elif k == "item" or k == "tool":
-            st = _or_status(n["children"])
+            st = _or_status(kids)
         elif k == "craft":
-            st = "blocked" if n.get("locked") else _and_status(n["children"])
+            st = "blocked" if n.get("locked") else _and_status(kids)
         elif k == "station" and n.get("ref"):
             first = self.stations_seen.get(n["id"].split(":", 1)[1])
             st = self.status(first, busy) if first is not None and first is not n else "open"
         elif k == "station":
-            st = _and_status(n["children"]) if n.get("build") else "open"
+            st = _and_status(kids) if n.get("build") else "open"
         elif k == "gather":
             st = "blocked" if n["children"] and kids[0] != "done" else "ready" if n.get("in_sight") else "open"
         else:
@@ -566,18 +566,18 @@ class _Builder:
         sts = []
         for w in first.get("children") or []:
             if w["kind"] != "craft" or w.get("locked"):
-                sts.append(w["status"])
+                sts.append(self.status(w, busy))  # read through status: a way of an ancestor still being walked has none yet
                 continue
             times = max(1, math.ceil(rest / max(1, int(w.get("per") or 1))))
             ok = all((c["have"] >= c["need"] // max(1, w["times"]) * times) if c["kind"] == "item"
-                     else c["status"] == "done" for c in w.get("children") or [])
+                     else self.status(c, busy) == "done" for c in w.get("children") or [])
             if ok and "ready_by" not in n:
                 st = next((c for c in w.get("children") or [] if c["kind"] == "station"), None)
                 at = "" if st is None else f" at {st['name']} " + (
                     "(near)" if "near_m" in st else f"(yours {st.get('yours_at')})")
                 n["ready_by"] = w["name"] + (f" x{times}" if times > 1 else "") + at
             sts.append("ready" if ok else "blocked")
-        return "ready" if "ready" in sts else _or_status([{"status": x} for x in sts]) if sts else "open"
+        return "ready" if "ready" in sts else _or_status(sts) if sts else "open"
 
 
 _NODE_WORDS = frozenset({"ore", "logs", "log", "node", "tree", "rock", "rocks", "plant", "bush", "deposit", "raw"})

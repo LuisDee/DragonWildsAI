@@ -322,3 +322,21 @@ def test_flag_off_no_tree(tmp_path, monkeypatch):
     from conftest import Rig
     rig = Rig(tmp_path / "a")
     assert rig.agent.jobs is None and rig.agent.controller.job_view is None
+
+
+def test_a_thing_met_again_under_its_own_first_place_builds_over_the_repo_data():
+    """A ref whose first place is an ancestor still being walked (Leather under the Tannery under Leather) has no
+    status yet: read through status(), not the node (KeyError 'status' made every L1 and L2 ask get no tree,
+    offline 2026-11-18 23:35Z)."""
+    from brain.knowledge import open_knowledge
+    data = jt.GameData.default(knowledge=open_knowledge())
+    for words in ("put 30 copper ore in my chest", "make me a leather cowl, leather body and leather chaps and wear them"):
+        t = jt.build(data, jt.targets_from_words(words, data), {})
+        seen, todo = 0, list(t.get("roots") or t.get("children") or [])
+        while todo:
+            n = todo.pop()
+            seen += 1
+            assert n.get("status"), (words, n.get("id"))
+            todo.extend(n.get("children") or [])
+        assert seen > 10, words
+        jt.full_text(t), jt.compact(t)
