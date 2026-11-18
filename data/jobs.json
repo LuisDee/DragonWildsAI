@@ -7,6 +7,8 @@
     "bar: Luis's per-unit times (data/baselines/luis-2026-11-01.json) composed into a floor for the job (tools/job_run.bar_s). null = no baseline covers the job; the verdict always uses quest_run.human_bar on the run's own successful steps (walking included), as quest runs do.",
     "start: a checkpoint label (logs/quests/checkpoints) or a character save name that is forked for each trial (tools/quest_clone.fork; ClaudeDev.json is only read). interrupt_from: a mid-job checkpoint made by a real run (rule 8: trial --until first_step --save-as LABEL); while it does not exist, interruption trials start from 'start' and the interruption is put in after his first verified step.",
     "not_carried_at_start: item patterns he must not hold when the trial starts; a trial that starts holding any is recorded and not counted (as quest_run's head start).",
+    "in_own_chest want 'gained': true: only what went into the container after the line counts (its count at the start: the harness's inspect before the line, else the body's read at his first store or take into it; neither read and enough inside: unread, never a pass).",
+    "interrupt_trigger: when an interruption trial puts the interruption in (tools/job_run.trigger_due); --trigger overrides it; default first_step.",
     "work_tools: the tool calls that count as working the job (first verified step, and 'took the job up again' after an interruption). go_to is left out on purpose: after a death it may be the walk to the grave."
   ],
   "jobs": {
@@ -54,6 +56,31 @@
       "start": "ClaudeDev",
       "interrupt_from": "job_l2_mid",
       "work_tools": ["gather", "store", "craft", "take", "interact", "cast"]
+    },
+    "N1": {
+      "line": "claude, put twenty ash logs and ten stone in a chest at your base",
+      "held_out": false,
+      "end": {
+        "in_own_chest": [
+          {"item": "ITEM_Resources_Wood_Ash", "count": 20, "gained": true, "label": "ash logs put in during the run"},
+          {"item": "ITEM_Resources_Stone", "count": 10, "gained": true, "label": "stone put in during the run"}
+        ]
+      },
+      "not_carried_at_start": [],
+      "bar": {
+        "parts": [
+          {"family": "chop", "per_item": true, "n": 20, "why": "20 Ash Logs at his chop rate (40.94 s for 13 logs)"},
+          {"family": "mine", "per_item": true, "n": 10, "why": "10 Stone at his mining rate (0.91 s an item)"},
+          {"family": "build", "n": 1, "why": "one crate (8 Ash Logs, verified live 2026-11-01): the named world 'base' has no crate of his at home (L2 runs 17 Nov)"},
+          {"family": "pickup", "n": 3, "why": "open the chest and two stacks moved (store), at his press time"}
+        ],
+        "note": "a floor: the walks between the trees, the stones and his chest are in the per-run human_bar. The near-home job for the interruption steps I1 to I5 (goal, venture ladder, Luis 2026-11-18): Temple Woods (power 1); every L2 run of 17 Nov got ash from sticks and trees and stone from loose stones and boulders within 60 m of his start (148-152, 1912). 'gained': only what went in after the line counts (a crate of his may hold logs from earlier runs: start read, else the body's read at his first store into it)."
+      },
+      "start": "ClaudeDev",
+      "interrupt_from": "job_n1_mid",
+      "interrupt_trigger": "first_deposit|progress:0.5",
+      "interrupt_trigger_note": "mid-job, read from the game: after his first store of ash or stone into a container (the store result's read of the container screen), or once half the 30 units are on him or in a chest (get_state samples and his store results), whichever comes first. From job_n1_mid (saved at his first verified step) he is past the start of the job when it fires.",
+      "work_tools": ["gather", "pickup", "craft", "build", "store", "take", "interact", "cast"]
     },
     "L3": {
       "line": "claude, gear up for the vault",
@@ -152,8 +179,9 @@
       "how": "fixture grant of a filler item to HIS bag only (the fork's guid; the fixture refuses while any other player is on), one unit per empty slot",
       "filler": "ITEM_FishingNet_CoarseNet",
       "rounds": 3,
+      "between_calls": true,
       "resume_within_s": 120,
-      "note": "Coarse Net: weight 1, a stack of 1, so N empty slots take N nets with little weight (a full bag, not an over-weight one). Unverified: whether one grant of N unstackable items fills N slots; job_run re-reads the empty slots and grants again up to 'rounds' times."
+      "note": "Coarse Net: weight 1, a stack of 1, so N empty slots take N nets with little weight (a full bag, not an over-weight one). Unverified: whether one grant of N unstackable items fills N slots; job_run re-reads the empty slots and grants again up to 'rounds' times. between_calls: the grant waits until no call of his is open, so the bag is full before his next gather, not inside one."
     },
     "I5": {
       "what": "a brain restart",

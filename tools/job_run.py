@@ -4,6 +4,7 @@ STATE confirms, whole (L1 to L3, held-out H1 to H3) or with one interruption put
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 -k 3
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 -k 1 --until first_step --save-as job_l2_mid
     .venv\\Scripts\\python.exe -m tools.job_run interrupt --confirm --step I3 --job L2 -k 5
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job N1 --interrupt I1 -k 5   # the same, near home
     .venv\\Scripts\\python.exe -m tools.job_run rates            # pass rate and streak per job and per step; held-out apart
     .venv\\Scripts\\python.exe -m tools.job_run show RUN         # one run's scores (a held-out run's trace stays hidden)
 
@@ -198,26 +199,72 @@ def chests_seen(rows: list[dict]) -> dict[str, dict]:
     """What each container held when his body last had it open: {container id: {items: {item id: n}, t, tool, mine}}
     from the store / take / inspect results in the brain log. The counts are the body's read of the game's own
     container screen (inventory.external_rows), not a word of the model's. The newest result per container wins."""
-    from brain import stash
     out: dict[str, dict] = {}
     for r in rows:
-        if r.get("kind") != "tool_result" or r.get("tool") not in stash.CONTAINER_TOOLS:
+        got = _container_result(r)
+        if got:
+            cid, items, d = got
+            out[cid] = {"items": items, "t": r.get("ts"), "tool": r.get("tool"), "mine": bool(d.get("mine"))}
+    return out
+
+
+def _container_result(r: dict) -> tuple[str, dict[str, int], dict] | None:
+    """(container id, {item id: n} in it AFTER the call, the result's data) of one store / take / inspect result row
+    whose body read the container's screen; None for any other row (a grave is not a chest)."""
+    from brain import stash
+    if r.get("kind") != "tool_result" or r.get("tool") not in stash.CONTAINER_TOOLS:
+        return None
+    res = r.get("result") or {}
+    d = res.get("data") if isinstance(res.get("data"), dict) else {}
+    cid = d.get("container") or (d.get("id") if r.get("tool") == "inspect" else None)
+    contents = d.get("contents")
+    if not cid or "Gravestone" in str(cid) or not isinstance(contents, list):
+        return None
+    items: dict[str, int] = {}
+    for e in contents:
+        iid, name, n = stash._parse(e)
+        iid = iid or _item_id(name)
+        if iid:
+            items[iid] = items.get(iid, 0) + n
+    if d.get("item") and isinstance(d.get("inside_now"), (int, float)):  # a one-item store / take: its own count
+        items[d["item"]] = int(d["inside_now"])
+    return str(cid), items, d
+
+
+def moved_by(r: dict) -> dict[str, int]:
+    """{item id: n} one ok store (+) or take (-) result row moved, from the body's own result (data.item and count for
+    one item; data.taken [{item, count}] for a queue: client_mod/scripts/skills.lua store and take)."""
+    if r.get("kind") != "tool_result" or r.get("tool") not in ("store", "take"):
+        return {}
+    res = r.get("result") or {}
+    if res.get("ok") is not True:
+        return {}
+    d = res.get("data") if isinstance(res.get("data"), dict) else {}
+    rows = [{"item": d["item"], "count": d.get("count")}] if d.get("item") else [x for x in d.get("taken") or []
+                                                                                  if isinstance(x, dict)]
+    sign = 1 if r.get("tool") == "store" else -1
+    out: dict[str, int] = {}
+    for x in rows:
+        iid = x.get("item") or _item_id(x.get("name"))
+        if iid and int(x.get("count") or 0):
+            out[iid] = out.get(iid, 0) + sign * int(x["count"])
+    return out
+
+
+def chests_before(rows: list[dict]) -> dict[str, dict[str, int]]:
+    """What each container held just BEFORE his first store or take into it in the run: the body's read of the
+    container after that call less what the call moved (the game's own counts, never the model's). The start count of
+    a container the harness could not read at the start (out of the 30 m census, or built in the run: 0)."""
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        if r.get("tool") not in ("store", "take") or (r.get("result") or {}).get("ok") is not True:
             continue
-        res = r.get("result") or {}
-        d = res.get("data") if isinstance(res.get("data"), dict) else {}
-        cid = d.get("container") or (d.get("id") if r.get("tool") == "inspect" else None)
-        contents = d.get("contents")
-        if not cid or "Gravestone" in str(cid) or not isinstance(contents, list):
+        got = _container_result(r)
+        if not got or got[0] in out:
             continue
-        items: dict[str, int] = {}
-        for e in contents:
-            iid, name, n = stash._parse(e)
-            iid = iid or _item_id(name)
-            if iid:
-                items[iid] = items.get(iid, 0) + n
-        if d.get("item") and isinstance(d.get("inside_now"), (int, float)):  # a one-item store / take: its own count
-            items[d["item"]] = int(d["inside_now"])
-        out[str(cid)] = {"items": items, "t": r.get("ts"), "tool": r.get("tool"), "mine": bool(d.get("mine"))}
+        cid, after, _ = got
+        mv = moved_by(r)
+        out[cid] = {k: max(0, after.get(k, 0) - mv.get(k, 0)) for k in set(after) | set(mv)}
     return out
 
 
@@ -235,7 +282,7 @@ def crafted_in_run(rows: list[dict]) -> dict[str, int]:
 
 
 def evidence(rows: list[dict]) -> dict:
-    return {"chests": chests_seen(rows), "crafted": crafted_in_run(rows)}
+    return {"chests": chests_seen(rows), "crafted": crafted_in_run(rows), "chests_before": chests_before(rows)}
 
 
 def is_storage(cid: str, kinds: dict | None = None, read: dict | None = None) -> bool | None:
@@ -384,22 +431,43 @@ def p_in_own_chest(spec: list[dict], start: dict, end: dict) -> tuple[bool | Non
     for want in spec:
         label = want.get("label") or want.get("item")
         n = int(want["count"])
-        best = max(((cid, _want_count(items, want)) for cid, items in good.items()), key=lambda x: x[1],
+        gained = bool(want.get("gained"))
+        no_start: list[str] = []
+
+        def put_in(cid: str, items: dict) -> int:
+            """The count in that container; for a 'gained' want, less what it held at the start (the harness's start
+            read, else the body's read at his first store or take into it). A container with neither: no start."""
+            have = _want_count(items, want)
+            if not gained:
+                return have
+            base = ((start.get("chest_start") or {}).get(cid) or {})
+            if base.get("read"):
+                return have - _want_count(base.get("items") or {}, want)
+            if cid in (end.get("chests_before") or {}):
+                return have - _want_count(end["chests_before"][cid], want)
+            if have >= n:
+                no_start.append(cid)
+            return have
+        best = max(((cid, put_in(cid, items)) for cid, items in good.items()), key=lambda x: x[1],
                    default=(None, 0))
-        if best[1] >= n:
+        word = " put in during the run" if gained else ""
+        if best[1] >= n and best[0] not in no_start:
+            continue
+        if no_start:
+            doubt.append(f"{label}: {best[1]} in {best[0]}, but what it held at the start was not read")
             continue
         if unread:
-            doubt.append(f"{label}: {best[1]} of {n} in the read ones; unread: "
+            doubt.append(f"{label}: {best[1]} of {n}{word} in the read ones; unread: "
                          + "; ".join(f"{c} ({w})" for c, w in sorted(unread.items())[:3]))
             continue
-        before = [(cid, _want_count(opened[cid]["items"], want)) for cid in good
+        before = [(cid, put_in(cid, opened[cid]["items"])) for cid in good
                   if cid in opened and opened[cid].get("tool") != "take"]
         was = max(before, key=lambda x: x[1], default=(None, 0))
         if was[1] >= n:
-            doubt.append(f"{label}: the end read of {was[0]} has {_want_count(good[was[0]], want)} of {n}, his last "
-                         f"open of it ({opened[was[0]].get('tool')}) {was[1]}, and he took nothing out since")
+            doubt.append(f"{label}: the end read of {was[0]} has {put_in(was[0], good[was[0]])} of {n}{word}, his "
+                         f"last open of it ({opened[was[0]].get('tool')}) {was[1]}, and he took nothing out since")
             continue
-        short.append(f"{label}: {best[1]} of {n} (best: {best[0]})")
+        short.append(f"{label}: {best[1]} of {n}{word} (best: {best[0]})")
     if short:
         return False, "; ".join(short + doubt)
     if doubt:
@@ -621,12 +689,75 @@ def resumed(calls: list[dict], interruption: dict, work_tools=None, lines: list[
             "ok": nxt.get("ok")}, "new_line": any(float(l.get("t") or 0) <= t for l in new_lines)}
 
 
-def trigger_due(spec: str, first_step_t: float | None, t: float, bar: float | None) -> bool:
-    """When to put the interruption in: 'first_step' (after his first verified step), 'share:0.3' (at that share of
-    the job's bar; with no bar, after the first step), 'at:120' (seconds into the run)."""
-    kind, _, val = (spec or "first_step").partition(":")
+def _chest_wants(job: dict) -> list[dict]:
+    return [w for w in (job.get("end") or {}).get("in_own_chest") or [] if w.get("item")]
+
+
+def first_deposit(rows: list[dict], job: dict, t0: float) -> float | None:
+    """When his first deposit of an item the job asks for ended (seconds into the run): the first ok store result
+    that moved one into a container, by the body's read of the container screen (moved_by)."""
+    wants = _chest_wants(job)
+    for r in rows:
+        mv = moved_by(r)
+        if r.get("tool") == "store" and any(n > 0 and any(matches(k, w["item"]) for w in wants) for k, n in mv.items()):
+            return round(float(r["ts"]) - t0, 1)
+    return None
+
+
+def progress(job: dict, start: dict, cur: dict | None, rows: list[dict]) -> float | None:
+    """The share of the units a chest job asks for that he has got so far, read from the game: what he carries more
+    than at the start (a get_state sample) plus what his stores put in a container less what he took out (the
+    body's results). None for a job with no item counts, or before a sample was read."""
+    wants = _chest_wants(job)
+    if not wants or not cur or cur.get("unread"):
+        return None
+    net: dict[str, int] = {}
+    for r in rows:
+        for k, n in moved_by(r).items():
+            net[k] = net.get(k, 0) + n
+    got = asked = 0
+    for w in wants:
+        n = int(w["count"])
+        units = _gain(start, cur, w["item"]) + sum(v for k, v in net.items() if matches(k, w["item"]))
+        got += min(n, max(0, units))
+        asked += n
+    return round(got / asked, 3) if asked else None
+
+
+TRIGGERS = ("first_step", "first_deposit", "progress", "share", "at")
+
+
+def trigger_ok(spec: str | None) -> bool:
+    """Every alternative of a trigger spec is a known kind, with a number where it takes one."""
+    for s in str(spec or "").split("|"):
+        kind, sep, val = s.strip().partition(":")
+        if kind not in TRIGGERS or (kind in ("progress", "share", "at")) != bool(sep):
+            return False
+        try:
+            val and float(val)
+        except ValueError:
+            return False
+    return bool(spec)
+
+
+def trigger_due(spec: str, first_step_t: float | None, t: float, bar: float | None,
+                deposit_t: float | None = None, share: float | None = None) -> bool:
+    """When to put the interruption in: 'first_step' (after his first verified step), 'first_deposit' (after his
+    first store of an asked item: first_deposit), 'progress:0.5' (half the asked units got: progress), 'share:0.3'
+    (at that share of the job's bar; with no bar, after the first step), 'at:120' (seconds into the run).
+    'a|b': whichever comes first."""
+    alts = [s.strip() for s in (spec or "first_step").split("|") if s.strip()] or ["first_step"]
+    if len(alts) > 1:
+        return any(trigger_due(s, first_step_t, t, bar, deposit_t, share) for s in alts)
+    kind, _, val = alts[0].partition(":")
+    if kind not in TRIGGERS:
+        raise ValueError(f"unknown trigger {alts[0]!r}")
     if kind == "at":
         return t >= float(val)
+    if kind == "first_deposit":
+        return deposit_t is not None and t >= deposit_t
+    if kind == "progress":
+        return share is not None and share >= float(val)
     if kind == "share" and bar:
         return t >= float(val) * bar
     return first_step_t is not None and t >= first_step_t
@@ -863,6 +994,10 @@ def run_job(io, job: dict, opts: dict) -> dict:
             start["gear_target"] = io.gear_target(raw0)
         except Exception as exc:
             start["gear_target_error"] = repr(exc)[:200]
+    if any(w.get("gained") for w in (job.get("end") or {}).get("in_own_chest") or []) and not start.get("unread"):
+        # what his containers in reach hold before the line: a 'gained' want counts only what goes in after it
+        start["chest_start"] = chest_reads(io, chest_candidates(start, start))
+    trigger = opts.get("trigger") or job.get("interrupt_trigger") or "first_step"
     t0 = io.now()
     sent = [{"t": 0.0, "line": job["line"], "sent": io.send(job["line"])}]
     intr = None
@@ -872,6 +1007,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
     last_sample = -1e9
     rows: list[dict] = []
     res: dict = {}
+    cur: dict | None = None
     while True:
         now = io.now()
         rel = now - t0
@@ -882,8 +1018,9 @@ def run_job(io, job: dict, opts: dict) -> dict:
             first_t = first_step(tl["calls"], job)
         if now - last_sample >= SAMPLE_S:
             last_sample = now
-            cur = snapshot(io.state())
-            if not cur.get("unread"):  # a failed read is skipped, never judged
+            read = snapshot(io.state())
+            if not read.get("unread"):  # a failed read is skipped, never judged
+                cur = read
                 seen.see(cur)
                 cur.update(evidence(rows))
                 seen.into(cur)
@@ -891,16 +1028,23 @@ def run_job(io, job: dict, opts: dict) -> dict:
                 if ok is None and chest_job and done(job, start, {**cur, "chest_end": _open_reads(cur)})[0] is True:
                     cur["chest_end"] = chest_reads(io, chest_candidates(start, cur))  # his opens say done: read it now
                     ok, ok_why = done(job, start, cur)
-        if step and intr is None and trigger_due(opts.get("trigger") or "first_step", first_t, rel, bar):
-            intr = apply_interruption(io, step, spec, t0)
-            print(f"[{rel:6.1f}s] {step} put in: {intr.get('how')}")
+        busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
+        open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
+        open_tool = any(c.get("dur_s") is None for c in tl["calls"]) or bool(tl["body_busy"])
+        if step and intr is None and ok is not True:
+            dep_t, share = first_deposit(rows, job, t0), progress(job, start, cur, rows)
+            # between_calls (I4): wait for no open call, so the bag fills before his next gather, not inside one
+            if trigger_due(trigger, first_t, rel, bar, dep_t, share) and not (spec.get("between_calls") and open_tool):
+                moment = {"trigger": trigger, "at_s": round(rel, 1), "first_step_s": first_t, "first_deposit_s": dep_t,
+                          "progress": share, "carried": {w["item"]: count_of((cur or {}).get("carried") or {}, w["item"])
+                                                         for w in _chest_wants(job)} or None}
+                intr = apply_interruption(io, step, spec, t0)
+                intr["moment"] = moment
+                print(f"[{rel:6.1f}s] {step} put in at {json.dumps(moment)}: {intr.get('how')}")
         if intr is not None and step == "I2" and intr.get("t_clear") is None:
             intr = fight_cleared(rows, intr, t0, float(spec.get("fight_wait_s", 40)))
         if intr is not None and intr.get("t_clear") is not None:
             res = resumed(tl["calls"], intr, job.get("work_tools"), sent[1:])
-        busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
-        open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
-        open_tool = any(c.get("dur_s") is None for c in tl["calls"]) or bool(tl["body_busy"])
         quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
         if ok:
             why = "job done"
@@ -960,7 +1104,13 @@ def run_job(io, job: dict, opts: dict) -> dict:
         rec.update(interruption=intr or {"step": step, "took": False, "how": "never put in (no first step)"},
                    resume=res, resume_within_s=spec.get("resume_within_s"),
                    says_after_put=[s for s in tl["says"] if intr and intr.get("t_put") is not None and s["t"] >= intr["t_put"]])
-    nc = not_counted(job, start)
+    # a head start is a whole job's rule: a step trial from a mid-job checkpoint carries the job's things by design
+    nc = None if step else not_counted(job, start)
+    if step and not intr:
+        nc = ("the job was done before the interruption was due: the step says nothing" if ok is True
+              else None)
+    elif step and ok is True and not res.get("resumed") and why == "job done":
+        nc = "the job was done before he could take it up again: the step says nothing"
     if nc:
         rec["not_counted"] = nc
     if ok is None and not step:  # a whole job whose end state could not be read: not counted, the reason kept
@@ -1101,6 +1251,10 @@ def cmd_window(a, step: str | None) -> int:
     doc = load_jobs()
     job = job_of(a.job, doc)
     ref, ref_why = start_ref(job, step, a.checkpoint)
+    trigger = getattr(a, "trigger", None) or job.get("interrupt_trigger") or "first_step"
+    if step and not trigger_ok(trigger):
+        print(f"{a.job}: unknown interrupt trigger {trigger!r}")
+        return 2
     try:
         src, place = quest_clone.source_of(ref), quest_clone.place_of(ref)
     except SystemExit as exc:
@@ -1114,6 +1268,7 @@ def cmd_window(a, step: str | None) -> int:
         print(f"not running: {why}")
         return 3
     print(f"{a.job}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
+          + (f"the interruption goes in at {trigger}; " if step else "") +
           f"each up to {a.max_haiku} Haiku calls (controller) plus the Planner (Sonnet), capped at ${a.usd} a trial on "
           f"top of today's spend")
     if job.get("held_out"):
@@ -1163,7 +1318,7 @@ def cmd_window(a, step: str | None) -> int:
                 io = Live(ns, cli, dev)
                 left = a.window_s - a.reserve_s - (time.time() - t0)
                 rec = run_job(io, job, {"step": step, "interruptions": doc.get("interruptions"), "until": a.until,
-                                        "trigger": getattr(a, "trigger", None), "deadline": min(a.deadline, left),
+                                        "trigger": trigger, "deadline": min(a.deadline, left),
                                         "max_haiku": a.max_haiku, "character": name, "checkpoint": ref,
                                         "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S)})
                 if "error" in rec:
@@ -1242,8 +1397,13 @@ def main(argv: list[str] | None = None) -> int:
     tr = sub.add_parser("trial", help="one lock window: K whole-job trials, each on a new fork of the job's start")
     it = sub.add_parser("interrupt", help="one lock window: K trials of the job with one interruption put in")
     it.add_argument("--step", required=True, choices=STEPS)
-    it.add_argument("--trigger", default="first_step", help="first_step (default), share:0.3 (of the bar), at:SECONDS")
-    it.add_argument("--confirm-s", type=float, default=CONFIRM_S, help="how long the trial goes on after he resumed")
+    tr.add_argument("--interrupt", dest="step", choices=STEPS, default=None,
+                    help="put this interruption in mid-job (the same as the interrupt command with --step)")
+    for p in (tr, it):
+        p.add_argument("--trigger", default=None, help="when the interruption goes in: the job's interrupt_trigger, "
+                       "else first_step; or first_deposit, progress:0.5, share:0.3 (of the bar), at:SECONDS; a|b = "
+                       "whichever comes first")
+        p.add_argument("--confirm-s", type=float, default=CONFIRM_S, help="how long the trial goes on after he resumed")
     for p in (tr, it):
         p.add_argument("--confirm", action="store_true")
         p.add_argument("--job", required=True)
@@ -1271,9 +1431,12 @@ def main(argv: list[str] | None = None) -> int:
     sh.add_argument("run")
     sh.add_argument("--read-trace", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd in ("trial", "interrupt") and a.trigger and not trigger_ok(a.trigger):
+        print(f"unknown --trigger {a.trigger!r} (first_step, first_deposit, progress:F, share:F, at:SECONDS, a|b)")
+        return 2
     if a.cmd == "trial":
-        a.until = a.until or "done"
-        return cmd_window(a, None)
+        a.until = a.until or ("resumed" if a.step else "done")
+        return cmd_window(a, a.step)
     if a.cmd == "interrupt":
         a.until = a.until or "resumed"
         return cmd_window(a, a.step)
