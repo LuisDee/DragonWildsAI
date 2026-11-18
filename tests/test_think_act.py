@@ -336,6 +336,23 @@ def test_an_async_plan_marked_stale_by_the_brain_and_an_abandoned_one():
     assert T.aggregate([T.analyse(rows)])["compositions"]["stale"] == 1
 
 
+def test_research_body_reads_of_a_background_plan_are_counted():
+    """body_read_queued (tool_registry.BodyProxy, DW_ASYNC_PLAN): reads the loop served and ones it never reached."""
+    gs: set = set()
+    line = {"ts": 5.0, "kind": "body_read_queued", "component": "planner", "tool": "craft_plan", "waited_s": 0.4,
+            "served_in": "body_wait", "answered": True, "episode_id": EP}
+    assert T.slim(line, gs)["served_in"] == "body_wait"
+    rows = [*_heard(0.0, EP), _row(5.0, "body_read_queued", EP, component="planner", tool="craft_plan", waited_s=0.4,
+                                   served_in="body_wait", answered=True),
+            _row(9.0, "body_read_queued", EP, component="planner", tool="buildables", waited_s=10.0, served_in=None,
+                 answered=False)]
+    agg = T.aggregate([T.analyse(rows)])
+    rr = agg["research_reads"]
+    assert (rr["n"], rr["answered"], rr["not_read"]) == (2, 1, 1)
+    assert rr["served_in"] == {"None": 1, "body_wait": 1} and rr["waited_s"]["worst"] == 10.0
+    assert "research body reads (async): 2, answered 1, not read 1" in T.render(agg)
+
+
 def test_longest_idle():
     assert T.longest_idle(0.0, 10.0, [(2.0, 3.0), (7.0, 8.0)]) == pytest.approx(4.0)
     assert T.longest_idle(0.0, 10.0, []) == pytest.approx(10.0)

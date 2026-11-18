@@ -455,6 +455,12 @@ class LiveSession:
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
         self.agent.body_self_defends = "combat_status" in self.caps.extras
         self.agent.planner_proxy = self.planner_proxy  # the loop serves a background plan's body reads
+        self.planner_proxy.holder, self.planner_proxy.log = self.agent.loop_holder, self.log
+        self.planner_proxy.label = "planner"
+        if self.agent.async_plan:  # DW_ASYNC_PLAN=1: also served between his calls and inside every body wait
+            from . import plan_async
+            self.planner_proxy.timeout_s = plan_async.READ_WAIT_S
+            self.client.wait_hooks.append(lambda: self.planner_proxy.serve("body_wait"))
         try:  # the game's map data: the Where line (region, named places near) and go_to <place name>
             self.agent.broker.places = self.executor.places = self.controller.places = Places()
             self.controller.use_map_names()

@@ -651,7 +651,8 @@ class Knowledge:
         return db
 
     def _meta(self, key: str) -> str | None:
-        row = self.db.execute("SELECT v FROM meta WHERE k=?", (key,)).fetchone()
+        with self._lock:
+            row = self.db.execute("SELECT v FROM meta WHERE k=?", (key,)).fetchone()
         return row[0] if row else None
 
     def _build(self, sig: str) -> None:
@@ -675,15 +676,19 @@ class Knowledge:
             self.log.log("knowledge_built", game_docs=len(gdocs), wiki_docs=len(wdocs), build=build)
 
     def stats(self) -> dict:
-        kinds = dict(self.db.execute("SELECT kind, count(*) FROM docs GROUP BY kind ORDER BY count(*) DESC"
-                                     ).fetchall())
+        with self._lock:  # one connection for every thread (check_same_thread=False): each use under the lock
+            kinds = dict(self.db.execute("SELECT kind, count(*) FROM docs GROUP BY kind ORDER BY count(*) DESC"
+                                         ).fetchall())
         return {"build": self.build, "game_docs": int(self._meta("game_docs") or 0),
                 "wiki_docs": int(self._meta("wiki_docs") or 0), "kinds": kinds, "db": str(self.db_path or ":memory:")}
 
     def kinds(self, top: int = 12) -> list[str]:
         """The kinds a lookup can filter on, from the data (game kinds first, then the wiki's commonest)."""
-        rows = self.db.execute("SELECT kind, min(tier), count(*) FROM docs GROUP BY kind "
-                               "ORDER BY min(tier), count(*) DESC").fetchall()
+        # under the lock: the Planner's research (a worker under DW_ASYNC_PLAN) asks this for each tool list it is
+        # offered while the Controller's lookup may run on the loop thread over the same connection
+        with self._lock:
+            rows = self.db.execute("SELECT kind, min(tier), count(*) FROM docs GROUP BY kind "
+                                   "ORDER BY min(tier), count(*) DESC").fetchall()
         return [k for k, _, _ in rows if k and k != "page"][:top]
 
     # ---------------------------------------------------------------- search

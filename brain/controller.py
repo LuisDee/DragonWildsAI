@@ -444,6 +444,7 @@ class Controller:
         self.activity_provider: Callable[[], list[str]] | None = None
         # DW_ASYNC_PLAN=1 (agent._plan_fact): a plan being made now, or one that landed since his last turn
         self.plan_provider: Callable[[], dict | None] | None = None
+        self.model_since: float | None = None  # monotonic start of the model call in flight (_complete), else None
 
     # ---------------------------------------------------------------- tools offered (fixed per session)
 
@@ -844,8 +845,12 @@ class Controller:
         self.log.log("prompt", component="controller", model=self.llm.model, step=step,
                      effort=self._sent_effort(d), **request_log_fields(self.llm, messages, tools, d.effort, since=since))
         self._logged = (len(messages), messages[-1] if messages else None)
-        response = (self.llm.complete(messages, tools=tools, effort=d.effort) if d.effort else
-                    self.llm.complete(messages, tools=tools))
+        self.model_since = time.monotonic()  # read by another thread only to say what held the loop (agent)
+        try:
+            response = (self.llm.complete(messages, tools=tools, effort=d.effort) if d.effort else
+                        self.llm.complete(messages, tools=tools))
+        finally:
+            self.model_since = None
         d.model_calls += 1
         self.log.log("llm_response", component="controller", step=step, content=response.content,
                      tool_calls=[vars(c) for c in response.tool_calls], usage=response.usage,

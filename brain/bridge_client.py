@@ -67,6 +67,11 @@ DETACH_WORDS = {  # data.detail of a detached wait, by what took the floor
     "threat": "hostiles your body doesn't rate a likely win came into sight, so you stopped waiting; your body is "
               "still doing it"}  # a detached move reports the body's move status (metres to go)
 KEEP_IDS = 200
+# DW_ASYNC_PLAN (brain/plan_async.py): a background Planner call's body reads (craft_plan, buildables) queue for this
+# client's owner thread (tool_registry.BodyProxy). ``wait_hooks`` run while that thread waits on the body, so a read
+# queued during the Controller's own go_to is answered within this many seconds, not when the action ends (a nested
+# request, as the heartbeat ping and the progress listener's say already are). Empty: waits exactly as before.
+WAIT_HOOK_POLL_S = 0.25
 
 
 # The sender tag on every command: the live-lock owner (tools/live_lock sets DW_LIVE_OWNER for its command and
@@ -110,6 +115,9 @@ class BridgeClient(GameInterface):
         # set by run_live on a harness fork (brain/fork_line.py, DW_FORKED_FROM): rewords, in place, what the body read
         # before anything in the brain sees it (bridge_recv keeps the game's read); None = the body's words as sent
         self.data_filter: Callable[[dict], object] | None = None
+        # called (never recursively) each time a request's wait wakes; see WAIT_HOOK_POLL_S
+        self.wait_hooks: list[Callable[[], None]] = []
+        self._in_wait_hook = False
 
     # ---------------------------------------------------------------- plumbing
 
@@ -171,6 +179,19 @@ class BridgeClient(GameInterface):
                     self.log.log("progress_listener_error", error=repr(exc))
         finally:
             self._notifying = False
+
+    def _run_wait_hooks(self) -> None:
+        if not self.wait_hooks or self._in_wait_hook:
+            return
+        self._in_wait_hook = True
+        try:
+            for hook in self.wait_hooks:
+                try:
+                    hook()
+                except Exception as exc:  # a hook never breaks the wait it runs in
+                    self.log.log("wait_hook_error", error=repr(exc)[:300])
+        finally:
+            self._in_wait_hook = False
 
     def _drain_malformed(self) -> None:
         bad = getattr(self.transport, "malformed", None)
@@ -250,11 +271,14 @@ class BridgeClient(GameInterface):
                     wait = min(wait, max(0.0, accepted_at - now))
                 if detach_at is not None and detach_at > now:  # wake to check a line that came during the grace
                     wait = min(wait, detach_at - now)
+                if self.wait_hooks:
+                    wait = min(wait, WAIT_HOOK_POLL_S)
                 for incoming in self.transport.receive(wait):
                     self._dispatch(incoming)
                 self._drain_malformed()
                 if req_id not in self._parked:
                     self._notify_progress()
+                    self._run_wait_hooks()
                 if not watch or req_id in self._parked:
                     continue
                 # L2(a): an addressed chat line gets the floor; the body keeps working on the command (detached)

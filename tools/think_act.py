@@ -69,7 +69,8 @@ _KIND = re.compile(rb'^\{"ts": ([0-9.]+), "kind": "([a-z_]+)"')
 KEEP = {"session_start", "event", "chat_decision", "prompt", "llm_response", "tool_call", "tool_result", "say",
         "say_result", "bridge_send", "bridge_recv", "action_left_running", "bridge_late_result", "plan_invalid",
         "director_dispatch", "director_decision", "director_discarded", "director_decision_failed",
-        "director_timeout", "request_state", "plan_started", "plan_arrived", "plan_abandoned", "acted_while_planning"}
+        "director_timeout", "request_state", "plan_started", "plan_arrived", "plan_abandoned", "acted_while_planning",
+        "body_read_queued"}
 
 
 # ------------------------------------------------------------------ reading
@@ -151,6 +152,9 @@ def slim(d: dict, gs_ids: set) -> dict | None:
         r.update(plan_kind=d.get("plan_kind"), age_s=d.get("age_s"))
     elif k == "acted_while_planning":
         r.update(n=d.get("n"), tools=list(d.get("tools") or []))
+    elif k == "body_read_queued":  # a background Planner's research read the loop served or never reached
+        r.update(component=d.get("component"), tool=d.get("tool"), waited_s=d.get("waited_s"),
+                 served_in=d.get("served_in"), answered=bool(d.get("answered")))
     return r
 
 
@@ -280,7 +284,7 @@ def analyse(rows: list[dict], source: str = "") -> dict:
     """All measures of one session from its slim rows (read_rows / slim). Pure: no file access."""
     rows = sorted(rows, key=lambda r: r["ts"])
     if not rows:
-        return {"source": source, "asks": [], "compositions": []}
+        return {"source": source, "asks": [], "compositions": [], "body_reads": []}
     first_ts, last_ts = rows[0]["ts"], rows[-1]["ts"]
     session = next((r for r in rows if r["kind"] == "session_start"), {})
     me = str(session.get("name") or "")
@@ -515,7 +519,8 @@ def analyse(rows: list[dict], source: str = "") -> dict:
         })
     return {"source": source, "asks": asks, "compositions": comps,
             "planner_api": [c for c in llm if c["component"] in PLANNER],
-            "controller_api": [c for c in llm if c["component"] == "controller"]}
+            "controller_api": [c for c in llm if c["component"] == "controller"],
+            "body_reads": [r for r in rows if r["kind"] == "body_read_queued"]}
 
 
 # ------------------------------------------------------------------ statistics
@@ -604,6 +609,12 @@ def aggregate(results: list[dict]) -> dict:
     out["controller_api"] = {"n": len(capi), "latency_s": summ((c["usage"].get("latency_ms") or 0) / 1000 for c in capi
                                                               if c["usage"].get("latency_ms") is not None),
                              "usd": round(sum(float(c["usage"].get("cost_usd") or 0) for c in capi), 4)}
+    reads = [b for r in results for b in r.get("body_reads") or []]
+    out["research_reads"] = {"n": len(reads), "answered": sum(1 for b in reads if b["answered"]),
+                             "not_read": sum(1 for b in reads if not b["answered"]),
+                             "waited_s": summ(b["waited_s"] for b in reads),
+                             "served_in": {w: sum(1 for b in reads if str(b["served_in"]) == w)
+                                           for w in sorted({str(b["served_in"]) for b in reads})}}
     worst = sorted(comps, key=lambda c: -c["stand"])[:10]
     out["worst_stands"] = [{"source": c["source"], "utc": utc(c["start"]), "kind": c["kind"], "stand_s": c["stand"],
                             "secs": c["secs"], "calls": len(c["calls"]), "outcome": c["outcome"], "next": c["next"]}
@@ -696,6 +707,9 @@ def render(agg: dict) -> str:
           f"  async (DW_ASYNC_PLAN): {c['async']} compositions, he acted during {c['async_acted']}; acts each "
           f"{_s(c['acted_while_planning'])}; plans started {c['applied']}",
           f"  4 stale: {c['stale']} of {c['landed']} landed (state known for {c['basis_known']}); reasons {c['stale_reasons']}",
+          f"  research body reads (async): {agg['research_reads']['n']}, answered {agg['research_reads']['answered']}, "
+          f"not read {agg['research_reads']['not_read']}; waited s {_s(agg['research_reads']['waited_s'])}; "
+          f"served in {agg['research_reads']['served_in']}",
           f"[planner API] n={agg['planner_api']['n']} latency s {_s(agg['planner_api']['latency_s'])} ${agg['planner_api']['usd']}",
           f"[controller API] n={agg['controller_api']['n']} latency s {_s(agg['controller_api']['latency_s'])} ${agg['controller_api']['usd']}",
           "\nworst stands while a plan was composed:"]

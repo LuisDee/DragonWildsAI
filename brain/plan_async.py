@@ -27,6 +27,11 @@ from typing import Any, Callable
 
 ENV = "DW_ASYNC_PLAN"
 AT_TARGET_M = 3.0  # a go_to whose target is this close was done (tools/think_act.py AT_TARGET_M)
+# The Planner's research reads the body (craft_plan, buildables) through the loop thread (tool_registry.BodyProxy),
+# which serves them in pump, between the Controller's calls and inside every body wait (BridgeClient.wait_hooks). So
+# only a Controller model call keeps one waiting; past this the read is answered "not read" with what held the loop,
+# and the Planner plans on without it (a read was told "busy" after 20 s before 2026-11-18).
+READ_WAIT_S = 10.0
 
 
 def enabled() -> bool:

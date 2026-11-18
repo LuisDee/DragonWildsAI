@@ -297,42 +297,92 @@ def run_read(ctx: ReadContext, name: str, args: dict, offered: list[dict]) -> An
 
 
 class BodyProxy:
-    """Body reads for the worker, served on the agent loop (the bridge has one owner)."""
+    """Body reads for the worker, served on the agent loop (the bridge has one owner).
 
-    def __init__(self, call: Callable[[str, dict], dict], timeout_s: float = 20.0):
+    A worker's read waits at most ``timeout_s`` for the loop to reach it. The loop serves the queue in Agent.pump and,
+    under DW_ASYNC_PLAN, between the Controller's tool calls and inside every body wait (BridgeClient.wait_hooks), so
+    what keeps a read waiting is the loop being off the bridge (a model call). A read the loop never reached is
+    answered then with what held the loop (``holder()``) and how long it waited; nothing was sent to the body. A read
+    the loop has started is waited for: its answer is never dropped as "busy" (before 2026-11-18 it was).
+    ``log``: a JsonlLogger for one ``body_read_queued`` row per worker read; ``label`` names whose reads they are."""
+
+    def __init__(self, call: Callable[[str, dict], dict], timeout_s: float = 20.0,
+                 holder: Callable[[], str | None] | None = None, log: Any = None, label: str = "worker",
+                 in_flight_s: float = 60.0):
         self.call = call
         self.timeout_s = timeout_s
         self.owner: int | None = None
         self.q: queue.Queue = queue.Queue()
+        self.holder = holder
+        self.log = log
+        self.label = label
+        self.in_flight_s = in_flight_s  # a read already sent: the bridge's own timeout answers before this
+        self._serving = False
 
     def request(self, tool: str, args: dict) -> dict:
         if self.owner is not None and threading.get_ident() == self.owner:
             return self._do(tool, args)
         # Event timeout alone does not cancel queued work; synchronize cancellation with the claim.
         # https://docs.python.org/3/library/threading.html#event-objects
+        t0 = time.monotonic()
         box: dict = {"ev": threading.Event(), "lock": threading.Lock(), "cancelled": False,
-                     "deadline": time.monotonic() + self.timeout_s}
+                     "deadline": t0 + self.timeout_s}
         self.q.put((tool, args, box))
         if not box["ev"].wait(self.timeout_s):
             with box["lock"]:
-                box["cancelled"] = True
-            return {"ok": False, "reason": Reason.BUSY, "data": {"detail": "the body is busy right now; plan without it"}}
+                started = bool(box.get("started"))
+                box["cancelled"] = not started
+            if not started:  # never reached: the body was not asked
+                waited = round(time.monotonic() - t0, 1)
+                held = self._holder()
+                self._log(tool, waited, None, held)
+                return {"ok": False, "reason": Reason.BUSY, "data": {
+                    "detail": (f"not read: the brain loop that talks to your body did not reach this read in "
+                               f"{waited:g} s ({held or 'it was busy'}); nothing was asked of the body"),
+                    "busy_with": held, "waited_s": waited, "read_sent": False}}
+            if not box["ev"].wait(self.in_flight_s):  # sent to the body: its own answer, when it comes
+                waited = round(time.monotonic() - t0, 1)
+                self._log(tool, waited, box.get("served_in"), "no answer from the body")
+                return {"ok": False, "reason": Reason.TIMEOUT, "data": {
+                    "detail": f"sent to the body, no answer in {waited:g} s", "waited_s": waited, "read_sent": True}}
+        self._log(tool, round(box["claimed_at"] - t0, 2), box.get("served_in"))
         return box["res"]
 
-    def serve(self) -> None:
+    def serve(self, where: str = "pump") -> None:
+        """Answer the queued reads on this (the bridge's owner) thread. ``where`` is logged: pump, turn, body_wait."""
+        if self._serving:  # a read's own body wait runs the wait hooks: never serve inside a serve
+            return
         self.owner = threading.get_ident()
-        while True:
-            try:
-                tool, args, box = self.q.get_nowait()
-            except queue.Empty:
-                return
-            # Claim only a still-live request; once claimed, the read is already in flight.
-            with box["lock"]:
-                if box["cancelled"] or time.monotonic() >= box["deadline"]:
-                    continue
-                box["started"] = True
-            box["res"] = self._do(tool, args)
-            box["ev"].set()
+        self._serving = True
+        try:
+            while True:
+                try:
+                    tool, args, box = self.q.get_nowait()
+                except queue.Empty:
+                    return
+                # Claim only a still-live request; once claimed, the read is already in flight.
+                with box["lock"]:
+                    if box["cancelled"] or time.monotonic() >= box["deadline"]:
+                        continue
+                    box["started"] = True
+                    box["claimed_at"] = time.monotonic()
+                    box["served_in"] = where
+                box["res"] = self._do(tool, args)
+                box["ev"].set()
+        finally:
+            self._serving = False
+
+    def _holder(self) -> str | None:
+        try:
+            return self.holder() if self.holder is not None else None
+        except Exception as exc:  # a description is best effort
+            return f"unknown ({type(exc).__name__})"
+
+    def _log(self, tool: str, waited_s: float, served_in: str | None, busy_with: str | None = None) -> None:
+        if self.log is not None:
+            self.log.log("body_read_queued", component=self.label, tool=tool, waited_s=waited_s,
+                         served_in=served_in, answered=busy_with is None,
+                         **({"busy_with": busy_with} if busy_with else {}))
 
     def _do(self, tool: str, args: dict) -> dict:
         try:

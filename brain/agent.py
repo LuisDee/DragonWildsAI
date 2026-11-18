@@ -15,6 +15,7 @@ planner call; "what have you learned?" and "forget <skill>" are answered without
 from __future__ import annotations
 
 import concurrent.futures as cf
+import copy
 import json
 import time
 from pathlib import Path
@@ -1163,6 +1164,7 @@ class Agent:
             ran.append(call.name)
             if self._planning is not None:  # a body act while the Planner composes (acted_while_planning)
                 self._planning.acted(call.name)
+                self._serve_planner_reads("turn")  # its research's body reads, between his calls
             if outcome.reason == Reason.BUSY and isinstance(outcome.data, dict) and not outcome.data.get("owner"):
                 hint = self.broker.busy_with()  # name who had the body (the stay-fed reflex), never a token
                 if hint:
@@ -1873,6 +1875,31 @@ class Agent:
     def _plan_async_now(self) -> bool:
         return self.async_plan and not self._quiet_goal
 
+    def _serve_planner_reads(self, where: str) -> None:
+        """Body reads the background Planner's research queued (tool_registry.BodyProxy), answered on this thread,
+        the bridge's one owner. Pump serves them too; under DW_ASYNC_PLAN so do his turn and every body wait."""
+        proxy = getattr(self, "planner_proxy", None)
+        if proxy is not None:
+            proxy.serve(where)
+
+    def loop_holder(self) -> str:
+        """What this (the loop) thread is doing, for a background read it has not reached (BodyProxy.holder). Read
+        from the worker: plain attribute reads, a description and never a decision."""
+        since = getattr(self.controller, "model_since", None)
+        if since is not None:
+            return f"your Controller's model call, {max(0.0, time.monotonic() - since):.1f} s so far"
+        inflight = getattr(self.game, "_inflight", None)  # BridgeClient: request ids awaiting their result
+        if inflight:
+            return f"waiting on {len(inflight)} body call(s)"
+        return "the brain's own work between turns, no model or body call in flight"
+
+    @staticmethod
+    def _snapshot(*objs):
+        """A private copy of the Planner's inputs for the worker (DW_ASYNC_PLAN): the loop keeps the originals and
+        may change them (the executor's cached state, the task tree) while the plan is made. One deepcopy for all,
+        so a task in the tree stays that same task (the replan's ``t is not failed``)."""
+        return copy.deepcopy(objs)
+
     def _plan_fact(self) -> dict | None:
         """The Controller's context "planner" entry: a plan being made now, or one that landed since his last turn
         (told once). None when there is neither (the key is then left out)."""
@@ -1903,7 +1930,8 @@ class Agent:
         """The Planner call on the worker; the loop keeps pumping, so the Controller hears body events and chat and
         gets one turn told that the plan is being made. Returns the plan to run, None when the job was replaced
         meanwhile or the plan arrived stale (then shown to him as a situation), or raises PlanError as ask() does."""
-        p = plan_async.PendingPlan(kind=kind, goal=goal, basis=state, started=self.clock())
+        # the basis is a copy: the executor's cached state object may be read again (and changed) while this runs
+        p = plan_async.PendingPlan(kind=kind, goal=goal, basis=copy.deepcopy(state), started=self.clock())
         plan_async.submit(p, ask, self.log, self.log.episode_id)
         self._planning = p
         req = self._goal_request()
@@ -2030,7 +2058,9 @@ class Agent:
                 ask = lambda: self.planner.plan(goal, sit.with_asked(state, asked), notes)  # noqa: E731
                 if self._plan_async_now():
                     self.store.tree = None  # in memory only: no earlier job's steps beside this one while it is planned
-                    plan = self._plan_in_background("plan", goal, state, ask)
+                    s_c, n_c = self._snapshot(sit.with_asked(state, asked), notes)
+                    plan = self._plan_in_background("plan", goal, state,
+                                                    lambda: self.planner.plan(goal, s_c, n_c))
                     if plan is None:  # the job was replaced meanwhile, or the plan arrived stale (shown to him)
                         return self._plan_not_run(goal, None)
                 else:
@@ -2077,7 +2107,11 @@ class Agent:
                 if self._plan_async_now():
                     failed = {"skill": task.skill, "args": task.args, "reason": outcome.reason,
                               **({"result": task.detail[:GOAL_RESULT_CHARS]} if task.detail else {})}
-                    new = self._plan_in_background("replan", goal, state, ask, failed=failed)
+                    tree_c, task_c, s_c, n_c = self._snapshot(tree, task, sit.with_asked(state, asked), notes)
+                    reason = outcome.reason
+                    new = self._plan_in_background(
+                        "replan", goal, state, lambda: self.planner.replan(tree_c, task_c, reason, s_c, n_c),
+                        failed=failed)
                     if new is None:
                         return self._plan_not_run(goal, tree)
                 else:
