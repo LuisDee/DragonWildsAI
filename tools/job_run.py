@@ -1677,6 +1677,21 @@ def scores_of(rec: dict) -> dict:
 
 
 # ------------------------------------------------------------------ putting an interruption in (dev fixtures)
+def settled_room(io, before: int, added: int | None, settle_s: float, every_s: float = 0.5) -> int | None:
+    """I4: his bag room read again after a grant, once his client shows it: room down to before - added (the server's
+    own count of what landed), or, when that count is unread, any change from before. At settle_s the last read
+    stands (the trial then says what it read)."""
+    want = max(0, before - added) if added is not None else None
+    t_end = io.now() + settle_s
+    while True:
+        r = io.bag_room()
+        if r is not None and (r <= want if want is not None else r != before):
+            return r
+        if io.now() >= t_end:
+            return r
+        io.sleep(every_s)
+
+
 def apply_interruption(io, step: str, spec: dict, t0: float) -> dict:
     """Put the interruption in now. Returns {step, took, t_put, t_clear (None while it lasts), how}. Every fixture is
     the dev world's (DevTarget.setup: dev server only, the fork's guid, refused while another player is on)."""
@@ -1710,13 +1725,19 @@ def apply_interruption(io, step: str, spec: dict, t0: float) -> dict:
                 out["how"] = f"no respawn within {spec.get('respawn_wait_s', 120)} s (dead seen: {saw_dead})"
         elif step == "I4":  # full = no free hotbar or item-page slot (bag_room), never GetNumEmptySlots
             filled = 0
+            room = io.bag_room()
             for _ in range(int(spec.get("rounds", 3))):
-                room = io.bag_room()
                 if not room:
                     break
-                io.fixture("grant", purpose, item=spec["filler"], count=int(room))
-                filled += int(room)
-            left = io.bag_room()
+                g = io.fixture("grant", purpose, item=spec["filler"], count=int(room)) or {}
+                b, a = g.get("before"), g.get("after")
+                added = a - b if isinstance(a, int) and isinstance(b, int) and not isinstance(a, bool) else None
+                filled += int(room) if added is None else added
+                # the grant is the server's, the read is his client's replica: wait until the read shows it, so a
+                # round never grants again on a stale read (an over-grant into a full bag is the fixture's not_added,
+                # a void trial) and the last read never calls a full bag not full
+                room = settled_room(io, int(room), added, float(spec.get("settle_s", 5.0)))
+            left = room
             # full_read: the bag reads full. Not yet an interruption: it took (and later clears) only when a call of
             # his meets it (bag_watch); the fill's own time is never the clear (study 2026-11-18: a false pass)
             out.update(full_read=left == 0, filled=filled, left=left, took=None if left == 0 else False,

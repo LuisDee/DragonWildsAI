@@ -506,7 +506,7 @@ def test_i4_fills_his_bag_until_no_slot_is_left():
     out = j.apply_interruption(io, "I4", {"filler": "ITEM_FishingNet_CoarseNet", "rounds": 3}, T0)
     # full_read, not took: the fill is an interruption only once a call of his meets it (job_run.bag_watch)
     assert [kw["count"] for v, kw in io.fixtures] == [12, 2] and out["full_read"] and out["took"] is None
-    io = FakeIO(room=[5, 5, 5, 5])
+    io = FakeIO(room=[5] * 40)  # a bag that never fills: every read 5
     assert not j.apply_interruption(io, "I4", {"filler": "x", "rounds": 3}, T0)["took"]
 
 

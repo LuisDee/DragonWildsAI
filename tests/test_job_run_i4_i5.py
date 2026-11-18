@@ -59,8 +59,42 @@ def test_i4_fill_reads_full_but_has_not_bitten():
     out = j.apply_interruption(io, "I4", {"filler": "ITEM_FishingNet_CoarseNet", "rounds": 3}, T0)
     assert out["full_read"] is True and out["filled"] == 12 and out["left"] == 0
     assert out["took"] is None and out["t_clear"] is None  # a fill is not an interruption until a call meets it
-    out = j.apply_interruption(FakeIO(room=[5, 5, 5, 5]), "I4", {"filler": "x", "rounds": 3}, T0)
+    out = j.apply_interruption(FakeIO(room=[5] * 40), "I4", {"filler": "x", "rounds": 3}, T0)  # never fills: every read 5
     assert out["full_read"] is False and out["took"] is False
+
+
+class LagIO(FakeIO):
+    """The grant lands on the server at once (its before/after count), the client's read shows it a few reads later."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.held = 0
+
+    def fixture(self, verb, purpose, **kw):
+        super().fixture(verb, purpose, **kw)
+        b, self.held = self.held, self.held + int(kw["count"])
+        return {"ok": True, "before": b, "after": self.held}
+
+
+def test_i4_waits_for_his_client_to_show_the_grant_before_granting_again():
+    # the old loop read the stale 40 twice more and granted 120 nets into a 40-slot bag (the 2nd grant: not_added, void)
+    io = LagIO(room=[40, 40, 40, 0])
+    out = j.apply_interruption(io, "I4", {"filler": "ITEM_FishingNet_CoarseNet", "rounds": 3}, T0)
+    assert [kw["count"] for v, kw in io.fixtures] == [40]
+    assert out["filled"] == 40 and out["left"] == 0 and out["full_read"] is True
+    # a client that never shows it: the last read stands after settle_s, the trial says it is not full
+    io = LagIO(room=[40] * 100)
+    out = j.apply_interruption(io, "I4", {"filler": "x", "rounds": 1, "settle_s": 2.0}, T0)
+    assert out["full_read"] is False and out["left"] == 40 and io.t - T0 <= 2.5
+    # a partial landing (the server counted 30 of 40): the read settles at 10, the next round grants 10
+    class PartIO(LagIO):
+        def fixture(self, verb, purpose, **kw):
+            FakeIO.fixture(self, verb, purpose, **kw)
+            b, self.held = self.held, self.held + min(int(kw["count"]), 30)
+            return {"ok": True, "before": b, "after": self.held}
+    io = PartIO(room=[40, 40, 10, 10, 0])
+    out = j.apply_interruption(io, "I4", {"filler": "x", "rounds": 3}, T0)
+    assert [kw["count"] for v, kw in io.fixtures] == [40, 10] and out["filled"] == 40 and out["full_read"] is True
 
 
 def test_snapshot_reads_room_from_get_states_bag_when_the_pages_are_not_there():
