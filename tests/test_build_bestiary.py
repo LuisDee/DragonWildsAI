@@ -275,6 +275,54 @@ def test_missing_fields_say_so(doc):
     assert "Weak to: not in the mirror." in t and "Drops: not in the mirror." in t and "Attacks: not in the mirror." in t
 
 
+MAGPIE = """{{Infobox Monster
+| name = Magpie
+| power_level = 1
+| aggressive = No
+}}
+'''Magpies''' are [[power level]] 1 non-aggressive creatures in [[Ashenfall]]. They can be found on most of Ashenfall's territories. They can be scared very easily and fly away when somebody gets near them. Their feathers can be used to create [[arrows]].
+"""
+
+DOE = """{{Infobox Monster
+| name = Doe
+| power_level = 1
+}}
+'''Does''' are creatures that are non-aggressive and too fast to keep up with on foot; they should be killed via ranged attacks. Does can be alerted and will flee if the player is within 50 metres, and/or if a monster within 50 metres is hit with ranged attacks.
+"""
+
+WYRM = """{{Infobox Monster
+| name = Wyrm
+| power_level = 9
+}}
+'''Wyrms''' are generals, feared since the god's retreat from the wyrm. The wyrm will also spit fire at the player.
+"""
+
+WYRM_STRAT = """Phase 1: once his health is down he breathes fire and flies off into the air.
+"""
+
+
+def test_flee_and_speed_sentences_are_kept_as_behaviour():
+    """The wiki's 'scared ... fly away when somebody gets near' (Magpie) is a fact a player is told; it used to be cut
+    because only the lead's first sentence was kept. A flee sentence that names attacks is behaviour, not an attack note.
+    Lore ('the god's retreat') and boss fight phases on a Strategies page ('flies off into the air') are not behaviour."""
+    mirror = bb.Mirror.from_pages({"Magpie": page(11, "Magpie", MAGPIE), "Doe": page(12, "Doe", DOE),
+                                   "Wyrm": page(13, "Wyrm", WYRM), "Wyrm/Strategies": page(14, "Wyrm/Strategies", WYRM_STRAT)})
+    d = bb.build(mirror)
+    mag = d["creatures"]["Magpie"]
+    assert mag["behaviour"] == ["They can be scared very easily and fly away when somebody gets near them."]
+    assert mag["src"]["behaviour"] == [11]
+    assert "Behaviour: They can be scared very easily and fly away when somebody gets near them." in mag["text"]
+    assert "found on most" not in mag["text"] and "feathers" not in mag["text"].lower()
+    doe = d["creatures"]["Doe"]
+    assert doe["lead"].endswith("too fast to keep up with on foot.")  # already the lead: not repeated
+    assert doe["behaviour"] == ["Does can be alerted and will flee if the player is within 50 metres, and/or if a "
+                                "monster within 50 metres is hit with ranged attacks."]
+    assert "attack_notes" not in doe and doe["text"].count("will flee") == 1
+    assert "should" not in doe["text"]
+    wyrm = d["creatures"]["Wyrm"]
+    assert "behaviour" not in wyrm and "flies off" not in wyrm["text"]
+
+
 # ---------------------------------------------------------------- sources beyond the mirror
 
 
@@ -651,6 +699,7 @@ def test_built_file_counts_and_contract():
                 if f == "observed_attacks":
                     assert ids == [bb.OWN], k
     assert d["vaults"]["Crasorak Kara"]["boss"][0]["creature"] == "Vault Overlord"
+    assert "fly away when somebody gets near" in d["creatures"]["Magpie"]["text"]  # the wiki's flee sentence
     assert "Zogre" in {r["from"] for r in d["dropped_by"]["Hard Leather"]["rows"]}
 
 

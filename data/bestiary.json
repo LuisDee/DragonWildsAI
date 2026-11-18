@@ -1,6 +1,6 @@
 {
  "schema": "dw_bestiary/1",
- "built_at": "2026-11-17T23:01:07Z",
+ "built_at": "2026-11-18T20:20:25Z",
  "source": "wiki mirror data/wiki (CC BY-NC-SA 3.0); page ids are its pageids. Named src tags: 'metabot.gg' = https://metabot.gg/en/dragonwilds/bestiary (snapshot data/bestiary_external.json), 'own fights' = his client's combat memory (data/skills/*/combat_*.json), 'game' = the game's own tables read on his client (client_mod/commands/bestiary_tables_probe.lua, merged with --from-probe)",
  "creatures": {
   "Abyssal Demon": {
@@ -2488,7 +2488,7 @@
     "Dowdun Reach"
    ],
    "lead": "Deer are power level 1 and 5 creatures that are non-aggressive and too fast to keep up with on foot.",
-   "attack_notes": [
+   "behaviour": [
     "Deer can be alerted and will flee if the player is within 50 metres, and/or if a monster within 50 metres is hit with either ranged or magic attacks."
    ],
    "drops": [
@@ -2602,7 +2602,7 @@
     "lead": [
      184
     ],
-    "attack_notes": [
+    "behaviour": [
      184
     ],
     "drops": [
@@ -2615,7 +2615,7 @@
      "game"
     ]
    },
-   "text": "Deer: creature.\nDeer are power level 1 and 5 creatures that are non-aggressive and too fast to keep up with on foot.\nBrynmoor: power level 1, health 30. Ghornfell: power level 2, health 172. Dowdun Reach: power level 5, health 220.\nRace: Deer. Weak to Ranged. Resistant to None. Aggressive: no. Respawn: 1-2 days.\nLives in: Bramblemead Valley, Temple Woods, Fractured Plains, Stormtouched Highlands, Dowdun Reach.\nDeer can be alerted and will flee if the player is within 50 metres, and/or if a monster within 50 metres is hit with either ranged or magic attacks.\nDrops in the game's tables: from power level 0: Raw Game Meat 1 (always), Antler 1 (always), Animal Hide 1 (always), Animal Hide 1 (always), Animal Bone 2 (always).\nDrops: Raw Game Meat 1 (always), Antler 1 (always), Animal Hide 1 (always), Animal Bone 2 (always), Animal Hide 1 (20/100).\nSources: wiki pages 184; the game's own data on his client (journal, drops)."
+   "text": "Deer: creature.\nDeer are power level 1 and 5 creatures that are non-aggressive and too fast to keep up with on foot.\nBrynmoor: power level 1, health 30. Ghornfell: power level 2, health 172. Dowdun Reach: power level 5, health 220.\nRace: Deer. Weak to Ranged. Resistant to None. Aggressive: no. Respawn: 1-2 days.\nBehaviour: Deer can be alerted and will flee if the player is within 50 metres, and/or if a monster within 50 metres is hit with either ranged or magic attacks.\nLives in: Bramblemead Valley, Temple Woods, Fractured Plains, Stormtouched Highlands, Dowdun Reach.\nAttacks: not in the mirror.\nDrops in the game's tables: from power level 0: Raw Game Meat 1 (always), Antler 1 (always), Animal Hide 1 (always), Animal Hide 1 (always), Animal Bone 2 (always).\nDrops: Raw Game Meat 1 (always), Antler 1 (always), Animal Hide 1 (always), Animal Bone 2 (always), Animal Hide 1 (20/100).\nSources: wiki pages 184; the game's own data on his client (journal, drops)."
   },
   "Delrom": {
    "kind": "creature",
@@ -5769,6 +5769,9 @@
     "Stormtouched Highlands"
    ],
    "lead": "Gyrfalcons are power level 1 non-aggressive birds that can be found exclusively in the Stormtouched Highlands.",
+   "behaviour": [
+    "Like magpies, they will fly away if you get too close to them."
+   ],
    "drops": [
     {
      "item": "Feathers",
@@ -5812,6 +5815,9 @@
     "lead": [
      1370
     ],
+    "behaviour": [
+     1370
+    ],
     "drops": [
      1370
     ],
@@ -5819,7 +5825,7 @@
      "game"
     ]
    },
-   "text": "Gyrfalcon: creature.\nGyrfalcons are power level 1 non-aggressive birds that can be found exclusively in the Stormtouched Highlands.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: None.\nLives in: Stormtouched Highlands.\nAttacks: not in the mirror.\nDrops: Feathers 1 (always), Feathers 1 (60/100).\nSources: wiki pages 1370; the game's own data on his client (journal)."
+   "text": "Gyrfalcon: creature.\nGyrfalcons are power level 1 non-aggressive birds that can be found exclusively in the Stormtouched Highlands.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: None.\nBehaviour: Like magpies, they will fly away if you get too close to them.\nLives in: Stormtouched Highlands.\nAttacks: not in the mirror.\nDrops: Feathers 1 (always), Feathers 1 (60/100).\nSources: wiki pages 1370; the game's own data on his client (journal)."
   },
   "Heartworm": {
    "kind": "creature",
@@ -8653,6 +8659,9 @@
     "Fractured Plains"
    ],
    "lead": "Magpies are power level 1 non-aggressive creatures in Ashenfall.",
+   "behaviour": [
+    "They can be scared very easily and fly away when somebody gets near them."
+   ],
    "drops": [
     {
      "item": "Feathers",
@@ -8696,6 +8705,9 @@
     "lead": [
      1326
     ],
+    "behaviour": [
+     1326
+    ],
     "drops": [
      1326
     ],
@@ -8703,7 +8715,7 @@
      "game"
     ]
    },
-   "text": "Magpie: creature.\nMagpies are power level 1 non-aggressive creatures in Ashenfall.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: No.\nLives in: Temple Woods, Bramblemead Valley, Fractured Plains.\nAttacks: not in the mirror.\nDrops: Feathers 1 (always), Feathers 1 (60/100).\nSources: wiki pages 1326; the game's own data on his client (journal)."
+   "text": "Magpie: creature.\nMagpies are power level 1 non-aggressive creatures in Ashenfall.\nPower level 1, health 1.\nRace: Bird. Weak to None. Resistant to None. Aggressive: No.\nBehaviour: They can be scared very easily and fly away when somebody gets near them.\nLives in: Temple Woods, Bramblemead Valley, Fractured Plains.\nAttacks: not in the mirror.\nDrops: Feathers 1 (always), Feathers 1 (60/100).\nSources: wiki pages 1326; the game's own data on his client (journal)."
   },
   "Nature Spirit": {
    "kind": "creature",
@@ -21980,12 +21992,12 @@
    "resist": 11,
    "immune": 79,
    "locations": 2,
-   "attacks_any": 62,
+   "attacks_any": 63,
    "drops": 17,
    "weak_wiki": 21,
    "resist_wiki": 14,
    "immune_wiki": 80,
-   "attacks_wiki": 93,
+   "attacks_wiki": 94,
    "observed_attacks": 124,
    "journal": 26,
    "game_attacks": 88,

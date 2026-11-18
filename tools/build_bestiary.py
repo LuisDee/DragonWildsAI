@@ -72,6 +72,9 @@ ADVICE = re.compile(r"\b(recommend\w*|should|advis\w*|suggest\w*|it is (?:best|b
 ATTACK_HEAD = re.compile(r"attack|mechanic|moveset|abilit|combat|phase", re.I)
 ATTACK_SENT = re.compile(r"\battacks? (?:are|is|include|includes|consist)\b", re.I)
 LEAD_ATTACK = re.compile(r"\b(attack\w*|breath|strikes?|charges?|slams?|spits?|throws?|barrages?)\b", re.I)
+# A lead sentence on how the creature reacts to a player: it flees, flies or runs away, or is too fast to catch.
+BEHAVIOUR = re.compile(r"\b(?:fle(?:e|es|eing|d)|run(?:s|ning)? away|ran away|fl(?:y|ies|ew|ying) (?:away|off)|scared|"
+                       r"too fast to|outrun\w*)\b", re.I)
 OPENS = re.compile(r"\b(locked|unlock\w*|open(?:ed|s)?|keys?|requires?|must be|effig\w*|statues?|levers?|blocked|"
                    r"cleared|mined|cut through|soul rift\w*)\b", re.I)
 
@@ -502,7 +505,7 @@ def attacks_of(mirror: Mirror, title: str, src: Src) -> tuple[list[dict], list[s
                 items += got
                 src.add("attacks", mirror.pid(title))
     lead = facts_only(sentences(plain(secs[0]["body"]))) if secs else []
-    lead_att = [s for s in lead[1:] if LEAD_ATTACK.search(s)]
+    lead_att = [s for s in lead[1:] if LEAD_ATTACK.search(s) and not BEHAVIOUR.search(s)]  # a flee is behaviour
     if lead_att:
         said += lead_att[:2]
         src.add("attack_notes", mirror.pid(title))
@@ -1043,6 +1046,10 @@ def build_creatures(mirror: Mirror) -> dict[str, dict]:
         if lead:
             e["lead"] = lead[0][:300]
             src.add("lead", pid)
+        behaviour = [x[:300] for x in lead[1:] if BEHAVIOUR.search(x)]  # flees, flies away, too fast to catch
+        if behaviour:
+            e["behaviour"] = behaviour[:2]
+            src.add("behaviour", pid)
         items, said = attacks_of(mirror, title, src)
         if items:
             e["attacks"] = items
@@ -1535,6 +1542,8 @@ def creature_text(e: dict, vault_rows: list[str], boss_of: list[str], short: int
         if e.get("respawn"):
             fx.append(f"Respawn: {e['respawn']}.")
         p.append(" ".join(fx))
+        for b in e.get("behaviour") or []:
+            p.append(f"Behaviour: {b}")
         if e.get("locations"):
             p.append(f"Lives in: {', '.join(e['locations'])}.")
         if vault_rows:
