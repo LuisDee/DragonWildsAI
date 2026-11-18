@@ -1,0 +1,1020 @@
+{
+ "old": "26574459",
+ "new": "26670300",
+ "generated_at": "2026-11-18T12:27:55Z",
+ "dump": {
+  "old": "26574459",
+  "new": "26670300",
+  "classes": {
+   "added": [
+    "ABP_BaseBuilding_BedRoll_C",
+    "FPropertyBag_2d5cff1de8fceceb",
+    "FPropertyBag_4f1b9c0025cf7c0f",
+    "FPropertyBag_8b78783681fa27dd",
+    "FPropertyBag_93c1052d828c75df",
+    "FPropertyBag_e3ca04a80398c6c",
+    "FPropertyBag_ee5941c44387434e",
+    "FPropertyBag_f298e40d549c1c17",
+    "FPropertyBag_f6c1ebf1acb72336"
+   ],
+   "removed": [
+    "FPropertyBag_1d6cf3b0c2692a32",
+    "FPropertyBag_75358ee55a83be4b",
+    "FPropertyBag_a83f18c4825e8f94",
+    "FPropertyBag_c718e431e17df96a",
+    "FPropertyBag_d6ccd21964b6b59c",
+    "FPropertyBag_e7230d86a68192c6",
+    "FPropertyBag_eb55fc17f2eed756",
+    "FPropertyBag_fdd967a75dbaca0a"
+   ],
+   "changed": {
+    "APostBoxBase": {
+     "funcs_added": {
+      "OnHidePostBox": ""
+     }
+    },
+    "UHingeComponent": {
+     "offset_info": {
+      "size": [
+       480,
+       592
+      ],
+      "offset_changed_count": 5,
+      "offset_changed_sample": {
+       "DoorOpenSound": [
+        "0x158",
+        "0x1c8"
+       ],
+       "DoorCloseSound": [
+        "0x160",
+        "0x1d0"
+       ],
+       "HingeTransform": [
+        "0x170",
+        "0x1e0"
+       ],
+       "bOpenAwayFromPlayer": [
+        "0x1d0",
+        "0x240"
+       ],
+       "bShouldUpdateNavigation": [
+        "0x1d1",
+        "0x241"
+       ]
+      }
+     }
+    }
+   }
+  },
+  "enums": {
+   "added": [],
+   "removed": [],
+   "changed": {}
+  },
+  "assets": {
+   "added": {
+    "AiAttackData": [
+     "/Engine/Transient.AiAttackData_2147481791",
+     "/Engine/Transient.AiAttackData_2147481793",
+     "/Engine/Transient.AiAttackData_2147481794"
+    ],
+    "AnimMontage": [
+     "/Game/Art/Animation/PlayerM/Interact/AM_PlayerM_SleepingMatt_Sleep.AM_PlayerM_SleepingMatt_Sleep"
+    ],
+    "AnimSequence": [
+     "/Game/Art/Animation/PlayerM/Interact/A_PlayerM_Bed_Sleep_In.A_PlayerM_Bed_Sleep_In",
+     "/Game/Art/Animation/PlayerM/Interact/A_PlayerM_Bed_Sleep_Out.A_PlayerM_Bed_Sleep_Out",
+     "/Game/Art/Animation/PlayerM/Interact/A_PlayerM_SleepingMatt_Sleep_Lp.A_PlayerM_SleepingMatt_Sleep_Lp"
+    ],
+    "BP_BaseBuilding_BedRoll_C": [
+     "/Game/Gameplay/BaseBuilding/Actors/Props/Cosiness/BP_BaseBuilding_BedRoll.Default__BP_BaseBuilding_BedRoll_C"
+    ],
+    "BlueprintGeneratedClass": [
+     "/Game/Gameplay/BaseBuilding/Actors/Props/Cosiness/BP_BaseBuilding_BedRoll.BP_BaseBuilding_BedRoll_C"
+    ],
+    "BuildingPieceDerivedData": [
+     "/Game/Gameplay/BaseBuilding/Data/BuildingPieces_DerivedData/Furniture/Comfort/BUILDPIECE_Interior_BedRoll_DerivedData.BUILDPIECE_Interior_BedRoll_DerivedData",
+     "/Game/Gameplay/BaseBuilding/Data/BuildingPieces_DerivedData/Structures/Crafting/BUILDPIECE_CraftingStation_Rune_Altar_DerivedData.BUILDPIECE_CraftingStation_Rune_Altar_DerivedData"
+    ],
+    "CameraProfile": [
+     "/Game/Gameplay/Character/Data/RestingModeCameraProfile.RestingModeCameraProfile"
+    ],
+    "DataTable": [
+     "/Game/Gameplay/BaseBuilding/DT_CosinessValues.DT_CosinessValues"
+    ],
+    "DominionMetaSoundSource": [
+     "/Game/Audio/MetasoundSources/Player/Interactions/BaseBuilding/Furniture_Destruction/MSS_Pl_Bu_Destroy_Furniture_Fabric.MSS_Pl_Bu_Destroy_Furniture_Fabric",
+     "/Game/Audio/MetasoundSources/Player/Interactions/BaseBuilding/Furniture_Destruction/MSS_Pl_Bu_Destroy_Furniture_Fabric_Rem.MSS_Pl_Bu_Destroy_Furniture_Fabric_Rem",
+     "/Game/Audio/MetasoundSources/Player/Interactions/BaseBuilding/Furniture_Place/MSS_Pl_Bu_Place_Object_Fabric.MSS_Pl_Bu_Place_Object_Fabric",
+     "/Game/Audio/MetasoundSources/Player/Interactions/BaseBuilding/Furniture_Place/MSS_Pl_Bu_Place_Object_Fabric_Rem.MSS_Pl_Bu_Place_Object_Fabric_Rem",
+     "/Game/Audio/MetasoundSources/UI/Crafting/Placement/MSS_Pl_Cr_RuneAltar_Placement.MSS_Pl_Cr_RuneAltar_Placement",
+     "/Game/Audio/MetasoundSources/UI/Crafting/Placement/MSS_Pl_Cr_RuneAltar_Placement_Rem.MSS_Pl_Cr_RuneAltar_Placement_Rem",
+     "/Game/Audio/MetasoundSources/UI/Notifies/GameplayNotifies/MSS_UI_Nt_Pl_ClaimBed.MSS_UI_Nt_Pl_ClaimBed"
+    ],
+    "MaterialInstanceConstant": [
+     "/Game/Art/Env/Base_Building/Furniture/Cosiness/Sleeping_Mat/Materials/MI_Sleeping_Mat_01.MI_Sleeping_Mat_01",
+     "/Game/Art/Env/Base_Building/Furniture/Cosiness/Sleeping_Mat/Materials/MI_Sleeping_Mat_NoGlint.MI_Sleeping_Mat_NoGlint"
+    ],
+    "PropertyBag": [
+     "/Engine/Transient.PropertyBag_2d5cff1de8fceceb",
+     "/Engine/Transient.PropertyBag_4f1b9c0025cf7c0f",
+     "/Engine/Transient.PropertyBag_8b78783681fa27dd",
+     "/Engine/Transient.PropertyBag_93c1052d828c75df",
+     "/Engine/Transient.PropertyBag_e3ca04a80398c6c",
+     "/Engine/Transient.PropertyBag_ee5941c44387434e",
+     "/Engine/Transient.PropertyBag_f298e40d549c1c17",
+     "/Engine/Transient.PropertyBag_f6c1ebf1acb72336"
+    ],
+    "RigVM": [
+     "/Engine/Transient.RIG_Abyssal_Demon_01_v2_C_VM_1",
+     "/Engine/Transient.RIG_T_GroundIK_Biped_C_VM_3",
+     "/Engine/Transient.RIG_T_GroundIK_Quadruped_C_VM_2",
+     "/Engine/Transient.RigVM_2147481796"
+    ],
+    "SoundWave": [
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/AW_UI_Pl_Cr_Placement_RuneAltar.AW_UI_Pl_Cr_Placement_RuneAltar",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Destruction/AW_UI_Cr_Destroy_Furniture_Fabric_01.AW_UI_Cr_Destroy_Furniture_Fabric_01",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Destruction/AW_UI_Cr_Destroy_Furniture_Fabric_02.AW_UI_Cr_Destroy_Furniture_Fabric_02",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Destruction/AW_UI_Cr_Destroy_Furniture_Fabric_03.AW_UI_Cr_Destroy_Furniture_Fabric_03",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Destruction/AW_UI_Cr_Destroy_Furniture_Fabric_04.AW_UI_Cr_Destroy_Furniture_Fabric_04",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Destruction/AW_UI_Cr_Destroy_Furniture_Fabric_05.AW_UI_Cr_Destroy_Furniture_Fabric_05",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Destruction/AW_UI_Cr_Destroy_Furniture_Fabric_06.AW_UI_Cr_Destroy_Furniture_Fabric_06",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Furniture/AW_UI_Cr_Placement_Object_Fabric_01.AW_UI_Cr_Placement_Object_Fabric_01",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Furniture/AW_UI_Cr_Placement_Object_Fabric_02.AW_UI_Cr_Placement_Object_Fabric_02",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Furniture/AW_UI_Cr_Placement_Object_Fabric_03.AW_UI_Cr_Placement_Object_Fabric_03",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Furniture/AW_UI_Cr_Placement_Object_Fabric_04.AW_UI_Cr_Placement_Object_Fabric_04",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Furniture/AW_UI_Cr_Placement_Object_Fabric_05.AW_UI_Cr_Placement_Object_Fabric_05",
+     "/Game/Audio/SoundWaves/SFX/UI/Crafting/Placement/Furniture/AW_UI_Cr_Placement_Object_Fabric_06.AW_UI_Cr_Placement_Object_Fabric_06",
+     "/Game/Audio/SoundWaves/SFX/UI/Notifies/Gameplay_Notifies/ClaimBed/AW_UI_Nt_ClaimBed.AW_UI_Nt_ClaimBed"
+    ],
+    "SpudStateCustomData": [
+     "/Engine/Transient.SpudStateCustomData_2147480904",
+     "/Engine/Transient.SpudStateCustomData_2147480905",
+     "/Engine/Transient.SpudStateCustomData_2147480906",
+     "/Engine/Transient.SpudStateCustomData_2147480907",
+     "/Engine/Transient.SpudStateCustomData_2147480908",
+     "/Engine/Transient.SpudStateCustomData_2147480909",
+     "/Engine/Transient.SpudStateCustomData_2147480910",
+     "/Engine/Transient.SpudStateCustomData_2147480911",
+     "/Engine/Transient.SpudStateCustomData_2147480912",
+     "/Engine/Transient.SpudStateCustomData_2147480921",
+     "/Engine/Transient.SpudStateCustomData_2147480922",
+     "/Engine/Transient.SpudStateCustomData_2147480923",
+     "/Engine/Transient.SpudStateCustomData_2147480927",
+     "/Engine/Transient.SpudStateCustomData_2147480948",
+     "/Engine/Transient.SpudStateCustomData_2147480949",
+     "/Engine/Transient.SpudStateCustomData_2147480953",
+     "/Engine/Transient.SpudStateCustomData_2147480954",
+     "/Engine/Transient.SpudStateCustomData_2147480966",
+     "/Engine/Transient.SpudStateCustomData_2147480967",
+     "/Engine/Transient.SpudStateCustomData_2147480968",
+     "/Engine/Transient.SpudStateCustomData_2147480969",
+     "/Engine/Transient.SpudStateCustomData_2147480971",
+     "/Engine/Transient.SpudStateCustomData_2147480972",
+     "/Engine/Transient.SpudStateCustomData_2147480973",
+     "/Engine/Transient.SpudStateCustomData_2147480978",
+     "/Engine/Transient.SpudStateCustomData_2147481007",
+     "/Engine/Transient.SpudStateCustomData_2147481008",
+     "/Engine/Transient.SpudStateCustomData_2147481009",
+     "/Engine/Transient.SpudStateCustomData_2147481010",
+     "/Engine/Transient.SpudStateCustomData_2147481011",
+     "/Engine/Transient.SpudStateCustomData_2147481012",
+     "/Engine/Transient.SpudStateCustomData_2147481013",
+     "/Engine/Transient.SpudStateCustomData_2147481039",
+     "/Engine/Transient.SpudStateCustomData_2147481056",
+     "/Engine/Transient.SpudStateCustomData_2147481060",
+     "/Engine/Transient.SpudStateCustomData_2147481061",
+     "/Engine/Transient.SpudStateCustomData_2147481062",
+     "/Engine/Transient.SpudStateCustomData_2147481063",
+     "/Engine/Transient.SpudStateCustomData_2147481064",
+     "/Engine/Transient.SpudStateCustomData_2147481065",
+     "/Engine/Transient.SpudStateCustomData_2147481067",
+     "/Engine/Transient.SpudStateCustomData_2147481068",
+     "/Engine/Transient.SpudStateCustomData_2147481069"
+    ],
+    "StaticMesh": [
+     "/Game/Art/Env/Base_Building/Furniture/Cosiness/Sleeping_Mat/SM_Sleeping_Mat_01.SM_Sleeping_Mat_01"
+    ],
+    "Texture2D": [
+     "/Game/Art/Env/Base_Building/Furniture/Cosiness/Sleeping_Mat/Texture/T_Sleeping_Mat_01_BCC.T_Sleeping_Mat_01_BCC",
+     "/Game/Art/Env/Base_Building/Furniture/Cosiness/Sleeping_Mat/Texture/T_Sleeping_Mat_01_NRM.T_Sleeping_Mat_01_NRM"
+    ]
+   },
+   "removed": {
+    "AiAttackData": [
+     "/Engine/Transient.AiAttackData_2147481797",
+     "/Engine/Transient.AiAttackData_2147481798",
+     "/Engine/Transient.AiAttackData_2147481799"
+    ],
+    "PropertyBag": [
+     "/Engine/Transient.PropertyBag_1d6cf3b0c2692a32",
+     "/Engine/Transient.PropertyBag_75358ee55a83be4b",
+     "/Engine/Transient.PropertyBag_a83f18c4825e8f94",
+     "/Engine/Transient.PropertyBag_c718e431e17df96a",
+     "/Engine/Transient.PropertyBag_d6ccd21964b6b59c",
+     "/Engine/Transient.PropertyBag_e7230d86a68192c6",
+     "/Engine/Transient.PropertyBag_eb55fc17f2eed756",
+     "/Engine/Transient.PropertyBag_fdd967a75dbaca0a"
+    ],
+    "RigVM": [
+     "/Engine/Transient.RIG_Abyssal_Demon_01_v2_C_VM_3",
+     "/Engine/Transient.RIG_T_GroundIK_Biped_C_VM_2",
+     "/Engine/Transient.RIG_T_GroundIK_Quadruped_C_VM_1",
+     "/Engine/Transient.RigVM_2147481794"
+    ],
+    "SpudStateCustomData": [
+     "/Engine/Transient.SpudStateCustomData_2147480932",
+     "/Engine/Transient.SpudStateCustomData_2147480935",
+     "/Engine/Transient.SpudStateCustomData_2147480937",
+     "/Engine/Transient.SpudStateCustomData_2147480938",
+     "/Engine/Transient.SpudStateCustomData_2147480939",
+     "/Engine/Transient.SpudStateCustomData_2147480956",
+     "/Engine/Transient.SpudStateCustomData_2147480957",
+     "/Engine/Transient.SpudStateCustomData_2147480961",
+     "/Engine/Transient.SpudStateCustomData_2147480962",
+     "/Engine/Transient.SpudStateCustomData_2147480982",
+     "/Engine/Transient.SpudStateCustomData_2147480991",
+     "/Engine/Transient.SpudStateCustomData_2147480993",
+     "/Engine/Transient.SpudStateCustomData_2147480994",
+     "/Engine/Transient.SpudStateCustomData_2147480995",
+     "/Engine/Transient.SpudStateCustomData_2147480996",
+     "/Engine/Transient.SpudStateCustomData_2147480997",
+     "/Engine/Transient.SpudStateCustomData_2147480998",
+     "/Engine/Transient.SpudStateCustomData_2147480999",
+     "/Engine/Transient.SpudStateCustomData_2147481000",
+     "/Engine/Transient.SpudStateCustomData_2147481018",
+     "/Engine/Transient.SpudStateCustomData_2147481019",
+     "/Engine/Transient.SpudStateCustomData_2147481020",
+     "/Engine/Transient.SpudStateCustomData_2147481023",
+     "/Engine/Transient.SpudStateCustomData_2147481027",
+     "/Engine/Transient.SpudStateCustomData_2147481031",
+     "/Engine/Transient.SpudStateCustomData_2147481032",
+     "/Engine/Transient.SpudStateCustomData_2147481049",
+     "/Engine/Transient.SpudStateCustomData_2147481137",
+     "/Engine/Transient.SpudStateCustomData_2147481138",
+     "/Engine/Transient.SpudStateCustomData_2147481139",
+     "/Engine/Transient.SpudStateCustomData_2147481140",
+     "/Engine/Transient.SpudStateCustomData_2147481141",
+     "/Engine/Transient.SpudStateCustomData_2147481142",
+     "/Engine/Transient.SpudStateCustomData_2147481143",
+     "/Engine/Transient.SpudStateCustomData_2147481144",
+     "/Engine/Transient.SpudStateCustomData_2147481145"
+    ]
+   },
+   "both_have_object_dump": true
+  },
+  "bp_members": {
+   "changed": {
+    "/Game/Art/Env/Lighting/Torhes/BP_TorchBase.BP_TorchBase_C": {
+     "added": {
+      "BP_ProxyLightComponent_GEN_VARIABLE": "BP_ProxyLightComponent_C",
+      "DiegeticEmitterPoint_GEN_VARIABLE": "DiegeticEmitterPointComponent",
+      "NS_Torch_02_GEN_VARIABLE": "NiagaraComponent",
+      "PointLight_GEN_VARIABLE": "PointLightComponent",
+      "DefaultSceneRoot_GEN_VARIABLE": "SceneComponent",
+      "Fire_Position_GEN_VARIABLE": "SceneComponent"
+     },
+     "removed": {},
+     "changed": {}
+    },
+    "/Game/Art/Skeleton/NPC/ABP_Master/TABP_Locomotion_Biped.TABP_Locomotion_Biped_C": {
+     "added": {
+      "BlendSpace_0": "BlendSpace",
+      "BlendSpace_1": "BlendSpace",
+      "BlendSpace_2": "BlendSpace",
+      "BlendSpace_3": "BlendSpace",
+      "BlendSpace_4": "BlendSpace",
+      "BlendSpace_5": "BlendSpace",
+      "AnimBlueprintGeneratedConstantData": "ScriptStruct",
+      "AnimBlueprintGeneratedMutableData": "ScriptStruct"
+     },
+     "removed": {},
+     "changed": {}
+    },
+    "/Game/Art/Env/Lighting/BPs/BP_GroundFog_v03.BP_GroundFog_v03_C": {
+     "added": {
+      "DefaultSceneRoot_GEN_VARIABLE": "SceneComponent",
+      "Cube_GEN_VARIABLE": "StaticMeshComponent",
+      "SimpleConstructionScript_0": "SimpleConstructionScript"
+     },
+     "removed": {},
+     "changed": {}
+    },
+    "/Game/Gameplay/World/Trees/BP_FellableTree_Base.BP_FellableTree_Base_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/Ash/BP_FellableTree_Ash.BP_FellableTree_Ash_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Ash_03.BP_FH_Tree_Ash_03_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Ash_02.BP_FH_Tree_Ash_02_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Ash_01.BP_FH_Tree_Ash_01_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/Oak/BP_FellableTree_Oak.BP_FellableTree_Oak_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Oak_02.BP_FH_Tree_Oak_02_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Oak_01.BP_FH_Tree_Oak_01_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/Willow/BP_FellableTree_Willow.BP_FellableTree_Willow_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Willow_03.BP_FH_Tree_Willow_03_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Willow_02.BP_FH_Tree_Willow_02_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Gameplay/World/Trees/BP_FH_Tree_Willow_01.BP_FH_Tree_Willow_01_C": {
+     "added": {},
+     "removed": {},
+     "changed": {
+      "Niagara": [
+       "NiagaraComponent",
+       "NiagaraDataInterfaceStaticMesh"
+      ]
+     }
+    },
+    "/Game/Art/Skeleton/NPC/Humanoid/M_MED_Goblin_Ranged_01/PPABP_SKEL_M_MED_Goblin_Ranged_01.PPABP_SKEL_M_MED_Goblin_Ranged_01_C": {
+     "added": {
+      "AnimBlueprintGeneratedConstantData": "ScriptStruct"
+     },
+     "removed": {},
+     "changed": {}
+    },
+    "/Game/EditorTools/Scattering/Blueprints/BP_PCG_TileSpawner.BP_PCG_TileSpawner_C": {
+     "added": {},
+     "removed": {
+      "Box_GEN_VARIABLE": "BoxComponent",
+      "DefaultSceneRoot_GEN_VARIABLE": "SceneComponent",
+      "SimpleConstructionScript_0": "SimpleConstructionScript"
+     },
+     "changed": {}
+    },
+    "/Game/Art/Skeleton/NPC/ABP_Master/TABP_Head_AimOffset.TABP_Head_AimOffset_C": {
+     "added": {},
+     "removed": {
+      "BlendSpace1D_0": "BlendSpace1D",
+      "BlendSpace1D_1": "BlendSpace1D",
+      "BlendSpace1D_2": "BlendSpace1D",
+      "BlendSpace1D_3": "BlendSpace1D",
+      "BlendSpace1D_4": "BlendSpace1D",
+      "AnimBlueprintGeneratedConstantData": "ScriptStruct",
+      "AnimBlueprintGeneratedMutableData": "ScriptStruct"
+     },
+     "changed": {}
+    }
+   }
+  },
+  "summary": {
+   "classes_added": 9,
+   "classes_removed": 8,
+   "classes_changed": 2,
+   "classes_changed_offset_only": 1,
+   "props_added": 0,
+   "props_removed": 0,
+   "props_type_changed": 0,
+   "funcs_added": 1,
+   "funcs_removed": 0,
+   "funcs_changed": 0,
+   "enums_added": 0,
+   "enums_removed": 0,
+   "enums_changed": 0,
+   "assets_added": 94,
+   "assets_removed": 51,
+   "bp_classes_changed": 18,
+   "total_changes": 183
+  }
+ },
+ "deps": {
+  "counts": {
+   "paths": 1662,
+   "paths_asset": 1598,
+   "paths_asset_member": 1,
+   "paths_script_class": 22,
+   "paths_script_member": 40,
+   "paths_script_module": 1,
+   "class_names": 13,
+   "members": 749,
+   "enums": 0,
+   "enum_values": 16,
+   "bridge_tools": 16,
+   "total": 2440
+  },
+  "check": {
+   "broken": [],
+   "review": [],
+   "unresolved": [
+    {
+     "dep": "/Game/Gameplay/AI/Chicken/BP_AI_Chicken_Character.BP_AI_Chicken_Character_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "debug",
+     "uses": [
+      "experiments/body_probe.lua:30"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/AI/Cow/BP_AI_Cow_Character.BP_AI_Cow_Character_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "debug",
+     "uses": [
+      "experiments/body_probe.lua:29"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/AI/Sheep/BP_AI_Sheep_Character.BP_AI_Sheep_Character_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "debug",
+     "uses": [
+      "experiments/body_probe.lua:31"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Attacks/Mace/BP_Player_Mace_Attack1.BP_Player_Mace_Attack1_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "debug",
+     "uses": [
+      "experiments/puppet_combat.lua:17"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Attacks/Mace/PA_Attack_Mace.Default__PA_Attack_Mace_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "debug",
+     "uses": [
+      "experiments/puppet_combat.lua:21"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Bone.BP_Dagger_Bone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:38"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Bronze.BP_Dagger_Bronze_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:39"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Dragonbone.BP_Dagger_Dragonbone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:40"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Iron.BP_Dagger_Iron_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:41"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Steel.BP_Dagger_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:42"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Stone.BP_Dagger_Stone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:43"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Wolfbane.BP_Dagger_Wolfbane_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:44"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/GreatAxe/BP_GreatAxe_Iron.BP_GreatAxe_Iron_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:45"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/GreatAxe/BP_GreatAxe_Steel.BP_GreatAxe_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:46"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/GreatAxe/BP_GreatAxe_Thane.BP_GreatAxe_Thane_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:47"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Bronze.BP_GreatSword_Bronze_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:48"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Iron.BP_GreatSword_Iron_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:49"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Shadow.BP_GreatSword_Shadow_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:37",
+      "body/attack_data.lua:50"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Steel.BP_GreatSword_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:51"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Hammer/BP_Hammer_Bronze.BP_Hammer_Bronze_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:52"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Hammer/BP_Hammer_Iron.BP_Hammer_Iron_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:53"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Hammer/BP_Hammer_Steel.BP_Hammer_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:54"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Bronze.BP_Logging_Axe_Bronze_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:55"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Iron.BP_Logging_Axe_Iron_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:56"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Steel.BP_Logging_Axe_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:57"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Stone.BP_Logging_Axe_Stone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:58"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_Bone.BP_Club_Bone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:59"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_Stone.BP_Club_Stone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:60"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_SwingSlash.BP_Club_SwingSlash_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:61"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_Wood.BP_Club_Wood_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:62"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_ZombieAxe.BP_Club_ZombieAxe_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:63"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Bronze.BP_Mace_Bronze_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:64"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Iron.BP_Mace_Iron_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:65"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Skullsplitter.BP_Mace_Skullsplitter_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:66"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Steel.BP_Mace_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:67"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe.BP_Pickaxe_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:70"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Bone.BP_Pickaxe_Bone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:68"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Bronze.BP_Pickaxe_Bronze_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:69"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Steel.BP_Pickaxe_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:71"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Stone.BP_Pickaxe_Stone_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:72"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Scimitar/BP_Scimitar_Imaru.BP_Scimitar_Imaru_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:73"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Scimitar/BP_Scimitar_Steel.BP_Scimitar_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:74"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Bronze.BP_Sword_Bronze_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:75"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Chieftans.BP_Sword_Chieftans_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:76"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Iron.BP_Sword_Iron_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:77"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Steel.BP_Sword_Steel_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:78"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Training.BP_Sword_Training_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:79"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/UniqueWeapons/Club/AbyssalWhip/BP_Club_AbyssalWhip.BP_Club_AbyssalWhip_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:81"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/UniqueWeapons/Club/AbyssalWhip/BP_Club_AbyssalWhip1_Vestige.BP_Club_AbyssalWhip1_Vestige_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:80"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/Character/Player/Equipment/Held/UniqueWeapons/Hammer/GraniteMaul/BP_Hammer_GraniteMaul.BP_Hammer_GraniteMaul_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/attack_data.lua:82"
+     ]
+    },
+    {
+     "dep": "/Game/Gameplay/UtilityMagic/PerkSpells/SummonShelter/BP_Magic_SummonShelter.BP_Magic_SummonShelter_C",
+     "kind": "asset",
+     "reason": "asset not in baseline object dump (unloaded at dump time?)",
+     "tier": "core",
+     "uses": [
+      "body/sleep.lua:41"
+     ]
+    }
+   ],
+   "ok": 2374,
+   "ambiguous_ignored": 0
+  },
+  "touched_classes": {},
+  "baseline_build": "26574459"
+ },
+ "new_family_classes": [],
+ "catalog_schema_changes": {},
+ "catalog": {
+  "old": "26574459",
+  "new": "26670300",
+  "available": {
+   "items": [
+    true,
+    true
+   ],
+   "spells": [
+    false,
+    false
+   ],
+   "enemies": [
+    false,
+    false
+   ],
+   "recipes": [
+    true,
+    true
+   ]
+  },
+  "items": {
+   "added": [],
+   "removed": [],
+   "changed": {},
+   "new_weapon_categories": {},
+   "new_or_changed_attack_chains": [],
+   "weapons_without_own_attack_data": [],
+   "attack_sets_added": [],
+   "attack_sets_removed": [],
+   "attack_sets_changed": [],
+   "attacks_changed": [],
+   "catalog_errors": [],
+   "missing_from_catalog": [],
+   "counts": {
+    "old": 471,
+    "new": 471
+   }
+  },
+  "spells": null,
+  "enemies": null,
+  "needs_review": [],
+  "auto_supported": [],
+  "recipes": {
+   "added": [],
+   "removed": [],
+   "changed": {},
+   "counts": {
+    "old": 1271,
+    "new": 1271
+   }
+  }
+ },
+ "new_catalog_available": true,
+ "object_dump": {
+  "old": true,
+  "new": true
+ }
+}

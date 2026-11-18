@@ -38,7 +38,7 @@ if ($NoBoot) {
     if ($p -and $p.map -eq 'L_World' -and $p.pawn) { Step 'boot' 'pass' "in world (probe only) pos=$($p.pos_m -join ',')" }
     else { Step 'boot' 'fail' ("not in world: " + $(if ($p) { "map=$($p.map) pawn=$($p.pawn)" } else { 'runner did not answer' })) }
 } else {
-    $bargs = @('-Quiet'); if ($Release) { $bargs += '-Release' }
+    $bargs = @{ Quiet = $true }; if ($Release) { $bargs.Release = $true }  # a hashtable: an array splat bound '-Quiet' to -Attempts (int) and the boot step always failed
     $b = & "$PSScriptRoot\client_boot.ps1" @bargs | Select-Object -Last 1
     if ($b -and $b.ok) { Step 'boot' 'pass' "in world in $($b.duration_s)s, actions: $(@($b.actions) -join '; ')" }
     else { Step 'boot' 'fail' "state=$($b.state) reason=$($b.reason)" }

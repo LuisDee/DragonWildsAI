@@ -27,6 +27,8 @@ See `docs/ARCHITECTURE.md`.
   - Sources: [TroubleChute](https://hub.tcno.co/games/dragonwilds/dedicated_server/), [XGamingServer config reference](https://xgamingserver.com/docs/runescape-dragonwilds/config-reference.md).
 - **World:** on first start the server created `RSDragonwilds\Saved\SaveGames\CompanionDev.sav` from `DefaultWorldName` (log: `NewGame() ... WorldName[CompanionDev] ... MapName[L_World]`). It autosaves about every 5 minutes.
 - **Log:** `RSDragonwilds\Saved\Logs\RSDragonwilds.log`.
+- **Builds:** server 26161880 (2026-10-25), 26574459 (2026-11-12), 26670300 (2026-11-18, client 26658295; patch report BROKEN 0, review 0, items 471 unchanged).
+  - **A client update needs its biggest file's size free to stage** (verified 2026-11-18): Steam's content log said `switching to single file update mode (33407 MB needed, 7993 MB available)` then `Failed to preallocate (Not enough disk space) "31.87 GB"`, and `client_boot` saw only `steam_update_pending`. The file is `Content\Paks\RSDragonwilds-Windows.ucas` (31.9 GB). Deleting it with the client closed freed the space; Steam then fetched 15.5 GB and installed. Read `Steam\logs\content_log.txt` first when the client will not launch.
 - **Ports (from the log, not the guides):**
   - UDP 7777 for the game (`IpNetDriver listening on port 7777`).
   - UDP **8888** for the BeaconNetDriver. Guides say 7778; the RSE-Server Docker image agrees with 8888.

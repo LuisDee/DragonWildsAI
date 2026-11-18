@@ -72,6 +72,7 @@ The dumper (`mod/scripts/dumper.lua`) stalls the game thread for about 3 minutes
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*watchdog.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+tools\start_client_watchdog.ps1 -Stop   # it restarts a dev server whose heartbeat is stale 108 s: on 2026-11-18 it killed the first dump in its frozen header stage
 tools\deploy_mod.ps1 -Dump
 tools\start_server.ps1
 ```

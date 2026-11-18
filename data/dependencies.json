@@ -1,7 +1,7 @@
 {
  "schema": "dw_deps/1",
- "generated_at": "2026-11-15T20:39:44Z",
- "baseline_build": "26574459",
+ "generated_at": "2026-11-18T12:24:13Z",
+ "baseline_build": "26670300",
  "files_scanned": [
   "bench/fixtures.lua",
   "bench/referee.lua",
@@ -23433,6 +23433,19 @@
    "tier": "tooling"
   },
   {
+   "path": "/Script/CoreUObject.Vector",
+   "kind": "script_class",
+   "module": "CoreUObject",
+   "class": "Vector",
+   "uses": [
+    {
+     "file": "body/util.lua",
+     "line": 251
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Script/Dominion",
    "kind": "script_module",
    "module": "Dominion",
@@ -24043,6 +24056,37 @@
    "tier": "core"
   },
   {
+   "path": "/Script/Engine.Actor",
+   "kind": "script_class",
+   "module": "Engine",
+   "class": "Actor",
+   "uses": [
+    {
+     "file": "body/util.lua",
+     "line": 249
+    },
+    {
+     "file": "body/util.lua",
+     "line": 250
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Script/Engine.Actor:K2_GetActorLocation",
+   "kind": "script_member",
+   "module": "Engine",
+   "class": "Actor",
+   "member": "K2_GetActorLocation",
+   "uses": [
+    {
+     "file": "body/util.lua",
+     "line": 252
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Script/Engine.ActorComponent",
    "kind": "script_class",
    "module": "Engine",
@@ -24054,6 +24098,19 @@
     }
    ],
    "tier": "debug"
+  },
+  {
+   "path": "/Script/Engine.ENetRole",
+   "kind": "script_class",
+   "module": "Engine",
+   "class": "ENetRole",
+   "uses": [
+    {
+     "file": "body/util.lua",
+     "line": 253
+    }
+   ],
+   "tier": "core"
   },
   {
    "path": "/Script/Engine.GameplayStatics",
@@ -24083,6 +24140,10 @@
    "class": "KismetSystemLibrary",
    "uses": [
     {
+     "file": "body/util.lua",
+     "line": 248
+    },
+    {
      "file": "experiments/body_probe.lua",
      "line": 194
     },
@@ -24101,13 +24162,9 @@
     {
      "file": "scripts/catalog.lua",
      "line": 437
-    },
-    {
-     "file": "scripts/perf_sampler.lua",
-     "line": 52
     }
    ],
-   "tier": "tooling"
+   "tier": "core"
   },
   {
    "path": "/Script/Engine.NetPushModelHelpers",
@@ -24355,6 +24412,17 @@
     }
    ],
    "tier": "debug",
+   "resolves_in_baseline": true
+  },
+  {
+   "name": "DisplayNameComponent",
+   "uses": [
+    {
+     "file": "body/speech.lua",
+     "line": 96
+    }
+   ],
+   "tier": "core",
    "resolves_in_baseline": true
   },
   {
@@ -24684,7 +24752,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 301
+     "line": 349
     },
     {
      "file": "experiments/owner_account.lua",
@@ -24724,7 +24792,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 136
+     "line": 185
     },
     {
      "file": "scripts/identity_probe.lua",
@@ -25333,7 +25401,7 @@
    "uses": [
     {
      "file": "body/reach.lua",
-     "line": 68
+     "line": 91
     },
     {
      "file": "body/reach.lua",
@@ -25425,7 +25493,7 @@
    "uses": [
     {
      "file": "body/reach.lua",
-     "line": 68
+     "line": 91
     },
     {
      "file": "body/reach.lua",
@@ -26595,7 +26663,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 94
+     "line": 144
     }
    ],
    "tier": "core",
@@ -26683,7 +26751,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 138
+     "line": 187
     },
     {
      "file": "scripts/identity_probe.lua",
@@ -26798,9 +26866,10 @@
     }
    ],
    "tier": "core",
-   "owner_count": 1,
+   "owner_count": 2,
    "baseline_owners": [
-    "UBedComponent"
+    "UBedComponent",
+    "bp:/Game/Gameplay/BaseBuilding/Actors/Props/Cosiness/BP_BaseBuilding_BedRoll.BP_BaseBuilding_BedRoll_C"
    ],
    "kinds": [
     "func"
@@ -26814,7 +26883,7 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 353
+     "line": 401
     },
     {
      "file": "experiments/say_test.lua",
@@ -26838,7 +26907,7 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 345
+     "line": 393
     },
     {
      "file": "experiments/say_test.lua",
@@ -28005,7 +28074,7 @@
    "uses": [
     {
      "file": "body/reach.lua",
-     "line": 61
+     "line": 83
     },
     {
      "file": "experiments/hitbox_probe.lua",
@@ -28581,7 +28650,8 @@
   {
    "name": "DisplayNameComponent",
    "via": [
-    "dot"
+    "dot",
+    "literal"
    ],
    "uses": [
     {
@@ -28590,23 +28660,23 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 98
+     "line": 106
     },
     {
      "file": "body/speech.lua",
-     "line": 147
+     "line": 116
+    },
+    {
+     "file": "body/speech.lua",
+     "line": 127
+    },
+    {
+     "file": "body/speech.lua",
+     "line": 117
     },
     {
      "file": "experiments/say_test.lua",
      "line": 29
-    },
-    {
-     "file": "experiments/speech_direct.lua",
-     "line": 150
-    },
-    {
-     "file": "scripts/identity_attach.lua",
-     "line": 94
     }
    ],
    "tier": "core",
@@ -29034,7 +29104,11 @@
     },
     {
      "file": "body/reach.lua",
-     "line": 65
+     "line": 60
+    },
+    {
+     "file": "body/reach.lua",
+     "line": 87
     },
     {
      "file": "experiments/hitbox_probe.lua",
@@ -30064,7 +30138,7 @@
     },
     {
      "file": "body/util.lua",
-     "line": 257
+     "line": 310
     }
    ],
    "tier": "core",
@@ -30253,11 +30327,11 @@
     },
     {
      "file": "body/util.lua",
-     "line": 321
+     "line": 374
     },
     {
      "file": "body/util.lua",
-     "line": 322
+     "line": 375
     },
     {
      "file": "experiments/bench_creatures.lua",
@@ -30313,7 +30387,7 @@
    "uses": [
     {
      "file": "experiments/speech_direct.lua",
-     "line": 159
+     "line": 169
     }
    ],
    "tier": "debug",
@@ -30377,7 +30451,7 @@
     },
     {
      "file": "body/reach.lua",
-     "line": 66
+     "line": 89
     },
     {
      "file": "body/sleep.lua",
@@ -30431,7 +30505,7 @@
    "uses": [
     {
      "file": "body/util.lua",
-     "line": 297
+     "line": 350
     },
     {
      "file": "experiments/puppet_combat.lua",
@@ -30527,6 +30601,26 @@
    ]
   },
   {
+   "name": "GetDisplayNameComponent",
+   "via": [
+    "colon"
+   ],
+   "uses": [
+    {
+     "file": "body/speech.lua",
+     "line": 124
+    }
+   ],
+   "tier": "core",
+   "owner_count": 1,
+   "baseline_owners": [
+    "ADominionGameStateBase"
+   ],
+   "kinds": [
+    "func"
+   ]
+  },
+  {
    "name": "GetFollowerComponent",
    "via": [
     "colon"
@@ -30581,6 +30675,10 @@
    ],
    "uses": [
     {
+     "file": "body/speech.lua",
+     "line": 105
+    },
+    {
      "file": "body/util.lua",
      "line": 65
     },
@@ -30597,12 +30695,8 @@
      "line": 190
     },
     {
-     "file": "experiments/charcache_probe.lua",
-     "line": 10
-    },
-    {
-     "file": "experiments/charcache_probe.lua",
-     "line": 11
+     "file": "body/util.lua",
+     "line": 260
     }
    ],
    "tier": "core",
@@ -30622,7 +30716,7 @@
    "uses": [
     {
      "file": "body/util.lua",
-     "line": 322
+     "line": 375
     }
    ],
    "tier": "core",
@@ -31019,7 +31113,7 @@
     },
     {
      "file": "body/util.lua",
-     "line": 328
+     "line": 381
     },
     {
      "file": "experiments/bench_creatures.lua",
@@ -31310,7 +31404,7 @@
    "uses": [
     {
      "file": "body/util.lua",
-     "line": 355
+     "line": 408
     }
    ],
    "tier": "core",
@@ -31337,7 +31431,7 @@
     },
     {
      "file": "body/util.lua",
-     "line": 336
+     "line": 389
     },
     {
      "file": "experiments/charcache_probe.lua",
@@ -31897,7 +31991,7 @@
     },
     {
      "file": "body/util.lua",
-     "line": 320
+     "line": 373
     }
    ],
    "tier": "core",
@@ -32491,7 +32585,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 94
+     "line": 144
     }
    ],
    "tier": "core",
@@ -32669,8 +32763,9 @@
     }
    ],
    "tier": "core",
-   "owner_count": 36,
+   "owner_count": 38,
    "baseline_owners": [
+    "ABP_BaseBuilding_BedRoll_C",
     "ABP_BaseBuilding_Chest_C",
     "ABP_BaseBuilding_Crate_C",
     "ABP_BaseBuilding_LumberStorage_C",
@@ -32679,8 +32774,7 @@
     "ABP_Crafting_FletchingBenchV2_C",
     "ABP_Crafting_Jewelry_C",
     "ABP_Crafting_MysticForge_C",
-    "ABP_Crafting_Rune_Altar_C",
-    "ABP_Crafting_StartingBench_C"
+    "ABP_Crafting_Rune_Altar_C"
    ],
    "kinds": [
     "prop"
@@ -34289,7 +34383,7 @@
     },
     {
      "file": "body/util.lua",
-     "line": 239
+     "line": 292
     },
     {
      "file": "experiments/puppet_combat.lua",
@@ -35213,7 +35307,7 @@
     },
     {
      "file": "body/util.lua",
-     "line": 328
+     "line": 381
     },
     {
      "file": "experiments/gather_probe.lua",
@@ -35564,11 +35658,11 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 168
+     "line": 216
     },
     {
      "file": "body/speech.lua",
-     "line": 183
+     "line": 231
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -35597,7 +35691,7 @@
    "uses": [
     {
      "file": "body/reach.lua",
-     "line": 67
+     "line": 90
     },
     {
      "file": "body/reach.lua",
@@ -36081,7 +36175,7 @@
     }
    ],
    "tier": "core",
-   "owner_count": 213,
+   "owner_count": 214,
    "baseline_owners": [
     "FActorLayer",
     "FNodeObject",
@@ -36090,9 +36184,9 @@
     "FSoundGeneratorOutput",
     "FAudioOutputDeviceInfo",
     "ABP_AxtralProjection_Projectile_Trail_C",
+    "ABP_BaseBuilding_BedRoll_C",
     "ABP_PlayerCharacter_C",
-    "FCacheEventTrack",
-    "FNamedFilmbackPreset"
+    "FCacheEventTrack"
    ],
    "kinds": [
     "prop"
@@ -36195,11 +36289,11 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 257
+     "line": 305
     },
     {
      "file": "body/speech.lua",
-     "line": 303
+     "line": 351
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -36227,11 +36321,11 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 258
+     "line": 306
     },
     {
      "file": "body/speech.lua",
-     "line": 304
+     "line": 352
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -36589,7 +36683,11 @@
     },
     {
      "file": "body/reach.lua",
-     "line": 64
+     "line": 57
+    },
+    {
+     "file": "body/reach.lua",
+     "line": 86
     },
     {
      "file": "experiments/hitbox_probe.lua",
@@ -36834,7 +36932,7 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 150
+     "line": 198
     }
    ],
    "tier": "core",
@@ -37391,11 +37489,19 @@
    ],
    "uses": [
     {
+     "file": "body/reach.lua",
+     "line": 58
+    },
+    {
+     "file": "body/reach.lua",
+     "line": 88
+    },
+    {
      "file": "experiments/hitbox_probe.lua",
      "line": 16
     }
    ],
-   "tier": "debug",
+   "tier": "core",
    "owner_count": 5,
    "baseline_owners": [
     "UDominionShape",
@@ -37700,11 +37806,11 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 222
+     "line": 270
     },
     {
      "file": "body/speech.lua",
-     "line": 342
+     "line": 390
     },
     {
      "file": "experiments/say_test.lua",
@@ -37770,7 +37876,7 @@
    "uses": [
     {
      "file": "body/util.lua",
-     "line": 302
+     "line": 355
     },
     {
      "file": "experiments/body_probe.lua",
@@ -37938,11 +38044,11 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 239
+     "line": 287
     },
     {
      "file": "body/util.lua",
-     "line": 355
+     "line": 408
     },
     {
      "file": "experiments/mark_dirty.lua",
@@ -38452,7 +38558,7 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 257
+     "line": 305
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -38735,7 +38841,7 @@
    "uses": [
     {
      "file": "body/reach.lua",
-     "line": 68
+     "line": 91
     },
     {
      "file": "body/reach.lua",
@@ -38746,16 +38852,16 @@
      "line": 39
     },
     {
+     "file": "body/reach.lua",
+     "line": 63
+    },
+    {
      "file": "experiments/hitbox_probe.lua",
      "line": 8
     },
     {
      "file": "experiments/spell_dump.lua",
      "line": 256
-    },
-    {
-     "file": "experiments/spell_dump.lua",
-     "line": 335
     }
    ],
    "tier": "core",
@@ -38826,7 +38932,7 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 262
+     "line": 310
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -39902,7 +40008,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 150
+     "line": 198
     },
     {
      "file": "scripts/identity_probe.lua",
@@ -40016,7 +40122,7 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 258
+     "line": 306
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -40190,15 +40296,15 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 182
+     "line": 230
     },
     {
      "file": "body/speech.lua",
-     "line": 255
+     "line": 303
     },
     {
      "file": "body/speech.lua",
-     "line": 256
+     "line": 304
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -40231,7 +40337,7 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 260
+     "line": 308
     },
     {
      "file": "experiments/speech_direct.lua",
@@ -40414,7 +40520,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 102
+     "line": 151
     },
     {
      "file": "experiments/say_test.lua",
@@ -40462,11 +40568,11 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 184
+     "line": 232
     },
     {
      "file": "body/speech.lua",
-     "line": 320
+     "line": 368
     }
    ],
    "tier": "core",
@@ -42596,7 +42702,7 @@
     },
     {
      "file": "body/reach.lua",
-     "line": 63
+     "line": 85
     },
     {
      "file": "experiments/hitbox_probe.lua",
@@ -42625,7 +42731,7 @@
    "uses": [
     {
      "file": "body/reach.lua",
-     "line": 58
+     "line": 80
     },
     {
      "file": "experiments/hitbox_probe.lua",
@@ -42665,7 +42771,7 @@
     },
     {
      "file": "body/speech.lua",
-     "line": 168
+     "line": 216
     },
     {
      "file": "body/util.lua",
@@ -42716,7 +42822,7 @@
    "uses": [
     {
      "file": "body/reach.lua",
-     "line": 67
+     "line": 90
     },
     {
      "file": "body/reach.lua",
@@ -42906,11 +43012,11 @@
    "uses": [
     {
      "file": "body/speech.lua",
-     "line": 302
+     "line": 350
     },
     {
      "file": "body/speech.lua",
-     "line": 314
+     "line": 362
     },
     {
      "file": "experiments/presence_probe.lua",
@@ -43342,15 +43448,24 @@
   {
    "name": "ZHeight",
    "via": [
+    "dot",
     "literal"
    ],
    "uses": [
+    {
+     "file": "body/reach.lua",
+     "line": 92
+    },
+    {
+     "file": "body/reach.lua",
+     "line": 61
+    },
     {
      "file": "experiments/hitbox_probe.lua",
      "line": 8
     }
    ],
-   "tier": "debug",
+   "tier": "core",
    "owner_count": 1,
    "baseline_owners": [
     "UDominionShape_Wedge"
@@ -43408,17 +43523,17 @@
   ]
  },
  "counts": {
-  "paths": 1658,
+  "paths": 1662,
   "paths_asset": 1598,
   "paths_asset_member": 1,
-  "paths_script_class": 19,
-  "paths_script_member": 39,
+  "paths_script_class": 22,
+  "paths_script_member": 40,
   "paths_script_module": 1,
-  "class_names": 12,
-  "members": 748,
+  "class_names": 13,
+  "members": 749,
   "enums": 0,
   "enum_values": 16,
   "bridge_tools": 16,
-  "total": 2434
+  "total": 2440
  }
 }
