@@ -77,7 +77,7 @@
               "weapon_tag": "Item.Equipment.Weapon.",
               "copper_in": ["Fractured Plains", "Stormtouched Highlands", "Dowdun Reach"],
               "default_region": "Fractured Plains",
-              "entry_bar": null
+              "entry_bar": {"min_below_power": 1, "decided": "2026-11-18, docs/GOAL-2026-11-17-long-jobs.md 'The V2 bar'"}
             }
           },
           "note": "Done: every armour slot worn, whole and made by him (in this run, or in an earlier rung by its instance in the ladder record), a weapon (the game's tag Item.Equipment.Weapon.*; a pickaxe is Item.Equipment.Tool.*) made by him on him, and the game's power level (get_state power_level, pawn:BP_GetPowerLevel, up to ~13 s stale after an equip) at least the power of the copper region he heads for (data/places_<build>.json: the region of his latest walk target that is one of copper_in, matched by region or province; none yet: default_region, Fractured Plains, power 3). The trial also ends when a read puts him inside a copper_in region: his power level at entry is recorded (rec.entered); with the gear made and that power level at least the region's power it passes; without the gear it fails; under the power it is judged only by entry_bar, which the goal does not fix (null: bar_open, recorded, not counted). Proposed, not set: {\"min_below_power\": 0}."

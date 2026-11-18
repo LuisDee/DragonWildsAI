@@ -988,9 +988,11 @@ def p_venture_gear(spec: dict, start: dict, end: dict) -> tuple[bool | None, str
             return None, f"bar_open: {fact}; the goal fixes no bar for entering under the region's power"
         need = power - int(bar["min_below_power"])
         return pl >= need, f"{fact}; entry bar power level {need}"
-    if pl < power:
-        return False, f"power level {pl:g} of {power} for {place}, headed there by {where['how']}"
-    return True, f"power level {pl:g} for {place} ({where['how']}), {gear} and a weapon, made by him"
+    bar = spec.get("entry_bar")  # the goal's V2 bar (decided 2026-11-18): power level >= the region's power minus 1
+    need = power - int(bar["min_below_power"]) if isinstance(bar, dict) and bar.get("min_below_power") is not None else power
+    if pl < need:
+        return False, f"power level {pl:g} of {need} for {place} (power {power}), headed there by {where['how']}"
+    return True, f"power level {pl:g} (bar {need}) for {place} ({where['how']}), {gear} and a weapon, made by him"
 
 
 PREDICATES = {"worn_made_in_run": p_worn_made_in_run, "in_own_chest": p_in_own_chest, "carried_gain": p_carried_gain,

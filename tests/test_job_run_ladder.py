@@ -149,8 +149,11 @@ def test_v2_made_armour_worn_and_a_made_weapon_at_the_plains_power_passes(v2):
 
 
 def test_v2_below_the_regions_power_is_not_done(v2):
-    ok, why = j.done(v2, start_v2(), kit(2))
-    assert ok is False and "power level 2 of 3" in why
+    """The goal's bar (decided 2026-11-18): the region's power minus 1; Fractured Plains is power 3, so 1 is short
+    and 2 is enough."""
+    ok, why = j.done(v2, start_v2(), kit(1))
+    assert ok is False and "power level 1 of 2" in why
+    assert j.done(v2, start_v2(), kit(2))[0] is True
 
 
 def test_v2_the_power_level_is_the_games_reading_unread_is_never_a_pass(v2):
@@ -196,7 +199,11 @@ def test_v2_the_region_he_heads_for_sets_the_power(v2):
     end = kit(3)
     end["walk_targets"] = [{"ts": T0 + 5, "position": PLAINS}, {"ts": T0 + 9, "position": HIGHLANDS}]
     ok, why = j.done(v2, start_v2(), end)
-    assert ok is False and "Stormtouched Highlands" in why and "power level 3 of 4" in why
+    end = kit(2)
+    end["walk_targets"] = [{"ts": T0 + 5, "position": PLAINS}, {"ts": T0 + 9, "position": HIGHLANDS}]
+    ok, why = j.done(v2, start_v2(), end)
+    assert ok is False and "Stormtouched Highlands" in why and "power level 2 of 3" in why
+    end = kit(3)
     end["walk_targets"] = [{"ts": T0 + 5, "position": HOME}]   # not a copper region: the default stands
     assert j.done(v2, start_v2(), end)[0] is True
 
@@ -219,16 +226,16 @@ def test_v2_entering_the_region_with_the_gear_for_its_power_passes(v2):
     assert ok is True and "entered Fractured Plains" in why
 
 
-def test_v2_entering_below_its_power_is_recorded_and_judged_only_by_a_bar_the_goal_fixes(v2):
-    """The goal does not fix a bar for going in under the region's power: the run records the fact and is not
-    judged (bar_open). With an entry bar in the data (power - 1), it is judged by it."""
+def test_v2_entering_below_its_power_is_judged_by_the_goals_bar(v2):
+    """Entering under the region's power is judged by the data's entry bar (the goal's: power - 1); with no bar in
+    the data the run records the fact and is not judged (bar_open)."""
     end = kit(2, pos=PLAINS)
     end["entered"] = j.entry_read(v2, end, 120.0)
     assert end["entered"]["power_level"] == 2 and end["entered"]["power"] == 3
-    ok, why = j.done(v2, start_v2(), end)
+    assert j.done(v2, start_v2(), end)[0] is True
+    open_ = {**v2, "end": {"venture_gear": {**v2["end"]["venture_gear"], "entry_bar": None}}}
+    ok, why = j.done(open_, start_v2(), end)
     assert ok is None and why.startswith("venture_gear: UNREAD") and "bar_open" in why
-    lax = {**v2, "end": {"venture_gear": {**v2["end"]["venture_gear"], "entry_bar": {"min_below_power": 1}}}}
-    assert j.done(lax, start_v2(), end)[0] is True
 
 
 def test_v2_entering_without_gear_he_made_fails(v2):
@@ -309,6 +316,7 @@ def test_run_job_v2_bar_open_is_recorded_and_not_counted(v2):
                    {"ts": T0 + 5.5 + k, "kind": "tool_result", "call": f"a{k}", "tool": "craft",
                     "result": {"ok": True, "data": {"item": it}}}]
     body = Body(lambda t: raw(gear if t >= T0 + 10 else [], PLAINS if t >= T0 + 40 else HOME, 2), script)
+    v2 = {**v2, "end": {"venture_gear": {**v2["end"]["venture_gear"], "entry_bar": None}}}  # no bar in the data
     rec = j.run_job(body, v2, {})
     assert rec["ended"] == "entered Fractured Plains" and rec["done"] is False and rec["job_done"] is False
     assert rec["bar_open"] and "bar_open" in rec["not_counted"] and "unread" not in rec
