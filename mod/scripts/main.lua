@@ -34,10 +34,23 @@ print(string.format("[%s] loaded; logging to %s\n", MOD_NAME, log.path()))
 -- Shared Lua core (body/util.lua): default logger for U.call breadcrumbs everywhere.
 local ok_util, U = pcall(require, "body.util")
 if ok_util then U.set_log(log) else log.event("util_unavailable", { err = tostring(U) }) end
+-- Build UE4SS's Lua wrapper types now, on this (the mod's start) thread, before bridge.start and every other
+-- game-thread callback of this mod exists: built inside a game-thread callback while another thread pushed onto the
+-- shared hook_lua, the UObject type lost its methods for a whole server process (body/util.lua, risk register R19).
+if ok_util then pcall(U.prewarm_wrappers, log) end
 
 require("dumper").maybe_dump(mod_root, log)
 local bridge = require("bridge")
 bridge.start(log)
+-- ping carries the plain-UObject wrapper's health ("ok" / "no_methods"), so a harness sees a damaged process at once
+if ok_util and type(bridge.handlers.ping) == "function" then
+    local base_ping = bridge.handlers.ping
+    bridge.handlers.ping = function(...)
+        local r = base_ping(...)
+        if type(r) == "table" and type(r.data) == "table" then r.data.uobject = U.try(U.uobject_health) end
+        return r
+    end
+end
 
 -- Game-thread heartbeat: tools/watchdog.ps1 restarts the server if this file goes stale, which
 -- catches hangs that produce no crash dump. Written from the game thread on purpose.

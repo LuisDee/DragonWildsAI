@@ -230,6 +230,59 @@ function U.find_object(path)
     return U.valid(o) and o or nil
 end
 
+-- ------------------------------------------------------------------ UE4SS wrapper types (risk register R19)
+-- UE4SS builds each Lua wrapper type's metatable ONCE per lua_State, at the first push of an object of that type,
+-- with stack-relative calls (LuaMadeSimple Table::add_pair = push key, push value, lua_rawset(-3); new_metatable
+-- stores the member table from stack slot -2), and keeps it in the registry for the life of the process. At SHA
+-- 83330635 game-thread callbacks run on the mod's one shared hook_lua outside m_thread_actions_mutex (LuaMod.cpp
+-- 4017-4030) while other OS threads push onto that same stack (xmove + luaL_ref, LuaMod.cpp 4762-4768): RE-UE4SS
+-- #1445 part 3 and #1345, both open. Live 2026-11-18, server runs 014703Z, 015549Z and 021627Z: every plain UObject
+-- (PlayerChatComponent in a hook, DisplayNameComponent, a spawned StaticMeshComponent) answered GetAddress and
+-- IsValid (the first layer of the member table) but had no GetFullName, GetClass or UFunction, for the whole
+-- process, while AActor and UScriptStruct wrappers worked. In all three the first plain UObject was pushed by a
+-- bridge command 3.6-5.3 s after mod start; in the five good runs not before 6.8 s. So: build the common types once
+-- on the mod's start thread before any game-thread callback of this mod exists (main.lua, before bridge.start), and
+-- read the type's health when a read fails. Residual: types first pushed inside hooks (RemoteUnrealParam, TArray)
+-- are still built on the game thread.
+U.WRAPPER_PREWARM = {
+    { kind = "UObject", path = "/Script/Engine.Default__KismetSystemLibrary" }, -- the canary: a plain UObject CDO
+    { kind = "AActor", path = "/Script/Engine.Default__Actor" },
+    { kind = "UClass", path = "/Script/Engine.Actor" },
+    { kind = "UScriptStruct", path = "/Script/CoreUObject.Vector" },
+    { kind = "UFunction", path = "/Script/Engine.Actor:K2_GetActorLocation" },
+    { kind = "UEnum", path = "/Script/Engine.ENetRole" },
+}
+
+-- "ok" (GetFullName answers), "no_methods" (GetAddress answers, GetFullName does not: the 2026-11-18 damaged
+-- type), "unusable" (neither), "nil" (no object).
+function U.wrapper_state(o)
+    if o == nil then return "nil" end
+    if type(U.try(function() return o:GetFullName() end)) == "string" then return "ok" end
+    if U.try(function() return o:GetAddress() end) ~= nil then return "no_methods" end
+    return "unusable"
+end
+
+-- The plain-UObject wrapper of this process, read on a native CDO (read-only): "ok" | "no_methods" | ...
+function U.uobject_health()
+    return U.wrapper_state(U.try(StaticFindObject, U.WRAPPER_PREWARM[1].path))
+end
+
+-- Push one object of each common wrapper type (and an FName) so UE4SS builds their metatables now. Read-only.
+-- Returns {ok = every type answers GetFullName, kinds = {[kind] = state}}; logs ue4ss_wrappers.
+function U.prewarm_wrappers(log)
+    local kinds, ok = {}, true
+    for _, w in ipairs(U.WRAPPER_PREWARM) do
+        local o = U.try(StaticFindObject, w.path)
+        kinds[w.kind] = U.wrapper_state(o)
+        if kinds[w.kind] ~= "ok" then ok = false end
+        if w.kind == "UObject" and o ~= nil then
+            kinds.FName = U.str(U.try(function() return o:GetFName() end)) and "ok" or "unusable"
+        end
+    end
+    U.event(log, "ue4ss_wrappers", { ok = ok, kinds = kinds })
+    return { ok = ok, kinds = kinds }
+end
+
 -- ------------------------------------------------------------------ geometry
 -- Validity first: a cached actor ref whose actor was destroyed and GC'd is a dangling wrapper, and ANY
 -- method/property lookup on it is a native AV in UE4SS __index that pcall can't catch (crash

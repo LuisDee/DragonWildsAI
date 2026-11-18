@@ -271,6 +271,52 @@ test("speech names: a DisplayNameComponent read that is no UObject is never used
     assert(speech.display_name_component() == good)
 end)
 
+test("speech names: a UObject wrapper type with no methods is named as the process state (R19)", function()
+    -- live 2026-11-18 (gs_probe, server run 021627Z): IsValid true, GetAddress 2523915776672, GetFullName and
+    -- GetClass "attempt to call a nil value"; every plain UObject of the process alike, a native CDO included
+    chat_world()
+    local gs = W.first.DominionGameStateBase
+    local function no_methods() return { IsValid = function() return true end, GetAddress = function() return 2523915776672 end } end
+    gs.DisplayNameComponent = no_methods()
+    local real_sfo = StaticFindObject
+    StaticFindObject = function() return no_methods() end
+    local dn, why = speech.display_name_component()
+    StaticFindObject = real_sfo
+    assert(dn == nil and why:find(speech.BROKEN_WRAPPER, 1, true) and why:find("restart the dev server", 1, true), why)
+    assert(why:find("no methods", 1, true) and why:find("native CDO: no_methods", 1, true), why)
+    -- a userdata that is no UObject at all (no GetAddress either) is not called the broken type
+    gs.DisplayNameComponent = { IsValid = function() return true end }
+    dn, why = speech.display_name_component()
+    assert(dn == nil and not why:find(speech.BROKEN_WRAPPER, 1, true) and why:find("no UObject", 1, true), why)
+end)
+
+test("util.prewarm_wrappers: builds each wrapper type from a native object and reports its health", function()
+    reset()
+    local real_sfo = StaticFindObject
+    local asked = {}
+    StaticFindObject = function(path)
+        asked[#asked + 1] = path
+        local o = obj("X " .. path)
+        o.GetAddress = function() return 1 end
+        o.GetFName = function() return { ToString = function() return "Default__KismetSystemLibrary" end } end
+        return o
+    end
+    local r = U.prewarm_wrappers(H.log)
+    assert(r.ok and r.kinds.UObject == "ok" and r.kinds.UClass == "ok" and r.kinds.FName == "ok", json.encode(r))
+    assert(#asked == #U.WRAPPER_PREWARM and asked[1] == U.WRAPPER_PREWARM[1].path)
+    assert(U.uobject_health() == "ok")
+    -- the damaged type: GetAddress answers, GetFullName does not
+    StaticFindObject = function() return { IsValid = function() return true end, GetAddress = function() return 7 end } end
+    r = U.prewarm_wrappers(H.log)
+    assert(not r.ok and r.kinds.UObject == "no_methods", json.encode(r))
+    assert(U.uobject_health() == "no_methods")
+    StaticFindObject = function() return nil end
+    assert(U.uobject_health() == "nil" and U.wrapper_state({}) == "unusable")
+    StaticFindObject = real_sfo
+    local ev = H.log.events[#H.log.events]
+    assert(ev and ev.name == "ue4ss_wrappers", json.encode(ev))
+end)
+
 test("speech relay: !as / !echo triggers, TTL drop, queue cap", function()
     local w = chat_world()
     speech.arm_relay(H.log, { triggers = true })

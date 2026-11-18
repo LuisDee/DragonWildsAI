@@ -573,6 +573,7 @@ def recent_bridge_driver(window_s: float = 60.0) -> str | None:
 
 
 READ_ONLY_TOOLS = ("get_state", "inventory", "move_status", "census", "arbiter_status", "map_players")
+BROKEN_WRAPPER = "ue4ss_uobject_no_methods"  # mod/body/speech.lua M.BROKEN_WRAPPER
 
 
 def foreign_driver(since: float) -> str | None:
@@ -624,7 +625,9 @@ def ensure_sender(tries: int = 3, wait_s: float = 10.0, sleep=time.sleep) -> tup
     The prove is read-only and is tried up to `tries` times, wait_s apart. Its send refuses unproven, so without it
     no player line reaches the brain: this is not optional. Window 1118d I1 (logs/mod/mod_20261118T014703Z.jsonl):
     that server process's Lua found no method GetCharacterDisplayName on the DisplayNameComponent (and SetMobility
-    on a spawned component 25 s before): once in 25 server runs since 1 Nov; the next server run proved at once."""
+    on a spawned component 25 s before): once in 25 server runs since 1 Nov; the next server run proved at once.
+    Cause (3 of 8 server runs on 18 Nov; mod/body/util.lua risk R19): UE4SS's plain-UObject wrapper type of that
+    process had no methods. The mod's reason then carries BROKEN_WRAPPER, and no retry can help: stop at once."""
     from tools import m1_session
     pr = None
     for i in range(max(1, tries)):
@@ -636,6 +639,9 @@ def ensure_sender(tries: int = 3, wait_s: float = 10.0, sleep=time.sleep) -> tup
         pr = _server_client().request("debug_run", {"module": "speech_direct", "args": {"action": "prove"}}, timeout=60)
         if _find_true(pr, "pass") or _find_true(pr, "proven"):
             break
+        if BROKEN_WRAPPER in json.dumps(pr, default=str):
+            return False, (f"speech_direct prove failed: {BROKEN_WRAPPER}: this server process's UE4SS lost the UObject "
+                           f"methods at mod start (no retry helps; restart the dev server): {obs.short(pr, 500)}")
     else:
         return False, (f"speech_direct prove failed after {max(1, tries)} tries (the server's Lua could not prove the "
                        f"sender; restart the dev server): {obs.short(pr, 500)}")

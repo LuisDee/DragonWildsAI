@@ -156,6 +156,25 @@ def test_ensure_sender_reports_what_it_needs_after_its_tries(monkeypatch):
     assert not ok and "after 2 tries" in how and "restart the dev server" in how
 
 
+def test_ensure_sender_stops_at_once_on_a_damaged_uobject_type(monkeypatch):
+    # server runs 014703Z/015549Z/021627Z (18 Nov): the whole process's plain-UObject wrapper had no methods; a retry
+    # 10 s later cannot help, so the window learns it on the first prove (mod/body/util.lua R19)
+    from tools import chat_ladder as cl
+    asked = []
+    bad = {"ok": True, "data": {"result": {"ok": False, "pass": False,
+                                           "error": "no DisplayNameComponent (...): ue4ss_uobject_no_methods: ..."}}}
+
+    class Cli:
+        def request(self, tool, args, **k):
+            asked.append(args["args"]["action"])
+            return {"ok": True, "data": {"result": {"proven": False}}} if args["args"]["action"] == "status" else bad
+    monkeypatch.setattr(cl, "_server_client", lambda: Cli())
+    slept = []
+    ok, how = cl.ensure_sender(tries=3, wait_s=10, sleep=slept.append)
+    assert not ok and cl.BROKEN_WRAPPER in how and "restart the dev server" in how
+    assert asked == ["status", "prove"] and slept == []
+
+
 # ------------------------------------------------------------------ 3. the nav helper
 def test_wait_nav_waits_for_the_helper_then_says_why():
     seq = ["the nav helper's heartbeat is stale (90 s old)", "the nav helper is recovering", None]

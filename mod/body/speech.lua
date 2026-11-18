@@ -97,24 +97,45 @@ local function now() return os.time() end
 -- nav_oracle's SetMobility on a component it had just added was nil too. That plain read of a Blueprint object's
 -- property is the R17 pattern (UE4SS's property cache), so it goes through U.prop here, and the object is accepted
 -- only when it answers GetFullName as a DisplayNameComponent. Then the native getter
--- ADominionGameStateBase::GetDisplayNameComponent(), then FindAllOf. Cause of the bad process: open (not found).
+-- ADominionGameStateBase::GetDisplayNameComponent(), then FindAllOf. Cause of the bad process (found later the same
+-- day): not this property. UE4SS's plain-UObject wrapper TYPE of that process had lost its methods (GetAddress and
+-- IsValid answered, GetFullName/GetClass/UFunctions did not), on every component, from mod start (body/util.lua R19).
+-- The reason names that state ("no_methods") so a harness stops retrying a process that cannot recover.
 local function usable_dn(o)
     local full = U.valid(o) and U.try(function() return o:GetFullName() end)
     return type(full) == "string" and full:find("DisplayNameComponent", 1, true) ~= nil
 end
+M.BROKEN_WRAPPER = "ue4ss_uobject_no_methods" -- tools/chat_ladder.ensure_sender stops on this marker
+local function wrapper_of(o)
+    return U.wrapper_state and U.wrapper_state(o) or (o == nil and "nil" or "unusable")
+end
 function M.display_name_component()
     local gs = U.find_first("DominionGameStateBase")
     if not gs then return nil, "no DominionGameStateBase" end
-    local tried = {}
-    local dn = U.prop and U.prop(gs, "DisplayNameComponent") or U.try(function() return gs.DisplayNameComponent end)
+    local tried, broken = {}, false
+    local dn = U.prop and U.prop(gs, "DisplayNameComponent")
+    if dn == nil then dn = U.try(function() return gs.DisplayNameComponent end) end
     if usable_dn(dn) then return dn end
-    tried[#tried + 1] = "the property: " .. (dn == nil and "nil (undeclared or stale cache: U.prop)" or "a userdata that is no UObject")
+    local st = wrapper_of(dn)
+    broken = broken or st == "no_methods"
+    tried[#tried + 1] = "the property: " .. (dn == nil and "nil (undeclared or stale cache: U.prop)"
+        or (st == "no_methods" and "a UObject wrapper with no methods (GetAddress answers, GetFullName does not)")
+        or "a userdata that is no UObject")
     dn = U.try(function() return gs:GetDisplayNameComponent() end)
     if usable_dn(dn) then return dn end
     tried[#tried + 1] = "GetDisplayNameComponent(): " .. (dn == nil and "nil or not callable" or "not a DisplayNameComponent")
     local all = U.find_all("DisplayNameComponent", { skip_defaults = true }) or {}
     for _, o in ipairs(all) do if usable_dn(o) then return o end end
     tried[#tried + 1] = "FindAllOf: " .. #all .. " usable"
+    local health = U.uobject_health and U.try(U.uobject_health) or nil
+    if health then tried[#tried + 1] = "UObject wrapper on a native CDO: " .. tostring(health) end
+    broken = broken or health == "no_methods"
+    if broken then
+        return nil, "no DisplayNameComponent (" .. table.concat(tried, "; ") .. "): " .. M.BROKEN_WRAPPER
+            .. ": UE4SS's UObject wrapper type in this server process has no methods (built while another thread "
+            .. "pushed onto the mod's shared Lua stack, RE-UE4SS #1445); no component read can work until the "
+            .. "process ends; restart the dev server"
+    end
     return nil, "no DisplayNameComponent (" .. table.concat(tried, "; ") .. "): this server process cannot name the "
         .. "test sender; restart the dev server"
 end
