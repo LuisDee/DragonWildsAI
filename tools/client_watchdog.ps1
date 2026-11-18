@@ -136,7 +136,8 @@ function Recover-Client([string]$why, [switch]$Kill, $proc) {
     $r = & "$PSScriptRoot\client_boot.ps1" -Quiet | Select-Object -Last 1
     $script:bootFails = if ($r -and $r.ok) { 0 } else { $script:bootFails + 1 }
     Ev 'boot_result' @{ ok = [bool]($r -and $r.ok); state = $r.state; reason = $r.reason; actions = $r.actions;
-                        duration_s = $r.duration_s; attempt = $r.attempt; consecutive_fails = $script:bootFails }
+                        duration_s = $r.duration_s; attempt = $r.attempt; consecutive_fails = $script:bootFails
+                        steam_dialog = $r.steam_dialog }
     $script:notWorldSince = $null; $script:probeFails = 0; $script:lastProbe = Get-Date
 }
 

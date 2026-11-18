@@ -3,6 +3,7 @@
 # Dot-source it: . "$PSScriptRoot\client_lib.ps1"   (it dot-sources config.ps1)
 # Used by tools/client_boot.ps1, tools/client_watchdog.ps1, tools/client_smoke.ps1.
 . "$PSScriptRoot\config.ps1"
+. "$PSScriptRoot\steam_dialog_lib.ps1"
 
 $ClientAppId   = 1374490
 $SteamExe      = if ($env:DW_STEAM_EXE) { $env:DW_STEAM_EXE } else { 'C:\Program Files (x86)\Steam\steam.exe' }
@@ -75,6 +76,17 @@ function Get-SteamLaunchBlock {
         if ($last -and $last.Line -match 'Update Required|Update Queued|Update Running|Update Paused') { return 'steam_update_pending' }
     } catch {}
     $null
+}
+
+# A Steam dialog holding the client's launch (tools/steam_dialog_lib.ps1): the last LaunchApp prompt in console_log, the
+# steamwebhelper windows UIA can read, and the kind (cloud_sync | eula | unknown). $null when nothing waits.
+function Get-SteamDialogState {
+    if ($env:DW_CLIENT_STEAM) { return $null }   # offline tests fake Steam
+    $prompt = Get-SteamLaunchPrompt (Join-Path (Split-Path $SteamExe) 'logs\console_log.txt') $ClientAppId
+    $wins = @(Get-SteamUiWindows)
+    $kind = Get-SteamDialogKind $prompt @($wins | ForEach-Object { @($_.title) + @($_.texts) })
+    if (-not $kind) { return $null }
+    [pscustomobject]@{ kind = $kind; prompt = $prompt; windows = $wins }
 }
 
 # Never let the world password reach a log: the game log's Browse/LoadMap lines carry ?p=<base64 pw>.

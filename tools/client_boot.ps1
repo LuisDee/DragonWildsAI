@@ -90,7 +90,39 @@ function New-Result([bool]$ok, [string]$state, [string]$reason, $p, [datetime]$t
         free_mb = Get-FreeMB; build = Get-ClientBuildId
         map = $p.map; pawn = $p.pawn; pos_m = $p.pos_m; logged_in = $p.logged_in
         services = if ($p -and $p.bridge) { $p.bridge.services } else { $null }
+        steam_dialog = $script:steamDialog
     }
+}
+
+# A Steam dialog holding the launch (tools/steam_dialog_lib.ps1). 2026-11-17 23:06Z-23:51Z: Steam, offline after a memory
+# crunch, could not sync the cloud and showed "Unable to Sync ... Play anyway / Cancel"; the launch waited on it and every
+# later -applaunch was swallowed (launch_timeout for 45 min) until "Play anyway" was clicked.
+# Returns $null (nothing to answer here; EULA is Get-SteamLaunchBlock's), 'pressed', or the reason 'steam_dialog_pending'.
+# -DryRun only detects and logs.
+$script:steamDialog = $null
+function Resolve-SteamDialog {
+    $dlg = Get-SteamDialogState
+    if (-not $dlg -or $dlg.kind -eq 'eula') { return $null }
+    $pr = if ($dlg.prompt -and $dlg.prompt.waiting) { "$($dlg.prompt.task) `"$($dlg.prompt.detail)`"" } else { 'none' }
+    $seen = "launch prompt: $pr; steam windows: " + (Format-SteamUiWindows $dlg.windows)
+    $script:steamDialog = [ordered]@{ kind = $dlg.kind; prompt = $pr; windows = @($dlg.windows | ForEach-Object { $_.title }); pressed = $false }
+    if ($dlg.kind -ne 'cloud_sync') {
+        BLog "steam dialog pending (unknown, not answered): $seen"
+        return 'steam_dialog_pending'
+    }
+    BLog 'steam dialog: Unable to Sync (cloud); pressing Play anyway: saves are local, Steam Cloud is off for this account'
+    BLog "  $seen"
+    Act 'press "Play anyway" in Steam''s Unable to Sync dialog (UI Automation Invoke)'
+    if ($DryRun) { return 'steam_dialog_pending' }
+    $in = Invoke-SteamDialogButton $dlg.windows 'Play anyway'
+    if (-not $in) {
+        # Not clicked blind: on steamwebhelper 1792618285 Steam's CEF pages expose no UIA tree (steam_dialog_lib.ps1).
+        BLog 'steam dialog: no "Play anyway" button reachable by UI Automation (Steam''s CEF page exposes none): not pressed; it needs one click on the VM desktop'
+        return 'steam_dialog_pending'
+    }
+    $script:steamDialog.pressed = $true
+    BLog "steam dialog: pressed Play anyway in '$in'"
+    'pressed'
 }
 
 # join_server.lua with `local SECRETS_FILE = "<file>"` prefixed (a chunk local: the plain file defaults to server.txt).
@@ -162,12 +194,26 @@ function Invoke-BootOnce([datetime]$t0) {
         $free = Get-FreeMB
         if ($free -lt $MinLaunchFreeMB) { BLog "free RAM ${free} MB < ${MinLaunchFreeMB} MB: not launching"; return New-Result $false 'down' 'low_memory' $null $t0 }
         Act "launch client: steam -applaunch $ClientAppId $($ClientArgs -join ' ')"
-        if ($DryRun) { return New-Result $false 'down' 'client_not_running' $null $t0 }
+        if ($DryRun) { $sd = Resolve-SteamDialog; return New-Result $false 'down' $(if ($sd) { $sd } else { 'client_not_running' }) $null $t0 }
         foreach ($n in 'wd_boot_probe', 'boot_pick_char', 'boot_join_server', 'boot_skip_intro') { Clear-ClientCmd $n }
         Save-PreviousUe4ssLog
         Start-ClientProcess
         $d = (Get-Date).AddSeconds(120)
         while ((Get-Date) -lt $d -and -not ($proc = Get-ClientProcess)) { Start-Sleep 2 }
+        if (-not $proc) {
+            $sd = Resolve-SteamDialog
+            if ($sd -eq 'pressed') {
+                # The answer continues Steam's waiting launch; launch again at once if it has not started in 30 s.
+                $d = (Get-Date).AddSeconds(30)
+                while ((Get-Date) -lt $d -and -not ($proc = Get-ClientProcess)) { Start-Sleep 2 }
+                if (-not $proc) {
+                    Act "launch client again after the dialog: steam -applaunch $ClientAppId"
+                    Start-ClientProcess
+                    $d = (Get-Date).AddSeconds(90)
+                    while ((Get-Date) -lt $d -and -not ($proc = Get-ClientProcess)) { Start-Sleep 2 }
+                }
+            } elseif ($sd) { return New-Result $false 'down' $sd $null $t0 }
+        }
         if (-not $proc) {
             $block = Get-SteamLaunchBlock
             if ($block) { BLog "steam did not launch the game: $block" }
@@ -344,7 +390,7 @@ try {
         $res.attempt = $a
         BLog ("attempt ${a}: ok=$($res.ok) state=$($res.state) reason=$($res.reason)")
         if ($res.ok -or $DryRun) { break }
-        if ($res.reason -in @('low_memory', 'no_secrets_file', 'steam_not_logged_in', 'client_not_running', 'steam_eula_pending', 'steam_update_disk_full')) { break }   # retrying won't help
+        if ($res.reason -in @('low_memory', 'no_secrets_file', 'steam_not_logged_in', 'client_not_running', 'steam_eula_pending', 'steam_update_disk_full', 'steam_dialog_pending')) { break }   # retrying won't help
         if ($a -lt $Attempts) { $w = $BackoffS * [math]::Pow(2, $a - 1); BLog "retry in ${w}s"; Start-Sleep -Seconds $w }
     }
     $res.ts = (Get-Date).ToUniversalTime().ToString('o')
