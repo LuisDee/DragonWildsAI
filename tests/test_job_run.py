@@ -187,7 +187,55 @@ def test_h3_next_tier_of_each_family_he_carried(doc):
     assert j.done(job, start, end)[0]
     ok, why = j.done(job, start, snap({"ITEM_Pickaxe_Bronze": 1, "ITEM_Logging_Axe_Stone": 1}))
     assert not ok and "logging axe" in why
-    assert not j.done(job, snap(), end)[0]  # carried none at the start: nothing to step up from
+    # the logging axe has no Bone tier: Stone (tier 1) steps up to Bronze (3); a Rune pickaxe (tier 7, PL 8) is above
+    # an Adamant one (tier 7, PL 7); watering cans all read tier 0 and rank by power level
+    assert j.done(job, snap({"ITEM_Pickaxe_Adamant": 1}), snap({"ITEM_Pickaxe_Rune": 1}))[0]
+    assert not j.done(job, snap({"ITEM_Pickaxe_Rune": 1}), snap({"ITEM_Pickaxe_Rune": 1, "ITEM_Pickaxe_Adamant": 1}))[0]
+    assert j.done(job, snap({"ITEM_WateringCan_Wood": 1}), snap({"ITEM_WateringCan_Bronze": 1}))[0]
+    assert not j.done(job, snap({"ITEM_WateringCan_Steel": 1}), snap({"ITEM_WateringCan_Bronze": 1}))[0]
+
+
+TOOLS_NONE = {"ITEM_Ammo_Arrows_Stone": 20, "ITEM_Sword_Bronze": 1, "ITEM_Resources_Stone": 5}  # ClaudeDev's fork
+FIRST = {"ITEM_Pickaxe_Stone": 1, "ITEM_Logging_Axe_Stone": 1, "ITEM_WateringCan_Wood": 1}
+
+
+def test_h3_from_none_one_of_each_family(doc):
+    job = j.job_of("H3", doc)
+    assert job["line"] == "claude, get yourself the next tools up from the ones you carry"
+    start = snap(TOOLS_NONE)
+    ok, why = j.done(job, start, snap({**TOOLS_NONE, **FIRST}))
+    assert ok and "carried none" in why
+    # one family missing: a fail that names it
+    ok, why = j.done(job, start, snap({**TOOLS_NONE, "ITEM_Pickaxe_Stone": 1, "ITEM_Logging_Axe_Stone": 1}))
+    assert ok is False and "watering can: none -> nothing higher" in why
+    # nothing got: a fail, never a grader fault
+    ok, why = j.done(job, start, snap(TOOLS_NONE))
+    assert ok is False and "pickaxe: none -> nothing higher" in why
+    # a higher tier than the first counts as a step up from none
+    assert j.done(job, start, snap({"ITEM_Pickaxe_Bone": 1, "ITEM_Logging_Axe_Bronze": 1, "ITEM_WateringCan_Wood": 1}))[0]
+
+
+def test_h3_broken_tool_is_no_step_up(doc):
+    job = j.job_of("H3", doc)
+    st = state({**TOOLS_NONE, **FIRST})
+    for r in st["inventory_items"]:
+        if r["item"] == "ITEM_Pickaxe_Stone":
+            r.update(broken=True, durability=0, max_durability=100)
+    ok, why = j.done(job, snap(TOOLS_NONE), j.snapshot(st))
+    assert ok is False and "ITEM_Pickaxe_Stone broken" in why
+    # a broken one beside a whole one of the family: the whole one counts
+    st["inventory_items"].append({"item": "ITEM_Pickaxe_Bone", "count": 1, "where": "hotbar"})
+    assert j.done(job, snap(TOOLS_NONE), j.snapshot(st))[0]
+
+
+def test_h3_unread_and_no_from_none(doc):
+    job = j.job_of("H3", doc)
+    end = snap({**TOOLS_NONE, **FIRST})
+    assert j.done(job, {"unread": "get_state failed"}, end)[0] is None
+    assert j.done(job, snap(TOOLS_NONE), {"unread": "get_state failed"})[0] is None
+    spec = {k: v for k, v in job["end"]["next_tier_tools"].items() if k != "from_none"}
+    ok, why = j.p_next_tier_tools(spec, snap(TOOLS_NONE), end)
+    assert ok is None and "nothing to step up from" in why
 
 
 def test_l3_gear_target_and_consumables(doc):

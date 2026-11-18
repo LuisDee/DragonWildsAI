@@ -809,20 +809,55 @@ def _tier(item: str, order: list[str]) -> int:
     return low.index(word) if word in low else -1
 
 
-def p_next_tier_tools(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
-    """For each tool family he carried at the start, he now carries one of a higher tier he did not carry then."""
-    order, out, short = spec["order"], [], []
+def _tool_rank(item: str, order: list[str]) -> tuple[int, int]:
+    """A tool's rank in its family from the game's data (data/items_<build>.json: tier, then power_level, since
+    watering cans all read tier 0 and the Rune and Adamant pickaxes share tier 7); an item the catalog does not know
+    falls back to its id's last word in the spec's order."""
+    e = _cat_entry(item)
+    if e:
+        t, pl = e.get("tier"), e.get("power_level")
+        return (int(t) if isinstance(t, (int, float)) and not isinstance(t, bool) else 0,
+                int(pl) if isinstance(pl, (int, float)) and not isinstance(pl, bool) else 0)
+    i = _tier(item, order)
+    return (i, i)
+
+
+def p_next_tier_tools(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """H3: for each tool family he carried at the start, he now carries, unbroken, one of a higher rank (_tool_rank) he
+    did not carry then. When he carried none of the families at the start and the spec says from_none, the step up
+    from none is any one of each family (the family's first tier or better), new and unbroken. With neither: unread
+    (nothing to step up from), never a fail of his."""
+    order, out, short = spec.get("order") or [], [], []
+    held = end.get("held_detail")
+    carried_start = {k: n for k, n in (start.get("carried") or {}).items() if n}
+    fams = {f: [k for k in carried_start if matches(k, pat)] for f, pat in spec["families"].items()}
+    from_none = not any(fams.values())
+    if from_none and not spec.get("from_none"):
+        return None, "he carried none of the tool families at the start: nothing to step up from"
+
+    def whole(k: str) -> bool:  # an unbroken stack of k on him at the end (no held_detail read: as carried)
+        if held is None:
+            return True
+        return any(h.get("item") == k and not h.get("broken") for h in held)
+
     for fam, pat in spec["families"].items():
-        had = [k for k, n in (start.get("carried") or {}).items() if n and matches(k, pat)]
-        if not had:
+        had = fams[fam]
+        if not had and not from_none:
             continue
-        best = max(_tier(k, order) for k in had)
-        new = [k for k, n in (end.get("carried") or {}).items()
-               if n and matches(k, pat) and _tier(k, order) > best and k not in had]
-        (out if new else short).append(f"{fam}: {max(had, key=lambda k: _tier(k, order))} -> {new[0] if new else 'nothing higher'}")
-    if not out and not short:
-        return False, "he carried none of the tool families at the start"
-    return (not short), "; ".join(out + short)
+        best = max((_tool_rank(k, order) for k in had), default=None)
+        top = max(had, key=lambda k: _tool_rank(k, order)) if had else "none"
+        cand = sorted((k for k, n in (end.get("carried") or {}).items()
+                       if n and matches(k, pat) and k not in had and (best is None or _tool_rank(k, order) > best)),
+                      key=lambda k: _tool_rank(k, order))
+        good = [k for k in cand if whole(k)]
+        if good:
+            out.append(f"{fam}: {top} -> {good[0]}")
+        elif cand:
+            short.append(f"{fam}: {top} -> {cand[0]} broken")
+        else:
+            short.append(f"{fam}: {top} -> nothing higher")
+    head = "carried none of the tool families at the start, so the step up is one of each; " if from_none else ""
+    return (not short), head + "; ".join(out + short)
 
 
 # ------------------------------------------------------------------ the venture ladder's rungs (L2 V1, V2)

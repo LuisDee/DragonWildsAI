@@ -196,12 +196,14 @@
       "end": {
         "next_tier_tools": {
           "families": {"pickaxe": "ITEM_Pickaxe_*", "logging axe": "ITEM_Logging_Axe_*", "watering can": "ITEM_WateringCan_*"},
-          "order": ["Wood", "Stone", "Bone", "Bronze", "Iron", "Steel", "Mithril", "Adamant", "Rune"]
+          "order": ["Wood", "Stone", "Bone", "Bronze", "Iron", "Steel", "Mithril", "Adamant", "Rune"],
+          "from_none": true,
+          "note": "rank from the game's data (items_<build>.json tier, then power_level: watering cans all read tier 0), the order only for an item the catalog lacks. A family he carried at the start needs a higher one he did not carry, unbroken. ClaudeDev's start carries none of the families (lost to graves; 60 start reads, readiness study 2026-11-18): then the step up from none is one of each family, new and unbroken. Neither (from_none false): unread, not counted."
         }
       },
       "not_carried_at_start": [],
       "bar": null,
-      "bar_note": "no fixed bar: it depends on which tools he carries at the start; human_bar per run. Bone's place in the order (after Stone, before Bronze) is a guess from its power level, unverified.",
+      "bar_note": "no fixed bar: it depends on which tools he carries at the start; human_bar per run. Bone's place (after Stone, before Bronze) is the game's tier field (Stone 1, Bone 2, Bronze 3); the logging axe has no Bone tier (Stone 1, then Bronze 3).",
       "start": "ClaudeDev",
       "interrupt_from": null,
       "work_tools": ["gather", "pickup", "attack", "craft", "build", "equip", "interact", "take", "store", "cast"]
