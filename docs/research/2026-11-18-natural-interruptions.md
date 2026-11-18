@@ -14,3 +14,9 @@ Goal item 1 asks for one ask carried through hunger and thirst, a fight, his dea
 | I5 brain restart | not natural | - | - | induced N1-I5: resumed 16.4 s after |
 
 **Most open runs:** the thirst spiral (18) and fights (13, seven of them fatal), then death (5 of 10 never resumed). By rule 2 the first induced interruption to work alone from a checkpoint is I1 (thirst) with I2 behind it; death has the worst rate.
+
+## Correction (same day, after reading the 26 I1 non-resumes)
+
+Only one of the 18 I1b non-resumes was a thirst spiral. 13 (8 I1b, 5 I1a) were a sub-goal that ended with the ask still open (the Zanik runs: "One part of Rune Mysteries is complete, but Rune Mysteries is not over"; he drank in the same turn and stood), all before the open-ask turn (3ec85ff); since it, 8 I1 rows: 5 resumed and all 3 non-resumes were honest parks on the blocked copper ask. 7 were blocked before the drink (copper out of reach, a grave he could not see, a talk that did not open), 4 were asks already done (the measure's fault: a completed quest or finished request must end the ask). The one real spiral (B03): `collect_water` said "I can't see any water I could collect near me" (150 m search) with ponds at 111 m and 113 m, and two explores passed 49-51 m from them; not yet explained.
+
+So by rule 2 the biggest open target is fights (13 not resumed, 7 of them fatal), then death and the grave; thirst is mostly covered. Report: the agent's thirst_spiral.md (scratchpad, 2026-11-18).
