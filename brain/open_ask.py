@@ -3,8 +3,10 @@
 A turn with no call used to close the ask (agent ``request_closed``), and nothing read the game. Now that turn gets ONE
 more Controller turn whose context carries the ask as data: the player's words, who asked and how long ago, and what
 changed in the game since (bag, worn and held gear, quest steps), read from the body's own state rows. On that turn,
-and only then, two tools are offered: ``request_done(evidence)`` and ``park_request(reason)``. Either closes the ask;
-a second silent turn closes it as before. Nothing here says what to do: the block is facts, the tools are neutral.
+and only then, two tools are offered: ``request_done(evidence)`` and ``park_request(reason)``. Either closes the ask,
+and so does the player's next line; nothing else does (2026-11-18): a second silent turn leaves it open
+(``request_left_open``) and the next run carries it. Nothing here says what to do: the block is facts, the tools are
+neutral.
 
 The tool wording and the block are the ones the replay measured (tools/replay_open_ask.py imports them from here).
 Pure functions only: no I/O, no model calls.

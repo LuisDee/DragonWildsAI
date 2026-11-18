@@ -248,6 +248,8 @@ class LiveAgent(Agent):
                      in_flight=[{"id": r.get("id"), "tool": r.get("tool"), "progress": r.get("progress")} for r in left],
                      model_calls=sum(1 for r in rows if r.get("kind") == "llm_response"),
                      parked=getattr(self, "request_parked", None), s=round(secs, 2),
+                     # a "talk_only" run that queued a goal handed the work on (it runs after this row, same episode)
+                     goal_queued=bool(getattr(self, "pending_goal", None)),
                      superseded_by=sorted({x[4] for x in self._pending if x[4] != eid}) or None)
 
     def _rate_capped(self) -> bool:

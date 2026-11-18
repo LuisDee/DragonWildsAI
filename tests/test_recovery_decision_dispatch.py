@@ -78,10 +78,12 @@ def test_goal_only_recovery_uses_existing_pending_path_once_without_stale_speech
 
 def test_empty_recovery_still_reports_original_failure_without_retry(tmp_path):
     rig, sent = boundary(tmp_path)
-    rig.controller_llm.push(failure_call(), "")
+    rig.controller_llm.push(failure_call(), "", "")
     rig.agent._command(CommandReceived(player="Luis", text="continue the journey"))
     assert moves(sent) == [{"target": [10, 0, 0]}]
-    assert len(rig.controller_llm.calls) == 2 and not rig.planner_llm.calls
+    # silent after the failure with his ask open: one open-ask turn (2026-11-18), silent too, no retry
+    assert len(rig.controller_llm.calls) == 3 and not rig.planner_llm.calls
+    assert rig.controller_llm.calls[2]["messages"][-1]["content"].startswith("Open request: ")
     assert rig.companion_said() == []  # the model chose silence; the body's busy detail is never read out
     assert rig.agent.pending_goal is None and rig.agent.pending_skill is None
     assert not records(rig, "skill_queued")

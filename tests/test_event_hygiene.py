@@ -1554,7 +1554,7 @@ def test_a_run_that_stops_with_nothing_on_his_open_request_is_asked_once_and_may
     assert len(notes) == 1 and "come and do his quest" in notes[0], notes
     assert [c[0] for c in r.body.calls] == ["go_to", "interact", "interact"], r.body.calls  # the plan, then his step
     assert [row["request"] for row in r.records("stop_for_check")] == ["claude come and do his quest"]
-    assert len(r.records("request_closed")) == 1  # the empty reply after his step ends it
+    assert len(r.records("request_left_open")) == 1  # the empty reply after his step: left open (2026-11-18), logged
 
 
 def test_the_model_may_end_the_request_at_that_one_turn(tmp_path):
@@ -1562,7 +1562,7 @@ def test_the_model_may_end_the_request_at_that_one_turn(tmp_path):
     r.at(0).step()
     assert len(_stop_for_notes(r)) == 1
     assert [c[0] for c in r.body.calls] == ["go_to", "interact"], r.body.calls
-    assert len(r.records("request_closed")) == 1
+    assert len(r.records("request_left_open")) == 1 and not r.records("request_closed")
 
 
 def test_a_goal_that_waited_behind_another_run_still_carries_the_players_request(tmp_path):

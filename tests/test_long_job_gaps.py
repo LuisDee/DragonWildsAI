@@ -38,8 +38,8 @@ def _plans(n, *tasks):
 
 def test_an_ask_is_not_closed_by_silence_before_one_turn_shows_it_open(tmp_path):
     # fixed by variant C (brain/open_ask.py; docs/research/2026-11-17-open-ask-replay.md): a silent stop no longer
-    # closes the ask; one more turn shows it as data with request_done / park_request, and only a second silent turn
-    # closes it, logged with after_open_ask_turn (code does not judge his claim: item 6 of the ask-ends note)
+    # closes the ask; one more turn shows it as data with request_done / park_request; a second silent turn leaves it
+    # open, logged with after_open_ask_turn (code does not judge his claim: item 6 of the ask-ends note)
     rig = Rig(tmp_path)
     asked = ("Luis", "claude, bring me 3 logs")
     # he claims it and calls nothing, twice (the L5 promise turn, then an empty reply)
@@ -47,14 +47,17 @@ def test_an_ask_is_not_closed_by_silence_before_one_turn_shows_it_open(tmp_path)
     rig.agent._command(CommandReceived(player=asked[0], text=asked[1]))
     assert rig.game.players["Luis"].inventory.get("log", 0) == 0  # the game: nothing was given
     assert not rig.game.calls or all(n != "give" for n, _ in rig.game.calls)
-    kinds = [r["kind"] for r in rig.log.read_all() if r["kind"] in ("open_ask_turn", "request_closed")]
-    assert kinds == ["open_ask_turn", "request_closed"]  # not closed by the silence itself
+    kinds = [r["kind"] for r in rig.log.read_all() if r["kind"] in ("open_ask_turn", "request_closed",
+                                                                     "request_left_open")]
+    # not closed by the silence itself, nor by the second silence (2026-11-18): left open, and logged so
+    assert kinds == ["open_ask_turn", "request_left_open"]
+    assert rig.agent._open_request == asked
     opened, = _kinds(rig, "open_ask_turn")
     assert opened["request"] == asked[1] and opened["shown"]["open_request"]["words"] == asked[1]
     last = rig.controller_llm.calls[-1]
     assert last["messages"][-1]["content"].startswith("Open request: ")
     assert {"request_done", "park_request"} <= {t["function"]["name"] for t in last["tools"]}
-    assert _kinds(rig, "request_closed")[0]["after_open_ask_turn"] is True
+    assert _kinds(rig, "request_left_open")[0]["after_open_ask_turn"] is True
 
 
 # --------------------------------------------------------------------------- 2. a brain restart loses the ask

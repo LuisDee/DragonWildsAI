@@ -2,8 +2,9 @@
 
 A turn with no call while a player's ask is open runs ONE more Controller turn that shows the ask as data (his words,
 who, how long ago, what changed in the game since) and offers request_done(evidence) and park_request(reason). Either
-closes the ask and is logged; a second silent turn closes it as before (`request_closed`, after_open_ask_turn). Offline:
-scripted LLMs and the mock game.
+closes the ask and is logged. Nothing else closes it but the player's next line: a second silent turn, or a stop with no
+turn left, logs `request_left_open` (after_open_ask_turn / no_open_ask_turn) and the next run carries it (2026-11-18).
+Offline: scripted LLMs and the mock game.
 """
 import json
 
@@ -67,10 +68,10 @@ def test_a_silent_stop_runs_one_more_turn_that_shows_the_ask_and_what_changed(tm
     row, = _rows(rig, "open_ask_turn")
     assert row["request"] == ASK[1] and row["player"] == "Luis" and row["outcome"] == "silent"
     assert row["shown"]["open_request"]["changed_since_asked"]["bag"] == {"log": "+1"}
-    # a second silent turn closes it as before, countably
-    closed, = _rows(rig, "request_closed")
-    assert closed["after_open_ask_turn"] is True and "no_open_ask_turn" not in closed
-    assert rig.agent._open_request is None
+    # a second silent turn does not close it (only request_done, park_request or his next line do): logged, countably
+    left, = _rows(rig, "request_left_open")
+    assert left["after_open_ask_turn"] is True and "no_open_ask_turn" not in left and left["run_for"] == "line"
+    assert rig.agent._open_request == ASK and not _rows(rig, "request_closed")
 
 
 def test_request_done_closes_the_ask_and_records_his_evidence(tmp_path):
@@ -107,8 +108,8 @@ def test_work_on_the_extra_turn_keeps_the_ask_open_and_there_is_never_a_second_e
     row, = _rows(rig, "open_ask_turn")
     assert row["outcome"] == "world" and row["actions"] == ["gather"]
     assert len(_open_turns(rig)) == 1  # one extra turn per run: no loop
-    closed, = _rows(rig, "request_closed")  # his next silent stop closes it as before
-    assert closed["after_open_ask_turn"] is False and closed["no_open_ask_turn"] == "had one this run"
+    left, = _rows(rig, "request_left_open")  # his next silent stop leaves it open, with why no second turn
+    assert left["after_open_ask_turn"] is False and left["no_open_ask_turn"] == "had one this run"
     assert len(rig.controller_llm.calls) == 4
 
 
@@ -121,7 +122,8 @@ def test_a_new_player_line_still_replaces_the_open_ask(tmp_path):
     row, = _rows(rig, "open_ask_turn")
     assert row["request"] == "claude, come here"  # the new line is the open one
     assert _shown(_open_turns(rig)[0])["words"] == "claude, come here"
-    assert [r["request"] for r in _rows(rig, "request_closed")] == ["claude, come here"]  # the first never closed
+    assert [r["request"] for r in _rows(rig, "request_left_open")] == ["claude, come here"]  # the first: replaced
+    assert rig.agent._open_request == ("Luis", "claude, come here")
 
 
 def test_a_body_only_run_with_no_ask_open_is_unaffected(tmp_path):
@@ -130,7 +132,7 @@ def test_a_body_only_run_with_no_ask_open_is_unaffected(tmp_path):
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
     _review(rig)
     assert len(rig.controller_llm.calls) == 2  # the run and its report turn, as before
-    assert not _open_turns(rig) and not _rows(rig, "open_ask_turn") and not _rows(rig, "request_closed")
+    assert not _open_turns(rig) and not _rows(rig, "open_ask_turn") and not _rows(rig, "request_left_open")
     assert not any({"request_done", "park_request"} & _tools(c) for c in rig.controller_llm.calls)
 
 
@@ -150,15 +152,95 @@ def test_no_extra_turn_when_the_run_handed_the_ask_to_a_job(tmp_path):
     _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1),
                           FakeLLM.call("start_goal", goal="chop 2 logs for Luis")), FakeLLM.say(""))
     assert len(rig.controller_llm.calls) == 2 and not _open_turns(rig)
-    closed, = _rows(rig, "request_closed")
-    assert closed["no_open_ask_turn"] == "handed to a job"
+    left, = _rows(rig, "request_left_open")  # the job carries it: open, not closed
+    assert left["no_open_ask_turn"] == "handed to a job" and rig.agent._open_request == ASK
 
 
-def test_no_extra_turn_when_the_turn_budget_is_spent(tmp_path, monkeypatch):
+def test_a_stop_at_the_turn_budget_still_gets_the_turn(tmp_path, monkeypatch):
+    # a stop at the limit is a stop with the ask open: the one turn is not barred by MAX_TURNS (it is one call, once)
     from brain import agent as A
     monkeypatch.setattr(A, "MAX_TURNS", 1)
     rig = Rig(tmp_path)
-    _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
-    assert len(rig.controller_llm.calls) == 2 and not _open_turns(rig)
-    closed, = _rows(rig, "request_closed")
-    assert closed["after_open_ask_turn"] is False and closed["no_open_ask_turn"] == "turn budget"
+    _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""), FakeLLM.say(""))
+    assert len(rig.controller_llm.calls) == 3 and len(_open_turns(rig)) == 1
+    left, = _rows(rig, "request_left_open")
+    assert left["after_open_ask_turn"] is True and rig.agent._open_request == ASK
+    assert not _rows(rig, "request_closed")
+
+
+# --------------------------------------------------------------------------- the ask across runs (2026-11-18)
+
+COPPER = ("Tester", "claude, we need thirty copper ore in the chest at your base")
+
+
+def test_a_goal_stuck_run_carries_the_ask_and_its_stop_gets_the_turn(tmp_path):
+    """Live 2026-11-18 00:23Z, logs/brain-live-20261118-012330-23088.jsonl: "on it" + start_goal; the goal got stuck on
+    its craft step; the stuck run (situation-0002, inside run_goal, active_goal still set) made a stone pickaxe, found
+    no copper in range, said why and stopped. It carried no request (only goal_done did), so no open-ask turn ran and
+    nothing was logged: 25 min standing with the ask open."""
+    rig = Rig(tmp_path, max_replans=0)
+    rig.controller_llm.push(FakeLLM.say("on it", FakeLLM.call("start_goal", goal="gather 30 copper ore into the chest")))
+    rig.agent._command(CommandReceived(player=COPPER[0], text=COPPER[1]))
+    assert rig.agent.pending_goal and rig.agent._open_request == COPPER and not _rows(rig, "request_left_open")
+    rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "unobtainium", "count": 1}}]))
+    why = "copper needs a better pickaxe and there's none near here"
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)),  # the stone pickaxe
+                            FakeLLM.say("", FakeLLM.call("gather", resource="unobtainium", count=1)),  # copper: none
+                            FakeLLM.say(why), FakeLLM.say(why),  # why, no call (and the Controller's talk-only check)
+                            FakeLLM.say(""))  # the open-ask turn
+    assert rig.agent.step() == "stuck"
+    stuck = [c for c in rig.controller_llm.calls if '"type": "stuck"' in str(c["messages"][1].get("content"))]
+    assert stuck, "the stuck run ran"
+    row, = _rows(rig, "open_ask_turn")
+    assert row["request"] == COPPER[1] and row["player"] == COPPER[0] and row["run_for"] == "goal_stuck"
+    assert _shown(_open_turns(rig)[0])["words"] == COPPER[1]
+    left, = _rows(rig, "request_left_open")  # silent on it: open, not closed, and said so
+    assert left["after_open_ask_turn"] is True and left["run_for"] == "goal_stuck"
+    assert rig.agent._open_request == COPPER and not _rows(rig, "request_closed")
+
+
+def test_silence_after_the_turn_keeps_the_ask_open_and_a_later_run_gets_its_own_turn(tmp_path):
+    """logs/brain-live-20261118-010135-17424.jsonl, situation-0009: a body run on the open ask asked the player a
+    question ("want me to go grab them, or do you know where copper is?"), the open-ask turn came back empty (outcome
+    "silent"), and request_closed closed the ask: nothing after it carried it. Now it stays open until request_done,
+    park_request or his next line, and the next run with it open gets its own one turn."""
+    rig = Rig(tmp_path)
+    _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)),
+         FakeLLM.say("no copper near here. want me to look further, or do you know a spot?"), FakeLLM.say(""))
+    first, = _rows(rig, "open_ask_turn")
+    assert first["outcome"] == "silent"
+    assert _rows(rig, "request_left_open")[0]["after_open_ask_turn"] is True
+    assert rig.agent._open_request == ASK and not _rows(rig, "request_closed")
+    # a later body run (a review: he drank) with the ask still open stops silent: shown the ask again, once
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+                            FakeLLM.say(""), FakeLLM.say(""))
+    _review(rig)
+    rows = _rows(rig, "open_ask_turn")
+    assert len(rows) == 2 and rows[1]["run_for"] == "carried" and rows[1]["request"] == ASK[1]
+    assert len(_rows(rig, "request_left_open")) == 2 and rig.agent._open_request == ASK
+
+
+def test_a_silence_right_after_a_failure_on_the_open_ask_gets_the_turn(tmp_path):
+    # failure_unspoken: the model saw the failure and chose silence; with the ask open that is a stop on it
+    rig = Rig(tmp_path)
+    _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="unobtainium", count=1)), FakeLLM.say(""),
+         FakeLLM.say("", FakeLLM.call("park_request", reason="there's none of that anywhere near")))
+    assert _rows(rig, "failure_unspoken")
+    row, = _rows(rig, "open_ask_turn")
+    assert row["outcome"] == "park" and not _rows(rig, "failure_unreported")  # straight to the turn, no other check
+    assert rig.agent._open_request is None and _rows(rig, "request_parked")[0]["reason"].startswith("there's none")
+
+
+def test_a_body_run_on_the_open_ask_hands_his_words_on(tmp_path, monkeypatch):
+    # brain-live-20261118-010135 row 588: a body run on the ask hit the turn budget; chain_handed_on "request": null
+    from brain import agent as A
+    monkeypatch.setattr(A, "MAX_TURNS", 1)
+    rig = Rig(tmp_path)
+    rig.agent._open_request = ASK
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)),
+                            FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)))
+    _review(rig)
+    handed, = _rows(rig, "chain_handed_on")
+    assert handed["request"] == ASK[1]
+    situ, = [s for s in rig.agent._situations if s.get("type") == A.CHAIN_BUDGET]
+    assert (situ["request"], situ["from"]) == (ASK[1], ASK[0])

@@ -433,9 +433,12 @@ def test_current_observation_reaches_provider_after_failed_action(rig):
         return result
     rig.game.get_state = state
     rig.game.player_say("pick up missing things")
-    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("pickup", target="nearest", item="missing")), FakeLLM.say(""))
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("pickup", target="nearest", item="missing")), FakeLLM.say(""),
+                            FakeLLM.say(""))
     rig.agent.step()
-    assert len(rig.controller_llm.calls) == 2
+    # silent after the failure with his ask open: the open-ask turn is the third call (2026-11-18)
+    assert len(rig.controller_llm.calls) == 3
+    assert rig.controller_llm.calls[2]["messages"][-1]["content"].startswith("Open request: ")
     messages = rig.controller_llm.calls[1]["messages"]
     initial = json.loads(messages[1]["content"])
     assert initial["command"]["text"] == "pick up missing things"
@@ -627,7 +630,7 @@ def test_a_later_body_run_carries_the_open_request_until_he_stops_on_it(tmp_path
     """Chain 20261116-114101 (Rune Mysteries): the runes were made, the run that heard the goal end went to boil
     water, the boil failed and that run ended on the failure. The next run was a review: it ate and drank, its notes
     said "Continue with the next step, or stop", he stopped with the quest open and stood to the end. The player's
-    request stays the open one until a reply to a note that names it makes no call."""
+    request stays the open one until request_done, park_request or his next line (2026-11-18)."""
     from brain.interface import CommandReceived
     rig = Rig(tmp_path, game=_gather_world())
     rig.controller.clock = lambda: rig.game.time
@@ -637,15 +640,17 @@ def test_a_later_body_run_carries_the_open_request_until_he_stops_on_it(tmp_path
                             FakeLLM.say(""))
     rig.agent._command(CommandReceived(player="Luis", text="claude, go and do the woodcutter's quest"))
     asked = ("Luis", "claude, go and do the woodcutter's quest")
-    # he told the player why, in the run of the request itself, and stayed silent on the open-ask turn: closed
-    assert rig.agent._open_request is None
-    assert [r.get("after_open_ask_turn") for r in rig.log.read_all() if r["kind"] == "request_closed"] == [True]
-    rig.agent._open_request = asked  # as a goal's end leaves it: a body run that ended on a failure note
-    n = len(rig.controller_llm.calls)
+    # he told the player why, in the run of the request itself, and stayed silent on the open-ask turn: still open
+    # (2026-11-18: only request_done, park_request or his next line close it)
+    assert rig.agent._open_request == asked
+    assert [r.get("after_open_ask_turn") for r in rig.log.read_all() if r["kind"] == "request_left_open"] == [True]
+    turns = len([r for r in rig.log.read_all() if r["kind"] == "open_ask_turn"])
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="unobtainium", count=1)),
-                            FakeLLM.say("can't find any"), FakeLLM.say(""))
+                            FakeLLM.say("can't find any"), FakeLLM.say("can't find any"), FakeLLM.say(""))
     _review(rig)
-    assert rig.agent._open_request == asked  # the line after a failure is about that step, not the request
+    # a line after a failure is a stop too: the review that carried the ask gets its own open-ask turn
+    assert len([r for r in rig.log.read_all() if r["kind"] == "open_ask_turn"]) == turns + 1
+    assert rig.agent._open_request == asked
     n = len(rig.controller_llm.calls)
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
                             FakeLLM.say(""), FakeLLM.say(""))
@@ -658,7 +663,8 @@ def test_a_later_body_run_carries_the_open_request_until_he_stops_on_it(tmp_path
     # ...then the open ask is shown once as data (brain/open_ask.py)...
     assert rig.controller_llm.calls[n + 3]["messages"][-1]["content"].startswith("Open request: ")
     assert len(rig.controller_llm.calls) == n + 4
-    assert rig.agent._open_request is None  # ...and he stopped on it again: his call
+    assert rig.agent._open_request == asked  # ...and he stopped on it again: it stays open, said so in the log
+    rig.agent._open_request = None  # as request_done or park_request leaves it
     n = len(rig.controller_llm.calls)
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
     _review(rig)
