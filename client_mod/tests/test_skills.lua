@@ -2457,6 +2457,68 @@ test("collect_water: truthful failures (no water near, the water doesn't take, a
     assert(r and r.ok and r.data.partial and r.data.count == 2 and r.data.detail:find("2 of 3"), json.encode(r))
 end)
 
+-- Live 2026-11-19 10:21-10:22Z (run 20261119-102010-L3): at home, the learned shore stand (how = "learned", no alts) faced
+-- the water with his own Crafting Table 1.3 m beyond the face point, on the same line; the game's detector (camera ray +
+-- forward character trace) picked the table. Four faces, three of them "wades" that moved 0 m, then not_interactable
+-- "the game targets BP_Crafting_StartingBench_C_... instead", twice. A player turns, or steps along the bank, so the
+-- table is no longer behind the water he looks at.
+local function bench_world()
+    local w, restore = water_world()
+    local inv, mv, sk = B.module("inventory"), B.module("move"), B.module("skills")
+    w.position = { 40, 30, -3 }
+    local bench = { id = "BP_Crafting_StartingBench_C_7", class = "BP_Crafting_StartingBench_C", name = "Crafting Table",
+                    kind = "crafting_station", position = { 40.6, 23.3, 0.2 } }
+    table.insert(F.world.interactables, bench)
+    local sp0, rw0, it0, face0 = mv.shore_point, mv.remember_water_spot, inv.interact_target, sk.W.face
+    mv.shore_point = function() return { ok = true, how = "learned", stand = { 40, 20, 0.9 }, edge = { 40, 21.5, 0.3 }, alts = {} } end
+    mv.remember_water_spot = function() return { ok = true, n = 1 } end
+    local faced, dir = nil, { 0, 1 }
+    sk.W.face = function(api, pos, nudge) faced = pos; return face0(api, pos, nudge) end
+    -- the game's pick: whatever interactable lies on his line to the point he faces (within 1.2 m of it, ahead, 9 m)
+    inv.interact_target = function()
+        local p = F.move.position or { 0, 0, 0 }
+        if faced then
+            local dx, dy = faced[1] - p[1], faced[2] - p[2]
+            local l = math.sqrt(dx * dx + dy * dy)
+            if l > 0.3 then dir = { dx / l, dy / l } end
+        end
+        local wx, wy = bench.position[1] - p[1], bench.position[2] - p[2]
+        local along, lat = wx * dir[1] + wy * dir[2], math.abs(wx * dir[2] - wy * dir[1])
+        if along > 0 and along < 9 and lat < 1.2 then return { actor = bench.id, class = bench.class, prompt = "Craft" } end
+        return { actor = w.id, class = w.class, prompt = "Collect Water" }
+    end
+    return w, bench, function()
+        mv.shore_point, mv.remember_water_spot, inv.interact_target, sk.W.face = sp0, rw0, it0, face0
+        restore()
+    end
+end
+
+test("collect_water: a station in line behind the water he faces (learned stand) -> he turns off its line, the water takes", function()
+    local w, bench, restore = bench_world()
+    local logged, log0 = {}, B.API.log
+    B.API.log = function(m) logged[#logged + 1] = tostring(m); return log0(m) end
+    local _, id = rpc("collect_water", { count = 2 })
+    local r = run(id, 200)
+    B.API.log = log0
+    restore()
+    assert(r and r.ok and r.data.count == 2 and F.presses == 2, json.encode(r))
+    local seen = 0
+    for _, m in ipairs(logged) do if m:find("interact: water: the game targets Crafting Table", 1, true) then seen = seen + 1 end end
+    assert(seen == 1, "the turn is logged once and the second press reuses the view: " .. table.concat(logged, " | "))
+end)
+
+test("collect_water: the station holds the detector from every view -> a true refusal naming it, after the views were tried", function()
+    local w, bench, restore = bench_world()
+    local inv = B.module("inventory")
+    inv.interact_target = function() return { actor = bench.id, class = bench.class, prompt = "Craft" } end
+    local _, id = rpc("collect_water", {})
+    local r = run(id, 300)
+    restore()
+    assert(r and r.reason == "not_interactable" and r.data.detail:find("water doesn't take", 1, true)
+        and r.data.detail:find("Crafting Table", 1, true) and r.data.detail:find("views off its line", 1, true)
+        and (r.data.spots_tried or 0) >= 2, json.encode(r))
+end)
+
 -- Study I4 (2026-11-19, runs 2 and 3): with 29 Coarse Nets filling his bag, collect_water failed 10 times "I pressed
 -- Collect Water but couldn't verify a gain of its expected item" at room 0; he concluded the pond "won't give me any"
 -- / "I've got nothing to carry it in", and died of thirst. The game refuses the fill for want of a slot: the report

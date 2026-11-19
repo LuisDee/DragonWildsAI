@@ -430,6 +430,76 @@ function W.is_water(thing)
     return lower(thing.prompt):find("collect water", 1, true) ~= nil
 end
 
+-- Another interactable in his line to the water (live 2026-11-19 10:21Z, run 20261119-102010-L3: at the learned shore
+-- stand his own Crafting Table stood 1.3 m beyond the surface point he faced, on the same line, and the game's detector,
+-- a camera ray plus a forward character trace (DISCOVERIES "The interaction detector": CameraRayLength 2000,
+-- CharacterTraceDistance 600, DetectionRange 900), picked the table from every face; the wades stepped along that same
+-- line). A player turns to another patch of water, or steps along the bank, so the thing is not behind what he looks
+-- at. Views (stand, face): from where he stands, the face point turned by water_view_turns; then stands shifted along
+-- the bank (perpendicular to his line to the water) by water_view_shifts, facing straight out. A view is kept only when
+-- the other thing lies off its line by water_clear_m or more (or beyond water_detect_m, or behind him past 1 m; whether
+-- the camera ray can meet a thing between the camera and him is UNVERIFIED, so 1 m behind still counts as in line).
+-- Geometry over positions already read (the census row of what the detector named); no engine call.
+M.cfg.water_view_turns = { 40, -40 }
+M.cfg.water_view_shifts = { 2.5, -2.5, 4.0, -4.0 }
+M.cfg.water_clear_m = 1.5
+M.cfg.water_detect_m = 9.0
+local function in_line(s, f, c)
+    local ux, uy = f[1] - s[1], f[2] - s[2]
+    local l = math.sqrt(ux * ux + uy * uy)
+    if l < 0.05 then return true end
+    ux, uy = ux / l, uy / l
+    local wx, wy = c[1] - s[1], c[2] - s[2]
+    if math.sqrt(wx * wx + wy * wy) < M.cfg.water_clear_m then return true end
+    local along, lat = wx * ux + wy * uy, math.abs(wx * uy - wy * ux)
+    return along > -1 and along <= M.cfg.water_detect_m and lat < M.cfg.water_clear_m
+end
+M._in_line = in_line
+function M._water_views(here, face, avoid)
+    local dx, dy = face[1] - here[1], face[2] - here[2]
+    local l = math.sqrt(dx * dx + dy * dy)
+    if l < 0.05 then return {} end
+    local ux, uy = dx / l, dy / l
+    local r = math.max(1.0, math.min(l, 2.5))
+    local z, fz = here[3], face[3] or here[3]
+    local out = {}
+    local function add(s, f, how) if not in_line(s, f, avoid) then out[#out + 1] = { stand = s, face = f, how = how } end end
+    for _, deg in ipairs(M.cfg.water_view_turns) do
+        local a = math.rad(deg)
+        local cx, cy = ux * math.cos(a) - uy * math.sin(a), ux * math.sin(a) + uy * math.cos(a)
+        add({ here[1], here[2], z }, { here[1] + cx * r, here[2] + cy * r, fz }, "turn " .. deg)
+    end
+    for _, k in ipairs(M.cfg.water_view_shifts) do
+        local sx, sy = here[1] - uy * k, here[2] + ux * k
+        add({ sx, sy, z }, { sx + ux * r, sy + uy * r, fz }, "bank " .. k)
+    end
+    return out
+end
+
+-- The detector names something else, found in the census with a position, in his line to the water: switch the
+-- episode to views off that line (once per episode). -> true when there are any.
+local function water_avoid(api, e, det)
+    if e.water_avoid or not (det and not det.none and det.actor) or W.is_water(det) then return false end
+    local other = api.find_thing and api.find_thing(det.actor, 15) or nil
+    local c = type(other) == "table" and type(other.position) == "table" and other.position or nil
+    local here = api.my_position()
+    if not (c and here and e.ipoint) then return false end
+    e.water_avoid = { id = det.actor, name = other.name, at = c }
+    local views = M._water_views(here, e.ipoint, c)
+    if api.log then
+        api.log(string.format("interact: water: the game targets %s (%s, %.1f m from me) in my line to the water; %d views off its line%s",
+            tostring(other.name or det.actor), tostring(det.actor), dist2d(here, c), #views,
+            #views > 0 and (": " .. views[1].how .. (views[2] and (", " .. views[2].how .. "...") or "")) or ""))
+    end
+    if #views == 0 then return false end
+    e.spots, e.faces = {}, {}
+    for i, v in ipairs(views) do e.spots[i], e.faces[i] = v.stand, v.face end
+    e.spot_i, e.ipoint, e.ipoint_from = 1, views[1].face, "water_view"
+    e.phase, e.moving, e.approaches, e.wading, e.best_d, e.best_t = "approach", false, 0, false, nil, nil
+    return true
+end
+M._water_avoid = water_avoid
+
 -- The source's reflected output asset, not a named-item rule or an inventory guess.
 function W.water_item(api, thing)
     local ok, actor, U = pcall(api.actor_of, thing)
@@ -692,6 +762,11 @@ local function next_spot(e, api)
     end
     if not e.spots or e.spot_i >= #e.spots then return false end
     e.spot_i, e.phase, e.moving, e.approaches = e.spot_i + 1, "approach", false, 0
+    -- water views (water_avoid): each spot has its own face point; a turn in place is a new view, never skipped
+    if e.faces then
+        e.ipoint, e.wading, e.best_d, e.best_t = e.faces[e.spot_i] or e.ipoint, false, nil, nil
+        return true
+    end
     -- a spot he already stands within reach of is the same view as the face that just failed (spots 1.5 m out at
     -- 50 deg steps lie 1.3 m apart = "near"): skip to one he has to walk to (live 2026-11-02 03:41:06-03:41:15, a grave:
     -- three faces in place, 9 s, then one 1 m step and the press)
@@ -952,7 +1027,11 @@ local function episode_poll(api, e, t, owner_token)
             -- water (live 2026-10-26 19:2x): from the bank 3 m above the pond the game's detector targets nothing (or
             -- a branch on the bank); one step nearer the water's edge and it reads the volume ("Collect Water").
             -- Step toward the surface point, 1 m at a time, at most cfg.water_wades times, then try the next spot.
-            if e.water and (e.wades or 0) < M.cfg.water_wades then
+            -- something else in his line to the water holds the detector: views off its line first (a wade steps along
+            -- the same line, live 2026-11-19 10:21Z: three wades of 0 m, the table still targeted)
+            if e.water and water_avoid(api, e, det) then return nil end
+            local held = e.water_avoid and det and not det.none and det.actor == e.water_avoid.id
+            if e.water and not held and (e.wades or 0) < M.cfg.water_wades then
                 local here = api.my_position()
                 if here and e.ipoint then
                     local dx, dy = e.ipoint[1] - here[1], e.ipoint[2] - here[2]
@@ -982,9 +1061,14 @@ local function episode_poll(api, e, t, owner_token)
             end
             if e.small then return small_refusal(api, e, det) end
             local other = det and not det.none and (det.name or det.actor)
+            -- the census name of what holds the detector (the detector row carries only its actor id)
+            if e.water and e.water_avoid and det and det.actor == e.water_avoid.id and e.water_avoid.name and not det.name then
+                other = e.water_avoid.name .. " (" .. tostring(det.actor) .. ")"
+            end
+            local tried = (e.water and e.faces) and string.format(", from each of the %d views off its line I tried (turned and along the bank)", e.spot_i) or ""
             return api.fail("not_interactable", { target = th.id, detector = det, spots_tried = e.spots and e.spot_i,
                 interaction_point = e.ipoint, interaction_from = e.ipoint_from,
-                detail = (e.water and other and ("the water doesn't take from here: the game targets " .. tostring(other) .. " instead"))
+                detail = (e.water and other and ("the water doesn't take from here: the game targets " .. tostring(other) .. " instead" .. tried))
                     or (e.water and "the water doesn't take from where I can stand on the bank")
                     or (other and ("the game targets " .. tostring(other) .. ", not the " .. e.label))
                     or ("the game offers no use for the " .. e.label .. " from where I can stand") })
@@ -3394,6 +3478,11 @@ local function start_collect_water(api, args, ctx)
     local function begin()
         job.ep = new_episode(api, src, { label = src.name or "water" })
         job.ep.need_gain, job.ep.want_item, job.ep.bag_full = true, expected, bag_full
+        -- the next press from the view that just worked (water_avoid), not again from the one the other thing blocks
+        local v = job.view
+        if v and job.ep.water then
+            job.ep.spots, job.ep.faces, job.ep.spot_i, job.ep.ipoint, job.ep.ipoint_from = { v.stand }, { v.face }, 1, v.face, "water_view"
+        end
     end
     begin()
     job.on_resume = resume_episode(api,job)
@@ -3404,6 +3493,9 @@ local function start_collect_water(api, args, ctx)
             job.got = job.got + res.data.count
             job.item = job.item or res.data.item
             job.sources[res.data.target] = (job.sources[res.data.target] or 0) + res.data.count
+            if job.ep.faces and job.ep.spots and job.ep.spots[job.ep.spot_i] then
+                job.view = { stand = job.ep.spots[job.ep.spot_i], face = job.ep.ipoint }
+            end
             if job.got >= want then
                 local sources, target = sources_of()
                 return { ok = true, data = { item = job.item, count = job.got, wanted = want, target = target, sources = sources,
