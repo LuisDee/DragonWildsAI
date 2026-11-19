@@ -3619,13 +3619,21 @@ local function steer_typed_jump(f, p)
         -- a gap on one level only at the point (live 2026-11-16 09:53:58Z: on a 3 m ledge 72 cm from the cell centre
         -- counted as the approach's third missed landing, and the attack ended path_blocked 7.3 m from the rat)
         local off = d2(me, p)
-        local level = prev and math.abs(p.Z - prev.Z) > step_tol(st)
+        -- another level is a rise over the walkable step (what made it a jump), not over the step slack: the pond bank's
+        -- 61-63 cm hops were under step_tol 65, so 7 landings on the top past the cell, going on forward, were judged
+        -- on a walk point's 45 cm and missed (window 2026-11-19 00:15-00:26Z, scratchpad study pondrun)
+        local rise = prev and p.Z - prev.Z or 0
+        local level = prev and math.abs(rise) > ((st.env and st.env.step) or 45)
+        -- ... and inside the slack the height test cannot tell the top from the foot (both are under 65 cm off): there
+        -- the feet must be past half the rise from the takeoff's level toward the landing's (the over rule's test)
+        local past_half = not (level and math.abs(rise) <= step_tol(st))
+            or ((me.Z - st.half_h) - prev.Z) * (rise > 0 and 1 or -1) > 0.5 * math.abs(rise)
         local within = p.leap and M.cfg.leap_land_cm or (level and M.cfg.jump_land_cm) or M.cfg.lp_radius_cm
         if off >= within or dz >= step_tol(st) then
             if log then log(string.format("move: landed %.0f cm from the jump's point (allowed %d) and %.0f cm off its height (allowed %.0f)",
                 off, within, dz, step_tol(st))) end
         end
-        local ok_land = off < within and dz < step_tol(st)
+        local ok_land = off < within and dz < step_tol(st) and past_half
         -- onto another level: over the cell in the air and down on its level past it has landed (jump course
         -- 2026-11-17 18:33Z: 10 of 15 misses passed within 20 cm of the cell and rested on its level 1.4-1.9 m on;
         -- each was re-planned as a failed jump). A gap on one level still lands only at its point.
@@ -3636,7 +3644,7 @@ local function steer_typed_jump(f, p)
         -- ... or near it and above its level, on the slope up from it (the Doric ledge, 18:53:59Z: 44 cm from the cell
         -- and 93 cm over it, at the goal's own height): up to twice the step slack
         local fdz = (me.Z - st.half_h) - p.Z
-        local above = not ok_land and not over and level and off < within and fdz > 0 and fdz < 2 * step_tol(st)
+        local above = not ok_land and not over and level and past_half and off < within and fdz > 0 and fdz < 2 * step_tol(st)
         -- ... or, for any rise, over a one-cell top (the path's next point lies lower) and down at the path's NEXT point
         -- on its level: he hopped the bump, where the path goes anyway. The ford east of home, 2026-11-18 04:48-09:05Z:
         -- 5 of the day's 9 misses passed 3-17 cm over a 22-54 cm lip's cell from a 270 cm/s wade and came down 8-57 cm

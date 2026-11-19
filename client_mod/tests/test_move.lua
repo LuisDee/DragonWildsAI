@@ -3457,6 +3457,50 @@ do
     check("gap jump on one level: over the cell and 1.8 m past it stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
     mv = land(0, 54, 48)
     check("gap jump on one level: 72 cm from the cell stays a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed", "fails=" .. tostring(mv.trav_fails))
+    -- a rise over the walkable step (45 cm) but under the step slack (65) is a level change (the pond bank by home,
+    -- window 2026-11-19 00:15-00:26Z: 61-63 cm hops that came down on the top past the cell, going on forward, were
+    -- judged on 45 cm and missed 7 times, then re-planned). Real rows: bank T1 off 99 feet_dz 1, T5 off 186 nearest 107
+    -- feet_dz 12, top off 180 nearest 70 feet_dz 42
+    n0 = #logs
+    mv = land(61, 99, 0, 58, -1)
+    vl = verdict_line(n0)
+    check("61 cm hop: on the top 99 cm past the cell is landed and he goes on forward", (mv.trav_fails or 0) == 0 and mv.lwp == 3
+        and vl ~= nil and vl:find("verdict=landed why=within", 1, true) ~= nil and vl:find("rise=61", 1, true) ~= nil,
+        "fails=" .. tostring(mv.trav_fails) .. " lwp=" .. tostring(mv.lwp) .. " " .. tostring(vl))
+    n0 = #logs
+    mv = land(63, 186, 0, 107, -12)
+    vl = verdict_line(n0)
+    check("63 cm hop: over the cell and down on the top 1.9 m on is landed (over)", (mv.trav_fails or 0) == 0 and mv.lwp == 3
+        and vl ~= nil and vl:find("verdict=landed why=over", 1, true) ~= nil and vl:find("rise=63", 1, true) ~= nil,
+        "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    n0 = #logs
+    mv = land(61, 180, 0, 70, -42)
+    vl = verdict_line(n0)
+    check("61 cm hop: down 42 cm over the top 1.8 m on is landed (over)", (mv.trav_fails or 0) == 0
+        and vl ~= nil and vl:find("verdict=landed why=over", 1, true) ~= nil, "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    -- the goalposts stay: back at the foot (feet at the takeoff's level, 61 cm under the top, inside the 65 cm slack)
+    -- near the cell, or under it, is a miss; so is a fall off the far side, to the takeoff's level or below it
+    mv = land(61, -60, 0, 50, 61)
+    check("61 cm hop: back at the foot 60 cm short of the cell stays a miss", mv.trav_fails == 1 and mv.lp_fail == "jump landing missed",
+        "fails=" .. tostring(mv.trav_fails))
+    mv = land(61, -20, 0, 15, 58)
+    check("61 cm hop: at the foot under the lip, 20 cm from the cell, 3 cm over the takeoff's level stays a miss", mv.trav_fails == 1,
+        "fails=" .. tostring(mv.trav_fails))
+    mv = land(61, 40, 0, 10, -30)
+    check("61 cm hop: 40 cm from the cell, 30 cm up the slope over the top is landed", (mv.trav_fails or 0) == 0,
+        "fails=" .. tostring(mv.trav_fails))
+    mv = land(61, 180, 0, 20, 61)
+    check("61 cm hop: over the cell and off the far side to the takeoff's level stays a miss", mv.trav_fails == 1,
+        "fails=" .. tostring(mv.trav_fails))
+    mv = land(61, 180, 0, 20, 101)
+    check("61 cm hop: over the cell and off the far side 40 cm under the takeoff stays a miss", mv.trav_fails == 1,
+        "fails=" .. tostring(mv.trav_fails))
+    mv = land(61, 99, 0, 58, 40)
+    check("61 cm hop: 99 cm past the cell but 40 cm under the top (nearer the foot) stays a miss", mv.trav_fails == 1,
+        "fails=" .. tostring(mv.trav_fails))
+    -- a hop under the walkable step keeps a walk point's 45 cm
+    mv = land(40, 99, 0, 58, -1)
+    check("40 cm hop (under the step): 99 cm past the cell stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
     -- the landing line says whether a double jump's second press fired, and when (double-jumps study 2026-11-17: three
     -- flights cut to 31-185 cm could not tell "never pressed" from "pressed and the face ate it")
     n0 = #logs
