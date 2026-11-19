@@ -335,6 +335,8 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: fl
             d = res.get("data") if isinstance(res.get("data"), dict) else {}
             c.update({"dur_s": round(ts - c["_ts"], 1), "ok": res.get("ok"), "reason": res.get("reason"),
                       "detail": obs.short(d.get("detail") or d.get("why") or "", 160)})
+            if r.get("held_before_send") or res.get("held_before_send") or d.get("held_before_send"):
+                c["held_before_send"] = True  # a queued craft the bag did not cover, never sent (97a19b6)
             if d.get("quests_changed"):
                 c["quests_changed"] = d["quests_changed"]
             if d.get("options"):
@@ -416,11 +418,14 @@ def verdict(rec: dict) -> dict:
     # real end in its place when bridge_late_result came, and a failed end there is a miss like any other
     misses = [{"t": c.get("t"), "tool": c["tool"], "reason": c.get("reason")} for c in rec.get("tool_calls") or []
               if c.get("ok") is False and c.get("reason") not in ss.NO_MISS_REASONS | {"still_running"}
-              and c["tool"] not in ss.READ_ONLY_TOOLS]
+              and c["tool"] not in ss.READ_ONLY_TOOLS and not c.get("held_before_send")]
+    # a held step was never pressed in the game (a greyed recipe, not a failed craft): not a miss, but kept in sight
+    held = [{"t": c.get("t"), "tool": c["tool"], "detail": c.get("detail")} for c in rec.get("tool_calls") or []
+            if c.get("held_before_send")]
     stands = [i["s"] for i in rec.get("idle_over_5s") or []]
     bars = {"done": bool(rec.get("done")), "time": rec.get("ratio") is not None and rec["ratio"] <= 1.5,
             "misses": len(misses) <= 1, "stands": not stands, "counted": not not_counted(rec)}
-    return {"pass": all(bars.values()), "bars": bars, "misses": misses, "truth": "not judged"}
+    return {"pass": all(bars.values()), "bars": bars, "misses": misses, "held_steps": held, "truth": "not judged"}
 
 
 def cmd_run(a) -> int:

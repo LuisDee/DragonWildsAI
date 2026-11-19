@@ -277,3 +277,18 @@ def test_vitals_of_reads_the_three_bars_and_nothing_else():
         def request(self, tool, args, timeout=0):
             return None
     assert q.vitals_of(Dead()) == {}
+
+
+def test_a_held_craft_step_is_kept_in_sight_but_is_not_a_miss():
+    """97a19b6: a queued craft the game's bag did not cover is never sent (held_before_send). Nothing was pressed in the
+    game, so it is no miss; the verdict lists it under held_steps. A craft that was sent and failed stays a miss."""
+    t0 = 1000.0
+    rows = [{"kind": "tool_call", "task_id": "s1", "tool": "craft", "ts": t0 + 5},
+            {"kind": "tool_result", "task_id": "s1", "tool": "craft", "ts": t0 + 5.1, "result": {
+                "ok": False, "reason": "missing_materials", "held_before_send": True,
+                "data": {"detail": "Not sent: Leather x4 needs 12, you hold 9", "held_before_send": True}}},
+            {"kind": "tool_call", "task_id": "s2", "tool": "craft", "ts": t0 + 9},
+            {"kind": "tool_result", "task_id": "s2", "tool": "craft", "ts": t0 + 10,
+             "result": {"ok": False, "reason": "missing_materials", "data": {}}}]
+    v = q.verdict({"tool_calls": q.timeline(rows, t0)["calls"]})
+    assert len(v["misses"]) == 1 and v["misses"][0]["t"] == 9.0 and len(v["held_steps"]) == 1
