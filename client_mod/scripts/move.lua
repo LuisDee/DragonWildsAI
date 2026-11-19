@@ -3494,6 +3494,34 @@ function M.air_let_go(st, pawn, me, p, t)
     return coast >= d, d, along, coast, tdown, wait
 end
 
+-- A typed jump's flight that ended back on the takeoff's level sooner than gravity can bring him there, even with a
+-- ceiling at the highest point he was seen at: rising h takes (v0 - sqrt(v0^2 - 2 g h)) / g, falling from there to
+-- where he stands sqrt(2 (h - back) / g) (UE: a press sets his upward speed to JumpZVelocity 808, gravity 1813, so a
+-- single jump tops out at v0^2 / 2g = 180 cm, DISCOVERIES jump envelope). Free flight cannot do that: his position
+-- was put back (by the server or a depenetration), the edge was never tried. Real play 2026-11-19 08:30-11:30Z: of
+-- the 7 jumps up over 165 cm that missed, 6 rose 101-127 cm and stood at the takeoff's level 0.36-0.47 s after the
+-- press with 2-3 airborne frames, where free flight needs 0.44-0.57 s (8 of the 12 misses in all). Reach is not
+-- it: double jumps of 171-300 cm landed in the same hours (max rise seen 304), and the planner offers them only up
+-- to the measured 307 (data/envelopes/Claude.json dj_up_m). The one left out (09:24:20Z, 56 cm up, back in 0.41 s
+-- against 0.36 s) fits a real obstruction.
+-- Measured times only grow this test's margin: the press frame is before the takeoff and the sampled top is under
+-- the true one. TEMPORARY GUARD until the snap's mechanism is read (OnClientCorrectionReceived is not hooked: no
+-- new engine call here). Returns {air, need, rise, back, last_t, last_up} or nil. A field (200-local limit).
+function M.flight_cut(st, me, j, t)
+    local tk = j and j.takeoff
+    if not (tk and tk.Z and j.apex and j.started and me and me.Z) then return nil end
+    local h, back = j.apex - tk.Z, me.Z - tk.Z
+    if h <= 0 or math.abs(back) > ((st.env and st.env.step) or 45) then return nil end
+    local g = M.cfg.jump_gravity_cms2
+    local v0 = M.cfg.jump_z_cms or (M.jump_phys and M.jump_phys.JumpZVelocity) or 808
+    if 2 * g * h >= v0 * v0 then return nil end -- at or over a single jump's top: no bound from it
+    local need = (v0 - math.sqrt(v0 * v0 - 2 * g * h)) / g + math.sqrt(2 * math.max(0, h - back) / g)
+    local air = t - j.started
+    if air >= need then return nil end
+    return { air = air, need = need, rise = h, back = back,
+             last_t = j.last_air_t and j.last_air_t - j.started, last_up = j.last_air_z and j.last_air_z - tk.Z }
+end
+
 local function steer_typed_jump(f, p)
     local st, gen, pc, pawn, t, me, goal, log = f.st, f.gen, f.pc, f.pawn, f.t, f.me, f.goal, f.log
     local function traversal_failure(detail)
@@ -3602,7 +3630,13 @@ local function steer_typed_jump(f, p)
                 in0 = st.in_tick == st.ticks - 1 }
             st.lp_jumped[st.lwp] = t; j = st.lp_jump_exec
             if not M.jump_phys then pcall(M.jump_physics_line, pawn, log) end
-        elseif jr ~= "busy" then return true end
+        elseif jr ~= "busy" then return true
+        elseif st.lp_cut_hold == st.lpath then
+            -- after a cut flight the first press's bookkeeping (jump_tick, up to 1.2 s) still runs: he stands at the
+            -- takeoff with no stick (not into the face) until he can press again; not counted as stuck
+            st.status, st.hold_gap, st.win_t, st.win_pos = "slowing", true, t, v(me)
+            return
+        end
     elseif near then f.aim = prev end
     if not j then return end
     if j.path ~= st.lpath or j.index ~= st.lwp or j.endpoint ~= p or j.token ~= st.owner_token then
@@ -3614,6 +3648,7 @@ local function steer_typed_jump(f, p)
     if grounded == false then
         j.saw_air = true
         if me.Z > (j.apex or -math.huge) then j.apex = me.Z end
+        j.last_air_t, j.last_air_z = t, me.Z -- the last airborne frame (M.flight_cut's line: how fast he came down)
         local dn = d2(me, p)
         local pushed = st.in_tick == st.ticks - 1
         j.air_n, j.air_in = (j.air_n or 0) + 1, (j.air_in or 0) + (pushed and 1 or 0)
@@ -3699,6 +3734,21 @@ local function steer_typed_jump(f, p)
             and math.abs((me.Z - st.half_h) - nx.Z) < step_tol(st)
         ok_land = (ok_land or over or above or onto_next) and stands
         over, above, onto_next = over and stands, above and stands, onto_next and stands
+        -- back on the takeoff's level sooner than gravity can bring him down: the flight was cut, not judged on the
+        -- edge. Once per edge and trip he presses again from where he stands (M.flight_cut).
+        local cut = not ok_land and stands and prev ~= nil and M.flight_cut(st, me, j, t) or nil
+        local ckey = cut and string.format("%.0f,%.0f,%.0f>%.0f,%.0f,%.0f", prev.X, prev.Y, prev.Z, p.X, p.Y, p.Z)
+        if cut and not (st.jump_cut and st.jump_cut[ckey]) then
+            st.jump_cut = st.jump_cut or {}
+            st.jump_cut[ckey] = true
+            pcall(M.jump_landing_line, st, pawn, me, p, j, "cut", "snapped", t, log)
+            if not owned(bind) then return true end
+            if log then log(string.format("move: jump flight cut short: back at the takeoff's level %.2f s after the press from"
+                .. " %.0f cm up (last seen in the air %.2f s after it, %.0f cm up; free flight needs %.2f s); taking off again from here",
+                cut.air, cut.rise, cut.last_t or -1, cut.last_up or -1, cut.need)) end
+            st.lp_jump_exec, st.jump_double, st.lp_cut_hold = nil, false, st.lpath
+            return
+        end
         pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", not stands and "perched"
             or over and "over" or above and "above" or onto_next and "next" or ok_land and "within"
             or ((off >= within and dz >= step_tol(st)) and "far_and_off_height" or (off >= within and "far" or "off_height")), t, log)

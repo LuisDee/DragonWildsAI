@@ -3574,6 +3574,79 @@ do
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
+-- A flight cut short: back on the takeoff's level sooner than gravity allows is not a judged landing; he presses
+-- again from there, once per edge and trip (M.flight_cut). Real rows, logs/client/client.log 2026-11-19 (rise, top
+-- seen over the takeoff, where he stood after it, s from the press; rounded): 10:46:41Z djump 294, ~110 cm up, +2,
+-- 0.36 s (free flight needs 0.50 s); 10:47:08Z jump 161, ~50 cm up, +2, 0.10 s (0.30). 09:24:20Z djump 267, ~57 cm
+-- up, -15, 0.41 s is within free flight under a ceiling (0.36 s): a real obstruction, a miss as before.
+do
+    local function cut(rise, act, up, back, air_s, busy)
+        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false; PINCH = nil
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
+        M.follow(log, "Zezima", 2, { nav = false })
+        run(5)
+        local mv = _G.DW_MOVE
+        if act == "djump" then mv.env = mv.env or {}; mv.env.double_jump, mv.env.dj_measured = true, true end
+        mv.lpath = { { X = 0, Y = 0, Z = FLOOR, act = "walk" }, { X = 100, Y = 0, Z = FLOOR + rise, act = act },
+                     { X = 200, Y = 0, Z = FLOOR + rise, act = "walk" } }
+        mv.lwp = 2; mv.lp_cut_hold = nil
+        mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
+                            started = T - air_s, saw_air = true, takeoff = { X = 0, Y = 0, Z = 0 }, apex = up,
+                            last_air_t = T - air_s + 0.17, last_air_z = up }
+        -- the first press's bookkeeping still running (jump_tick clears jump_t 1.2 s after it)
+        if busy then mv.jump_t, mv.jump_release, mv.jump_double = T - air_s, false, act == "djump" end
+        mv.trav_fails, mv.lp_fail = nil, nil
+        pawn.loc = { X = 0, Y = 0, Z = back }
+        air = 0
+        step(1)
+        return mv
+    end
+    local function lines(from, pat) local o = {}; for i = from + 1, #logs do
+        if tostring(logs[i]):find(pat, 1, true) then o[#o + 1] = logs[i] end end; return o end
+    local n0 = #logs
+    local jumps0 = pawn.jumps
+    local mv = cut(294, "djump", 112, 2, 0.36, true)
+    local vl = lines(n0, "move: jump verdict=")[1]
+    local said = lines(n0, "move: jump flight cut short")[1]
+    check("cut 10:46:41Z: back at the takeoff 0.36 s after the press from 112 cm up is no missed landing",
+        (mv.trav_fails or 0) == 0 and mv.lp_fail == nil and mv.lwp == 2 and mv.lp_jump_exec == nil
+        and vl ~= nil and vl:find("verdict=cut why=snapped", 1, true) ~= nil and said ~= nil and said:find("free flight needs 0.5", 1, true) ~= nil,
+        "fails=" .. tostring(mv.trav_fails) .. " lwp=" .. tostring(mv.lwp) .. " " .. tostring(vl) .. " | " .. tostring(said))
+    local pushed = false
+    for _ = 1, 20 do step(1); if pawn.input then pushed = true end end -- 0.67 s: the first press's 1.2 s still runs
+    check("cut: he stands with no stick while the first press's bookkeeping runs", not pushed and pawn.jumps == jumps0, "pushed=" .. tostring(pushed))
+    step(15)
+    check("cut: then he presses again from the takeoff, toward the same edge", pawn.jumps == jumps0 + 1 and mv.lp_jump_exec ~= nil
+        and mv.lp_jump_exec.index == 2 and mv.lp_jump_exec.previous == mv.lpath[1], "jumps=" .. tostring(pawn.jumps - jumps0))
+    -- the same edge cut a second time in the trip: a miss, as before (re-planned without it)
+    mv = cut(294, "djump", 112, 2, 0.36)
+    local key_edges = mv.jump_cut
+    if mv.lpath then -- (the old mover dropped the path at the first cut)
+        mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
+                            started = T - 0.36, saw_air = true, takeoff = { X = 0, Y = 0, Z = 0 }, apex = 112 }
+        mv.jump_t, mv.jump_release, mv.jump_double = nil, false, false
+        pawn.loc = { X = 0, Y = 0, Z = 2 }; air = 0
+        step(1)
+    end
+    check("cut: the same edge cut again in the trip is a missed landing", key_edges ~= nil and mv.trav_fails == 1 and mv.lp_fail == "jump landing missed",
+        "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(mv.lp_fail) .. " lwp=" .. tostring(mv.lwp) .. " exec=" .. tostring(mv.lp_jump_exec)
+        .. " status=" .. tostring(mv.status) .. " " .. tostring(logs[#logs]))
+    n0 = #logs
+    mv = cut(161, "jump", 49, 2, 0.10)
+    vl = lines(n0, "move: jump verdict=")[1]
+    check("cut 10:47:08Z: a single jump back at the takeoff 0.10 s after the press from 49 cm up is cut", (mv.trav_fails or 0) == 0
+        and vl ~= nil and vl:find("verdict=cut", 1, true) ~= nil, "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    n0 = #logs
+    mv = cut(267, "djump", 58, -15, 0.41)
+    vl = lines(n0, "move: jump verdict=")[1]
+    check("09:24:20Z: 58 cm up and back in 0.41 s fits free flight under a ceiling: a miss", mv.trav_fails == 1
+        and vl ~= nil and vl:find("verdict=missed", 1, true) ~= nil, "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    n0 = #logs
+    mv = cut(294, "djump", 112, 2, 0.60)
+    check("a flight back at the takeoff after 0.60 s (free flight could) stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
+    M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
 -- A hop over a one-cell top, down at the path's NEXT point on its level, has landed (the ford east of home,
 -- 2026-11-18 04:48-09:05Z: from a 270 cm/s wade he passed 3-17 cm over a 22-54 cm lip's cell and came down 8-57 cm
 -- from the following point at its floor; the rise is under the step slack, so only 45 cm of the cell was allowed and

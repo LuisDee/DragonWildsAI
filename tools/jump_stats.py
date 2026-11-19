@@ -66,6 +66,7 @@ LANDED_RX = re.compile(r"^move: landed (\d+) cm from the jump's point \(allowed 
 MISS_RX = re.compile(r"^move: (jump landing missed; re-planning from here|unreachable: no_route \(the third failed jump of this approach: jump landing missed\))")
 TAKEOFF_FAIL_RX = re.compile(r"^move: jump takeoff not confirmed grounded; re-planning")
 ROUTE_CHANGED_RX = re.compile(r"^move: jump route changed; re-planning")
+CUT_RX = re.compile(r"^move: jump flight cut short: ")
 TAKING_OFF_RX = re.compile(r"^move: taking off (\d+) cm from the jump's start")
 STUCK_RX = re.compile(r"^move: stuck n=\d+ moved=\d+cm d=\d+ src=\w+ me=\((-?\d+),(-?\d+),(-?\d+)\)")
 TRIP_RX = re.compile(r"^move: (trip: |arrived|unreachable|failed|stopped)")
@@ -127,6 +128,7 @@ class Path_:
     miss: dict | None = None         # {"ts", "third", "landed": (off, allowed, dz, tol) | None, "after": pos | None}
     takeoff_fail: int = 0
     route_changed: int = 0
+    cut: int = 0                     # flights cut short (back at the takeoff sooner than gravity allows), pressed again
     taking_off: list = field(default_factory=list)
     landed_keys: set = field(default_factory=set)   # (from, to) rounded, confirmed by self_edge
 
@@ -243,6 +245,9 @@ def parse_lines(lines, since: str = DEFAULT_SINCE, until: str = "9") -> list[Pat
             continue
         if ROUTE_CHANGED_RX.match(text):
             cur.route_changed += 1
+            continue
+        if CUT_RX.match(text):
+            cur.cut += 1
             continue
         tm = TAKING_OFF_RX.match(text)
         if tm:
@@ -441,7 +446,9 @@ def summary(paths: list[Path_], label: str) -> list[str]:
            f"misses not on any jump-up edge (hop or leap on the level): {sum(1 for p in paths if p.miss and not jump_path(p))}",
            f"approaches ended on a third miss: {sum(1 for p in paths if p.miss and p.miss.get('third'))}",
            f"takeoff not grounded: {sum(p.takeoff_fail for p in paths)}; route changed in flight: {sum(p.route_changed for p in paths)};"
-           f" 'taking off where I stand': {sum(len(p.taking_off) for p in paths)}"]
+           f" 'taking off where I stand': {sum(len(p.taking_off) for p in paths)}",
+           f"flights cut short and pressed again (move.lua M.flight_cut): {sum(p.cut for p in paths)} on "
+           f"{sum(1 for p in jp if p.cut)} paths; of those paths, still a landing judged missed: {sum(1 for p in jp if p.cut and p.miss)}"]
     tried = [r for r in rows if r["outcome"] != "not_reached"]
     out.append(f"jump-up edges planned {len(rows)}; tried (landed or missed) {len(tried)}; missed {pct(sum(1 for r in tried if r['outcome'] == 'missed'), len(tried))}")
     out.append("| split | tried | judged missed | a strike under rule C (fell back) |")
