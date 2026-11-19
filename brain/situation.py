@@ -146,6 +146,13 @@ def _item_note(g: dict) -> str | None:
     bits = []
     if isinstance(g.get("consumable"), str):
         bits.append(g["consumable"])
+    # one row for a pile of drops (client_bridge.merge_piles): the game's item magnet pulls in the drops near him as
+    # he walks up to one, so one pickup on this id is the way to the pile (study 2026-11-19, bone piles)
+    pile_n = g.get("pile_n")
+    if isinstance(pile_n, int) and not isinstance(pile_n, bool) and pile_n > 1:
+        m = _num(g.get("pile_m"))
+        bits.append(f"a pile of {pile_n} drops within {m:g} m; walking up to it, the item magnet takes those near me"
+                    if m else f"a pile of {pile_n} drops")
     if g.get("dropped_by"):
         age = g.get("seen_s")
         bits.append(f"dropped by {g['dropped_by']}" + (f" {int(age)} s ago" if isinstance(age, (int, float)) and age < 600 else ""))

@@ -216,6 +216,52 @@ test("get_state tells the kinds of things its lists have no row of (further_off)
         json.encode(r.data and r.data.further_off))
 end)
 
+-- study 2026-11-19 (bone pile): six Bark to Bones drops listed as six ids; the first pickup's walk-up let the game's
+-- item magnet (MagnetRange 350 cm) take the pile, and the next call on another of its ids was unknown_target
+test("a pile of drops of one item is ONE row (summed count, pile_n, ids kept); a player's drop and a far one stay apart; logged once", function()
+    local items0 = FAKE.world.items
+    local function bone(id, x, y, extra)
+        local r = { id = id, class = "BP_RuntimeSpawnedWorldItem_C", name = "Animal Bone", item = "ITEM_Resources_AnimalBone",
+                    count = 1, position = { x, y, 3 } }
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    FAKE.world.items = { bone("bone_2", 3.1, 2.5), bone("bone_1", 2, 2), bone("bone_3", 4.3, 2.0, { count = 2 }),
+        bone("bone_far", 9, 2), bone("bone_drop", 2.2, 2.2, { dropped_by = "Luis" }),
+        { id = "log_1", class = "BP_RuntimeSpawnedWorldItem_C", name = "Oak Logs", item = "ITEM_Resources_Wood_Oak", count = 1,
+          position = { 2.1, 2, 3 } } }
+    local n0 = 0
+    for _, e in ipairs(H.log.events) do if e.name == "pile_merged" then n0 = n0 + 1 end end
+    local r = rpc("get_state")
+    assert(r.ok, tostring(r.reason))
+    local by = {}
+    for _, i in ipairs(r.data.nearby_items) do by[i.id] = i end
+    assert(#r.data.nearby_items == 4, json.encode(r.data.nearby_items))
+    local p = by.bone_1
+    assert(p and p.count == 4 and p.pile_n == 3 and p.pile_m == B.PILE_M and p.name == "Animal Bone",
+        "the nearest bone stands for the pile: " .. json.encode(p))
+    assert(not by.bone_2 and not by.bone_3, "the others of the pile are not separate rows")
+    assert(by.bone_far and by.bone_far.pile_n == nil, "7 m off: beyond the magnet, its own row")
+    assert(by.bone_drop and by.bone_drop.pile_n == nil, "a player's drop is not magnetised: never merged")
+    assert(by.log_1 and by.log_1.pile_n == nil, "another item is not merged")
+    local pile = B.API.pile_of("bone_3")
+    assert(pile and pile.anchor == "bone_1" and #pile.ids == 3 and pile.counts.bone_3 == 2, "the ids are kept")
+    rpc("get_state")
+    local n = 0
+    for _, e in ipairs(H.log.events) do if e.name == "pile_merged" then n = n + 1 end end
+    assert(n - n0 == 1, "logged once per pile and size, not per get_state: " .. (n - n0))
+    -- look shows the same one row
+    local l = rpc("look", { radius = 20 })
+    local bones = 0
+    for _, t in ipairs(l.data.things) do
+        if t.item == "ITEM_Resources_AnimalBone" and not t.dropped_by then bones = bones + 1 end
+        assert(t.id ~= "bone_2" and t.id ~= "bone_3", "look lists the pile once")
+        if t.id == "bone_1" then assert(t.pile_n == 3 and t.count == 4, json.encode(t)) end
+    end
+    assert(bones == 2, "the pile and the far bone: " .. bones)
+    FAKE.world.items = items0
+end)
+
 test("get_state: controller but no pawn -> companion_down", function()
     FAKE.no_pawn = true
     local r = rpc("get_state")

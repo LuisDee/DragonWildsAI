@@ -1417,6 +1417,52 @@ test("co-play 2026-11-01: the game highlights ANOTHER stone (overlapping) -> pre
         and F.presses == 0 and r.data.detail:find("came to my bag", 1, true), json.encode(r))
 end)
 
+-- study 2026-11-19 (bone pile): "+6 Animal Bone" on one id, then a call on another bone of that pile, already in his
+-- bag: unknown_target, six times. The reply says what became of the rest of the pile, from fresh state.
+test("a pickup from a pile says what became of the pile's other drops: gone with it into the bag, still lying (ids)", function()
+    reset()
+    local function bone(id, x)
+        return { id = id, class = "BP_RuntimeSpawnedWorldItem_C", name = "Animal Bone", item = "ITEM_Resources_AnimalBone",
+                 count = 1, position = { x, 2.4, 3 } }
+    end
+    F.world.items = { bone("bone_a", 1.8), bone("bone_b", 2.4), bone("bone_c", 3.2) }
+    local st = rpc("get_state")
+    assert(st and st.ok and #st.data.nearby_items == 1 and st.data.nearby_items[1].pile_n == 3, json.encode(st and st.data.nearby_items))
+    local a0, c0 = B.API.actor_of, B.API.counts
+    local base = c0() or {}
+    local polls = 0
+    B.API.counts = function()
+        polls = polls + 1
+        local c = {}
+        for k, v in pairs(base) do c[k] = v end
+        if polls > 1 then c.ITEM_Resources_AnimalBone = (c.ITEM_Resources_AnimalBone or 0) + 2 end
+        return c
+    end
+    -- the magnet took bone_a and bone_b as he walked up; bone_c (1.4 m on) still lies there
+    B.API.actor_of = function(t)
+        if t.id == "bone_a" or t.id == "bone_b" then
+            local keep = {}
+            for _, row in ipairs(F.world.items) do if row.id ~= "bone_a" and row.id ~= "bone_b" then keep[#keep + 1] = row end end
+            F.world.items = keep
+            return nil, {}
+        end
+        return a0(t)
+    end
+    local _, id = rpc("interact", { target = "bone_a" })
+    local r = run(id, 60, 0.1)
+    B.API.actor_of, B.API.counts = a0, c0
+    assert(r and r.ok and r.data.count == 2 and r.data.pile and r.data.pile.drops == 3, json.encode(r))
+    assert(#r.data.pile.gone == 1 and r.data.pile.gone[1] == "bone_b" and #r.data.pile.lying == 1 and r.data.pile.lying[1] == "bone_c",
+        json.encode(r.data.pile))
+    local d = r.data.detail
+    assert(d:find("+2 Animal Bone", 1, true) and d:find("pile of 3 Animal Bone", 1, true) and d:find("into my bag with it", 1, true)
+        and d:find("still lies there (bone_c)", 1, true), d)
+    -- a drop that was never in a pile: no pile words
+    local plain = { detail = "x." }
+    B.module("skills")._pile_tell(B.API, { id = "lone_1" }, plain, 1)
+    assert(plain.pile == nil and plain.detail == "x.", json.encode(plain))
+end)
+
 test("co-play 2026-11-01: the WATER holds the prompt over a stick at the pond's edge -> he steps out to its far side and takes it", function()
     reset()
     F.world.items, F.world.resources = {}, {} -- (the fake's press takes the nearest row)

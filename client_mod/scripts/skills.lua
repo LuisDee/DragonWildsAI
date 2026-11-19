@@ -521,6 +521,49 @@ local function gain_words(api, all, main)
 end
 M._gain_words = gain_words
 
+-- What became of the rest of the pile a picked-up drop was shown in (client_bridge.merge_piles): the game's item
+-- magnet takes the drops near him as he walks up, so the reply says, from fresh state, which of the pile's other ids
+-- are gone, still flying to him (MagneticComponentGrantItem.Target set: the census's magnet_target) or still lying,
+-- next to the bag delta (n, the game's own count). Study 2026-11-19: six "+N Animal Bone" pickups, each followed by a
+-- call on another bone of the same pile, already in his bag: unknown_target. Sets data.pile and extends data.detail.
+local function pile_tell(api, th, data, n)
+    local pile = api.pile_of and api.pile_of(th.id)
+    if type(pile) ~= "table" or type(pile.ids) ~= "table" or #pile.ids < 2 then return end
+    local okc, things = pcall(api.census_things, 15, 100, nil, { kinds = { items = true } })
+    if not okc or type(things) ~= "table" then return end
+    local here = {}
+    for _, t in ipairs(things) do if t.id then here[t.id] = t end end
+    local gone, coming, lying, gone_n = {}, {}, {}, 0
+    for _, id in ipairs(pile.ids) do
+        if id ~= th.id then
+            local t = here[id]
+            if not t then gone[#gone + 1], gone_n = id, gone_n + (pile.counts[id] or 1)
+            elseif t.magnet_target ~= nil and t.magnet_target ~= api.null then coming[#coming + 1] = id
+            else lying[#lying + 1] = id end
+        end
+    end
+    data.pile = { drops = #pile.ids, gone = gone, coming = coming, lying = lying }
+    if api.log then
+        api.log(string.format("interact: pile %s of %d: +%d in bag, %d gone, %d coming, %d lying", tostring(th.id),
+            #pile.ids, tonumber(n) or 0, #gone, #coming, #lying))
+    end
+    local name = tostring(pile.name or th.name or "drop")
+    local own = pile.counts[th.id] or 1
+    local bits = {}
+    if #gone > 0 then
+        bits[#bits + 1] = string.format("%d of the others went %s", #gone,
+            (tonumber(n) or 0) >= own + gone_n and "into my bag with it" or "from the ground (not all of them to my bag)")
+    end
+    if #coming > 0 then bits[#bits + 1] = string.format("%d %s still flying to me", #coming, #coming == 1 and "is" or "are") end
+    if #lying > 0 then
+        bits[#bits + 1] = string.format("%d still %s there (%s)", #lying, #lying == 1 and "lies" or "lie", table.concat(lying, ", "))
+    end
+    local tail = (#lying == 0 and #coming == 0) and "; nothing of that pile is left on the ground" or ""
+    data.detail = (data.detail and data.detail:gsub("%.%s*$", "") or string.format("Picked up %d %s (my bag count)", tonumber(n) or 0, name))
+        .. string.format(". It lay in a pile of %d %s: %s%s.", #pile.ids, name, table.concat(bits, ", "), tail)
+end
+M._pile_tell = pile_tell
+
 -- The bed/shelter actor he is lying in (PlayerRestComponent.CurrentRestingAreaActor), or nil.
 function W.resting_in(api)
     local s = api.module("sense")
@@ -695,10 +738,12 @@ local function small_refusal(api, e, det, gone)
         local item, n = nil, 0
         if th.item and okc and type(now) == "table" then item, n = gained(e.before or {}, now, th.item) end
         if item then
-            return { ok = true, data = { target = th.id, item = item, count = n, gained = api.object({ [item] = n }),
+            local data = { target = th.id, item = item, count = n, gained = api.object({ [item] = n }),
                 target_gone = true, changed = api.null, prompt = api.null, pressed = false,
                 detail = string.format("The %s came to my bag as I walked up to it, before I pressed anything: +%d %s.",
-                    e.label, n, e.label) } }
+                    e.label, n, e.label) }
+            pile_tell(api, th, data, n)
+            return { ok = true, data = data }
         end
         data.why, data.detail = "gone", "The " .. e.label .. " isn't there any more; someone may have picked it up."
     elseif type(fresh) == "table" and fresh.available == false then
@@ -1029,6 +1074,7 @@ local function episode_poll(api, e, t, owner_token)
                 data.detail = (data.detail or ("Picked up " .. (gain_words(api, all, item)) .. "."))
                     .. " That was everything in it: the " .. tostring(e.label) .. " is empty and gone now."
             end
+            if item and source.category == "items" then pile_tell(api, source, data, n) end
             return { ok = true, data = data }
         end
         if t >= e.verify_until then

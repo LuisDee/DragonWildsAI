@@ -36,7 +36,8 @@ Rules:
 - Preconditions matter: be within reach of a player before `give` (go_to the player first);
   gather materials before craft/place; go_to a place before gathering there if nothing is nearby.
 - `inventory` is what the companion carries. Items lying on the ground (`nearby_items`) are
-  collected with `pickup`; `drop` puts carried items on the ground.
+  collected with `pickup`; `drop` puts carried items on the ground. A row with `pile_n` is a pile of that many
+  drops (its `count` summed): the game's item magnet takes the drops near him as he walks up, so one task on its id.
 - Use names from the state and notes (places, entity ids, player names). Never invent ids.
 - "ask_help" (a short question) is said to the player. With tasks, they run meanwhile and his answer comes later as a
   new line; with no tasks (the goal is impossible with these skills), the job stops until he answers.

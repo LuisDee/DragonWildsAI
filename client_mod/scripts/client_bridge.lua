@@ -357,6 +357,83 @@ local function copy(t)
     return o
 end
 
+-- A pile of loose drops is ONE thing to him, as it is to a player: the game's item magnet (BP_Components_ItemMagnet
+-- MagnetRange = 350 cm, DISCOVERIES "Item handling") pulls every magnetised drop within 3.5 m of him as he walks up to
+-- one. Listed one row per drop, he aimed at the next id of a pile his last pickup had already taken (study 2026-11-19,
+-- misses_1119 "bone pile": six "+N Animal Bone" pickups each followed by unknown_target "not perceived within 80 m" on
+-- a bone 0.3-2.8 m from the one he took; the piles of Bark to Bones lie 3.4-4.2 m across). So drops of one item lying
+-- within PILE_M of the nearest of them are one row: its id (a pickup on it works as before), the summed count,
+-- pile_n drops, pile_m. A player's drop is never merged: it is not magnetised (DISCOVERIES, collected with E).
+-- rows: census item rows (or look things; is_item picks the items among them). -> rows, {member id -> pile}
+-- Property reads only: the rows are the census's own (no engine call here).
+M.PILE_M = 3.5
+function M.merge_piles(rows, is_item)
+    local function key(r)
+        return (not is_item or is_item(r)) and r.item and r.dropped_by == nil and type(r.position) == "table" and r.item or nil
+    end
+    local order = {}
+    for i = 1, #rows do order[i] = i end
+    table.sort(order, function(a, b)
+        local da, db = tonumber(rows[a].distance) or math.huge, tonumber(rows[b].distance) or math.huge
+        if da ~= db then return da < db end
+        return a < b
+    end)
+    local used, merged, piles = {}, {}, {}
+    for _, i in ipairs(order) do
+        local r = rows[i]
+        local k = not used[i] and key(r)
+        if k then
+            used[i] = true
+            local members = { r }
+            for _, j in ipairs(order) do
+                local o = rows[j]
+                if not used[j] and key(o) == k and dist2d(r.position, o.position) <= M.PILE_M then
+                    used[j] = true
+                    members[#members + 1] = o
+                end
+            end
+            if #members > 1 then
+                local p, pile = copy(r), { anchor = r.id, item = k, name = r.name, ids = {}, counts = {} }
+                local n = 0
+                for _, m in ipairs(members) do
+                    local c = tonumber(m.count) or 1
+                    n = n + c
+                    pile.ids[#pile.ids + 1], pile.counts[m.id] = m.id, c
+                    if p.collecting == nil and m.collecting ~= nil then p.collecting = m.collecting end
+                    if p.magnet_target == nil and m.magnet_target ~= nil then p.magnet_target = m.magnet_target end
+                end
+                p.count, p.pile_n, p.pile_m, pile.total = n, #members, M.PILE_M, n
+                for _, m in ipairs(members) do piles[m.id] = pile end
+                merged[i] = p
+                for _, m in ipairs(members) do if m ~= r then merged[m] = true end end
+            end
+        end
+    end
+    local out = {}
+    for i, r in ipairs(rows) do
+        if merged[i] then out[#out + 1] = merged[i] elseif not merged[r] then out[#out + 1] = r end
+    end
+    -- the log line that shows it ran (once per pile and size, not per get_state)
+    if S then
+        S.pile_said = S.pile_said or {}
+        for id, pile in pairs(piles) do
+            if id == pile.anchor and S.pile_said[id] ~= #pile.ids then
+                S.pile_said[id] = #pile.ids
+                text_log(string.format("perception: pile merged %s x %d (%d drops within %.1f m, shown as %s)",
+                    tostring(pile.name or pile.item), pile.total, #pile.ids, M.PILE_M, tostring(id)))
+                ev("pile_merged", { item = pile.item, name = pile.name, drops = #pile.ids, id = id, ids = pile.ids })
+            end
+        end
+    end
+    return out, piles
+end
+
+-- The pile a perceived id was shown in (the last get_state or look), or nil: skills.lua tells back what became of the
+-- rest of it after a pickup, so the next call is not on a drop that came along with this one.
+local function pile_of(id)
+    return S and S.piles and S.piles[id] or nil
+end
+
 -- sense.census -> the protocol's buckets (BRIDGE_PROTOCOL.md get_state).
 local function bucket_census(c)
     local out = { players = {}, nearby_entities = {}, nearby_resources = {}, nearby_items = {} }
@@ -374,11 +451,14 @@ local function bucket_census(c)
     for _, r in ipairs(c.resources or {}) do out.nearby_resources[#out.nearby_resources + 1] = copy(r) end
     out.interactables = {}
     for _, r in ipairs(c.interactables or {}) do out.interactables[#out.interactables + 1] = copy(r) end
-    for _, it in ipairs(c.items or {}) do
-        local i = copy(it)
+    local items = {}
+    for _, it in ipairs(c.items or {}) do items[#items + 1] = copy(it) end
+    local piles
+    out.nearby_items, piles = M.merge_piles(items)
+    for _, i in ipairs(out.nearby_items) do
         if i.collecting == nil then i.collecting = i.magnet_target or S.bridge.null end
-        out.nearby_items[#out.nearby_items + 1] = i
     end
+    S.piles = piles
     return out
 end
 
@@ -1204,6 +1284,13 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local near = need_str(args.near) and args.near or nil
     local things, r = census_things(radius, nil, near)
     if not things then return r end
+    -- a pile of drops is one thing here too (M.merge_piles); its ids stay known for the pickup's report
+    local piles
+    things, piles = M.merge_piles(things, function(t) return t.category == "items" end)
+    if not near then
+        S.piles = S.piles or {}
+        for id, p in pairs(piles) do S.piles[id] = p end
+    end
     for _, t in ipairs(things) do t._score = about and M.match_score(t, about) or 0 end
     table.sort(things, function(x, y)
         if x._score ~= y._score then return x._score > y._score end
@@ -1553,6 +1640,7 @@ M.API = {
     me = function() return me() end,
     my_position = function() return my_position() end,
     census_things = function(r, m, near, opts) return census_things(r, m, near, opts) end,
+    pile_of = function(id) return pile_of(id) end,
     -- one player name for another: equal ignoring case, or a long name cut short (mapplayers.same_name)
     same_player = function(a, b)
         if a == b then return a ~= nil end
