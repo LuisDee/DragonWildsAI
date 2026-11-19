@@ -90,6 +90,70 @@ def test_controller_acts_while_a_slow_plan_is_pending_then_the_plan_runs(tmp_pat
     assert planner_prompt.get("episode_id") == started.get("episode_id") is not None
 
 
+def test_a_pending_turn_with_no_call_and_an_idle_body_gets_another_turn_that_acts(tmp_path, monkeypatch):
+    """Live 2026-11-19 (run 20261119-013245-L2-V1): every plan_pending turn ended with no call ("I'm letting the
+    planner finish the copper job") and nothing else gave him a turn while the plan was made: the body stood 18-26 s
+    each time, acted_while_planning n=0. With the plan still pending and the body idle, he gets another turn."""
+    from brain import agent as agent_mod
+    monkeypatch.setattr(agent_mod, "PLAN_IDLE_TURN_S", 0.2, raising=False)
+    rig = _rig(tmp_path, monkeypatch)
+    slow = SlowPlanner(PLAN)
+    rig.planner_llm.push(slow)
+    _ask(rig)
+    seen = {}
+
+    def waits(messages, tools):
+        assert slow.started.wait(5)
+        return LLMResponse(content="I'm letting the planner finish the job.")  # the live shape: no call
+
+    def idle_turn(messages, tools):
+        seen["pending"] = not slow.gate.is_set()
+        seen["event"] = json.loads(messages[1]["content"]).get("body_event") or {}
+        return FakeLLM.say("", FakeLLM.call("go_to", target="Luis"))
+
+    def then_stop(messages, tools):
+        slow.gate.set()
+        return LLMResponse(content="")
+
+    rig.controller_llm.push(waits, idle_turn, then_stop)
+    guard = threading.Timer(3.0, slow.gate.set)  # without the idle turn the plan lands on its own, and the test fails
+    guard.start()
+    try:
+        assert rig.agent.step() == "done"
+    finally:
+        guard.cancel()
+        slow.gate.set()
+    assert seen["pending"] is True  # the second turn ran while the Planner call was still in flight
+    assert seen["event"]["type"] == "plan_pending" and seen["event"]["idle_s"] >= 0.2
+    (idle,) = _rows(rig, "plan_idle_turn")
+    assert idle["quiet"] == 1 and idle["plan_kind"] == "plan"
+    (acted,) = _rows(rig, "acted_while_planning")
+    assert acted["n"] == 1 and acted["tools"] == ["go_to"] and acted["idle_turns"] == 1
+    assert rig.game.players["Luis"].inventory["log"] == 2  # the plan still ran after it landed
+
+
+def test_idle_turns_while_planning_stop_after_three_quiet_replies(tmp_path, monkeypatch):
+    """Mindcraft's self-prompter rule: three replies in a row with no command and he is not asked again."""
+    from brain import agent as agent_mod
+    monkeypatch.setattr(agent_mod, "PLAN_IDLE_TURN_S", 0.05, raising=False)
+    rig = _rig(tmp_path, monkeypatch)
+    slow = SlowPlanner(PLAN)
+    rig.planner_llm.push(slow)
+    _ask(rig)
+    quiet = lambda messages, tools: LLMResponse(content="waiting")  # noqa: E731
+    rig.controller_llm.push(quiet, quiet, quiet)
+    guard = threading.Timer(1.0, slow.gate.set)
+    guard.start()
+    try:
+        assert rig.agent.step() == "done"
+    finally:
+        guard.cancel()
+        slow.gate.set()
+    assert len(_rows(rig, "plan_idle_turn")) == 2  # the pending turn and two more, then none
+    (acted,) = _rows(rig, "acted_while_planning")
+    assert acted["n"] == 0 and acted["idle_turns"] == 2
+
+
 def test_a_plan_that_lands_mid_chain_is_shown_on_his_next_turn(tmp_path, monkeypatch):
     rig = _rig(tmp_path, monkeypatch)
     slow = SlowPlanner(PLAN)

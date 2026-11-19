@@ -147,6 +147,15 @@ POST_ACTION_REUSE_S = 1.0  # the executor's own verification read is this fresh:
 # DW_ASYNC_PLAN=1 (brain/plan_async.py): the Planner call runs in the background and the Controller keeps his turns.
 # These are what he is told; they state facts and leave the choice to him.
 PLAN_POLL_S = 0.1
+# While the plan is made his one plan_pending turn may end with no call (live 2026-11-19, run 20261119-013245-L2-V1:
+# all 5 plan/replan turns did, "I'm letting the planner finish the copper job", and nothing else gave him a turn: chat
+# and body situations wake one, reviews wait while a job is active, and an idle body sends no events, so he stood the
+# 18-26 s of every composition as with the in-line planner). Mindcraft's self-prompter: an idle actor is prompted again,
+# and three replies with no command stop it. Here: with the plan still pending and the body idle (no action of his or
+# left running, no move, nothing queued for a turn) this long after his last turn ended, he gets another plan_pending
+# turn with how long the body has stood; up to PLAN_QUIET_TURNS turns in a row with no body act, reset by any act.
+PLAN_IDLE_TURN_S = 3.0
+PLAN_QUIET_TURNS = 3
 PLAN_PENDING_NOTE = ("Your planner is making the plan for this job now (it takes a few seconds); it is not here yet. "
                      "Nothing waits on you meanwhile: act on what is plainly next for the job, look something up, "
                      "tell the player, or wait. When the plan arrives you are told; it starts by itself once your "
@@ -327,6 +336,7 @@ class Agent:
         self.async_plan = plan_async.enabled()
         self._planning: plan_async.PendingPlan | None = None
         self._plan_landed: dict | None = None
+        self._turn_ended_at: float | None = None  # when his last Controller run ended (every run goes through _command)
         controller.plan_provider = self._plan_fact
         game.set_progress_listener(self._on_progress)
 
@@ -731,6 +741,7 @@ class Agent:
             self._serving_ask = serving
             self.controller.open_request = shown
             self._save_ask()
+            self._turn_ended_at = self.clock()
 
     def _command_run(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
         """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
@@ -1943,15 +1954,31 @@ class Agent:
         req = self._goal_request()
         self.log.log("plan_started", composer="planner", plan_kind=kind, goal=goal, request=req.get("request"),
                      basis=plan_async.digest(state), failed_step=failed)
+        idle_turns = 0  # the turns he was given because the body stood idle while it was made (plan_idle_turn)
         try:
             ev = {"type": "plan_pending", "goal": goal, "about": REPLAN_PENDING_NOTE if failed else PLAN_PENDING_NOTE,
                   **({"failed_step": failed} if failed else {}), **req}
             self._plan_turn(ev)
+            seen, offered = len(p.acts), self.clock()
+            quiet = 0 if seen else 1  # his turns in a row with no body act while it is made
             while not p.done() and not self._cancelled:
                 self.pump()
                 flush = getattr(self, "flush_chat", None)
                 if callable(flush):  # LiveAgent: a burst of unnamed lines
                     flush()
+                if len(p.acts) != seen:  # a run pump woke (chat, a body situation) acted
+                    seen, quiet = len(p.acts), 0
+                idle = self._idle_while_planning(p, offered)
+                if idle is not None and quiet < PLAN_QUIET_TURNS:
+                    self.log.log("plan_idle_turn", plan_kind=kind, goal=goal, idle_s=idle, quiet=quiet,
+                                 for_s=round(self.clock() - p.started, 1))
+                    self._plan_turn({**ev, "idle_s": idle})
+                    offered, idle_turns = self.clock(), idle_turns + 1
+                    if len(p.acts) != seen:
+                        seen, quiet = len(p.acts), 0
+                    else:
+                        quiet += 1
+                    continue
                 if not self._cancelled:
                     try:
                         p.future.exception(timeout=PLAN_POLL_S)
@@ -1961,7 +1988,7 @@ class Agent:
             self._planning = None
         acts = p.acts_while_composed()
         self.log.log("acted_while_planning", n=len(acts), tools=acts, n_before_start=len(p.acts), plan_kind=kind,
-                     goal=goal)
+                     goal=goal, idle_turns=idle_turns)
         age = round(self.clock() - p.started, 2)
         composed = round(p.composed_wall - p.started_wall, 2) if p.composed_wall is not None else None
         if self._cancelled and not p.done():
@@ -1995,6 +2022,19 @@ class Agent:
                                  "job": goal, "after_s": composed, "steps": steps[:8],
                                  **({"since_it_was_asked_for": moved} if moved else {})}
         return plan
+
+    def _idle_while_planning(self, p, offered: float) -> float | None:
+        """Seconds the body has stood idle since his last turn ended (or the last offer), once that is
+        PLAN_IDLE_TURN_S, with the plan still pending; None while anything else holds or will take a turn. Facts
+        only: what he does with the turn is his."""
+        if p.done() or self._cancelled or self._situations or self._chat_waiting() or self._chat_stashed():
+            return None
+        ep = self.broker.episode
+        if self.broker.running is not None or (ep is not None and ep.ended is None):
+            return None  # an action of his left running, or a move (a follow) still going
+        since = max(t for t in (self._turn_ended_at, offered, p.started) if t is not None)
+        idle = self.clock() - since
+        return round(idle, 1) if idle >= PLAN_IDLE_TURN_S else None
 
     def _plan_turn(self, ev: dict) -> None:
         """His turn while the plan is made, in the goal's own episode (its acts are the ask's). A player's line that
