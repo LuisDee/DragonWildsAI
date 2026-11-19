@@ -383,8 +383,9 @@ function M.fills(list, k)
     return out
 end
 -- The inventory_full result's data: the room read, what fills the bag (top kinds) and a true sentence, so the brain
--- can choose what to store or drop. Also the log line (unseen signature "gather: bag full for").
-function M.full_data(list, item, name, log, at)
+-- can choose what to store or drop, and the log line's text (no module prefix). The shared bag-full report: gather
+-- (full_data below) and collect_water (skills.lua) both use it, each logging under its own name.
+function M.full_info(list, item, name, at)
     local fills, words = M.fills(list, 4), {}
     for _, f in ipairs(fills) do
         words[#words + 1] = string.format("%s x%d (%d slot%s)", tostring(f.name), f.count, f.slots, f.slots == 1 and "" or "s")
@@ -397,11 +398,17 @@ function M.full_data(list, item, name, log, at)
         tostring((r.hotbar_slots or 0) - (r.hotbar or 0)), tostring(r.hotbar_slots or "?"),
         what and string.format(" and no %s stack with room", tostring(what)) or "", what and ("any more " .. tostring(what)) or "any more",
         #words > 0 and table.concat(words, ", ") or "nothing I can read")
-    say(log, string.format("bag full for %s (%s): room 0 (item page %s/%s, hotbar %s/%s free), no stack with room; fills: %s",
+    local line = string.format("bag full for %s (%s): room 0 (item page %s/%s, hotbar %s/%s free), no stack with room; fills: %s",
         tostring(item), tostring(at), tostring(r.items), tostring(r.items_slots), tostring(r.hotbar), tostring(r.hotbar_slots),
-        table.concat(words, ", ")))
+        table.concat(words, ", "))
     return { why = "inventory_full", detail = detail, item = item, fills = fills,
-             room = { items = r.items, items_slots = r.items_slots, hotbar = r.hotbar, hotbar_slots = r.hotbar_slots } }
+             room = { items = r.items, items_slots = r.items_slots, hotbar = r.hotbar, hotbar_slots = r.hotbar_slots } }, line
+end
+-- gather's own: full_info, logged (unseen signature "gather: bag full for").
+function M.full_data(list, item, name, log, at)
+    local d, line = M.full_info(list, item, name, at)
+    say(log, line)
+    return d
 end
 
 -- The best tool he OWNS for a profile: {entry, tier, where} | nil, plus the best tier seen.

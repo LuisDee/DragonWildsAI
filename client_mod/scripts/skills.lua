@@ -868,6 +868,8 @@ local function episode_poll(api, e, t, owner_token)
                         detail = "I can't read my inventory to verify the water collection." })
                 end
                 e.before, e.water_source = snapshot, source
+                -- the bag at the press (collect_water's bag_full: no free slot and no stack of the water with room)
+                e.full_at_press = e.bag_full and e.bag_full() and true or nil
             end
             local pr = api.call("inventory", "press_interact", e.secondary and { secondary = true } or nil)
             if not pr.ok then return pr end
@@ -1001,6 +1003,13 @@ local function episode_poll(api, e, t, owner_token)
             return { ok = true, data = data }
         end
         if t >= e.verify_until then
+            -- a fill that brought nothing while the bag was full at the press and still is: the bag, not the water
+            -- (study I4 2026-11-19: 10 "couldn't verify a gain" at room 0, and he believed he had nothing to carry
+            -- water in). A second press would not help either.
+            if e.water and e.need_gain and e.full_at_press and e.bag_full then
+                local full = e.bag_full(true)
+                if full then return api.fail("inventory_full", full) end
+            end
             -- never a second press while a conversation is up: E would advance or close the dialogue
             if e.presses < M.cfg.presses and not W.conversation_npc(api) then e.phase, e.face_until = "face", t + face_s(e); return nil end
             return api.fail("verification_failed", { target = source.id, prompt = e.detector and e.detector.prompt, presses = e.presses,
@@ -3286,9 +3295,30 @@ local function start_collect_water(api, args, ctx)
         table.sort(rows, function(a, b) return a.target < b.target end)
         return rows, #rows == 1 and rows[1].target or api.null
     end
+    -- The bag for this water: gather's shared test and report (gather.full_for / full_info over inventory.list room,
+    -- inventory.room_of: no free slot on the item page or hotbar and no stack of the water with room). nil when it
+    -- has room or can't be read (unread pages never claim full). report: the inventory_full data, logged
+    -- (unseen signature "collect_water: bag full for").
+    local function bag_full(report)
+        local G = api.module and api.module("gather")
+        if not (G and type(G.full_for) == "function" and type(G.full_info) == "function") then return nil end
+        local okl, lr = pcall(api.call, "inventory", "list")
+        local list = okl and type(lr) == "table" and lr.ok and lr.data or nil
+        if type(list) ~= "table" or not G.full_for(list, expected) then return nil end
+        if not report then return list end
+        local name = "water"
+        for _, where in ipairs({ "hotbar", "bag" }) do
+            for _, r in ipairs(list[where] or {}) do if r.item == expected and r.name then name = r.name end end
+        end
+        local d, line = G.full_info(list, expected, name, "collect_water")
+        if api.log then pcall(api.log, "collect_water: " .. line) end
+        d.target = src.id
+        d.detail = "I pressed Collect Water and nothing came in. " .. d.detail
+        return d
+    end
     local function begin()
         job.ep = new_episode(api, src, { label = src.name or "water" })
-        job.ep.need_gain, job.ep.want_item = true, expected
+        job.ep.need_gain, job.ep.want_item, job.ep.bag_full = true, expected, bag_full
     end
     begin()
     job.on_resume = resume_episode(api,job)
@@ -3531,7 +3561,8 @@ M.MANIFEST = {
         args = { type = "object", properties = obj({
             target = str("A water source's id from look (default: the nearest water)."),
             count = { type = "integer", minimum = 1, maximum = 20, default = 1, description = "How many." } }) },
-        reasons = { "nothing_in_range", "unknown_target", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },
+        reasons = { "nothing_in_range", "unknown_target", "not_interactable", "too_far", "path_blocked", "inventory_full",
+                    "verification_failed", "timeout" } },
     store = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 8, timeout_s = 110,
         detail_is_speech = SPEAKS,
         description = "Put carried items into a chest or storage: walks there, opens it, moves them in, checks, closes it.",

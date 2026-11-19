@@ -26,6 +26,11 @@ end
 write(SCRIPTS .. "/crafting.lua", [[return { W = { open_station = function(_, kind)
     return FAKE.screen_kind == kind and FAKE.screen_owner or nil
 end } }]], "wb")
+-- gather: only its shared bag-full test and report (the REAL full_for / full_info, which collect_water uses), not its
+-- tools (the manifest here stays the body's without gather)
+write(SCRIPTS .. "/gather.lua", string.format([[local G = assert(loadfile(%q))()
+return { full_for = G.full_for, full_info = G.full_info, pickup_room = G.pickup_room, stack_room = G.stack_room, fills = G.fills }]],
+    REPO .. "/client_mod/scripts/gather.lua"), "wb")
 
 -- ------------------------------------------------------------------ wire helpers
 local out_offset = 0
@@ -2372,6 +2377,80 @@ test("collect_water: truthful failures (no water near, the water doesn't take, a
     inv.press_interact, F.water_dead = pi, nil
     restore()
     assert(r and r.ok and r.data.partial and r.data.count == 2 and r.data.detail:find("2 of 3"), json.encode(r))
+end)
+
+-- Study I4 (2026-11-19, runs 2 and 3): with 29 Coarse Nets filling his bag, collect_water failed 10 times "I pressed
+-- Collect Water but couldn't verify a gain of its expected item" at room 0; he concluded the pond "won't give me any"
+-- / "I've got nothing to carry it in", and died of thirst. The game refuses the fill for want of a slot: the report
+-- is gather's bag-full one (what fills the bag, store or drop), from the same shared test (gather.full_for / full_info).
+test("collect_water: a full bag (room 0, no water stack with room) ends inventory_full with what fills it, not 'couldn't verify a gain'", function()
+    local w, restore = water_world()
+    local inv = B.module("inventory")
+    local list0, pi = inv.list, inv.press_interact
+    -- the pages a pickup lands in (inventory.room_of): FAKE.room = {items, hotbar} free; nil = unread
+    inv.list = function(log)
+        local l = list0(log)
+        for i = 1, (F.nets or 0) do
+            l.bag[#l.bag + 1] = { name = "Coarse Net", item = "ITEM_Coarse_Net", count = 1, max_stack = 1, slot_type = "InventoryItems", slot = 40 + i }
+        end
+        for _, row in ipairs(l.bag) do if row.item == "ITEM_Consumable_Water_Dirty" then row.max_stack = F.water_max or 5; row.name = "Dirty Water" end end
+        if F.room then
+            l.room = { items = F.room.items, items_slots = 32, hotbar = F.room.hotbar, hotbar_slots = 8, total = F.room.items + F.room.hotbar }
+        end
+        return l
+    end
+    -- the game: a fill lands only in a free slot or onto a Dirty Water stack with room
+    inv.press_interact = function(log)
+        local have = F.extra.ITEM_Consumable_Water_Dirty or 0
+        local stack_room = have > 0 and have < (F.water_max or 5)
+        if F.room and F.room.items + F.room.hotbar == 0 and not stack_room then
+            F.refused = (F.refused or 0) + 1
+            return { ok = true }
+        end
+        return pi(log)
+    end
+    local logged, log0 = {}, B.API.log
+    B.API.log = function(m) logged[#logged + 1] = tostring(m); return log0(m) end
+    local function done()
+        inv.list, inv.press_interact, B.API.log = list0, pi, log0
+        F.nets, F.room, F.refused, F.water_max = nil, nil, nil, nil
+        restore()
+    end
+    local ok, err = pcall(function()
+        -- full: no slot, no water stack
+        F.nets, F.room = 29, { items = 0, hotbar = 0 }
+        local _, id = rpc("collect_water", {})
+        local r = run(id, 200)
+        assert(r and r.ok == false and r.reason == "inventory_full", json.encode(r))
+        local d = r.data
+        assert(d.why == "inventory_full" and d.detail:find("Collect Water", 1, true) and d.detail:find("My bag is full", 1, true)
+            and d.detail:find("Coarse Net x29 (29 slots)", 1, true) and d.detail:find("store or drop", 1, true)
+            and not d.detail:find("verify", 1, true) and d.item == "ITEM_Consumable_Water_Dirty" and d.room.items == 0
+            and d.target == w.id, json.encode(r))
+        assert(F.refused == 1, "one refused fill is enough to tell, not a second press: " .. tostring(F.refused))
+        local seen = false
+        for _, m in ipairs(logged) do if m:find("collect_water: bag full for ITEM_Consumable_Water_Dirty", 1, true) then seen = true end end
+        assert(seen, "the bag-full line is logged: " .. table.concat(logged, " | "))
+        -- full but a Dirty Water stack with room: the fill merges onto it (never a refusal)
+        F.extra.ITEM_Consumable_Water_Dirty, F.water_max, F.refused = 2, 5, nil
+        _, id = rpc("collect_water", {})
+        r = run(id, 200)
+        assert(r and r.ok and r.data.count == 1 and not F.refused, json.encode(r))
+        -- a fill that brings nothing with room left stays the old truthful verification_failed
+        F.extra.ITEM_Consumable_Water_Dirty, F.room, F.water_dead = nil, { items = 3, hotbar = 0 }, true
+        _, id = rpc("collect_water", {})
+        r = run(id, 200)
+        F.water_dead = nil
+        assert(r and r.reason == "verification_failed" and r.data.detail:find("couldn't verify a gain", 1, true), json.encode(r))
+        -- pages unread (no room): never a claimed full bag
+        F.room, F.water_dead = nil, true
+        _, id = rpc("collect_water", {})
+        r = run(id, 200)
+        F.water_dead = nil
+        assert(r and r.reason == "verification_failed", json.encode(r))
+    end)
+    done()
+    assert(ok, err)
 end)
 
 -- Thirst spiral B03 (run brain-live-20261116-063517-8648, 81.4 s): collect_water read "I can't see any water I could
