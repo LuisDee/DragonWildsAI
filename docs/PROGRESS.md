@@ -2295,3 +2295,34 @@ Spend 18 Nov: $8.96; no more model windows today. Unseen 8 open (cap): tomorrow'
 **Capstone readiness** (study): ClaudeDev is power level 0 (tunic and leggings broken), with no food or water. "Inside a vault" has never read true. Shortest path: a probe, K1 and K2 ×3, then whole runs ($6-9). The patch changed no vault class.
 
 Spend 18 Nov: about $9.4. The job-tree window's trials 2 and 3 run after 00:00Z.
+
+## 2026-11-18 22:50Z - 2026-11-19 04:00Z: double jump and low ledges fixed, the full bag 3 of 3, the tree's first done jobs, the actor that waits
+
+Luis ratified an extra 10 dollars (data/spend_cap_days.json: 10.5 for the rest of 18 Nov, 19.5 on 19 Nov).
+
+**Jumps (goal item 2).**
+- **One-cell rock:** 16 of 16 jump paths struck on jump_rock_step. The new line (fc42abe, visibility first: rule 4) showed the cause: his own stick pushed toward the cell all flight (airin all frames), so he passed the rock at about 4 m/s. The game reads BrakingDecelerationFalling 0, AirControl 0.5.
+- Fix 1726fbc lets go of the stick once his coast covers the distance left: 0 of 4 struck (p = 0.0002), and the windmill double jump still 3 of 3.
+- **Low ledges (46-64 cm):** they reproduce only with a running or wading approach (71a9009): 7 of 8 struck. Every landing came down on the higher level and went on forward (rule C: 0 falls). The judge used the flat-ground allowance for rises under the 65 cm step slack.
+- cce6893 judges a rise over 45 cm as a level change, still missed at the foot or off the far side: 0 of 12 struck, every leg reached 5/5.
+- The rock cost a8e2961 is binned (it did not move its number; code kept).
+- Real play still has to be re-measured with these in.
+
+**The job tree.**
+- A crash on things met again under their own first place (KeyError 'status') silently gave the copper and leather asks no tree. Fixed f1e22e4, with a test over the repo's data.
+- 6 copper V1 trials with the tree: 0 passed, 2 DONE by game state (the bone pickaxe read in game; the first ever), failing the bars on misses and stands. He followed the tree in every trial; bones and hides, which blocked the no-tree runs, now get done.
+- Misses in the two done runs (15): the craft report headlined the wrong recipe (4; fix 3195264 in its window now), items flying to him listed as on the ground (fix 3a8b8e3, queued), spell cooldown (2), deer fled (2), a walled room (2-3).
+- T2: the tree took the base's roof for the wheel's (fix 88b7938, queued).
+
+**The actor defers to the planner (goal item 1, async).**
+- The async plan (merged) and its idle turns (db79e0d) did not move the stands: he acted in 2 of 24 plan waits ("Planner's still building the copper plan, so I'll let it run"); longest stands 40-50 s. db79e0d binned.
+- Research (actor_defers study: Hi Robot, Talker-Reasoner, Plan-and-Act): the plan is the only work queue, so there is nothing to act on while it is made.
+- Structural fix built (8e383f7, queued): start_goal takes his own first 1-3 steps, run at once; the plan replaces only unstarted steps.
+
+**The full bag (I4).**
+- The first six trials were void (harness): every start at 42-45 % water (the fork copied a drained save) and a vehicle whose precondition (flax within 60 m) was false.
+- Fixed 2e861c8 (redberries 27-29 m away; trials refuse under 70 %) and 3dc8b3a (collect_water reads a full bag).
+- The fair window, bag_1119j: **3 of 3**; each met the full bag (inventory_full at 4.5-6.9 s), dropped the nets and went back to the berries.
+- All five interruptions now pass alone: I1 5/5, I2 2/2, I3 3/3, I4 3/3, I5 4/4.
+
+**Also built, queued:** job_target (the model names the tree's target; a7cd4ca), his own storage always shown (52903c7), the vault work on main's line (0918dd1, 75ecb0c, 8aed248).
