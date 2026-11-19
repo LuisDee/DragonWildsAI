@@ -175,20 +175,93 @@ def test_a_goal_queued_or_running_stands(tmp_path, on):
 
 
 def test_the_cap_ends_repeated_hand_overs_at_six_planner_calls(tmp_path, on):
-    # each hand-over's goal ends done, the run that hears it stops silent with the ask open, and the ask is handed over
-    # again: bounded by ASK_PLAN_CAP Planner calls on the ask
+    # each hand-over's goal ends done, the run that hears it stops silent with the ask open, something changes in the
+    # bag, and the ask is handed over again: bounded by ASK_PLAN_CAP Planner calls on the ask
     rig = Rig(tmp_path)
     _ask_and_go_quiet(rig)
     for _ in range(A.ASK_PLAN_CAP):
         rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 1}}]))
     for _ in range(A.ASK_PLAN_CAP + 2):
         rig.agent.step()
+        rig.game.inventory["stone"] += 1  # (no job tree: a change since the done is what lets it go on)
     assert len(_rows(rig, "ask_handover")) == A.ASK_PLAN_CAP == len(rig.planner_llm.calls) == 6
     assert [r["n"] for r in _rows(rig, "ask_handover")] == [1, 2, 3, 4, 5, 6]
     skip, = _rows(rig, "ask_handover_skipped")
     assert skip["why"] == "cap: 6 Planner calls on this request"
     # the last open-ask turn no longer says a stop hands it over
     assert "if_you_stop" not in _shown(_open_turns(rig)[-1])
+
+
+class _Tree:
+    """A job-tree keeper stand-in for the ask: its root reads ``root`` from any state."""
+
+    def __init__(self, root: str):
+        self.root, self.dir = root, None
+
+    def open(self, ask):
+        self.ask = ask
+        return []
+
+    def active(self, ask):
+        return oa.same_ask(ask, getattr(self, "ask", None))
+
+    def tree(self, state, spells=None):
+        return {"roots": [{"kind": "item", "status": self.root}], "nodes": 1}
+
+    def compact_view(self, *a, **k):
+        return None
+
+    def full_view(self, *a, **k):
+        return None
+
+    def record(self, *a, **k):
+        return []
+
+    def close(self):
+        pass
+
+
+def _done_once(rig):
+    _ask_and_go_quiet(rig)
+    rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 2}}]))
+    assert rig.agent.step() == "done"  # hand-over 1: its plan ran to its end; the run that heard it stopped silent
+
+
+def test_done_then_stop_is_not_handed_over_again(tmp_path, on):
+    rig = Rig(tmp_path)
+    _done_once(rig)
+    told = [_shown(c) for c in _open_turns(rig)[1:]]  # the goal_done run's open-ask turn: told once, as data
+    assert told and told[0]["your_planners_job"] == {"goal": ASK[1], "ended": "done: its plan ran to its end",
+                                                     "steps": 1}
+    assert "if_you_stop" not in told[0]  # a stop now hands nothing over
+    rig.agent.step()
+    skip, = _rows(rig, "ask_handover_skipped")
+    assert skip["why"] == "done_by_plan" and skip["changed"] is False and skip["root_not_done"] is None
+    assert len(rig.planner_llm.calls) == 1 and len(_rows(rig, "ask_handover")) == 1
+
+
+def test_done_but_the_tree_root_not_done_and_the_bag_changed_is_handed_over_as_a_replan(tmp_path, on):
+    rig = Rig(tmp_path)
+    rig.agent.jobs = _Tree("open")
+    _done_once(rig)
+    rig.game.inventory["stone"] += 3  # something changed since the goal ended
+    rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 1}}]))
+    assert rig.agent.step() == "done"
+    second = _rows(rig, "ask_handover")[1]
+    assert second["mode"] == "replan" and second["prior"]["goal"] == ASK[1]
+    user = _planner_user(rig.planner_llm.calls[1])
+    assert user["goal"] == ASK[1] and "failed_task" in user and user["replans_so_far"] == 0
+
+
+def test_done_with_the_tree_root_done_is_not_handed_over_even_after_a_change(tmp_path, on):
+    rig = Rig(tmp_path)
+    rig.agent.jobs = _Tree("done")
+    _done_once(rig)
+    rig.game.inventory["stone"] += 3
+    rig.agent.step()
+    skip, = _rows(rig, "ask_handover_skipped")
+    assert skip["why"] == "done_by_plan" and skip["root_not_done"] is False and skip["changed"] is True
+    assert len(rig.planner_llm.calls) == 1
 
 
 def test_the_stall_rule_parks_after_the_same_failure_twice_with_nothing_changed(tmp_path, on):
