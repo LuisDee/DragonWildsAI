@@ -627,12 +627,16 @@ def it_spells(ctx) -> dict:
                          f"fixtures: {', '.join(fixtures) or 'none'}")
 
 
-def gear_target(state: dict, stash: dict | None) -> dict:
+def gear_target(state: dict, stash: dict | None, vault: str | None = None) -> dict:
     """The gear_up target from brain/gear_plan.py: armour PL of the best full set he can reach, the kit slots whose
     best reachable PL beats what he holds, and the way Luis went for armour (Reinforced, 'make armour') per slot that
-    is short, for T_h."""
+    is short, for T_h.
+
+    vault ('Crasorak Kara'): the target is what that vault's enemies ask (gear_plan.vault_need over data/bestiary.json):
+    armour PL = their power level, the plan capped there; "reachable_pl" is the best full set gear_plan's data reaches
+    toward it (below "pl": the trial cannot be met from what he can make or owns), "vault" the need with its data rows."""
     from brain import gear_plan
-    p = gear_plan.plan(state, stash=stash)
+    p = gear_plan.plan(state, stash=stash, vault=vault) if vault else gear_plan.plan(state, stash=stash)
     kit = {}
     for slot in gear_plan.KIT_SLOTS:
         sl = p["slots"][slot]
@@ -649,7 +653,12 @@ def gear_target(state: dict, stash: dict | None) -> dict:
     fetch = [(slot, o) for slot in gear_plan.KIT_SLOTS for o in p["slots"][slot]["best"][:1]
              if slot in kit and o["status"] == "owned" and "carried" not in o["where"] and "worn" not in o["where"]]
     fetch += [(o["name"], o) for o in pieces if o["status"] == "owned" and "carried" not in o["where"]]
-    return {"pl": p["pl_full_set"], "pl_now": p["pl_now"], "kit": kit, "pieces": pieces, "fetch": fetch, "plan": p}
+    tg = {"pl": p["pl_full_set"], "pl_now": p["pl_now"], "kit": kit, "pieces": pieces, "fetch": fetch, "plan": p}
+    if vault:
+        need = p["vault"]
+        tg.update(pl=int(need["pl"] if need.get("pl") is not None else p["pl_full_set"]), reachable_pl=p["pl_full_set"],
+                  vault=need)
+    return tg
 
 
 def gear_up_t_h(tg: dict, state: dict) -> tuple[float, str]:

@@ -915,7 +915,28 @@ def p_gear_target(spec: dict, start: dict, end: dict, cat: dict | None = None) -
     short = [f"armour PL {on['pl']} of {tg['pl']}"] if on["pl"] < int(tg["pl"] or 0) else []
     short += [f"{s} PL {on['kit'].get(s, 0)} of {want}" for s, want in (tg.get("kit") or {}).items()
               if on["kit"].get(s, 0) < int(want)]
-    return (not short), (f"armour PL {on['pl']}, kit {on['kit']}" if not short else "; ".join(short))
+    why = f"armour PL {on['pl']}, kit {on['kit']}" if not short else "; ".join(short)
+    return (not short), why + (vault_target_words(tg, end.get("worn") or {}, cat) if tg.get("vault") else "")
+
+
+def vault_target_words(tg: dict, worn: dict, cat: dict | None = None) -> str:
+    """'; target for Crasorak Kara: armour PL 2 ... (rows: ...)': what a vault-aware gear target asked and from which
+    data rows (rung4_gate.gear_target with a vault). The damage type is told, not judged: the goal names armour PL,
+    weapon, food and drink."""
+    out = f"; target for {tg['vault']}: armour PL {tg['pl']}"
+    if tg.get("reachable_pl") is not None and int(tg["reachable_pl"]) < int(tg["pl"]):
+        out += f" (gear_plan's data reaches only PL {tg['reachable_pl']} from what he owns or can make: not reachable)"
+    if tg.get("kit"):
+        out += f", kit {tg['kit']}"
+    if tg.get("damage_pref"):
+        held = worn.get("HeldRight") or worn.get("held_right")
+        entry = (cat.get(held) or {}) if cat is not None and held else _cat_entry(held)
+        types = [str(t).rsplit(".", 1)[-1] for t in entry.get("damage_types") or []]
+        out += (f"; its enemies are weak to {', '.join(tg['damage_pref'])}, his weapon deals "
+                f"{', '.join(types) or 'nothing known'} (told, not judged)")
+    if tg.get("rows"):
+        out += f" (rows: {' | '.join(tg['rows'])})"
+    return out
 
 
 def _tier(item: str, order: list[str]) -> int:
@@ -2344,7 +2365,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
         seen.see(start, 0.0)
     if "gear_target" in (job.get("end") or {}):
         try:
-            start["gear_target"] = io.gear_target(raw0)
+            start["gear_target"] = io.gear_target(raw0, ((job.get("end") or {}).get("gear_target") or {}).get("vault"))
         except Exception as exc:
             start["gear_target_error"] = repr(exc)[:200]
     if any(w.get("gained") for w in (job.get("end") or {}).get("in_own_chest") or []) and not start.get("unread"):
@@ -2701,12 +2722,17 @@ class Live:
     def fixture(self, verb: str, purpose: str, **kw) -> dict:
         return self.dev.setup(verb, purpose=purpose, **kw)
 
-    def gear_target(self, state: dict) -> dict:
+    def gear_target(self, state: dict, vault: str | None = None) -> dict:
         from tools import rung4_gate
         from brain.stash import Stash
         stash = Stash(paths.state_dir() / "worlds" / self.a.world / "containers.json").labels()
-        tg = rung4_gate.gear_target(state, stash)
-        return {"pl": tg["pl"], "pl_now": tg["pl_now"], "kit": tg["kit"]}
+        tg = rung4_gate.gear_target(state, stash, vault)
+        out = {"pl": tg["pl"], "pl_now": tg["pl_now"], "kit": tg["kit"]}
+        if vault:  # what the vault asks and from which data rows: the verdict names them (p_gear_target)
+            need = tg["vault"]
+            out.update(vault=need["vault"], reachable_pl=tg["reachable_pl"], damage_pref=need["damage_pref"],
+                       enemies=need["enemies"], rows=need["rows"])
+        return out
 
     def leave_dialogue(self) -> list[dict]:
         from tools import quest_run as q

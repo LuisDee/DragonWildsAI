@@ -163,14 +163,108 @@ def _cost(r: dict, have: dict[str, int], unlocked: set[str]) -> dict:
             "inputs": [(i.get("item"), i.get("name"), int(i.get("count") or 0)) for i in r.get("inputs") or []]}
 
 
-def plan(state: dict, cat: dict | None = None, stash: dict | None = None) -> dict:
+_QUALIFIED = re.compile(r"^\s*([^()]+?)\s*(?:\((?:level|power level)\s*([\d,\s]+)\))?\s*$", re.I)
+
+
+def _types(words: Any, pl: int | None) -> list[str]:
+    """['Crush (level 5)', 'None'] at power level 2 -> []: a damage type that holds for the creature at this power level
+    (the wiki writes 'Crush (level 5)' when only that variant has it; 'None' and empty rows are no type)."""
+    out = []
+    for w in words if isinstance(words, list) else [words] if words else []:
+        m = _QUALIFIED.match(str(w))
+        if not m or m.group(1).strip().lower() in ("none", ""):
+            continue
+        lv = [int(x) for x in re.findall(r"\d+", m.group(2) or "")]
+        if lv and pl not in lv:
+            continue
+        out.append(m.group(1).strip())
+    return out
+
+
+def _int(v: Any) -> int | None:
+    m = re.match(r"\s*(-?\d+)", str(v)) if v is not None else None
+    return int(m.group(1)) if m else None
+
+
+def vault_need(vault: str, bestiary: dict | None = None) -> dict:
+    """What a vault's enemies ask of his gear, from data/bestiary.json (tools/build_vaults.py: the wiki's vault page
+    enemy table with each enemy's power level there, and each creature's weak/resist rows). Data only: no recipe.
+
+    Returns {"vault", "pl": the highest power level among its enemies (the vault's own level when no enemy states one),
+    "enemies": ["Giant Rat x9 PL 2", ...], "weak"/"resist": {damage type: enemies}, "damage_pref": damage types the
+    enemies are weak to, most enemies first, after those that resist them, "rows": the data rows used, with sources}.
+    Raises KeyError for a vault the data does not hold."""
+    if bestiary is None:
+        from brain.plan_sources import bestiary as _bestiary
+        bestiary = _bestiary()
+    vaults = bestiary.get("vaults") or {}
+    key = next((k for k, v in vaults.items() if k.lower() == str(vault).lower()
+                or str(vault).lower() in [str(a).lower() for a in (v or {}).get("aliases") or []]), None)
+    if key is None:
+        raise KeyError(f"vault {vault!r} is not in data/bestiary.json vaults")
+    v = vaults[key]
+    src = v.get("src") or {}
+    rows = []
+    vpl = _int(v.get("power_level"))
+    enemies, weak, resist = [], {}, {}
+    pls = []
+    for e in v.get("enemies") or []:
+        name, n, pl = e.get("name"), _int(e.get("amount")), _int(e.get("power_level"))
+        pl = vpl if pl is None else pl
+        if pl is not None:
+            pls.append(pl)
+        enemies.append(f"{name}" + (f" x{n}" if n else "") + (f" PL {pl}" if pl is not None else ""))
+        c = (bestiary.get("creatures") or {}).get(name) or {}
+        w, r = _types(c.get("weak"), pl), _types(c.get("resist"), pl)
+        for t in w:
+            weak.setdefault(t, []).append((name, n or 1))
+        for t in r:
+            resist.setdefault(t, []).append((name, n or 1))
+        if c:
+            csrc = c.get("src") or {}
+            pages = sorted({p for k in ("weak", "resist") for p in csrc.get(k) or []}, key=str)
+            rows.append(f"creatures/{name}: weak {', '.join(c.get('weak') or []) or '-'}, resist "
+                        f"{', '.join(c.get('resist') or []) or '-'}" + (f" (wiki {', '.join(map(str, pages))})" if pages else ""))
+    for b in v.get("boss") or []:  # the boss row's weakness when the enemy table did not carry the creature's own
+        name = b.get("creature")
+        if name and not any(name == x[0] for xs in weak.values() for x in xs):
+            pl = next((_int(e.get("power_level")) for e in v.get("enemies") or [] if e.get("name") == name), vpl)
+            for t in _types([s.strip() for s in str(b.get("weakness") or "").split(";")], pl):
+                weak.setdefault(t, []).append((name, 1))
+            rows.append(f"vaults/{key}/boss: {name} weakness {b.get('weakness') or '-'}"
+                        + (f" (wiki {', '.join(map(str, src.get('boss') or []))})" if src.get("boss") else ""))
+    rows.insert(0, f"vaults/{key}/enemies: {', '.join(enemies) or 'none listed'}"
+                + (f" (wiki {', '.join(map(str, src.get('enemies') or []))})" if src.get("enemies") else ""))
+    if not pls and vpl is not None:
+        rows.insert(1, f"vaults/{key}/power_level: {vpl}" + (f" (wiki {', '.join(map(str, src.get('power_level') or []))})"
+                                                             if src.get("power_level") else ""))
+    count = lambda xs: sum(n for _, n in xs)  # noqa: E731
+    score = {t: count(weak[t]) - count(resist.get(t, [])) for t in weak}
+    pref = sorted((t for t in score if score[t] > 0), key=lambda t: (-score[t], t))
+    words = lambda d: {t: [f"{nm} x{n}" for nm, n in xs] for t, xs in d.items()}  # noqa: E731
+    return {"vault": key, "pl": max(pls) if pls else vpl, "enemies": enemies, "weak": words(weak), "resist": words(resist),
+            "damage_pref": pref, "rows": rows}
+
+
+def _dtypes(c: dict) -> list[str]:
+    """['DamageType.Physical.Crush'] -> ['Crush']: a weapon's damage types from the item catalog."""
+    return [str(t).rsplit(".", 1)[-1] for t in c.get("damage_types") or [] if t]
+
+
+def plan(state: dict, cat: dict | None = None, stash: dict | None = None, vault: str | None = None) -> dict:
+    """vault: a vault's name ('Crasorak Kara'): the enemies are that vault's (vault_need) instead of those in sight, the
+    cap is their power level, and the best weapons at the top level are ordered by the damage types they are weak to.
+    None: the region in sight, as before."""
     cat = cat or item_stats.catalog()
     unlocked = set(state.get("recipes_unlocked") or [])
     have = _counts(state)
     owned = _owned(state, cat, stash)
     gear = state.get("gear") or {}
+    need = vault_need(vault) if vault else None
     enemies = [e for e in state.get("nearby_entities") or [] if e.get("alive", True) and e.get("power_level") is not None]
     enemy_pl = max((int(e["power_level"]) for e in enemies), default=None)
+    if need:
+        enemy_pl = need["pl"]
     slots: dict[str, dict] = {}
     for slot in ARMOUR_SLOTS + KIT_SLOTS:
         worn_id = next((gear[k] for k in WORN_KEYS[slot] if gear.get(k)), None)
@@ -188,6 +282,8 @@ def plan(state: dict, cat: dict | None = None, stash: dict | None = None) -> dic
             o = {"item": iid, "name": c.get("name"), "pl": int(pl), "weight": (c.get("stats") or {}).get("armor_weight"),
                  "dmg_mult": (c.get("stats") or {}).get("damage_multiplier") if role == "weapon" else None,
                  "kind": c.get("category") if role == "weapon" else None}
+            if need and role == "weapon":
+                o["dtypes"] = _dtypes(c)
             if owned.get(iid):
                 o["status"], o["where"] = "owned", owned[iid]
             else:
@@ -214,15 +310,22 @@ def plan(state: dict, cat: dict | None = None, stash: dict | None = None) -> dic
         # (at least one tier above the best piece he wears: kebbits alone in sight must not cap him at his T1 starter)
         worn_top = max((int((cat.get(v) or {}).get("power_level") or 0) for k, v in gear.items()
                         if isinstance(v, str) and k in ("Head", "Body", "Legs")), default=0)
-        cap = max(enemy_pl or 0, worn_top + 1)
+        # a vault: its enemies' level is the cap (what the vault asks), not one tier above what he wears
+        cap = need["pl"] if need and need.get("pl") is not None else max(enemy_pl or 0, worn_top + 1)
         reach = [o for o in reach if cap is None or o["pl"] <= cap or o["status"] == "owned"]
         top = max((o["pl"] for o in reach), default=None)
-        best = sorted([o for o in reach if o["pl"] == top], key=lambda o: (o["status"] != "owned", o["status"] != "craftable_now", o["name"] or ""))
+        pref = need["damage_pref"] if need else []
+        best = sorted([o for o in reach if o["pl"] == top],
+                      key=lambda o: ((min((pref.index(t) for t in o.get("dtypes") or [] if t in pref), default=len(pref)),) if pref else ())
+                      + (o["status"] != "owned", o["status"] != "craftable_now", o["name"] or ""))
         slots[slot] = {"worn": worn.get("name"), "worn_pl": worn.get("power_level"), "best_pl": top, "best": best}
     worn_pls = [int(slots[s]["worn_pl"] or 0) if slots[s]["worn"] else 0 for s in ARMOUR_SLOTS]
     best_pls = [max(int(slots[s]["best_pl"] or 0), worn_pls[i]) for i, s in enumerate(ARMOUR_SLOTS)]
-    return {"pl_now": math.floor(sum(worn_pls) / len(ARMOUR_SLOTS)), "pl_full_set": math.floor(sum(best_pls) / len(ARMOUR_SLOTS)),
-            "enemy_pl": enemy_pl, "enemies": sorted({f"{e.get('name')} PL {e.get('power_level')}" for e in enemies}), "slots": slots}
+    out = {"pl_now": math.floor(sum(worn_pls) / len(ARMOUR_SLOTS)), "pl_full_set": math.floor(sum(best_pls) / len(ARMOUR_SLOTS)),
+           "enemy_pl": enemy_pl, "enemies": sorted({f"{e.get('name')} PL {e.get('power_level')}" for e in enemies}), "slots": slots}
+    if need:
+        out["enemies"], out["vault"] = need["enemies"], need
+    return out
 
 
 def _reachable_item(name: str, cat: dict, have: dict[str, int], unlocked: set[str]) -> bool:

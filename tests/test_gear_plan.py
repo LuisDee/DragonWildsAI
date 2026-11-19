@@ -83,3 +83,44 @@ def test_pl_with_one_piece_worn_now():
     p = {"slots": {"head": {"worn": None, "worn_pl": None}, "body": {"worn": "Adventurer's Tunic", "worn_pl": 1},
                    "legs": {"worn": "Adventurer's Leggings", "worn_pl": 0}}}
     assert gp.pl_with(p, "head", 2) == 1 and gp.pl_with(p, "legs", 0) == 0
+
+
+# ------------------------------------------------------------------ a vault's enemies (data/bestiary.json)
+COWL = {"Head": "ITEM_Armour_T2_Head_Leather", "Body": "ITEM_Armour_T1_Body_Adventurers",
+        "Legs": "ITEM_Armour_T1_Legs_Adventurers", "HeldRight": "ITEM_Sword_Bronze"}
+
+
+def test_vault_target_is_its_enemies_level_not_the_best_set_he_can_reach():
+    """L3 'gear up for the vault': with a PL 2 cowl worn the old target was one tier above it (PL 3 bronze, from
+    Ghornfell); Crasorak Kara's enemies are all PL 2 (wiki page 3515), so the vault asks PL 2."""
+    st = _state(gear=COWL, nearby_entities=[{"name": "Kebbit", "power_level": 1, "alive": True}])
+    assert gear_plan.plan(st)["pl_full_set"] == 3  # the region rule: worn tier + 1
+    p = gear_plan.plan(st, vault="Crasorak Kara")
+    assert p["enemy_pl"] == 2 and p["pl_full_set"] == 2
+    assert all(o["pl"] <= 2 or o["status"] == "owned" for s in p["slots"].values() for o in s["best"])
+    v = p["vault"]
+    assert v["vault"] == "Crasorak Kara" and v["pl"] == 2 and "Vault Overlord x1 PL 2" in v["enemies"]
+    assert v["rows"][0].startswith("vaults/Crasorak Kara/enemies:") and "wiki 3515" in v["rows"][0]
+    # rats (x9, weak to Stab, resist Crush) outnumber the guardians weak to Crush (x7); the Overlord's Crush is level 5 only
+    assert v["damage_pref"][0] == "Stab" and "Crush" not in v["damage_pref"]
+    assert "Vault Overlord x1" not in v["weak"].get("Crush", [])
+
+
+def test_vault_need_reads_qualified_weaknesses_and_aliases():
+    import pytest
+    b = {"vaults": {"Test Kara": {"power_level": "3", "aliases": ["test vault"], "enemies": [
+        {"name": "A", "amount": "2", "power_level": "3"}, {"name": "B", "amount": "1"}]}},
+        "creatures": {"A": {"weak": ["Crush (level 3)"], "resist": ["None"]}, "B": {"weak": ["Fire (level 5)"]}}}
+    n = gear_plan.vault_need("test vault", b)
+    assert n["vault"] == "Test Kara" and n["pl"] == 3 and n["damage_pref"] == ["Crush"]
+    assert n["enemies"] == ["A x2 PL 3", "B x1 PL 3"]
+    with pytest.raises(KeyError):
+        gear_plan.vault_need("Nowhere Kara", b)
+
+
+def test_no_vault_is_unchanged():
+    for st in (_state(), _state(gear=COWL), {"gear": {}, "inventory": {}, "recipes_unlocked": [], "nearby_entities": []}):
+        a, b = gear_plan.plan(st), gear_plan.plan(st, vault=None)
+        assert a == b and "vault" not in a
+        assert not any("dtypes" in o for s in a["slots"].values() for o in s["best"])
+        assert gear_plan.lines(a) == gear_plan.lines(b)

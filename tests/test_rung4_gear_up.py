@@ -51,3 +51,18 @@ def test_carry_check_is_done_when_under_his_max():
                    [9, {"carry:cur": 330, "carry:max": 400}]]}
     done, how, when, m = r4.check_carry(rec, [])
     assert done and when == 9 and "-77 Stone" in how and "carry:" not in how.split("window")[-1]
+
+
+def test_vault_target_asks_what_crasorak_karas_enemies_need_and_says_from_which_rows():
+    st = {**ST, "gear": {**ST["gear"], "Head": "ITEM_Armour_T2_Head_Leather"},
+          "nearby_entities": [{"name": "Kebbit", "power_level": 1, "alive": True}]}
+    assert r4.gear_target(st, None)["pl"] == 3  # no vault: the best set he can reach (bronze)
+    tg = r4.gear_target(st, None, "Crasorak Kara")
+    assert tg["pl"] == 2 and tg["reachable_pl"] == 2 and tg["kit"] == {"right_hand": 3, "left_hand": 3}
+    assert [o["name"] for o in tg["pieces"]] == ["Reinforced Body", "Reinforced Platelegs"]
+    assert any(r.startswith("vaults/Crasorak Kara/enemies") for r in tg["vault"]["rows"])
+
+
+def test_no_vault_target_is_unchanged():
+    a, b = r4.gear_target(ST, None), r4.gear_target(ST, None, None)
+    assert a == b and "vault" not in a and "reachable_pl" not in a

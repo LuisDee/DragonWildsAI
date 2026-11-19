@@ -474,7 +474,8 @@ class FakeIO:
         self.fixtures.append((verb, kw))
         return {"ok": True, "after": kw.get("pct"), "id": "BP_AI_RuntGoblin_Character_C_1"}
 
-    def gear_target(self, raw):
+    def gear_target(self, raw, vault=None):
+        self.gear_vault = vault
         return {"pl": 3, "kit": {}}
 
     def leave_dialogue(self):
@@ -1069,3 +1070,28 @@ def test_a_capped_trial_that_had_already_failed_the_miss_bar_counts(doc):
     io = FakeIO(script=sorted(script, key=lambda r: r["ts"]), states=lambda t: state(mine=[CRATE]))
     rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
     assert rec["ended"] == "budget" and rec["misses"]["n"] > 1 and not rec.get("not_counted")
+
+
+def test_l3_names_its_vault_and_the_verdict_says_the_target_and_its_rows(doc):
+    assert j.job_of("L3", doc)["end"]["gear_target"]["vault"] == "Crasorak Kara"
+    cat = {"H": {"power_level": 2}, "B": {"power_level": 2}, "L": {"power_level": 2},
+           "S": {"power_level": 3, "damage_types": ["DamageType.Physical.Slash"]}}
+    start = snap()
+    start["gear_target"] = {"pl": 2, "kit": {"right_hand": 3}, "vault": "Crasorak Kara", "reachable_pl": 2,
+                            "damage_pref": ["Stab", "Fire"], "rows": ["vaults/Crasorak Kara/enemies: Giant Rat x9 PL 2 (wiki 3515)"]}
+    end = snap(worn={"Head": "H", "Body": "B", "Legs": "L", "HeldRight": "S"})
+    ok, why = j.p_gear_target({}, start, end, cat)
+    assert ok and "target for Crasorak Kara: armour PL 2" in why and "wiki 3515" in why
+    assert "weak to Stab, Fire, his weapon deals Slash (told, not judged)" in why
+    start["gear_target"]["reachable_pl"] = 1
+    end["worn"]["Legs"] = None
+    ok, why = j.p_gear_target({}, start, end, cat)
+    assert not ok and "armour PL 1 of 2" in why and "reaches only PL 1" in why
+
+
+def test_run_job_hands_l3s_vault_to_the_gear_target(doc, tmp_path):
+    stop = tmp_path / "job_run.stop"
+    stop.write_text("", encoding="utf-8")
+    io = FakeIO()
+    rec = j.run_job(io, j.job_of("L3", doc), {"interruptions": doc["interruptions"], "stop_file": str(stop)})
+    assert io.gear_vault == "Crasorak Kara" and rec["state_start"]["gear_target"]["pl"] == 3

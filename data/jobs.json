@@ -144,7 +144,7 @@
       "line": "claude, gear up for the vault",
       "held_out": false,
       "end": {
-        "gear_target": {"from": "brain/gear_plan.py at the trial's start (tools/rung4_gate.gear_target)"},
+        "gear_target": {"from": "brain/gear_plan.py at the trial's start (tools/rung4_gate.gear_target), for the vault's enemies (gear_plan.vault_need over data/bestiary.json vaults/<vault>/enemies and their creatures' weak/resist rows)", "vault": "Crasorak Kara"},
         "consumables_carried": {"food": 5, "drink": 5}
       },
       "not_carried_at_start": [],
