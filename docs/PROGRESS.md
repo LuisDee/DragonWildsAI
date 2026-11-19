@@ -2346,3 +2346,21 @@ Luis ratified an extra 10 dollars (data/spend_cap_days.json: 10.5 for the rest o
 - The craft-report window: 0/3 (the fix's case did not come up).
 - The structural async fix (8e383f7, start_goal first_steps) is in its window now.
 - Unseen: three rows that never ran in 2-3 days of windows binned as unshown, code kept.
+
+## 2026-11-19 06:00Z-09:50Z: cooldown and tree speed confirmed, the trial spend cap was ending runs, the let-go course 9 %, K1 declined honestly, H3 held-out started
+
+**Cooldown window (cool_1119p, 91b4849: spell recharge shown), L2 V1 0 of 3** (quiet, misses 6/7/13). The recharge was in his state (21 "N s after each cast" lines in trial 3); failed casts on cooldown fell to 1 of 4 casts, from about 2 per done run before. The first count (15/0/43 "on_cooldown") was the new state lines themselves, not failures. Confirmed.
+
+**Tree speed (b28ab91, the job tree built once per state snapshot) window speed_1119q, 0 of 3** (quiet at 382, 1205, 1764 s). Build time logged on `job_tree_shown` (build_ms, 0 when the memo served it): 59-388 ms, most 59-73, against 2,200-3,000 ms twice a turn. Confirmed on its line; the runs still ended quiet.
+
+**Why they ended quiet (study, 14 V1 runs):** 8 hit the trial's own spend cap (`--usd 0.6`; V1 trials cost 0.60-0.84, done runs 0.35). After `budget_blocked` the brain runs template lines and drops queued goals; the plan ran blind and he stood; the loop graded it "quiet". 4 parked with a reason, 2 were a turn with no call and nothing to wake another. Fix (240fb15, then 2e9fdc5): a `budget_blocked` row since the trial began ends it "budget"; the cap is 1.5. It is a run fault (not counted) only while he was within the miss bar: the eight earlier capped runs all had 4-14 misses before the cap, so they stay counted (a first void was corrected in the ledger), and confirm_1119s trial 2 (29 misses, then the 1.5 cap) counts.
+
+**The let-go before the second press (63d2323) on the course (letgo_1119r):** 3 of 32 jump paths with a strike (9 %), 33 of 33 legs... 32 of 33 reached (jump_hill_east 2/3); jump_rock_step 0 strikes of 3. The line ran 15 times. Under the 10 % bar on the course again; real play not re-measured.
+
+**Confirm window (confirm_1119s), L2 V1 0 of 3:** trial 1 DONE by state at 732 s (bone pickaxe, the 4th done run with the tree) with 3 misses; trial 2 a 29-miss spiral then the cap; trial 3 quiet with 9 misses. Rows confirmed: craft report (3195264, real play: "closest recipe for Leather x4: from_scraps (3 short of 2 recipes); can make 3"), perched judge (a77fe19), grader 55c95fe (by re-score). Unseen 7 open.
+
+**Capstone K1, first three trials scored blind (k1_1119t): 0 of 3.** Each time he ran `combat_brief` (unknown target), `look`, then `lookup` "Crasorak Kara" and declined: "not yet mate. boss has 1300 HP and hits for up to 43, and I'm on a bronze sword at attack 27", then parked the ask with that reason. About 55 s and 1 cent a trial. A true decision from looked-up facts; not tuned against. The capstone needs L3 (gear-up) first.
+
+**L3 is not gradable honestly yet:** `rung4_gate.gear_target` calls `gear_plan.plan(state, stash)` with no vault, so the target is "the best set he can reach", not the vault's enemies (the goal's definition). An agent is making it vault-aware in a worktree. Meanwhile the held-out H3 window runs (blind, never fixed against).
+
+**Spend:** $14.33 of $19.50 at 09:45Z.
