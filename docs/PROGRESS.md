@@ -2364,3 +2364,21 @@ Luis ratified an extra 10 dollars (data/spend_cap_days.json: 10.5 for the rest o
 **L3 is not gradable honestly yet:** `rung4_gate.gear_target` calls `gear_plan.plan(state, stash)` with no vault, so the target is "the best set he can reach", not the vault's enemies (the goal's definition). An agent is making it vault-aware in a worktree. Meanwhile the held-out H3 window runs (blind, never fixed against).
 
 **Spend:** $14.33 of $19.50 at 09:45Z.
+
+## 2026-11-19 09:50Z-11:45Z: K1 declined honestly, H3 and L3 baselines, two grader faults, the ask-and-wait stall studied and two fixes binned offline, the day's spend reached
+
+**Held-out H3, first three trials scored blind: 0 of 3** (quiet at 55, 57, 184 s). He carries no tools; the step up from none is the lowest tier. He aimed at bronze (twice) and iron (once), and in two trials asked "want me to go mine that and smelt it?" and waited. Tagged model; never fixed against.
+
+**L3 "gear up for the vault":** the target is now vault-aware (0c41bb4, from an agent: `gear_plan.vault_need` reads Crasorak Kara's enemies from the bestiary, all PL 2, weak to Stab then Fire; for ClaudeDev: armour PL 2, a Reinforced Body and Platelegs, short 14 bones and 14 leather, reachable near home). First trials blind: **0 of 2** (the window's hour ended before a third). Trial 1 looked the vault up 3 times, equipped, cooked, then asked "got any armour... or should I head to Fellhollow for bones?" and waited (quiet, 383 s). Trial 2 worked 30 minutes (water, food, kebbits, leather at the tanner) towards a bronze set, PL 3, where Reinforced PL 2 was asked; deadline, 8 misses.
+
+**Grader fault: calls detached by fight news counted as misses** (study `misses_1119`: 77 of 236 counted V1 misses were "still_running": the bridge stops waiting after 2 s of threat or fight news while the body carries on). 0ece9a4: a detached call is scored by its `bridge_late_result` (matched by the bridge request id `data.id`): a failed end is a miss, ok or interrupted is not, and it is busy until it ends. Re-score of 34 counted V1 runs: misses 236 -> 160, 56 late ends matched; the four done runs keep 9, 6, 1, 3: no verdict changes. Confirmed by the re-score.
+
+**Threat news once per group (e760e91, from an agent; Lua logic over the existing census, no new engine calls).** Window threat_1119w, L2 V1 0 of 3 (quiet with 3 misses; two hit the 1.2 dollar trial cap with 10 misses each, counted). The `threat_seen held` line ran. Detaches 11 in 3 trials (6 threat), against 78 in 34 (58 threat) before: 3.7 against 2.3 a trial: not down at this count. Row open; counted again in the next windows.
+
+**The ask-and-wait stall (study `unanswered_1119`):** 19 quiet runs of 18-19 Nov end on a question to the player with an ask open; in none did he go on. None of the questions truly blocked him (11 were choices he could make). Mechanism: the open-ask turn fires 1-2 s after the question; nothing wakes a later turn (the idle review needs a player within 15 m; the harness player has no body); persona.md line 8 says a question waits for his answer, and its example 3 teaches "got a spare?". Two fixes were tried offline before any build (tools/replay_unanswered.py, 10 non-held-out cases, 3 samples each, 150 Haiku calls, $0.16):
+- a turn 20 s after the question showing what he said, how long ago and that nobody heard: acts 0 of 30 in every variant (with or without the silent exit). Binned before building.
+- persona line 8 and example 3 rewritten (ask only when the choice is the player's; take your own route and say so): at the asking turn acts 8 of 30 against 7 of 30 today (p = 1.0). Not shipped: the words try for this cause is spent offline. The next fix for this cause is structural.
+
+**Unseen:** 6 open (budget end 240fb15 and let-go 63d2323 confirmed). **Spend:** $18.58 of $19.50; the day's model budget is used, so model windows stop here (the goal's stop at the cap).
+
+**Queued for the next day:** the bone pile as one entry (6c6960e, agent worktree, no new engine calls; would have prevented 6 of 6 logged bone interact misses); a structural fix for the ask-and-wait stall; L3 third blind trial; the threat row's count.
