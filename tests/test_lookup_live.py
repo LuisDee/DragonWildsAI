@@ -231,3 +231,91 @@ def test_run_cases_stops_at_haiku_cap_and_foreign_driver(tmp_path):
 def test_run_refuses_without_confirm(capsys):
     assert ll.main(["run"]) == 2
     assert "--confirm" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------------------ the spoken key (one written rule)
+
+
+def test_spoken_key_keeps_only_the_facts_the_question_asks():
+    k = ll.spoken_key("where is tin", "resource", [["fractured plains"], ["stormtouched highlands"], ["power level 3"],
+                                                   ["garou berserker", "garou hunter"]])
+    assert k["key"] == [["fractured plains"], ["stormtouched highlands"]] and k["asked"] == ["place"]
+    k = ll.spoken_key("what vault drops granite maul", "item", [["skeklac kara"], ["granite mauled"]])
+    assert k["key"] == [["skeklac kara"]]  # a quest name is not the vault the question asks for
+    k = ll.spoken_key("how do I get into Skeklac Kara", "vault",
+                      [["ashien's watch"], ["statue", "statues"], ["power level 4"], ["vault corruptor"]])
+    assert k["key"] == [["ashien's watch"], ["statue", "statues"]]  # the place and the way in; not level or boss
+    k = ll.spoken_key("how strong is the Black Knight Titan", "level", [["power level 6"], ["14000", "14,000"]])
+    assert k["key"] == [["power level 6"]]
+    k = ll.spoken_key("what is the plague king weak to", "weakness", [["weakness crush", "weak to crush"],
+                                                                     ["immune poison"]])
+    assert k["key"] == [["weakness crush", "weak to crush"]]
+    k = ll.spoken_key("what is a lesser demon weak and resistant to", "weakness", [["weak to fire"], ["resists stab"]])
+    assert k["key"] == [["weak to fire"], ["resists stab"]]
+    k = ll.spoken_key("what is in the Vertentis Kara chests", "drops", [["skill tome"], ["weak potion"], ["vault shard"]])
+    assert len(k["key"]) == 3  # items are untyped, and "weak potion" names no damage kind: not a weakness
+    k = ll.spoken_key("what does Velgar do in the fight", "attacks", [["claw slam"], ["poison breath"], ["power level 4"]])
+    assert k["key"] == [["claw slam"], ["poison breath"]]
+
+
+def test_an_open_question_asks_the_identity_of_its_kind_merged_per_type():
+    k = ll.spoken_key("Crasorak Kara", "vault", [["temple woods"], ["brynmoor"], ["power level 2"], ["vault overlord"],
+                                                 ["vault guardian hulk"], ["374.6"]])
+    assert k["open"] and k["key"] == [["temple woods", "brynmoor"], ["vault overlord", "vault guardian hulk"]]
+    k = ll.spoken_key("what is Fractured Plains like", "region", [["power level 3"], ["garou berserker"], ["copper"]])
+    assert k["open"] and k["key"] == [["power level 3"], ["garou berserker"]]
+
+
+def test_a_key_the_rule_empties_keeps_the_offline_key_and_says_so():
+    k = ll.spoken_key("where is the mystery", "location", [["granite mauled"]])
+    assert k["fallback"] and k["key"] == [["granite mauled"]]
+
+
+def test_said_has_tolerates_speech_not_wrong_facts():
+    sc = ll.score_spoken
+    assert sc([["putrid rat"], ["vault corruptor"]], "putrid rats and a vault corruptor boss")["hit"]
+    assert sc([["poison breath", "dragon breath"]], "he hits hard and breathes poison")["hit"]
+    assert sc([["red shade"], ["blue shade"], ["green shade"]], "attacks are red, blue and green shades")["hit"]
+    assert sc([["resistance fire", "resists fire"]], "weak to air and stab, resist fire")["hit"]
+    assert sc([["weak to air and stab"]], "they're weak to stab and air")["hit"]
+    assert sc([["dragon wolf"]], "dragon wolves inside")["hit"]
+    assert sc([["power level 5"]], "PL 5 to 8")["hit"]
+    assert sc([["skeletal warrior"]], "skeleton warriors everywhere")["hit"]  # the bestiary's alias
+    assert not sc([["power level 3"]], "3 garou at level 5")["hit"]  # a figure only in order
+    assert not sc([["weak to air and stab"]], "weak to air")["hit"]
+    assert not sc([["garou berserker"]], "garou packs")["hit"]
+    assert not sc([["zogre"]], "a…")["hit"]
+
+
+def test_every_case_of_every_set_gets_a_key_by_the_same_rule():
+    cases = ll.load()
+    assert all(c["key"] for c in cases)
+    held = [c for c in cases if c["set"] == "heldout"]
+    assert held and all("key_how" in c for c in held)
+    tuned = {c["id"]: c for c in cases if c["set"] == "tuned"}
+    assert tuned["where-tin"]["key"] == [["fractured plains"], ["stormtouched highlands"]]
+
+
+def test_rescore_reads_each_window_from_the_brain_log_and_keeps_heldout_unread():
+    c_t = {**case(), "key": [["power level1 3", "power level 3"]]}
+    c_h = {**case("heldout", cid="enemies-abcd1234"), "key": [["power level 3"]]}
+    sent = ll._epoch("2027-01-15T08:00:00Z")
+    stored = [{"set": "tuned", "family": "enemies", "case": c_t["id"], "hit": False, "sent_at": "2027-01-15T08:00:00Z",
+               "wall_s": 10.0, "brain_log": "b.jsonl", "run_id": "lk-x"},
+              {"set": "heldout", "family": "enemies", "case": c_h["id"], "hit": False,
+               "sent_at": "2027-01-15T08:01:00Z", "wall_s": 10.0, "brain_log": "b.jsonl", "run_id": "lk-x"},
+              {"set": "tuned", "family": "enemies", "case": "gone", "skipped": True, "why": "not sent"}]
+    log = [{"ts": sent + 3, "kind": "say", "text": "they're PL 3"},
+           {"ts": sent + 63, "kind": "say", "text": "level three, I think"},
+           {"ts": sent + 200, "kind": "say", "text": "level 3"}]
+    seen = []
+
+    def brain_rows_of(name, t0, t1):
+        seen.append((name, t0, t1))
+        return [d for d in log if t0 <= d["ts"] <= t1]
+
+    out = ll.rescore(stored, [c_t, c_h], brain_rows_of)
+    assert [r.get("hit") for r in out[:2]] == [True, True] and out[2]["skipped"]
+    assert seen[0] == ("b.jsonl", sent - 1, sent + 12)
+    assert "said" not in out[1] and "line" not in out[1] and out[1]["was_hit"] is False
+    assert ll.case_line(out[1]) is None
