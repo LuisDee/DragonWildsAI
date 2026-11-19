@@ -1,0 +1,27 @@
+variant    acts    read    park    done    need    asks  silent       n
+A0            7       0       0       0       0      21       2      30
+D             8       2       0       0       0      17       3      30
+acts   A0 7/30 vs D 8/30: Fisher p = 1.0000
+park   A0 0/30 vs D 0/30: Fisher p = 1.0000
+silent A0 2/30 vs D 3/30: Fisher p = 1.0000
+per case:
+  20261118-000146-L2       A0 asks,acts,asks | D acts,asks,asks
+  20261118-040149-N1-I4    A0 asks,asks,asks | D asks,asks,asks
+  20261118-053829-N1-I2    A0 asks,asks,asks | D asks,silent,asks
+  20261118-071340-L2-V1    A0 acts,acts,acts | D acts,acts,acts
+  20261118-071711-L2-V1    A0 asks,asks,asks | D acts,asks,asks
+  20261118-072043-L2-V1    A0 silent,asks,silent | D asks,silent,silent
+  20261118-095833-L2-V1    A0 asks,asks,asks | D read,acts,acts
+  20261118-145610-L2-V1    A0 asks,asks,asks | D asks,asks,asks
+  20261119-004236-N2-I4    A0 asks,asks,asks | D asks,asks,asks
+  20261119-090926-L2-V1    A0 acts,acts,acts | D acts,asks,read
+
+notes:
+- The asking turn: the Controller call whose reply said the question, re-sent as logged (A0) and with persona line 8 and
+  example 3's Good replaced (D). 60 calls of anthropic/claude-haiku-5-5, $0.0815.
+- Live, all 10 of these calls asked (say only). A0 replayed acts 7/30 (cases 071340 and 090926 act 3 of 3, 000146 once):
+  the replay acts more often than live at this turn, so A0, not the live 0/10, is D's baseline.
+- D against A0 (same turn): acts 8/30 vs 7/30, Fisher p = 1.0. D against A (the open-ask turn at +20 s, 0/30): p = 0.0046,
+  but that compares two different turns.
+- Line 8 in the 3 runs before ~07:00Z on 18 Nov read "... wait for his answer: no call for it in this reply."; D replaces
+  the whole line whichever wording it had.

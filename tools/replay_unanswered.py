@@ -22,6 +22,7 @@ silent = no call and no text; asks = a say only (asks again or talks).
 
   .venv\Scripts\python.exe -m tools.replay_unanswered cases            # list cases and the edits per variant (no calls)
   .venv\Scripts\python.exe -m tools.replay_unanswered run --k 3 --yes  # 3 samples per case and variant
+  .venv\Scripts\python.exe -m tools.replay_unanswered run --turn ask --k 3 --yes   # A0 and D at the asking turn
   .venv\Scripts\python.exe -m tools.replay_unanswered report FILE      # tally a results file again (no calls)
 
 Results: logs/evals/replay_unanswered-<ts>.jsonl in the main tree (each call's usage row, so tools/spend.py counts it,
@@ -32,6 +33,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -110,6 +112,64 @@ def build_case(run: str, log: str, logs: Path = LOGS) -> dict:
             "messages": msgs, "tools": list(tools) + list(oa.ASK_TOOL_SCHEMAS), "settings": settings}
 
 
+# ------------------------------------------------------------------ the asking turn (variants A0 and D)
+# A0: the Controller call whose reply said the question, re-sent as logged (how often he asks and waits there).
+# D: the same call with brain/persona.md line 8 and example 3's Good changed (the coordinator's wording, 19 Nov), nothing
+# else. The persona is in the system message as rendered then; both old strings must be found in it.
+PERSONA_L8_OLD = ('- A question about what you have or can do is answered, not acted on yet; and when your line asks him '
+                  'something ("want them?"), no call for that in this reply: his answer comes as his next line, and a '
+                  'job already running goes on meanwhile.')
+PERSONA_L8_NEW = ("- A question about what you have or can do is answered, not acted on yet. Ask him something only when "
+                  "the choice is truly his (his things, where he wants to go, which of two goals): then no call for it "
+                  "in this reply, his answer comes as his next line. When you have a way to do it yourself, take it and "
+                  "say so in a few words; asking for a spare beside your own route is fine, waiting on the answer is not.")
+PERSONA_EX3_OLD = 'Good: "can\'t, Axtral needs a logging axe. got a spare?"'
+PERSONA_EX3_NEW = ('Good: "can\'t, Axtral needs a logging axe. making one" with the craft call for it in the same reply '
+                   '(with no way to make one: "can\'t, Axtral needs a logging axe. got a spare?").')
+ASK_VARIANTS = ("A0", "D")
+
+
+def build_ask_case(run: str, log: str, logs: Path = LOGS) -> dict:
+    """The Controller call whose reply carried the question (a say call with its text), with its full request."""
+    if any(f"-{h}" in run for h in HELD_OUT):
+        raise ValueError(f"{run}: held-out job")
+    rows = read_jsonl(logs / log)
+    q = max(i for i, r in enumerate(rows) if r.get("kind") == "say" and "?" in (r.get("text") or ""))
+    text = rows[q]["text"]
+    resp = max(i for i in range(q) if rows[i].get("kind") == "llm_response" and rows[i].get("component") == "controller"
+               and any(c.get("name") == "say" and (c.get("arguments") or {}).get("text") == text
+                       for c in rows[i].get("tool_calls") or []))
+    p = max(i for i in range(resp) if rows[i].get("kind") == "prompt" and rows[i].get("component") == "controller")
+    ep = rows[p]["episode_id"]
+    _, msgs, live, tools, settings = next(c for c in episode_calls(rows, ep) if c[0] == p)
+    if not tools:
+        raise ValueError(f"{run}: no tool list logged for {ep}")
+    last = _content(msgs[-1])
+    if last.startswith("No more looking this turn"):  # live: the read tools are left out on this step
+        from tools.replay_open_ask import READS
+        tools = [t for t in tools if t["function"]["name"] not in READS]
+    return {"run": run, "log": log, "episode": ep, "row": p, "question": text, "last_note": last[:80],
+            "live_outcome": outcome(live.get("tool_calls") or [], live.get("content")),
+            "messages": msgs, "tools": list(tools), "settings": settings}
+
+
+def build_ask_request(case: dict, variant: str) -> tuple[list[dict], list[dict], int]:
+    msgs = copy.deepcopy(case["messages"])
+    edits = 0
+    if variant == "D":
+        sys_ = msgs[0]
+        c = _content(sys_)
+        # line 8 as rendered then (18 Nov before ~07:00Z it read "... wait for his answer: no call for it in this
+        # reply."): the whole line is replaced, whichever wording it had
+        c, n8 = re.subn(r"^- A question about what you have or can do[^\n]*$", lambda _m: PERSONA_L8_NEW, c, count=1,
+                        flags=re.M)
+        if not n8 or PERSONA_EX3_OLD not in c:
+            raise ValueError(f"{case['run']}: persona line 8 or example 3 not found in the logged system message")
+        c, edits = c.replace(PERSONA_EX3_OLD, PERSONA_EX3_NEW), 2
+        sys_["content"] = c
+    return msgs, case["tools"], edits
+
+
 def data_block(case: dict) -> dict:
     """Variant B's block: facts about his last line and the ask, no advice."""
     return {"your_last_line": case["question"], "said_s_ago": SHIFT_TO_S,
@@ -154,8 +214,13 @@ def build_request(case: dict, variant: str) -> tuple[list[dict], list[dict], int
 # ------------------------------------------------------------------ tally (pure)
 
 
+def _variants(samples: list[dict]) -> tuple[str, ...]:
+    seen = {s["variant"] for s in samples}
+    return tuple(v for v in (*VARIANTS, *ASK_VARIANTS) if v in seen)
+
+
 def tally(samples: list[dict]) -> dict[str, dict[str, int]]:
-    t = {v: {c: 0 for c in (*COLUMNS, "n")} for v in VARIANTS}
+    t = {v: {c: 0 for c in (*COLUMNS, "n")} for v in _variants(samples)}
     for s in samples:
         t[s["variant"]][SCORE.get(s["outcome"], "asks")] += 1
         t[s["variant"]]["n"] += 1
@@ -165,21 +230,22 @@ def tally(samples: list[dict]) -> dict[str, dict[str, int]]:
 def report(samples: list[dict]) -> str:
     from tools import ab
     t = tally(samples)
+    vs_all = _variants(samples)
     out = ["variant  " + "  ".join(f"{c:>6}" for c in COLUMNS) + "       n"]
-    for v in VARIANTS:
+    for v in vs_all:
         if t[v]["n"]:
             out.append(f"{v:8} " + "  ".join(f"{t[v][c]:6}" for c in COLUMNS) + f"  {t[v]['n']:6}")
-    for a, b in (("A", "B"), ("A", "C"), ("B", "C")):
-        if t[a]["n"] and t[b]["n"]:
+    for a, b in (("A", "B"), ("A", "C"), ("B", "C"), ("A0", "D"), ("A", "D")):
+        if a in t and b in t and t[a]["n"] and t[b]["n"]:
             for col in ("acts", "park", "silent"):
                 k1, n1, k2, n2 = t[a][col], t[a]["n"], t[b][col], t[b]["n"]
                 out.append(f"{col:6} {a} {k1}/{n1} vs {b} {k2}/{n2}: Fisher p = {ab.fisher(k1, n1, k2, n2):.4f}")
     by_case: dict = {}
     for s in samples:
-        by_case.setdefault(s["case"], {v: [] for v in VARIANTS})[s["variant"]].append(SCORE.get(s["outcome"], "asks"))
+        by_case.setdefault(s["case"], {v: [] for v in vs_all})[s["variant"]].append(SCORE.get(s["outcome"], "asks"))
     out.append("per case:")
     for c, vs in by_case.items():
-        out.append(f"  {c:24} " + " | ".join(f"{v} {','.join(vs[v])}" for v in VARIANTS))
+        out.append(f"  {c:24} " + " | ".join(f"{v} {','.join(vs[v])}" for v in vs_all))
     return "\n".join(out)
 
 
@@ -191,13 +257,15 @@ def _spent() -> tuple[float, float]:
     return float(spend.spend_today(LOGS)["spent_usd"]), float(spend.cap_usd())
 
 
-def run(cases: list[dict], k: int, max_calls: int, out: Path, yes: bool, stop_frac: float) -> list[dict]:
+def run(cases: list[dict], k: int, max_calls: int, out: Path, yes: bool, stop_frac: float,
+        variants: tuple[str, ...] = VARIANTS, builder=None) -> list[dict]:
     from brain.jsonl_log import JsonlLogger
     from brain.llm import controller_llm
     llm = controller_llm()
-    plan = len(cases) * len(VARIANTS) * k
+    builder = builder or build_request
+    plan = len(cases) * len(variants) * k
     spent, cap = _spent()
-    print(f"plan: {len(cases)} cases x {len(VARIANTS)} variants x {k} = {plan} calls of {llm.model} (cap {max_calls}); "
+    print(f"plan: {len(cases)} cases x {len(variants)} variants x {k} = {plan} calls of {llm.model} (cap {max_calls}); "
           f"spend today ${spent:.2f} of ${cap:.2f}", flush=True)
     if not yes:
         print("dry run: add --yes to call")
@@ -205,8 +273,8 @@ def run(cases: list[dict], k: int, max_calls: int, out: Path, yes: bool, stop_fr
     log = JsonlLogger(out)
     samples, calls = [], 0
     for c in cases:
-        for variant in VARIANTS:
-            msgs, tools, edits = build_request(c, variant)
+        for variant in variants:
+            msgs, tools, edits = builder(c, variant)
             eff = ((c["settings"] or {}).get("output_config") or {}).get("effort")
             for rep in range(k):
                 if calls >= max_calls:
@@ -249,13 +317,20 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--max-calls", type=int, default=90)
     r.add_argument("--stop-frac", type=float, default=0.9, help="stop when today's spend passes this share of the cap")
     r.add_argument("--yes", action="store_true")
+    r.add_argument("--turn", choices=("open", "ask"), default="open",
+                   help="open: the open-ask turn at +20 s (A, B, C); ask: the turn that said the question (A0, D)")
     rp = sub.add_parser("report")
     rp.add_argument("file")
     a = ap.parse_args(argv)
     if a.cmd == "report":
         print(report([x for x in read_jsonl(a.file) if x.get("kind") == "replay"]))
         return 0
-    cases = [build_case(run_, log) for run_, log in CASES.items()]
+    if a.cmd == "cases":
+        for c in (build_ask_case(run_, log) for run_, log in CASES.items()):
+            _, _, edits = build_ask_request(c, "D")
+            print(f"ask turn {c['run']:24} live {c['live_outcome']:6} D edits {edits} | {c['last_note'][:60]!r}")
+    ask = getattr(a, "turn", "open") == "ask"
+    cases = [(build_ask_case if ask else build_case)(run_, log) for run_, log in CASES.items()]
     if a.cmd == "cases":
         for c in cases:
             _, _, edits = build_request(c, "C")
@@ -263,7 +338,8 @@ def main(argv: list[str] | None = None) -> int:
                   f"C exits {edits} | {c['question'][-70:]}")
         return 0
     out = LOGS / "evals" / f"replay_unanswered-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
-    samples = run(cases, a.k, a.max_calls, out, a.yes, a.stop_frac)
+    samples = run(cases, a.k, a.max_calls, out, a.yes, a.stop_frac, ASK_VARIANTS if ask else VARIANTS,
+                  build_ask_request if ask else build_request)
     if samples:
         print(f"results: {out}")
         print(report(samples))
