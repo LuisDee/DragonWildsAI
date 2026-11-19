@@ -1,6 +1,7 @@
 """tools/quest_run.py: the human time bar (Luis has no quest baseline) and the preflight's driver check."""
 from __future__ import annotations
 
+import json
 import time
 
 from tools import quest_run as q
@@ -86,6 +87,46 @@ def test_reflex_fights_are_work_not_a_stand_and_keep_the_run_from_ending_quiet()
     tl = q.timeline(rows, t0, t_end=t0 + 160)
     assert tl["body_busy"] == [] and tl["last_busy"] == t0 + 150.0
     assert tl["idle"][1:] == [{"from": 150.0, "s": 10.0, "to_end": True}]  # after his call, only the stand after the fight
+
+
+def _run_060504():
+    from pathlib import Path
+    return json.loads((Path(__file__).parent / "fixtures" / "job_run_060504_timeline.json").read_text(encoding="utf-8"))
+
+
+def test_run_060504_the_walk_he_was_on_at_the_end_is_work_not_a_stand():
+    """Run 20261119-060504 (L2 V1): the Bone Pickaxe made at 517.7 s, equipped by 518.4 s, then go_to Fractured
+    Plains from 518.8 s, still walking when the harness read the job done at 527.6 s. The open go_to was counted as a
+    9.2 s stand to the end; the six stands before it (Planner and turn assembly) are his."""
+    run = _run_060504()
+    rows, end = run["rows"], run["wall_s"]
+    tl = q.timeline(rows, 0.0, end)
+    assert [c["tool"] for c in tl["calls"] if c["dur_s"] is None] == ["go_to"]
+    assert not any(i.get("to_end") for i in tl["idle"])
+    assert [(i["from"], i["s"]) for i in tl["idle"]] == [(7.1, 5.2), (58.1, 6.5), (202.0, 6.5), (209.3, 9.2),
+                                                         (218.9, 7.4), (489.5, 5.6)]
+    assert tl["idle"] == q.timeline(rows, 0.0, end, t_done=run["job_done_s"])["idle"]  # done read at its end
+    # the same tail without the walk: he stood from 518.4 s, a stand to the end unless the job read done before it
+    still = [r for r in rows if r.get("tool") != "go_to" or r["ts"] < 518.5]
+    assert q.timeline(still, 0.0, end)["idle"][-1] == {"from": 518.4, "s": 9.2, "to_end": True}
+    assert q.timeline(still, 0.0, end, t_done=518.1)["idle"] == tl["idle"]  # done by a read at 518.1 s: not counted
+    assert q.timeline(still, 0.0, end, t_done=525.0)["idle"][-1] == {"from": 518.4, "s": 6.6, "to_end": True}
+
+
+def test_a_read_only_call_left_open_is_no_work_and_a_stand_before_the_done_read_counts():
+    t0 = 1000.0
+    rows = [{"kind": "prompt", "ts": t0 + 1}, {"kind": "llm_response", "ts": t0 + 2},
+            {"kind": "tool_call", "task_id": "w", "tool": "gather", "ts": t0 + 3},
+            {"kind": "tool_result", "task_id": "w", "tool": "gather", "ts": t0 + 10, "result": {"ok": True}},
+            {"kind": "tool_call", "tool": "look", "ts": t0 + 11}]  # no ids, no result: never busy
+    tl = q.timeline(rows, t0, t0 + 30)
+    assert tl["idle"] == [{"from": 10.0, "s": 20.0, "to_end": True}]
+    tl = q.timeline(rows, t0, t0 + 30, t_done=t0 + 22)
+    assert tl["idle"] == [{"from": 10.0, "s": 12.0, "to_end": True}]  # counted up to the done read
+    rows = rows + [{"kind": "tool_call", "task_id": "g2", "tool": "go_to", "ts": t0 + 40},
+                   {"kind": "tool_result", "task_id": "g2", "tool": "go_to", "ts": t0 + 50, "result": {"ok": True}}]
+    tl = q.timeline(rows, t0, t0 + 60, t_done=t0 + 45)
+    assert tl["idle"] == [{"from": 10.0, "s": 30.0}]  # a stand wholly before the done read is his
 
 
 def test_a_hold_that_kept_him_in_place_is_read_from_the_body_results_only():

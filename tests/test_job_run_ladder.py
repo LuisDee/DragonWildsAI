@@ -292,6 +292,29 @@ def test_run_job_v1_ends_when_the_game_reads_the_pickaxe(v1):
     assert j.ladder_made(rec["state_start"], rec["state_end"], {}) == {BONE: [G("3")]}
 
 
+def test_run_job_v1_a_stand_after_the_brains_done_read_is_not_counted(v1):
+    """Run 20261119-060504: the pickaxe was on him by the brain's get_state at 518.1 s and the harness read it at
+    527.6 s; he stood between. A stand after the first game read of done (the brain's reads count, as in held_in_run)
+    is the harness's wait, not his. Without such a read the stand to the harness's read still counts."""
+    has = [row(STONE, "hotbar", guid=G("1"))]
+    pick = [row(BONE, "hotbar", guid=G("3"))]
+    craft = model(T0 + 1) + [
+        {"ts": T0 + 3, "kind": "tool_call", "call": "c1", "tool": "craft", "args": {"item": "Bone Pickaxe"}},
+        {"ts": T0 + 20, "kind": "tool_result", "call": "c1", "tool": "craft",
+         "result": {"ok": True, "data": {"item": BONE, "crafts": 1}}}]
+    reads = [{"ts": T0 + 20.1, "kind": "bridge_send", "msg": {"id": 7, "tool": "get_state"}},
+             {"ts": T0 + 20.4, "kind": "bridge_recv", "msg": {"id": 7, "ok": True, "data": raw(has + pick, HOME, 0)}}]
+    states = lambda t: raw(has + (pick if t >= T0 + 20 else []), HOME, 0)  # noqa: E731
+    rec = j.run_job(Body(states, craft + reads), v1, {})
+    assert rec["ended"] == "job done" and rec["done"] is True and rec["wall_s"] >= 25.0  # the harness's read: later
+    assert rec["stands_to_s"] == 20.4 and rec["idle_over_5s"] == [] and rec["longest_stand_s"] == 0
+    rec = j.run_job(Body(states, craft), v1, {})  # no read of his in between: the stand to the harness's read is his
+    assert rec["stands_to_s"] == rec["wall_s"]
+    assert rec["idle_over_5s"] == [{"from": 20.0, "s": round(rec["wall_s"] - 20.0, 1), "to_end": True}]
+    wrong = [dict(reads[0], msg={"id": 7, "tool": "look"}), reads[1]]  # a reply to another call is no state read
+    assert j.run_job(Body(states, craft + wrong), v1, {})["idle_over_5s"]
+
+
 def test_run_job_v2_ends_at_the_entry_and_records_his_power_level_there(v2):
     script = model(T0 + 1) + [
         {"ts": T0 + 3, "kind": "tool_call", "call": "w1", "tool": "go_to", "args": {"target": PLAINS}}]

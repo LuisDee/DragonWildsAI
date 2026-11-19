@@ -468,6 +468,34 @@ def evidence(rows: list[dict]) -> dict:
             "walk_targets": walk_targets(rows)}
 
 
+def first_done_read(job: dict, start: dict, seen: "_Seen", rows: list[dict], after: float, until: float) -> float | None:
+    """The time of the earliest get_state reply in the brain log (bridge_recv; a game read like the harness's own, as
+    held_in_run reads them) between ``after`` (the last harness read that was not done) and ``until`` (the harness's
+    first done read), on which the job reads done by done() itself; None when none does. Only when stands are counted:
+    the harness reads every SAMPLE_S, so in run 20261119-060504 the Bone Pickaxe was on him by the brain's read at
+    518.1 s and the harness read it at 527.6 s. A read done() cannot decide alone (a chest job's end read) is never
+    taken."""
+    sent: dict = {}
+    for r in rows:
+        k, m = r.get("kind"), r.get("msg")
+        if k == "bridge_send" and isinstance(m, dict):
+            sent[m.get("id")] = m.get("tool")
+            continue
+        ts = float(r.get("ts") or 0)
+        if k != "bridge_recv" or not isinstance(m, dict) or not (after < ts < until):
+            continue
+        if sent.get(m.get("id")) != "get_state" or m.get("ok") is False or not isinstance(m.get("data"), dict):
+            continue
+        snap = snapshot(m["data"])
+        if snap.get("unread"):
+            continue
+        snap.update(evidence([x for x in rows if float(x.get("ts") or 0) <= ts]))
+        seen.into(snap)
+        if done(job, start, snap)[0] is True:
+            return ts
+    return None
+
+
 # tool results that name an item he did not gain (eaten, worn, put away, failed) or only looked at
 NO_GAIN_TOOLS = {"consume", "equip", "unequip", "store", "drop", "inspect", "look", "explore", "deconstruct"}
 
@@ -2341,6 +2369,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
     cur: dict | None = None
     samples: list[dict] = []  # [{t, carried (asked kinds), room}] of every read: I4's bite and clear, I4/I5's serves
     t_done: float | None = None  # the first read of the job done (seconds into the run)
+    t_not_done = 0.0  # the last harness read that was not done (seconds into the run)
     gate_blocked = False  # I4's needs_new_slot held the fill back while the trigger was due
     while True:
         now = io.now()
@@ -2374,6 +2403,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
                     ok, ok_why = done(job, start, cur)
                 if ok is True and t_done is None:
                     t_done = round(rel, 1)
+                elif ok is not True and t_done is None:
+                    t_not_done = rel
                 room = cur.get("bag_room")
                 if step == "I4" and intr is not None and intr.get("full_read") and intr.get("t_clear") is None \
                         and not (room or 0) > 0:
@@ -2465,7 +2496,13 @@ def run_job(io, job: dict, opts: dict) -> dict:
         t_done = round(ended - t0, 1)
     if not end.get("unread"):  # the end read is the last sample (a call that ended just before it)
         samples.append({"t": round(ended - t0, 1), "carried": asked_carried(job, end), "room": end.get("bag_room")})
-    tl = q.timeline(rows, t0, ended)
+    # stands count up to the first read of the job done, the brain's own get_state replies included: after it he has
+    # finished and only the harness's read is awaited (run 20261119-060504: done by the brain's read at 518.1 s, the
+    # harness's at 527.6 s)
+    stands_to = None
+    if ok is True and t_done is not None:
+        stands_to = first_done_read(job, start, seen, rows, t0 + t_not_done, t0 + t_done) or t0 + t_done
+    tl = q.timeline(rows, t0, ended, t_done=stands_to)
     calls = cl.model_calls(rows)
     if intr is not None and step == "I2" and intr.get("took") is None:
         intr = fight_cleared(rows, intr, t0, float(spec.get("fight_wait_s", 40)))
@@ -2491,6 +2528,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
            "state_start": start, "state_end": {k: v for k, v in end.items() if k != "chests"}, "chests": end.get("chests"),
            "first_step_s": first_t, "tool_calls": tl["calls"], "says": tl["says"], "idle_over_5s": tl["idle"],
            "idle_total_s": idle_total, "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
+           "stands_to_s": round(stands_to - t0, 1) if stands_to is not None else None,
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_logs": io.brain_logs(),
            "dialogue_left": {"before": left_before, "after": left_after}, "bar_s": bar}
     if rung:

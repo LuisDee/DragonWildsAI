@@ -278,10 +278,15 @@ def quest_row(q: dict | None, name: str) -> dict:
     return {"state": "absent"}
 
 
-def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
+def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: float | None = None) -> dict:
     """Tool calls (start, duration, result), speech, and the idle stretches between brain activity (and, given t_end,
     the stand from the last activity to the end of the run: live 17:2xZ a chain stopped on its budget and he stood
-    193 s to the deadline, which the stretches between calls never saw)."""
+    193 s to the deadline, which the stretches between calls never saw).
+
+    A skill call still in flight when the rows end (a walk, a gather: it carries a task or call id) is busy to the end,
+    as a craft is busy while it runs; run 20261119-060504 counted the go_to he was on at the end as a 9.2 s stand.
+    Given t_done (when the harness first read the job done), stands are counted up to it only: after it the job is
+    over, and the run's end waits only for the harness's read."""
     calls, open_ = [], {}
     says = []
     busy: list[tuple[float, float]] = []  # intervals with a tool running, a model call in flight, or reflex work
@@ -294,7 +299,8 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
     for r in rows:
         k, ts = r.get("kind"), float(r.get("ts") or 0)
         key = r.get("call") or r.get("task_id")
-        if key is None and k == "tool_call":
+        no_id = key is None and k == "tool_call"
+        if no_id:
             key = f"{r.get('tool')}@{ts}"
             idless.setdefault(str(r.get("tool")), []).append(key)
         elif key is None and k == "tool_result":
@@ -312,7 +318,8 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
                 busy.append((acts.pop(what), at))
             continue
         if k == "tool_call":
-            open_[key] = {"tool": r.get("tool"), "args": r.get("args"), "t": round(ts - t0, 1), "_ts": ts}
+            open_[key] = {"tool": r.get("tool"), "args": r.get("args"), "t": round(ts - t0, 1), "_ts": ts,
+                          "_idless": no_id}
         elif k == "tool_result" and key in open_:
             c = open_.pop(key)
             res = r.get("result") or {}
@@ -332,22 +339,27 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
             prompt_at = None
         elif k == "say":
             says.append({"t": round(ts - t0, 1), "text": r.get("text") or (r.get("args") or {}).get("text")})
+    last_ts = max((float(r.get("ts") or 0) for r in rows), default=t0)
     for c in list(open_.values()):
         c["dur_s"], c["ok"] = None, None
         calls.append(c)
-    last_ts = max((float(r.get("ts") or 0) for r in rows), default=t0)
+        if not c["_idless"]:  # a skill call still running: busy to the end (or to the last row seen)
+            busy.append((c["_ts"], t_end if t_end is not None else max(last_ts, c["_ts"])))
     for what, a in acts.items():  # still going: busy to the end (or to the last row seen)
         busy.append((a, t_end if t_end is not None else max(last_ts, a)))
     for c in calls:
         c.pop("_ts", None)
+        c.pop("_idless", None)
     busy.sort()
     idle, cur = [], t0
     for a, b in busy:
-        if a - cur > IDLE_S:
-            idle.append({"from": round(cur - t0, 1), "s": round(a - cur, 1)})
+        a_ = a if t_done is None else min(a, t_done)
+        if a_ - cur > IDLE_S:
+            idle.append({"from": round(cur - t0, 1), "s": round(a_ - cur, 1)})
         cur = max(cur, b)
-    if t_end is not None and t_end - cur > IDLE_S:
-        idle.append({"from": round(cur - t0, 1), "s": round(t_end - cur, 1), "to_end": True})
+    end = t_end if t_done is None or t_end is None else min(t_end, t_done)
+    if end is not None and end - cur > IDLE_S:
+        idle.append({"from": round(cur - t0, 1), "s": round(end - cur, 1), "to_end": True})
     return {"calls": calls, "says": says, "idle": idle, "last_busy": cur, "body_busy": sorted(acts)}
 
 
