@@ -259,6 +259,68 @@ VERIFIERS: dict[str, Callable] = {
 STATE_REUSE_S = 4.0
 
 
+def _bag(state: dict | None) -> dict[str, int]:
+    from .plan_sources import counts
+    return counts(state)
+
+
+def craft_shortfall(args: dict, bag: dict[str, int], recipes: dict) -> dict | None:
+    """A craft step against the game's recipe data (data/recipes_<build>.json, what crafting.lua and craft_plan read)
+    and his bag: None when a recipe for it is covered by the bag, or when the data names no recipe for it (the body
+    answers then); otherwise {item, name, count, recipe, missing: [{item, name, need, have}], recipes, can_make}, the
+    closest recipe first. Facts only: what he chose to make is never changed."""
+    item = args.get("item")
+    if not isinstance(item, str) or not item.strip():
+        return None
+    want = item.strip().lower()
+    rid_named = args.get("recipe") if isinstance(args.get("recipe"), str) else None
+    try:
+        count = max(1, int(args.get("count") or 1))
+    except (TypeError, ValueError):
+        return None
+    cands = []
+    for rid, r in sorted((recipes or {}).items()):
+        if not isinstance(r, dict) or r.get("test") or (rid_named and rid.lower() != rid_named.strip().lower()):
+            continue
+        out = next((o for o in r.get("outputs") or [] if isinstance(o, dict) and o.get("item") and
+                    want in (str(o["item"]).lower(), str(o.get("name") or "").lower(), rid.lower())), None)
+        ins = [i for i in r.get("inputs") or [] if isinstance(i, dict) and i.get("item")]
+        if out is None or not ins:
+            continue
+        per = max(1, int(out.get("count") or 1))
+        crafts = math.ceil(count / per)
+        rows = [{"item": i["item"], "name": i.get("name") or i["item"], "per": max(1, int(i.get("count") or 1)),
+                 "need": max(1, int(i.get("count") or 1)) * crafts, "have": int(bag.get(i["item"], 0))} for i in ins]
+        missing = [{k: x[k] for k in ("item", "name", "need", "have")} for x in rows if x["have"] < x["need"]]
+        if not missing:
+            return None  # a recipe the bag covers: sent as he chose
+        can = min(x["have"] // x["per"] for x in rows) * per
+        cands.append({"item": out["item"], "name": out.get("name") or out["item"], "count": count, "recipe": rid,
+                      "missing": missing, "can_make": can, "short": sum(m["need"] - m["have"] for m in missing)})
+    if not cands:
+        return None
+    cands.sort(key=lambda c: (c["short"], c["recipe"]))
+    best = dict(cands[0])
+    best["recipes"] = len(cands)
+    best["can_make"] = max(c["can_make"] for c in cands)
+    best.pop("short")
+    return best
+
+
+def held_detail(short: dict, plan_bag: dict[str, int] | None) -> str:
+    """The words of a held craft step: the numbers, what the bag gained since the plan, what he can make now."""
+    needs = ", ".join(f"{m['need']} {m['name']} and you hold {m['have']}" for m in short["missing"])
+    text = f"Not sent: {short['name']} x{short['count']} needs {needs}"
+    if short.get("recipes", 1) > 1:
+        text += f" (the closest of {short['recipes']} recipes for it)"
+    if plan_bag is not None:
+        moved = [f"{m['name']} {int(plan_bag.get(m['item'], 0))} -> {m['have']}" for m in short["missing"]]
+        gains = [m["have"] - int(plan_bag.get(m["item"], 0)) for m in short["missing"]]
+        text += ("; since the plan your bag went " + ", ".join(f"{s} ({g:+d})" for s, g in zip(moved, gains)))
+    text += f". With what you hold you can make {short['can_make']} {short['name']}."
+    return text
+
+
 def _place_basis(best: dict) -> str:
     """How sure the go_to point is, in a few words (brain.places explains landmarks at length)."""
     if best.get("kind") != "landmark":
@@ -287,6 +349,37 @@ class Executor:
         self.places = None  # brain.places.Places (LiveSession): game-data place names go_to falls back to
         # the call the body is still doing after the player spoke (still_running): {skill, args, id, base, since}
         self.running: dict | None = None
+        # a Planner-queued step (agent._run_goal sets its task id): decided before the steps ahead of it reported, so a
+        # craft is checked against the fresh bag before it is sent (craft misses study 2026-11-19: 11 of 13 craft
+        # missing_materials were queued crafts sent on what the kills before them did not drop)
+        self.queued: str | None = None
+        self.plan_bag: dict[str, int] | None = None  # his bag when the plan running now was made (None: unknown)
+        self.recipes: dict | None = None  # the game's recipe data (needs.catalog), read on first use
+
+    def _recipes(self) -> dict:
+        if self.recipes is None:
+            from .needs import catalog
+            self.recipes = catalog().get("recipes") or {}
+        return self.recipes
+
+    def _held_craft(self, task: Task, args: dict, now: dict) -> dict | None:
+        """A queued craft the fresh bag does not cover: the result that goes back instead of sending it, or None."""
+        if task.skill != "craft" or self.queued != task.id:
+            return None
+        try:
+            short = craft_shortfall(args, _bag(now), self._recipes())
+        except Exception as exc:  # the check is a read: on any error the step is sent as before
+            self.log.log("craft_check_error", task_id=task.id, error=repr(exc)[:200])
+            return None
+        if short is None:
+            return None
+        self.log.log("craft_step_held", task_id=task.id, item=short["name"], count=short["count"],
+                     recipe=short["recipe"], need={m["name"]: m["need"] for m in short["missing"]},
+                     have={m["name"]: m["have"] for m in short["missing"]}, can_make=short["can_make"])
+        return {"ok": False, "reason": Reason.MISSING_MATERIALS,
+                "data": {"item": short["item"], "recipe": short["recipe"], "missing": short["missing"],
+                         "can_make": short["can_make"], "held_before_send": True,
+                         "detail": held_detail(short, self.plan_bag)}}
 
     def state(self, max_age: float | None = None) -> dict:
         """Fresh get_state, or (``max_age``) the last one if it is that recent and no action ran since
@@ -489,6 +582,10 @@ class Executor:
             if args is None:
                 return self._finish(task, Outcome(True, attempts=task.attempts))
             args = self._resolve_place(task.skill, args, now)
+            held = self._held_craft(task, args, now) if run is None else None
+            if held is not None:  # not sent: back to the Planner like any failed step, with the bag's numbers
+                self.log.log("tool_result", task_id=task.id, tool=task.skill, result=held)
+                return self._finish(task, Outcome(False, held["reason"], task.attempts, held["data"]))
             task.attempts += 1
             task.status = "running"
             self.store.save_tree()

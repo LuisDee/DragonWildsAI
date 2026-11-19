@@ -620,6 +620,14 @@ class Agent:
             self._keep_ask_fact(f"craft:{item}", f"craft {item} {outcome.reason}",
                                 ". ".join(x for x in (short, line) if x), raw=line or short)
 
+    def _plan_bag(self, state: dict | None) -> None:
+        """His bag when the plan that runs now was made: a queued craft held short says what it gained since."""
+        from .plan_sources import counts
+        try:
+            self.executor.plan_bag = counts(state) if isinstance(state, dict) else None
+        except AttributeError:  # an executor stand-in without the field
+            pass
+
     @staticmethod
     def _interrupt_for(event: Event) -> str | None:
         """The bridge's interrupt check for body events: "fight" / "threat" take the floor during a body call."""
@@ -2164,9 +2172,10 @@ class Agent:
         mine = (asked.get("player"), asked["request"]) if isinstance(asked, dict) and asked.get("request") else None
         self._serving_ask = mine if oa.same_ask(mine, self._open_request) else None
         plan_q = None  # the plan's question beside its steps (_plan_question)
+        plan_state = None  # the state the plan is made from (a held craft says what the bag gained since)
         if given is None:
             try:
-                state = self.executor.state()
+                state = plan_state = self.executor.state()
                 notes = self._planner_notes(goal, state, where="plan")
                 ask = lambda: self.planner.plan(goal, sit.with_asked(state, asked), notes)  # noqa: E731
                 if self._plan_async_now():
@@ -2193,6 +2202,7 @@ class Agent:
             else:
                 given, plan_q = plan.tasks, plan.ask_help
         tree = self.store.set_goal(goal, given)
+        self._plan_bag(plan_state)
         self._plan_asked = set()
         if plan_q:
             self._plan_question(goal, plan_q, given)
@@ -2225,7 +2235,11 @@ class Agent:
             started.add(task.id)
             if self._steps_plan is not None:  # a first step of his sent while the Planner composes
                 self._steps_plan.acted(task.skill)
-            outcome = self._run_task(task)
+            self.executor.queued = task.id  # a queued step: a craft is checked against the fresh bag first
+            try:
+                outcome = self._run_task(task)
+            finally:
+                self.executor.queued = None
             if outcome.interrupt:
                 # a fight on him is bounded by the game, not by chat: it never makes the job "interrupted too often"
                 interrupts += 0 if isinstance(outcome.data, dict) and outcome.data.get("by") in ("fight", "threat") else 1
@@ -2269,6 +2283,7 @@ class Agent:
                     new = ask()
             except PlanError as exc:
                 return self._stuck(goal, task, str(exc))
+            self._plan_bag(state)
             self.store.progress("replanned", goal=goal, explanation=new.explanation, ask_help=new.ask_help)
             if not new.tasks:  # only a question (or nothing): the job stops honestly with its reason and the question
                 return self._stuck(goal, task, outcome.reason, new.ask_help)
