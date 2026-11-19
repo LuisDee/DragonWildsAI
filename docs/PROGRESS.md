@@ -2406,3 +2406,7 @@ Merged, offline-tested, not yet live (each with its unseen row; 11 open, over th
 - **7aaf139, collect_water views off a thing on his line to the water** (earlier entry).
 
 **Tomorrow, in order:** a confirm window (L2 V1 x3, nothing new: the pile, threat, water and craft-hold lines); then L3's third blind trial and L3 x3 on the vault facts; the jump guard measured in real play; the goal-owns-the-ask design (an agent is writing it) after Luis's word on the trial player.
+
+## 2026-11-19 14:00Z: why tall jumps snap back (study)
+
+Not our code (client_mod never writes his position; no unstuck near a cut), not a ceiling (tops 101-130 cm everywhere, even on a 49 cm hop), not weight (encumbered false in all 2269 state rows). Cuts follow slow client frames: at 3-9 frames/s 10 of 22 flights were cut, at 9-30 frames/s 1 of 241; since 17 Nov 11 of 295 standing double jumps, 0 of 154 running jumps. Most likely mechanism (inferred: neither game log prints corrections): the UE server's MAXCLIENTUPDATEINTERVAL, 0.25 s; with no client move for longer the server simulates him itself and the late jump move is dropped (UE-30262; AGameNetworkManager MaxMoveDeltaTime). The server setting is not the fix (Shockbyte stays vanilla). Next, in an agent's worktree: per-frame dt on the jump verdict line (to see a 0.25 s frame before each cut), then deferring our own heavy Lua work from run-up to landing and pressing after a few short frames. cfbbb07's retry stays until about 80 standing double jumps show no cut. Study: scratchpad jump_snapback.md.
