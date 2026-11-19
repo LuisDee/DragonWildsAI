@@ -2326,3 +2326,23 @@ Luis ratified an extra 10 dollars (data/spend_cap_days.json: 10.5 for the rest o
 - All five interruptions now pass alone: I1 5/5, I2 2/2, I3 3/3, I4 3/3, I5 4/4.
 
 **Also built, queued:** job_target (the model names the tree's target; a7cd4ca), his own storage always shown (52903c7), the vault work on main's line (0918dd1, 75ecb0c, 8aed248).
+
+## 2026-11-19 04:00Z-06:00Z: the lookup measured live, the first vault entry, the jump judge made strict
+
+**Lookup, live (goal item 3), lk-20261119T050935Z** (52 chat asks, Haiku only, $0.22):
+- He used lookup on 42 of 48 asks, and it returned the expected facts every time.
+- Scored by the offline keys: every fact said, tuned 7/23, held-out 8/23. A study of the tuned misses (the held-out answers were not read) found the keys wrong: 10 asked facts the question did not ask (a coordinate, garou kinds for "where is tin"), and 5 missed the same fact in other words.
+- Grader 672b7f4: one written rule from the question's kind, the bestiary's names and aliases, the same rule for every set, no case keyed by hand. Re-scored: **tuned 18/23, held-out (untuned) 19/23 (83 %)** against a bar of 9 in 10. Decision asks 0/2: he answered "no" from his own gear and looked nothing up.
+- His spoken answers are cut silently at 200 characters; the report of the cut is built (2b3d469, queued).
+
+**The first vault entry (goal item 4), probe on a fork:** one press on Crasorak Kara's door moved him 2211 m. Inside, `vault` reads "Crasorak Kara", but `in_vault` stays false. The probe aborted on a Vault Guardian Hulk at 10.2 m and sent the fork home. The K grader now reads "inside" from the vault's registry box or the door jump (c1704b1, queued).
+
+**Jumps.**
+- The old height-only "landed" called two 3 m jumps landed in mid-air (he fell back). a77fe19: landed needs floor under him (`why=perched`).
+- The course with it: 2 of 32 struck (6 %), all 33 legs reached.
+- Real play after cce6893 (before a77fe19): 5 of 25 (20 %, 9-39 %), 0 of 59 attacks ended by a miss; the remaining real misses are high jumps onto narrow rocks (a let-go before the second press is built, 733eca3, queued).
+
+**Copper.**
+- The craft-report window: 0/3 (the fix's case did not come up).
+- The structural async fix (8e383f7, start_goal first_steps) is in its window now.
+- Unseen: three rows that never ran in 2-3 days of windows binned as unshown, code kept.
