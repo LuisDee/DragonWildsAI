@@ -296,6 +296,10 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: fl
     # tool that has none (keyed by its own time, a look's call stayed open for ever and the L2 trial of 2026-11-17 never
     # ended "quiet": it ran on to its deadline)
     idless: dict[str, list[str]] = {}
+    # a call the bridge detached (fight or chat news after 2 s) returns "still_running" while the body carries on; its
+    # real end comes as bridge_late_result with the same call id (study misses_1119: 77 of 236 V1 misses were these,
+    # 53 later "interrupted" by his own next call, 9 ok). It is scored by that end, and busy until it
+    detached: dict[str, dict] = {}
     for r in rows:
         k, ts = r.get("kind"), float(r.get("ts") or 0)
         key = r.get("call") or r.get("task_id")
@@ -317,6 +321,11 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: fl
             elif what in acts:
                 busy.append((acts.pop(what), at))
             continue
+        if k == "bridge_late_result" and r.get("call") in detached:
+            c = detached.pop(r["call"])
+            c.update({"ok": r.get("ok"), "reason": r.get("reason"), "late_s": round(ts - c["_ts"], 1)})
+            busy.append((c["_ts"], ts))
+            continue
         if k == "tool_call":
             open_[key] = {"tool": r.get("tool"), "args": r.get("args"), "t": round(ts - t0, 1), "_ts": ts,
                           "_idless": no_id}
@@ -332,6 +341,8 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: fl
                 c["options"] = [o.get("text") for o in d["options"] if isinstance(o, dict)]
             busy.append((c["_ts"], ts))
             calls.append(c)
+            if res.get("reason") == "still_running" and r.get("call"):
+                detached[r["call"]] = c
         elif k == "prompt":
             prompt_at = ts
         elif k == "llm_response" and prompt_at is not None:
@@ -401,8 +412,11 @@ def verdict(rec: dict) -> dict:
     lookup). `done` alone is not a pass: chain 20261116-085113 finished all four quests with 1, 2, 3 and 3 misses.
     Whether his lines were true is the judge's (not run here): `truth` says so."""
     from tools import standard_score as ss
+    # "still_running": the bridge stopped waiting and the body carries on (no failure); timeline() puts the call's
+    # real end in its place when bridge_late_result came, and a failed end there is a miss like any other
     misses = [{"t": c.get("t"), "tool": c["tool"], "reason": c.get("reason")} for c in rec.get("tool_calls") or []
-              if c.get("ok") is False and c.get("reason") not in ss.NO_MISS_REASONS and c["tool"] not in ss.READ_ONLY_TOOLS]
+              if c.get("ok") is False and c.get("reason") not in ss.NO_MISS_REASONS | {"still_running"}
+              and c["tool"] not in ss.READ_ONLY_TOOLS]
     stands = [i["s"] for i in rec.get("idle_over_5s") or []]
     bars = {"done": bool(rec.get("done")), "time": rec.get("ratio") is not None and rec["ratio"] <= 1.5,
             "misses": len(misses) <= 1, "stands": not stands, "counted": not not_counted(rec)}

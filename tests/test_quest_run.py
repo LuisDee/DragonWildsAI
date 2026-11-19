@@ -89,6 +89,26 @@ def test_reflex_fights_are_work_not_a_stand_and_keep_the_run_from_ending_quiet()
     assert tl["idle"][1:] == [{"from": 150.0, "s": 10.0, "to_end": True}]  # after his call, only the stand after the fight
 
 
+def test_a_detached_call_is_scored_by_its_late_end_not_by_still_running():
+    """study misses_1119: 77 of 236 V1 misses were "still_running" (fight news cut the bridge's wait after 2 s while the
+    body carried on). Such a call is scored by its bridge_late_result: ok or interrupted is no miss, a failed end is,
+    and with no late end there is no failure to count. It is busy until its end."""
+    t0 = 1000.0
+    run = lambda cid, tool, t: [{"kind": "tool_call", "call": cid, "tool": tool, "ts": t0 + t},
+                                {"kind": "tool_result", "call": cid, "tool": tool, "ts": t0 + t + 2,
+                                 "result": {"ok": False, "reason": "still_running", "data": {}}}]
+    late = lambda cid, tool, t, ok, why: {"kind": "bridge_late_result", "call": cid, "tool": tool, "ts": t0 + t,
+                                          "ok": ok, "reason": why}
+    rows = (run("a", "go_to", 10) + [late("a", "go_to", 40, True, None)] + run("b", "gather", 50)
+            + [late("b", "gather", 60, False, "interrupted")] + run("c", "attack", 70)
+            + [late("c", "attack", 80, False, "unknown_target")] + run("d", "explore", 90))
+    tl = q.timeline(sorted(rows, key=lambda r: r["ts"]), t0, t_end=t0 + 95)
+    by = {c["tool"]: c for c in tl["calls"]}
+    assert by["go_to"]["ok"] is True and by["go_to"]["late_s"] == 30.0 and by["gather"]["reason"] == "interrupted"
+    assert [m["tool"] for m in q.verdict({"tool_calls": tl["calls"]})["misses"]] == ["attack"]
+    assert not any(i["from"] < 40 for i in tl["idle"] if i["from"] >= 12)  # the walk ran on: no stand inside it
+
+
 def _run_060504():
     from pathlib import Path
     return json.loads((Path(__file__).parent / "fixtures" / "job_run_060504_timeline.json").read_text(encoding="utf-8"))
