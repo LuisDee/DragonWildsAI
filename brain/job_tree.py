@@ -52,7 +52,9 @@ import json
 import math
 import os
 import re
+import threading
 import time
+import functools
 import heapq
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -893,9 +895,30 @@ def path(world_dir: Path) -> Path:
     return Path(world_dir) / FILE
 
 
+def _loop_only(refused):
+    """A Keeper method that runs only on the thread that owns it (the agent loop's). The Keeper has no lock: its
+    failures, last tree and lazily loaded game data (the knowledge index's sqlite) are the loop's. A background plan
+    (DW_ASYNC_PLAN=1, agent._plan_in_background) gets the tree as text the loop built before submit, in a deep copy
+    of the Planner's notes; a call from any other thread is refused (``refused`` returned, a job_tree_error row with
+    where=off_thread) and never touches the Keeper."""
+    def wrap(fn):
+        @functools.wraps(fn)
+        def guarded(self, *args, **kwargs):
+            if self.owner is not None and threading.get_ident() != self.owner:
+                self._log("job_tree_error", where="off_thread", method=fn.__name__,
+                          error=f"Keeper.{fn.__name__} called from thread {threading.current_thread().name}, "
+                                f"not the loop's; refused")
+                return list(refused) if isinstance(refused, list) else refused
+            return fn(self, *args, **kwargs)
+        return guarded
+    return wrap
+
+
 class Keeper:
     """The job tree of the open ask: its target (from the player's words), the failures per node from the body's
-    reports, the last tree built; on disk beside open_ask.json when a world folder is attached."""
+    reports, the last tree built; on disk beside open_ask.json when a world folder is attached. Owned by the thread
+    that made it (the agent loop's, ``owner``): not thread-safe, so every method that reads or changes it refuses
+    another thread (_loop_only)."""
 
     def __init__(self, data_fn: Callable[[], GameData], log=None, wall: Callable[[], float] = time.time):
         self._data_fn, self._data = data_fn, None
@@ -905,6 +928,7 @@ class Keeper:
         self.failures: dict[str, list[dict]] = {}
         self.last: dict | None = None
         self.dir: Path | None = None
+        self.owner: int | None = threading.get_ident()  # None: any thread (a tool run outside the agent)
 
     def data(self) -> GameData:
         if self._data is None:
@@ -915,6 +939,7 @@ class Keeper:
         if self.log is not None:
             self.log.log(kind, **kw)
 
+    @_loop_only([])
     def open(self, ask: tuple) -> list[dict]:
         """A new ask: its target from the game item names in its words; the failures of the ask before are dropped."""
         self.ask, self.failures, self.last = (ask[0], ask[1]), {}, None
@@ -927,6 +952,7 @@ class Keeper:
         self.save()
         return self.targets
 
+    @_loop_only(None)
     def close(self) -> None:
         self.ask, self.targets, self.failures, self.last = None, [], {}, None
         if self.dir is not None:
@@ -941,6 +967,7 @@ class Keeper:
         from .open_ask import same_ask
         return bool(self.targets) and same_ask(ask, self.ask)
 
+    @_loop_only(None)
     def tree(self, state: dict | None, spells: list[dict] | None = None) -> dict | None:
         if not self.targets:
             return None
@@ -950,6 +977,7 @@ class Keeper:
             self._log("job_tree_error", where="build", error=repr(exc)[:200])
         return self.last
 
+    @_loop_only(None)
     def compact_view(self, state: dict | None, spells: list[dict] | None = None, where: str | None = None) -> dict | None:
         t = self.tree(state, spells)
         if not t:
@@ -960,6 +988,7 @@ class Keeper:
                       ready=len(v.get("nothing_blocks_now") or []), blocked=len(v.get("blocked") or []))
         return v
 
+    @_loop_only(None)
     def full_view(self, state: dict | None, spells: list[dict] | None = None, where: str | None = None) -> str | None:
         t = self.tree(state, spells)
         if not t:
@@ -969,6 +998,7 @@ class Keeper:
             self._log("job_tree_shown", where=where, view="full", nodes=t["nodes"], chars=len(text))
         return text
 
+    @_loop_only([])
     def record(self, tool: str, args: dict | None, ok: bool, reason: str | None, detail: str | None,
                state: dict | None = None, spells: list[dict] | None = None) -> list[str]:
         """An outcome report: a failure is kept on the nodes it is about (the last FAILS_KEPT each). The ids hit."""
@@ -986,6 +1016,7 @@ class Keeper:
         return ids
 
     # on disk
+    @_loop_only(False)
     def attach(self, directory: Path, ask: tuple | None) -> bool:
         """Keep the job in ``directory`` from now on; bring back the one kept there when it is for ``ask``."""
         from .fileio import read_json

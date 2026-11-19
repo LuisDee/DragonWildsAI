@@ -785,9 +785,15 @@ class Agent:
         run_asked = (event.player, event.text) if event.text else goal_for or (
             None if self.active_goal or self.pending_goal else self._open_request)
         run_for = "line" if event.text else GOAL_ENDS[ended["type"]] if ended else "carried" if run_asked else None
+        # DW_ASYNC_PLAN=1: his turn while the Planner makes the goal's plan (agent._plan_turn) acts on the goal's ask,
+        # though the goal is running (so run_asked stays None: not an open-ask run, no left-open row). He is shown
+        # what a run on it is shown, the job tree too (DW_JOB_TREE=1), built here on the loop thread: the 19-21 s
+        # opening stand of the job-tree trials of 2026-11-19 is the time this turn has to act on it
+        pending = next((e for e in body_events or [] if e.get("type") == "plan_pending" and e.get("request")), None)
+        view_ask = run_asked or ((pending.get("from"), pending["request"]) if pending else None)
         # what the game told him about the ask, kept with it (oa.keep_fact), shown on every turn of a run for it
-        self._serving_ask = run_asked if oa.same_ask(run_asked, self._open_request) else None
-        self.controller.open_request = self._open_view(run_asked, body_ctx, where="turn", state=state)
+        self._serving_ask = view_ask if oa.same_ask(view_ask, self._open_request) else None
+        self.controller.open_request = self._open_view(view_ask, body_ctx, where="turn", state=state)
         # a goal he queued that has not begun (step() starts it after this run): the run is told of it. Run
         # 20261117-041914: "chopping them now" + start_goal, a hunger event came in before the goal began, and the
         # run for it knew nothing of the waiting goal: it chopped the 48 logs and handed them in itself (260 s),
