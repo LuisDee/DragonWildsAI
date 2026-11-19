@@ -391,7 +391,8 @@ do
     step(1)
     check("airborne jump cannot advance path",jump.lwp==jump_index and jump.lp_jump_exec and jump.lp_jump_exec.saw_air,jump.lwp)
     check("stuck window cannot interrupt owned jump",jump.lpath==jumping_path and jump.local_authority and not jump.local_replans,jump.status)
-    pawn.loc={X=300,Y=0,Z=300}; air=0; step(1)
+    -- (down on a floor: since 2026-11-19 a landing must stand on one, the top's floor under him)
+    pawn.loc={X=300,Y=0,Z=300}; raised={{220,380,-80,80,300,300}}; air=0; step(1); raised={}
     check("grounded endpoint advances only after observed air",jump.lp_jump_exec==nil and jump.lwp==#jump.lpath+1 and jump.lpath[#jump.lpath].act=="walk",jump.status)
     M.stop(log); air=0
     local before_double=pawn.jumps
@@ -400,7 +401,7 @@ do
     check("double jump uses airborne second input",double.lp_jump_exec and double.lp_jump_exec.saw_air and pawn.jumps==before_double+2,double.status)
     M.stop(log); air=0
     local missed=observe_case({X=300,Y=0,Z=210,act="jump"},6)
-    step(1); pawn.loc={X=-200,Y=0,Z=300}; air=0; step(1)
+    step(1); pawn.loc={X=-200,Y=0,Z=300}; raised={{-280,-120,-80,80,300,300}}; air=0; step(1); raised={}
     -- PLAN fix 1 (live 2026-10-31): a missed landing drops the local path and re-plans; the go_to keeps going
     check("missed landing re-plans without path success",missed.mode=="go_to" and not missed.result and missed.lpath==nil and
         missed.lp_jump_exec==nil and missed.lp_fail=="jump landing missed",missed.status)
@@ -410,7 +411,7 @@ do
     M.follow(log,"Zezima",6); step(1)
     local follower=_G.DW_MOVE
     follower.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=300,Y=0,Z=210,act="jump"}} end,verify=function() return "ok" end}
-    step(3); pawn.loc={X=-200,Y=0,Z=300}; air=0; step(1)
+    step(3); pawn.loc={X=-200,Y=0,Z=300}; raised={{-280,-120,-80,80,300,300}}; air=0; step(1); raised={}
     -- (since 2026-11-01 20:09Z: one missed landing re-plans, like go_to; the third of the trip is no_route, tested below)
     check("failed local jump preserves persistent follow",follower.mode=="follow" and not follower.unreach and follower.lp_fail=="jump landing missed" and follower.lpath==nil,follower.status)
     M.stop(log); air=0
@@ -3394,8 +3395,10 @@ end
 -- approach put him on a 3 m ledge 72 cm from the planned cell, counted as the third miss, and the attack ended
 -- path_blocked 7.3 m from a rat he then walked straight to). A jump across a gap on one level keeps the 45 cm.
 do
-    local function land(rise, dx, dy, nearest, below, act, second)
-        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
+    -- floor: how far under his feet the floor under him lies (nil: he stands on it, a plateau at his feet's height;
+    -- false: none but the world's floor); held: his capsule gets nowhere (live: 6 cm in a second)
+    local function land(rise, dx, dy, nearest, below, act, second, floor, held)
+        M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false; PINCH = nil
         pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
         M.follow(log, "Zezima", 2, { nav = false })
         run(5)
@@ -3410,6 +3413,11 @@ do
                             dj2 = second and T + 0.4 or nil }
         mv.trav_fails, mv.lp_fail = nil, nil
         pawn.loc = { X = here.X + 100 + dx, Y = here.Y + dy, Z = here.Z + rise - (below or 0) }
+        if floor ~= false then
+            local h = rise - (below or 0) - (floor or 0)
+            raised = { { pawn.loc.X - 80, pawn.loc.X + 80, pawn.loc.Y - 80, pawn.loc.Y + 80, h, h } }
+        end
+        if held then PINCH = { { pawn.loc.X - 300, pawn.loc.X + 300, pawn.loc.Y - 300, pawn.loc.Y + 300 } } end
         air = 0
         step(1)
         return mv
@@ -3501,6 +3509,53 @@ do
     -- a hop under the walkable step keeps a walk point's 45 cm
     mv = land(40, 99, 0, 58, -1)
     check("40 cm hop (under the step): 99 cm past the cell stays a miss", mv.trav_fails == 1, "fails=" .. tostring(mv.trav_fails))
+    -- landed means standing on the top: two 3 m double jumps onto the rock east of home were judged landed by height
+    -- alone and he was back at the takeoff's level (scratchpad study jump_real_1119; logs/client/client.log).
+    -- 01:06:19Z: feet 2 cm under the top, 64 cm from the cell (-41,-49), the floor under him 46 cm down, 6 cm moved in
+    -- the next second (he stayed on his capsule's rim)
+    local function verdicts(from) local o = {}; for i = from + 1, #logs do
+        if tostring(logs[i]):find("move: jump verdict=", 1, true) then o[#o + 1] = logs[i] end end; return o end
+    n0 = #logs
+    mv = land(300, -41, -49, 70, 2, "djump", true, 46, true)
+    local first = verdicts(n0)
+    local pushed = pawn.input ~= nil
+    local said_settle = false
+    for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump: down but not standing (floor 46 cm under my feet)", 1, true) then said_settle = true end end
+    step(20); PINCH = nil
+    vl = verdicts(n0)[1]
+    check("rock 01:06:19Z: on the top's height with the floor 46 cm under his feet is not judged at once; he pushes on",
+        #first == 0 and pushed and said_settle, "verdicts=" .. #first .. " pushed=" .. tostring(pushed) .. " said=" .. tostring(said_settle))
+    check("rock 01:06:19Z: still not standing after jump_settle_s is a miss (why=perched)", mv.trav_fails == 1
+        and vl ~= nil and vl:find("verdict=missed why=perched", 1, true) ~= nil and vl:find("settle=0.5", 1, true) ~= nil,
+        "fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    -- 02:12:14Z: "landed" 71 cm from the cell (-4,-71), feet 53 cm under the top, the floor 247 cm under them; he
+    -- came down at the takeoff's level
+    n0 = #logs
+    mv = land(298, -4, -71, 71, 53, "djump", true, 247)
+    first = verdicts(n0)
+    step(20)
+    vl = verdicts(n0)[1]
+    check("rock 02:12:14Z: feet 53 cm under the top with the floor 247 cm under them is not landed", #first == 0
+        and mv.trav_fails == 1 and vl ~= nil and vl:find("verdict=missed", 1, true) ~= nil,
+        "verdicts=" .. #first .. " fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    -- down on the lip with the floor under his centre 60 cm lower, he steps in onto the top: landed once he stands
+    n0 = #logs
+    mv = land(150, -30, 0, 30, 0, "jump", nil, 60)
+    first = verdicts(n0)
+    local cx = pawn.loc.X + 30
+    raised = { { cx - 25, cx + 200, -80, 80, 150, 150 } }
+    frame_hook = function() pawn.loc.X = cx - 5 end
+    step(3); frame_hook = nil
+    vl = verdicts(n0)[1]
+    check("lip: down on the rim, then standing on the top a frame later, is landed", #first == 0 and (mv.trav_fails or 0) == 0
+        and vl ~= nil and vl:find("verdict=landed why=within", 1, true) ~= nil and vl:find("settle=0.0", 1, true) ~= nil,
+        "verdicts=" .. #first .. " fails=" .. tostring(mv.trav_fails) .. " " .. tostring(vl))
+    -- a landing standing on the floor at once is judged in that frame, settle=-
+    n0 = #logs
+    land(300, 54, 48)
+    vl = verdicts(n0)[1]
+    check("a landing standing at once is judged in that frame (settle=-)", vl ~= nil and vl:find("verdict=landed why=within", 1, true) ~= nil
+        and vl:find("settle=-", 1, true) ~= nil, tostring(vl))
     -- the landing line says whether a double jump's second press fired, and when (double-jumps study 2026-11-17: three
     -- flights cut to 31-185 cm could not tell "never pressed" from "pressed and the face ate it")
     n0 = #logs

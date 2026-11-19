@@ -125,6 +125,8 @@ M.cfg = {
     jump_gravity_cms2 = 1813,  -- his gravity in flight (GetGravityZ -1813, DISCOVERIES jump envelope): time to fall to a level
     jump_coast_brake_cms2 = nil, -- his horizontal deceleration with no stick in the air; nil = the read
                                -- BrakingDecelerationFalling (move: jump physics), else 0 (the engine default)
+    jump_settle_s = 0.5,       -- down after a typed jump but with no floor within a step under his centre (on his
+                               -- capsule's rim, or caught on the face): he pushes on this long to stand, then it missed
     takeoff_blocked_cm = 75,   -- within this of a jump's start (inside its 1 m cell) and no nearer for
     takeoff_blocked_s = 0.6,   -- ... this long, on the ground: he takes off from where he stands
     run_up_fast_cms = 150,     -- faster than this at a jump's takeoff and moving under run_up_cos toward the landing:
@@ -3382,17 +3384,20 @@ end
 -- heights are floor heights (feet = capsule centre - half height); apex and nearest are taken in flight. Read only:
 -- one trace (as _crumb_floats makes) and fields already kept; it changes no decision.
 -- a field, not a local: the main chunk is at Lua's 200-local limit
+-- the floor under his capsule's centre (one trace down to 3 m under his feet): its height and normal Z, or nil
+function M.jump_floor(pawn, me, feet)
+    local okf, hit, out = pcall(raw_trace, pawn, { X = me.X, Y = me.Y, Z = me.Z }, { X = me.X, Y = me.Y, Z = feet - 300 })
+    if okf and hit and type(out) == "table" and out.ImpactPoint then
+        return tonumber(out.ImpactPoint.Z), out.ImpactNormal and tonumber(out.ImpactNormal.Z)
+    end
+end
+
 function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
     if not log or not j or not p then return end
     local hh = st.half_h or 88
     local a = j.previous or p
     local feet = me.Z - hh
-    local fz, fnz
-    local okf, hit, out = pcall(raw_trace, pawn, { X = me.X, Y = me.Y, Z = me.Z }, { X = me.X, Y = me.Y, Z = feet - 300 })
-    if okf and hit and type(out) == "table" and out.ImpactPoint then
-        fz = tonumber(out.ImpactPoint.Z)
-        fnz = out.ImpactNormal and tonumber(out.ImpactNormal.Z)
-    end
+    local fz, fnz = M.jump_floor(pawn, me, feet)
     local tk, vv = j.takeoff or {}, j.v0 or {}
     local ex, ey = p.X - a.X, p.Y - a.Y
     local el = math.sqrt(ex * ex + ey * ey)
@@ -3403,7 +3408,7 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
     local function yn(b) return b == nil and "-" or (b and "1" or "0") end
     log(string.format("move: jump verdict=%s why=%s act=%s rise=%.0f run=%.0f k=%s/%s from=%s to=%s takeoff=%s"
         .. " takeoff_off=%s v0=%s v0h=%s toward=%s air=%.2f apex=%s nearest=%s at=%s feet_dz=%.0f"
-        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s vh2=%s vhn=%s in=%s/%s/%s airin=%s letgo=%s",
+        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s vh2=%s vhn=%s in=%s/%s/%s airin=%s letgo=%s settle=%s",
         verdict, why, p.leap and "leap" or tostring(p.act), p.Z - a.Z, el, tostring(st.lwp), tostring(st.lpath and #st.lpath),
         p3(a), p3(p), p3(tk, hh), tk.X and f0(math.sqrt((tk.X - a.X) ^ 2 + (tk.Y - a.Y) ^ 2)) or "-",
         p3(vv), f0(vh), toward and string.format("%.2f", toward) or "-", t - (j.started or t),
@@ -3421,7 +3426,9 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
         f0(j.vh2), f0(j.vhn), yn(j.in0), yn(j.in2), yn(j.inn),
         j.air_n and string.format("%d/%d", j.air_in or 0, j.air_n) or "-",
         -- s after the first press that the drift first carried him to the landing and he let go (M.air_let_go)
-        j.let_go and string.format("%.2f", j.let_go - (j.started or j.let_go)) or "-"))
+        j.let_go and string.format("%.2f", j.let_go - (j.started or j.let_go)) or "-",
+        -- s he was down with no floor within a step under his centre before this verdict (jump_settle_s)
+        j.unsup_t and string.format("%.2f", t - j.unsup_t) or "-"))
 end
 
 -- once per load, at the first typed jump: the movement values that govern his flight, by property (nil reads "-").
@@ -3614,6 +3621,30 @@ local function steer_typed_jump(f, p)
         end
     end
     if j.saw_air and grounded == true then
+        -- landed means standing: on the ground with a floor within the walkable step under his capsule's centre. The
+        -- movement component also says "on the ground" on his capsule's rim over a drop (UE's perch) and caught on
+        -- the face. Two 3 m double jumps onto the rock east of home were judged landed by height alone, then he was
+        -- back at the takeoff's level: 2026-11-19 01:06:19Z feet 2 cm under the top with the floor 46 cm under them,
+        -- 6 cm moved in the next second; 02:12:14Z feet 53 cm under the top, the floor 247 cm under them (scratchpad
+        -- study jump_real_1119). Down so, he pushes on for jump_settle_s to stand (the way on on this level, else the
+        -- cell), then it is judged; still not standing, it missed (why=perched).
+        local feet = me.Z - st.half_h
+        local fz = M.jump_floor(pawn, me, feet)
+        if not owned(bind) then return true end
+        local stands = fz ~= nil and feet - fz <= ((st.env and st.env.step) or 45)
+        if not stands then
+            if not j.unsup_t then
+                j.unsup_t = t
+                if log then log(string.format("move: jump: down but not standing (floor %s under my feet); pushing on to stand",
+                    fz and string.format("%.0f cm", feet - fz) or "over 3 m")) end
+            end
+            if t - j.unsup_t < M.cfg.jump_settle_s then
+                local nx = st.lpath[st.lwp + 1]
+                f.aim = (nx and nx.Z and math.abs(nx.Z - p.Z) < step_tol(st)) and nx or p
+                st.win_t, st.win_pos = t, v(me)
+                return
+            end
+        end
         local dz = math.abs((me.Z - st.half_h) - p.Z)
         -- a jump onto another level (a ledge) has landed when he stands on that level near its point; a jump across
         -- a gap on one level only at the point (live 2026-11-16 09:53:58Z: on a 3 m ledge 72 cm from the cell centre
@@ -3654,9 +3685,10 @@ local function steer_typed_jump(f, p)
         local onto_next = not ok_land and not over and not above and nx ~= nil and nx.Z ~= nil and nx.Z < p.Z - 15
             and j.nearest ~= nil and j.nearest < M.cfg.lp_radius_cm and d2(me, nx) < M.cfg.jump_land_cm
             and math.abs((me.Z - st.half_h) - nx.Z) < step_tol(st)
-        ok_land = ok_land or over or above or onto_next
-        pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", over and "over" or above and "above"
-            or onto_next and "next" or ok_land and "within"
+        ok_land = (ok_land or over or above or onto_next) and stands
+        over, above, onto_next = over and stands, above and stands, onto_next and stands
+        pcall(M.jump_landing_line, st, pawn, me, p, j, ok_land and "landed" or "missed", not stands and "perched"
+            or over and "over" or above and "above" or onto_next and "next" or ok_land and "within"
             or ((off >= within and dz >= step_tol(st)) and "far_and_off_height" or (off >= within and "far" or "off_height")), t, log)
         if not owned(bind) then return true end
         if onto_next then
