@@ -96,9 +96,10 @@ def test_a_detached_call_is_scored_by_its_late_end_not_by_still_running():
     t0 = 1000.0
     run = lambda cid, tool, t: [{"kind": "tool_call", "call": cid, "tool": tool, "ts": t0 + t},
                                 {"kind": "tool_result", "call": cid, "tool": tool, "ts": t0 + t + 2,
-                                 "result": {"ok": False, "reason": "still_running", "data": {}}}]
-    late = lambda cid, tool, t, ok, why: {"kind": "bridge_late_result", "call": cid, "tool": tool, "ts": t0 + t,
-                                          "ok": ok, "reason": why}
+                                 "result": {"ok": False, "reason": "still_running", "data": {"id": "b" + cid}}}]
+    # the late end carries the bridge's request id (data.id above); its "call" is the turn's, not the detached one's
+    late = lambda cid, tool, t, ok, why: {"kind": "bridge_late_result", "id": "b" + cid, "call": "toolu_x", "tool": tool,
+                                          "ts": t0 + t, "ok": ok, "reason": why}
     rows = (run("a", "go_to", 10) + [late("a", "go_to", 40, True, None)] + run("b", "gather", 50)
             + [late("b", "gather", 60, False, "interrupted")] + run("c", "attack", 70)
             + [late("c", "attack", 80, False, "unknown_target")] + run("d", "explore", 90))

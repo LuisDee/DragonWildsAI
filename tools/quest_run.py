@@ -297,7 +297,7 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: fl
     # ended "quiet": it ran on to its deadline)
     idless: dict[str, list[str]] = {}
     # a call the bridge detached (fight or chat news after 2 s) returns "still_running" while the body carries on; its
-    # real end comes as bridge_late_result with the same call id (study misses_1119: 77 of 236 V1 misses were these,
+    # real end comes as bridge_late_result with the bridge's request id (data.id of the still_running result; study misses_1119: 77 of 236 V1 misses were these,
     # 53 later "interrupted" by his own next call, 9 ok). It is scored by that end, and busy until it
     detached: dict[str, dict] = {}
     for r in rows:
@@ -321,8 +321,8 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: fl
             elif what in acts:
                 busy.append((acts.pop(what), at))
             continue
-        if k == "bridge_late_result" and r.get("call") in detached:
-            c = detached.pop(r["call"])
+        if k == "bridge_late_result" and r.get("id") in detached:
+            c = detached.pop(r["id"])
             c.update({"ok": r.get("ok"), "reason": r.get("reason"), "late_s": round(ts - c["_ts"], 1)})
             busy.append((c["_ts"], ts))
             continue
@@ -341,8 +341,8 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None, t_done: fl
                 c["options"] = [o.get("text") for o in d["options"] if isinstance(o, dict)]
             busy.append((c["_ts"], ts))
             calls.append(c)
-            if res.get("reason") == "still_running" and r.get("call"):
-                detached[r["call"]] = c
+            if res.get("reason") == "still_running" and d.get("id"):
+                detached[str(d["id"])] = c
         elif k == "prompt":
             prompt_at = ts
         elif k == "llm_response" and prompt_at is not None:
