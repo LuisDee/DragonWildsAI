@@ -1095,3 +1095,101 @@ def test_run_job_hands_l3s_vault_to_the_gear_target(doc, tmp_path):
     io = FakeIO()
     rec = j.run_job(io, j.job_of("L3", doc), {"interruptions": doc["interruptions"], "stop_file": str(stop)})
     assert io.gear_vault == "Crasorak Kara" and rec["state_start"]["gear_target"]["pl"] == 3
+
+
+# ------------------------------------------------------------------ world_needs: the world before the ask
+HOME = [173.2, 1915.2, -30.0]
+
+
+def flax_row(i, at, available=True):
+    return {"item": "ITEM_Resources_Flax", "kind": "gatherable", "class": "BP_Spawner_Flax_C", "name": "Flax",
+            "available": available, "id": f"BP_Spawner_Flax_C_UAID_{i}", "position": list(at), "distance": 1.0}
+
+
+def flax_world(standing, picked=0, far=0, stones=5):
+    """A census reply: `standing` flax within 350 m of HOME (300 m E of it), `picked` there reading available=false,
+    `far` standing ones 400 m off, and some stones."""
+    rows = [flax_row(i, (HOME[0] + 300, HOME[1] + (i % 7), -40)) for i in range(standing)]
+    rows += [flax_row(100 + i, (HOME[0] + 290, HOME[1], -40), available=False) for i in range(picked)]
+    rows += [flax_row(200 + i, (HOME[0] + 400, HOME[1], -40)) for i in range(far)]
+    rows += [{"class": "BP_Spawner_Stone_C", "name": "Stone", "available": True, "position": [HOME[0] + 5, HOME[1], -30],
+              "distance": 30.0} for _ in range(stones)]
+    return {"ok": True, "data": {"resources": rows, "totals": {"resources": len(rows)}}}
+
+
+class CensusIO(FakeIO):
+    def __init__(self, reply, **kw):
+        super().__init__(states=lambda t: {**state(pos=(150.0, 1900.0, -30.0)),
+                                           "my_bases": [{"centre": [0.0, 0.0, 0.0], "pieces": 2},
+                                                        {"centre": HOME, "pieces": 12, "covered": True}]}, **kw)
+        self.reply, self.census_args, self.brain_started = reply, [], False
+
+    def census(self, args):
+        self.census_args.append(args)
+        return self.reply
+
+    def start_brain(self):
+        self.brain_started = True
+        return True
+
+
+def test_world_short_never_sends_the_ask_and_is_not_counted(doc):
+    io = CensusIO(flax_world(14, picked=3, far=4))
+    rec = j.run_job(io, j.job_of("L1", doc), {"interruptions": doc["interruptions"]})
+    assert io.sent == [] and not io.brain_started
+    assert rec["ended"] == "world short" and rec["lines"] == []
+    assert rec["not_counted"].startswith("world short: flax 14 of 22 within 350 m of home (3 picked)")
+    assert "a fault of the run, not his" in rec["not_counted"] and j.not_counted(rec) == rec["not_counted"]
+    need = rec["world"]["needs"][0]
+    assert (need["standing"], need["picked"], need["at_least"], need["centre"]) == (14, 3, 22, HOME[:2])
+    assert need["centre_from"].startswith("his base of 12 pieces")
+    a = io.census_args[0]  # from him (23 m off home) far enough to reach 350 m beyond home; resources only
+    assert a["radius_m"] >= 350 + 23 and a["kinds"] == {"resources": True} and a["max"] == j.WORLD_CENSUS_MAX
+    assert rec["verdict"]["pass"] is False and j.verdict(rec)["bars"]["counted"] is False
+    assert j.scored([rec], set()) == [] and j.blind_mark(rec, [rec], set(), []) == {}
+
+
+def test_world_unread_refuses_too(doc):
+    cut = flax_world(14)
+    cut["data"]["totals"]["resources"] = 5000  # the census's cap cut rows: 14 is a floor, not a count
+    io = CensusIO(cut)
+    rec = j.run_job(io, j.job_of("L1", doc), {"interruptions": doc["interruptions"]})
+    assert io.sent == [] and rec["not_counted"].startswith("world unread: flax within 350 m of home: the census listed")
+    io = CensusIO({"ok": False, "reason": "paused"})
+    rec = j.run_job(io, j.job_of("L1", doc), {"interruptions": doc["interruptions"]})
+    assert io.sent == [] and "census failed: paused" in rec["not_counted"]
+
+
+def test_world_enough_runs_the_trial(doc, tmp_path):
+    stop = tmp_path / "job_run.stop"
+    stop.write_text("", encoding="utf-8")
+    io = CensusIO(flax_world(22, picked=5, far=10))
+    rec = j.run_job(io, j.job_of("L1", doc), {"interruptions": doc["interruptions"], "stop_file": str(stop)})
+    assert io.brain_started and io.sent == [doc["jobs"]["L1"]["line"]] and rec["ended"] == "stopped"
+    assert rec["world"]["ok"] and rec["world"]["needs"][0]["standing"] == 22 and not rec.get("not_counted")
+
+
+def test_a_job_without_world_needs_is_unchanged(doc):
+    assert not doc["jobs"]["L2"].get("world_needs")
+    io = FakeIO(script=l2_script(), states=lambda t: state(mine=[CRATE]),
+                chests={CRATE: [{"item": "ITEM_Resources_CopperOre", "name": "Copper Ore", "count": 30}]})
+    assert not hasattr(io, "census")  # it would raise had the check run
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
+    assert rec["ended"] == "job done" and "world" not in rec and io.sent == [doc["jobs"]["L2"]["line"]]
+
+
+def test_world_needs_hold_for_a_step_only_when_the_need_says_so(doc):
+    job = j.job_of("L1", doc)
+    assert j.world_needs_for(job) and not j.world_needs_for(job, "I1")  # a mid-job checkpoint: as a head start
+    named = {**job, "world_needs": [{**job["world_needs"][0], "steps": ["I4"]}]}
+    assert j.world_needs_for(named, "I4") and not j.world_needs_for(named, "I1")
+    io = CensusIO(flax_world(3))
+    rec = j.run_job(io, named, {"step": "I4", "interruptions": doc["interruptions"]})
+    assert io.sent == [] and rec["kind"] == "interrupt" and rec["not_counted"].startswith("world short: flax 3 of 22")
+    assert j.verdict(rec)["pass"] is False
+
+
+def test_deadline_cli_wins_over_the_jobs_own(doc):
+    assert j.deadline_of(doc["jobs"]["L1"]) == 2700.0
+    assert j.deadline_of(doc["jobs"]["L1"], 900.0) == 900.0
+    assert j.deadline_of(doc["jobs"]["L2"]) == j.DEADLINE_S == 1800.0

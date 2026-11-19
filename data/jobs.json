@@ -8,6 +8,8 @@
     "start: a checkpoint label (logs/quests/checkpoints) or a character save name that is forked for each trial (tools/quest_clone.fork; ClaudeDev.json is only read). interrupt_from: a mid-job checkpoint made by a real run (rule 8: trial --until first_step --save-as LABEL); while it does not exist, interruption trials start from 'start' and the interruption is put in after his first verified step.",
     "not_carried_at_start: item patterns he must not hold when the trial starts; a trial that starts holding any is recorded and not counted (as quest_run's head start).",
     "in_own_chest want 'gained': true: only what went into the container after the line counts (its count at the start: the harness's inspect before the line, else the body's read at his first store or take into it; neither read and enough inside: unread, never a pass).",
+    "world_needs: [{resource, match?, at_least, within_m, of ('home' = his my_bases base with the most pieces | 'start' | [x, y]), steps?}]: what the WORLD must hold for the job. Before the brain starts and the line is sent, tools/job_run.world_check counts the standing sources with the body's census (rows whose class, name, item or id holds match, within within_m in 2D, not available = false); short or unread, the line is never sent and the trial is recorded not counted ('world short: flax 14 of 22 within 350 m of home'), a fault of the run. A need holds for whole trials; for a step trial only with steps: true or a list naming the step.",
+    "deadline_s: the job's own per-trial deadline (default 1800); job_run --deadline wins.",
     "interrupt_trigger: when an interruption trial puts the interruption in (tools/job_run.trigger_due); --trigger overrides it; default first_step.",
     "work_tools: the tool calls that count as working the job (first verified step, and 'took the job up again' after an interruption). go_to is left out on purpose: after a death it may be the walk to the grave."
   ],
@@ -37,6 +39,12 @@
         "note": "a floor: walking between cows, flax, tannery, wheel and bench is not in it (the per-run human_bar adds his own path). The spinning wheel works only under a roof (parked item 5): thread may block L1 before any interruption is tried."
       },
       "start": "ClaudeDev",
+      "world_needs": [
+        {"resource": "flax", "match": "Spawner_Flax", "at_least": 22, "within_m": 350, "of": "home",
+         "why": "16 thread + 2 for the tannery + 4 for the wheel (his 7 fur make at most 2 thread): wild flax gives 1 a root, grows only 200-330 m E/NE of home and stays gone over an hour once picked; nothing proved 22 stood after a base restore (six I4 trials of 18-19 Nov were voided for a false flax precondition). job_run.world_check counts the standing roots with the body's census before the ask is sent"}
+      ],
+      "deadline_s": 2700,
+      "deadline_note": "2026-11-19: the bar (457 s) is a floor with no walking; flax, cows, wheel and tannery are about 250 m apart and walked several times, and V1 trials ran to 34 min (2040 s). 2700 s (45 min) is that longest run with about a third more, so a slow run that is still working is not cut; the 1.5x-of-human_bar bar still judges the time. --deadline still wins. A default window (--window-s 3600, reserve 240) then holds one L1 trial: give --window-s for more.",
       "interrupt_from": "job_l1_mid",
       "work_tools": ["attack", "gather", "pickup", "craft", "build", "equip", "interact", "take", "store", "cast"]
     },

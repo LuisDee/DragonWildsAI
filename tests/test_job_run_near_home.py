@@ -217,7 +217,8 @@ def test_a_step_from_a_mid_job_checkpoint_is_not_a_head_start(doc):
     rec = j.run_job(io, j.job_of("L1", doc), {"step": "I1", "interruptions": doc["interruptions"], "confirm_s": 10})
     assert not rec.get("not_counted") and rec["verdict"]["bars"]["counted"]
     whole = j.run_job(FakeIO(script=script, states=lambda t: state(carried={"ITEM_Resources_Animal_Hide": 6})),
-                      j.job_of("L1", doc), {"interruptions": doc["interruptions"], "deadline": 70})
+                      {**j.job_of("L1", doc), "world_needs": []},  # the head start alone (world_needs: test_job_run)
+                      {"interruptions": doc["interruptions"], "deadline": 70})
     assert "held at the start" in whole["not_counted"]
 
 

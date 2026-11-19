@@ -95,6 +95,11 @@ UNTILS = ("done", "first_step", "resumed", OWN_CHEST)
 CONFIRM_S = 60.0      # an interruption trial goes on this long after he took the job up again (it was not a blip)
 TRACE_AFTER = 3       # the first three trials of anything are scored before its trace is read (goal: held-out)
 RESPAWN_M = 20.0
+DEADLINE_S = 1800.0   # a trial's deadline when neither --deadline nor the job's deadline_s names one
+# a job's world_needs census (world_check): rows asked of the body's census, past get_state's 15 nearest. describe runs
+# on every resource in the radius before the cap, so the cap bounds the reply's size, not the read's cost
+WORLD_CENSUS_MAX = 1000
+WORLD_SHORT = "world short"
 
 
 # ------------------------------------------------------------------ the jobs
@@ -1637,6 +1642,145 @@ def not_counted(rec_or_job: dict, state_start: dict | None = None) -> str | None
     return ("held at the start: " + ", ".join(f"{k} x{n}" for k, n in sorted(held.items()))) if held else None
 
 
+# ------------------------------------------------------------------ the world a trial needs
+# A job whose end needs things the WORLD must hold (L1: about 22 wild flax roots, 1 a root, gone for over an hour once
+# picked) names them in data/jobs.json world_needs: [{resource, match?, at_least, within_m, of}]. Before the brain
+# starts and the ask is sent, the standing sources are counted by the body's own census (client_bridge census ->
+# sense.census, resources only; a picked spawner reads available = false). Short, the ask is never sent and the trial
+# is recorded as not counted, a fault of the run, never his (six I4 trials of 18-19 Nov were voided after the fact for
+# a false flax precondition). A read that cannot say (census failed, no point, the cap cut rows) refuses the same way.
+def deadline_of(job: dict, cli: float | None = None) -> float:
+    """A trial's deadline: --deadline when given, else the job's deadline_s, else DEADLINE_S."""
+    if cli is not None:
+        return float(cli)
+    return float(job.get("deadline_s") or DEADLINE_S)
+
+
+def home_of(raw: dict | None, snap: dict) -> tuple[list[float] | None, str]:
+    """(where his home is, from what): the base of his get_state my_bases with the most pieces (his placement
+    ledger, clustered), else where the start read has him (no base read)."""
+    bases = [b for b in (raw or {}).get("my_bases") or [] if isinstance(b, dict) and _xy(b.get("centre"))]
+    if bases:
+        b = max(bases, key=lambda x: int(x.get("pieces") or 0))
+        return _xy(b["centre"]), f"his base of {b.get('pieces')} pieces (my_bases)"
+    pos = _xy(snap.get("position"))
+    return (pos, "where he starts (no my_bases in the start read)") if pos else (None, "no base and no position read")
+
+
+def need_centre(need: dict, raw: dict | None, snap: dict) -> tuple[list[float] | None, str]:
+    """The point a need counts around: of 'home' (home_of), 'start' (his start position) or [x, y]."""
+    of = need.get("of", "home")
+    if isinstance(of, (list, tuple)):
+        return _xy(of), "a fixed point"
+    if of == "home":
+        return home_of(raw, snap)
+    pos = _xy(snap.get("position"))
+    return (pos, "where he starts") if of == "start" and pos else (None, f"no point for of={of!r}")
+
+
+def _census_data(reply: Any) -> tuple[dict | None, str | None]:
+    if not isinstance(reply, dict):
+        return None, "no census reply"
+    if reply.get("ok") is False:
+        d = reply.get("data") if isinstance(reply.get("data"), dict) else {}
+        return None, "census failed: " + str(reply.get("reason") or d.get("detail") or "?")
+    return (reply["data"] if isinstance(reply.get("data"), dict) else reply), None
+
+
+def world_count(io, need: dict, raw: dict | None, snap: dict) -> dict:
+    """One world need read: {resource, match, at_least, within_m, of, centre, centre_from, standing, picked, read,
+    why?, census {radius_m, rows, total, cut, farthest_m}}. standing = the census resource rows of the kind (match in
+    class, name, item or id, case-blind) within within_m (2D) of the centre that do not read available = false."""
+    res = str(need.get("resource") or "")
+    match = str(need.get("match") or res).lower()
+    want, within = int(need.get("at_least") or 0), float(need.get("within_m") or 0)
+    out: dict = {"resource": res, "match": match, "at_least": want, "within_m": within, "of": need.get("of", "home"),
+                 "standing": 0, "picked": 0, "read": False}
+    centre, frm = need_centre(need, raw, snap)
+    out.update(centre=centre, centre_from=frm)
+    pos = _xy(snap.get("position"))
+    if centre is None or pos is None:
+        out["why"] = frm if centre is None else "no position in the start read"
+        return out
+    radius = round(within + math.dist(pos, centre) + 5.0, 1)  # the census counts from him: reach the far side
+    try:
+        reply = io.census({"radius_m": radius, "max": WORLD_CENSUS_MAX, "kinds": {"resources": True},
+                           "lean": True, "foliage": False})
+    except Exception as exc:
+        reply = {"ok": False, "reason": repr(exc)[:200]}
+    d, err = _census_data(reply)
+    if err:
+        out["why"] = err
+        return out
+    rows = [x for x in d.get("resources") or [] if isinstance(x, dict)]
+    total = (d.get("totals") or {}).get("resources")
+    cut = isinstance(total, int) and total > len(rows)
+    dists = [float(x["distance"]) for x in rows if isinstance(x.get("distance"), (int, float))]
+    out["census"] = {"radius_m": radius, "rows": len(rows), "total": total, "cut": cut,
+                     "farthest_m": max(dists, default=None)}
+    for x in rows:
+        if match not in " ".join(str(x.get(k) or "") for k in ("class", "name", "item", "id")).lower():
+            continue
+        at = _xy(x.get("position"))
+        if at is None or math.dist(at, centre) > within:
+            continue
+        out["picked" if x.get("available") is False else "standing"] += 1
+    if cut and out["standing"] < want:
+        out["why"] = (f"the census listed {len(rows)} of {total} resources within {radius:.0f} m of him (its cap): "
+                      f"{out['standing']} {res} counted, the rest unseen")
+        return out
+    out["read"] = True
+    return out
+
+
+def world_needs_for(job: dict, step: str | None = None) -> list[dict]:
+    """The job's world_needs that hold for this trial: every one for a whole trial (and its probes); for a step trial
+    only a need with steps: true or naming the step. A step from a mid-job checkpoint stands in the world its run
+    saved (rule 8), with part of the job got: as a head start, a whole job's need is not the step's."""
+    return [n for n in job.get("world_needs") or [] if isinstance(n, dict) and (
+        not step or n.get("steps") is True or step in (n.get("steps") if isinstance(n.get("steps"), list) else []))]
+
+
+def world_check(io, job: dict, raw: dict | None, snap: dict, step: str | None = None) -> dict | None:
+    """None when no world_needs hold for the trial (world_needs_for). Else {ok, needs: [world_count ...], why}: ok
+    when every need reads and stands at its at_least; why names each one short or unread ('world short: flax 14 of 22
+    within 350 m of home')."""
+    needs = world_needs_for(job, step)
+    if not needs:
+        return None
+    counts = [world_count(io, n, raw, snap) for n in needs]
+    whys = []
+    for c in counts:
+        where = f"within {c['within_m']:.0f} m of {c['of'] if isinstance(c['of'], str) else c['centre']}"
+        if not c["read"]:
+            whys.append(f"world unread: {c['resource']} {where}: {c.get('why')}")
+        elif c["standing"] < c["at_least"]:
+            cz = c.get("census") or {}
+            whys.append(f"{WORLD_SHORT}: {c['resource']} {c['standing']} of {c['at_least']} {where}"
+                        + (f" ({c['picked']} picked)" if c["picked"] else "")
+                        + f" [census {cz.get('radius_m')} m from him: {cz.get('rows')} resources, farthest "
+                          f"{cz.get('farthest_m')} m]")
+    return {"ok": not whys, "needs": counts, "why": "; ".join(whys) or None}
+
+
+def world_short_record(job: dict, opts: dict, t0: float, start: dict, check: dict, ask_cleared: Any) -> dict:
+    """The record of a trial whose ask was never sent: the world lacks what the job needs (a run fault, never his)."""
+    step, rung = opts.get("step"), job.get("rung")
+    why = check["why"]
+    return {"run": time.strftime("%Y%m%d-%H%M%S", time.gmtime(t0)) + f"-{job['id']}" + (f"-{rung}" if rung else "")
+            + (f"-{step}" if step else ""),
+            "item": f"job: {job['id']}" + (f" / {rung}" if rung else "") + (f" / {step}" if step else ""),
+            "kind": "interrupt" if step else "job", "job": job["id"], "step": step, "held_out": bool(job.get("held_out")),
+            "until": opts.get("until") or ("resumed" if step else "done"), "character": opts.get("character"),
+            "checkpoint": opts.get("checkpoint"), "holder": opts.get("holder"), "lines": [], "ended": WORLD_SHORT,
+            "wall_s": 0.0, "active_s": 0.0, "done": False, "job_done": False,
+            "done_why": "the ask was never sent: " + why, "state_start": start, "world": check,
+            "not_counted": why + " (a fault of the run, not his: the ask was never sent)",
+            "misses": {"n": 0, "list": []}, "haiku": 0, "sonnet": 0, "usd": 0.0, "brain_logs": [],
+            "ask_store": ask_cleared,
+            "verdict": {"pass": False, "bars": {"world": False, "counted": False}, "misses": [], "truth": "not run"}}
+
+
 # ------------------------------------------------------------------ the bar
 def bar_s(job: dict, b: dict | None = None) -> float | None:
     """Luis's time for the job, composed from his per-unit baselines (a floor: walking is the per-run human_bar's).
@@ -1881,6 +2025,8 @@ def verdict(rec: dict) -> dict:
     own rule. An interruption step: the interruption took, he took the job up again without a new line, within its
     resume_within_s; misses are recorded and split, and are not a bar of the step."""
     from tools import quest_run as q
+    if rec.get("ended") == WORLD_SHORT:  # the ask was never sent: nothing of his to judge
+        return {"pass": False, "bars": {"world": False, "counted": False}, "misses": [], "truth": "not run"}
     if rec.get("kind") == "interrupt":
         r = rec.get("resume") or {}
         lim = rec.get("resume_within_s")
@@ -2343,6 +2489,12 @@ def run_job(io, job: dict, opts: dict) -> dict:
         ask_cleared = clear_ask() if clear_ask else None
     except Exception as exc:  # recorded; the brain then may read an old ask, which the record shows
         ask_cleared = {"error": repr(exc)[:200]}
+    world = None
+    if world_needs_for(job, step):  # before the brain and the ask: a world short of what the job needs is no trial
+        raw_w, snap_w = _read_state(io)
+        world = world_check(io, job, raw_w, snap_w, step)
+        if world and not world["ok"]:
+            return world_short_record(job, opts, io.now(), snap_w, world, ask_cleared)
     if not io.start_brain():  # the reason (window 1118d I1: the sender's prove, not the brain, failed)
         why_not = getattr(io, "start_why", None)
         return {"error": "brain did not start" + (f": {why_not}" if why_not else "")}
@@ -2487,7 +2639,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
             why = "no resumption"
         elif calls["haiku"] > int(opts.get("max_haiku", 80)):
             why = "haiku cap"
-        elif rel > float(opts.get("deadline", 1800)):
+        elif rel > (float(opts["deadline"]) if opts.get("deadline") is not None else deadline_of(job)):
             why = "deadline"
         elif Path(opts.get("stop_file") or STOP_FILE).exists():
             why = "stopped"
@@ -2557,6 +2709,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
            "stands_to_s": round(stands_to - t0, 1) if stands_to is not None else None,
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_logs": io.brain_logs(),
            "dialogue_left": {"before": left_before, "after": left_after}, "bar_s": bar}
+    if world is not None:  # what the world held before the ask (world_needs)
+        rec["world"] = world
     if rung:
         rec["rung"] = rung
     if end.get("vault_arrival"):  # where a door jump landed him in a vault (the K stages)
@@ -2714,6 +2868,10 @@ class Live:
 
     def bag_room(self) -> int | None:
         return bag_room(self.cli.request("inventory", {"raw": True}, timeout=20))
+
+    def census(self, args: dict) -> dict:
+        """The body's census (client_bridge census -> sense.census): world_check counts standing sources with it."""
+        return self.cli.request("census", args, timeout=30)
 
     def inspect(self, cid: str) -> dict:
         """One container's contents through the body's own read (client_bridge inspect -> contents_of)."""
@@ -2915,7 +3073,7 @@ def cmd_window(a, step: str | None) -> int:
                 io = Live(ns, cli, dev)
                 left = a.window_s - a.reserve_s - (time.time() - t0)
                 rec = run_job(io, job, {"step": step, "interruptions": doc.get("interruptions"), "until": a.until,
-                                        "trigger": trigger, "deadline": min(a.deadline, left),
+                                        "trigger": trigger, "deadline": min(deadline_of(job, a.deadline), left),
                                         "max_haiku": a.max_haiku, "character": name, "checkpoint": ref,
                                         "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S),
                                         "own_guids": [made.get("guid"), src_guid, dev_guid],
@@ -2928,6 +3086,15 @@ def cmd_window(a, step: str | None) -> int:
                         print("every trial on this server run would meet the same: restart the dev server "
                               "(stop_server.ps1 -Hold, world_snapshot restore, start_server.ps1) and run the window again")
                         break
+                    continue
+                if rec.get("ended") == WORLD_SHORT:  # the ask was never sent: recorded, not counted, no pass/fail
+                    write(rec)
+                    out["trials"].append({"character": name, "run": rec["run"], "skipped": rec["not_counted"],
+                                          "world": rec["world"]["needs"]})
+                    print(f"{name}: {rec['not_counted']}")
+                    if a.regrow_days > 0 and not got["paired"]:  # the clock on: picked roots may stand again
+                        out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
+                                                                      vitals=q.vitals_of(cli))
                     continue
                 from tools import failure_ledger
                 rec.update(blind_mark(rec, all_runs(), failure_ledger.voided(), trace_reads()))
@@ -3059,7 +3226,8 @@ def main(argv: list[str] | None = None) -> int:
                        "first_step; else done)")
         p.add_argument("--holder", choices=("default", "board"), default="default",
                        help="which holder carries the ask: the default path, or the board with the Director (DW_DIRECTOR=1)")
-        p.add_argument("--deadline", type=float, default=1800.0, help="per trial")
+        p.add_argument("--deadline", type=float, default=None,
+                       help=f"per trial (wins over the job's deadline_s; else {DEADLINE_S:.0f})")
         p.add_argument("--max-haiku", type=int, default=120)
         p.add_argument("--usd", type=float, default=1.5, help="each trial's spend cap on top of today's spend (was "
                        "0.6: V1 trials cost 0.60-0.84 and 8 of 14 were cut off by it, study quiet_1119; done runs 0.35)")
