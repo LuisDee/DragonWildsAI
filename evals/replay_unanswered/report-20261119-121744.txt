@@ -1,0 +1,32 @@
+variant    acts    read    park    done    need    asks  silent       n
+A             0       0      13       0       0       1      16      30
+B             0       1       7       0       0       2      20      30
+C             0       1      10       0       0       2      17      30
+acts   A 0/30 vs B 0/30: Fisher p = 1.0000
+park   A 13/30 vs B 7/30: Fisher p = 0.1702
+silent A 16/30 vs B 20/30: Fisher p = 0.4296
+acts   A 0/30 vs C 0/30: Fisher p = 1.0000
+park   A 13/30 vs C 10/30: Fisher p = 0.5959
+silent A 16/30 vs C 17/30: Fisher p = 1.0000
+acts   B 0/30 vs C 0/30: Fisher p = 1.0000
+park   B 7/30 vs C 10/30: Fisher p = 0.5675
+silent B 20/30 vs C 17/30: Fisher p = 0.5959
+per case:
+  20261118-000146-L2       A silent,silent,silent | B silent,asks,asks | C asks,silent,asks
+  20261118-040149-N1-I4    A silent,silent,silent | B silent,silent,silent | C silent,silent,park
+  20261118-053829-N1-I2    A silent,silent,silent | B silent,silent,silent | C silent,silent,silent
+  20261118-071340-L2-V1    A silent,park,park | B silent,silent,silent | C silent,park,park
+  20261118-071711-L2-V1    A silent,silent,silent | B silent,silent,silent | C silent,silent,silent
+  20261118-072043-L2-V1    A park,park,park | B silent,silent,silent | C park,silent,silent
+  20261118-095833-L2-V1    A silent,park,park | B read,silent,park | C read,silent,park
+  20261118-145610-L2-V1    A park,park,park | B park,park,park | C park,silent,silent
+  20261119-004236-N2-I4    A park,park,park | B park,park,park | C park,park,park
+  20261119-090926-L2-V1    A silent,silent,asks | B silent,silent,silent | C silent,silent,park
+
+notes:
+- 90 calls of anthropic/claude-haiku-5-5 through brain/llm.py, $0.079 (usage rows in logs/evals/replay_unanswered-20261119-121744.jsonl).
+- Cases: 10 non-held-out (H1/H2/H3 never used). Live, the same open-ask turn at +1-2 s: 7 silent, 3 park. Replayed
+  at +20 s (A): 16 silent + 1 text, 13 park: the replay keeps the live split (no world call either way).
+- C differs from B in 4 of 10 cases only (040149, 071340, 071711, 004236): in the other 6 no PROMISE_NOTE /
+  PROMISE_FOR_NOTE stood between the question and the open-ask turn (OPEN_JOB_NOTE, STOP_FOR_NOTE or none).
+- "asks" here = text with no call (a private note, unheard); no sample called say.
