@@ -2382,3 +2382,9 @@ Luis ratified an extra 10 dollars (data/spend_cap_days.json: 10.5 for the rest o
 **Unseen:** 6 open (budget end 240fb15 and let-go 63d2323 confirmed). **Spend:** $18.58 of $19.50; the day's model budget is used, so model windows stop here (the goal's stop at the cap).
 
 **Queued for the next day:** the bone pile as one entry (6c6960e, agent worktree, no new engine calls; would have prevented 6 of 6 logged bone interact misses); a structural fix for the ask-and-wait stall; L3 third blind trial; the threat row's count.
+
+## 2026-11-19 11:50Z: real-play jumps after the let-go fix; the bone pile merged; five offline agents
+
+**Real-play jump landings since 63d2323 (08:30Z on; the copper, K1, H3, L3 and threat windows):** 65 paths with a jump up, 11 with a landing judged missed (17 %; 10 of 65, 15 %, by the strike rule), against 5 of 25 (20 %) before and the bar under 10 %. By rise: under 65 cm 1 of 3, 65-120 cm 1 of 12, 120-165 cm 1 of 6, **over 165 cm 7 of 15 (47 %)**. 7 of the misses fell short back to the takeoff level (median 198 cm under the point). Attacks ended by a missed landing: none (one attack ended path_blocked on an 18 m drop, not a jump). 61412a5 stays decided (keep, line "61412a5 decided" above). An agent is working the tall rises (reachable at all? the second press's timing?).
+
+**Merged:** 6c6960e, the bone pile as one entry (unseen row open; 7 open). **Offline agents (no model calls):** tall-rise jumps; a structural fix for the ask-and-wait stall (does a running long job own the ask while he talks?); collect_water picking the bench over the water; why L3 aimed at bronze over Reinforced (what he was shown); craft missing_materials misses (shown or not before the call).
