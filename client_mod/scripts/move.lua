@@ -3407,9 +3407,14 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
     local function f0(x) return x and string.format("%.0f", x) or "-" end
     local function p3(q, dz) return q and q.X and string.format("(%.0f,%.0f,%.0f)", q.X, q.Y, q.Z - (dz or 0)) or "-" end
     local function yn(b) return b == nil and "-" or (b and "1" or "0") end
+    -- his frames from the run-up to this verdict (M.jump_frames_stats); the trace ends here
+    local fs = M.jump_frames_stats(st.jtrace, tk.Z, (st.env and st.env.step) or 45, verdict == "cut")
+    st.jtrace = nil
+    local function f3(x) return x and string.format("%.3f", x) or "-" end
     log(string.format("move: jump verdict=%s why=%s act=%s rise=%.0f run=%.0f k=%s/%s from=%s to=%s takeoff=%s"
         .. " takeoff_off=%s v0=%s v0h=%s toward=%s air=%.2f apex=%s nearest=%s at=%s feet_dz=%.0f"
-        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s vh2=%s vhn=%s in=%s/%s/%s airin=%s letgo=%s settle=%s",
+        .. " from_takeoff_dz=%s off=%.0f floor=%s floor_nz=%s second=%s dj2=%s vh2=%s vhn=%s in=%s/%s/%s airin=%s letgo=%s settle=%s"
+        .. " max_dt=%s over250=%s frames=%s cut_dt=%s fdt=%s fz=%s",
         verdict, why, p.leap and "leap" or tostring(p.act), p.Z - a.Z, el, tostring(st.lwp), tostring(st.lpath and #st.lpath),
         p3(a), p3(p), p3(tk, hh), tk.X and f0(math.sqrt((tk.X - a.X) ^ 2 + (tk.Y - a.Y) ^ 2)) or "-",
         p3(vv), f0(vh), toward and string.format("%.2f", toward) or "-", t - (j.started or t),
@@ -3429,7 +3434,11 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
         -- s after the first press that the drift first carried him to the landing and he let go (M.air_let_go)
         j.let_go and string.format("%.2f", j.let_go - (j.started or j.let_go)) or "-",
         -- s he was down with no floor within a step under his centre before this verdict (jump_settle_s)
-        j.unsup_t and string.format("%.2f", t - j.unsup_t) or "-"))
+        j.unsup_t and string.format("%.2f", t - j.unsup_t) or "-",
+        -- the longest frame dt from the run-up to here, frames over 250 ms (the server's MAXCLIENTUPDATEINTERVAL), frames
+        -- recorded; on a cut the dt of the frame he came back in; ms per frame and cm over the takeoff from the press on
+        f3(fs and fs.max_dt), fs and tostring(fs.over) or "-", fs and tostring(fs.n) or "-", f3(fs and fs.cut_dt),
+        fs and fs.fdt or "-", fs and fs.fz or "-"))
 end
 
 -- once per load, at the first typed jump: the movement values that govern his flight, by property (nil reads "-").
@@ -3522,6 +3531,62 @@ function M.flight_cut(st, me, j, t)
              last_t = j.last_air_t and j.last_air_t - j.started, last_up = j.last_air_z and j.last_air_z - tk.Z }
 end
 
+-- A typed jump's frames, from its run-up (he is at the takeoff) to the verdict: each frame's dt (the tick's own
+-- GetRealTimeSeconds difference) and his capsule height, for the verdict line (max_dt, over250, cut_dt, fdt, fz).
+-- Snap study 2026-11-19 (scratchpad jump_snapback): flights cut back to the takeoff came at 3-9 frames/s (10 of 22)
+-- and almost never at 9-30 (1 of 241); the likely mechanism is the server's MAXCLIENTUPDATEINTERVAL (0.25 s): no
+-- client move for longer than that and the server moves him itself and drops the late jump move. Per-frame dt was
+-- not logged, so that was inferred from the average. No engine call here: the tick's t and location. Fields on M
+-- (the main chunk's 200-local limit). st.jtrace = {path, index, t0, dts, zs, press = index of the press frame}.
+M.jtrace_cap = 64
+function M.jump_frame(st, t, dt, me)
+    local jt = st.jtrace
+    if not jt then return end
+    local n = #jt.dts
+    if n >= M.jtrace_cap then return end
+    jt.dts[n + 1], jt.zs[n + 1] = dt, me.Z
+end
+-- (begun in a frame the tick has already recorded nothing for: this frame is its first)
+function M.jump_trace_begin(st, t, dt, me)
+    local jt = st.jtrace
+    if jt and jt.path == st.lpath and jt.index == st.lwp then return jt end
+    jt = { path = st.lpath, index = st.lwp, t0 = t, dts = { dt or 0 }, zs = { me and me.Z or 0 } }
+    st.jtrace = jt
+    return jt
+end
+-- -> {max_dt, over (frames over 250 ms), n, fdt (ms per frame from the press on), fz (cm over the takeoff from the
+-- press on), cut_dt (on a cut: the dt of the frame he was first seen back on the takeoff's level after being up
+-- more than a step; else the last frame's)} | nil without frames
+function M.jump_frames_stats(jt, z0, step, cut)
+    if not (jt and jt.dts and #jt.dts > 0) then return nil end
+    local n, mx, over = #jt.dts, 0, 0
+    for i = 1, n do
+        local d = jt.dts[i]
+        if d > mx then mx = d end
+        if d > 0.25 then over = over + 1 end
+    end
+    local s = { max_dt = mx, over = over, n = n }
+    local p = jt.press
+    if p and p <= n then
+        local fdt, fz = {}, {}
+        for i = p, math.min(n, p + 19) do
+            fdt[#fdt + 1] = string.format("%.0f", jt.dts[i] * 1000)
+            fz[#fz + 1] = z0 and string.format("%.0f", jt.zs[i] - z0) or "-"
+        end
+        s.fdt, s.fz = table.concat(fdt, ","), table.concat(fz, ",")
+        if cut and z0 then
+            local up = false
+            for i = p + 1, n do
+                local dz = jt.zs[i] - z0
+                if dz > step then up = true
+                elseif up and math.abs(dz) <= step then s.cut_dt = jt.dts[i]; break end
+            end
+            s.cut_dt = s.cut_dt or jt.dts[n]
+        end
+    end
+    return s
+end
+
 local function steer_typed_jump(f, p)
     local st, gen, pc, pawn, t, me, goal, log = f.st, f.gen, f.pc, f.pawn, f.t, f.me, f.goal, f.log
     local function traversal_failure(detail)
@@ -3586,6 +3651,7 @@ local function steer_typed_jump(f, p)
         end
     end
     if take then
+        M.jump_trace_begin(st, t, f.dt, me) -- his frames from here to the verdict (M.jump_frame)
         local grounded = ground_check(pawn)
         if not owned(bind) then return true end
         if grounded ~= true then return traversal_failure("jump takeoff not confirmed grounded") end
@@ -3629,6 +3695,7 @@ local function steer_typed_jump(f, p)
                 takeoff = v(me), v0 = (okv and type(vx) == "number") and { X = vx, Y = vy, Z = vz } or nil,
                 in0 = st.in_tick == st.ticks - 1 }
             st.lp_jumped[st.lwp] = t; j = st.lp_jump_exec
+            if st.jtrace then st.jtrace.press = #st.jtrace.dts end -- (this frame's dt is the last recorded)
             if not M.jump_phys then pcall(M.jump_physics_line, pawn, log) end
         elseif jr ~= "busy" then return true
         elseif st.lp_cut_hold == st.lpath then
@@ -5120,6 +5187,7 @@ local function tick(st, gen, log)
     st.last_t = t
     local me = pawn:K2_GetActorLocation()
     st.ticks = st.ticks + 1
+    M.jump_frame(st, t, dt, me) -- (a typed jump's frames, run-up to verdict: the jump verdict line)
     if not st.enc_t or t - st.enc_t > 2 or t < st.enc_t then st.enc_t, st.enc = t, encumbrance(pawn) end
     if st.ws_exec and (st.lpath ~= st.ws_exec.path or st.lwp ~= st.ws_exec.index
         or not st.lpath or st.lpath[st.lwp] ~= st.ws_exec.endpoint or st.lpath[st.lwp].act ~= "superjump") then

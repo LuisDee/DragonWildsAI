@@ -3647,6 +3647,62 @@ do
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
+-- The jump verdict line carries his frames from the run-up to the verdict: the longest frame, frames over 250 ms, on
+-- a cut the dt of the frame he came back in, and ms / cm over the takeoff per frame from the press on (snap study
+-- 2026-11-19, scratchpad jump_snapback: cuts at 3-9 frames/s 10 of 22, at 9-30 1 of 241; the server's
+-- MAXCLIENTUPDATEINTERVAL is 0.25 s, and per-frame dt was never logged). The tick's own dt and location: no new call.
+local function typed_flight(act, rise, dts, zs)
+    M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false; PINCH = nil
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
+    M.follow(log, "Zezima", 2, { nav = false })
+    run(5)
+    local mv = _G.DW_MOVE
+    local here = { X = pawn.loc.X, Y = pawn.loc.Y, Z = pawn.loc.Z }
+    if act == "djump" then mv.env = mv.env or {}; mv.env.double_jump, mv.env.dj_measured = true, true end
+    mv.lpath = { { X = here.X, Y = here.Y, Z = FLOOR, act = "walk" }, { X = here.X, Y = here.Y + 150, Z = FLOOR + rise, act = act },
+                 { X = here.X, Y = here.Y + 250, Z = FLOOR + rise, act = "walk" } }
+    mv.lwp = 2; mv.lp_jump_exec = nil; mv.lp_jumped = {}; mv.lp_runup = nil; mv.lp_cut_hold = nil
+    mv.trav_fails, mv.lp_fail = nil, nil
+    mv.win_t, mv.win_pos = T, { X = here.X, Y = here.Y, Z = here.Z }
+    local j0, n0 = pawn.jumps, #logs
+    local k = 0
+    while pawn.jumps == j0 and k < 60 do step(1); k = k + 1 end
+    local pressed_after = k
+    for i, d in ipairs(dts or {}) do
+        DT = d
+        frame_hook = function() pawn.loc.Z = here.Z + zs[i]; air = zs[i] > 3 and 1 or 0 end
+        step(1)
+    end
+    DT, frame_hook = 1 / 30, nil
+    local vl
+    for i = n0 + 1, #logs do if tostring(logs[i]):find("move: jump verdict=", 1, true) then vl = logs[i] end end
+    return mv, vl, pressed_after, n0
+end
+do
+    -- a cut as at 10:43:20Z (djump, ~100 cm up, back at the takeoff at 0.37 s): two short frames up, one of 300 ms down
+    local mv, vl = typed_flight("djump", 294, { 1 / 30, 1 / 30, 0.30 }, { 60, 100, 2 })
+    check("verdict line: a cut flight shows its long frame (max_dt, over250, cut_dt) and the frames from the press",
+        vl ~= nil and vl:find("verdict=cut", 1, true) ~= nil and vl:find("max_dt=0.300 over250=1 frames=4 cut_dt=0.300 fdt=33,33,33,300 fz=0,60,100,2", 1, true) ~= nil,
+        tostring(vl))
+    check("verdict line: the frame trace ends at the verdict", mv.jtrace == nil, tostring(mv.jtrace))
+    -- a flight at 30 frames/s, back on the takeoff's level after 0.6 s (free flight could): missed, no long frame
+    local dts, zs = {}, {}
+    for i = 1, 18 do dts[i] = 1 / 30; zs[i] = i < 18 and math.min(100, 20 * i) or 2 end
+    mv, vl = typed_flight("djump", 294, dts, zs)
+    check("verdict line: a flight at 30 frames/s says max_dt=0.033 over250=0 and no cut_dt",
+        vl ~= nil and vl:find("verdict=missed", 1, true) ~= nil and vl:find("max_dt=0.033 over250=0 frames=19 cut_dt=- fdt=33,33,", 1, true) ~= nil,
+        tostring(vl))
+    -- a verdict with no frames recorded (the line written directly) says "-"
+    local n0 = #logs
+    local mv2 = _G.DW_MOVE
+    mv2.jtrace = nil
+    M.jump_landing_line(mv2, pawn, pawn:K2_GetActorLocation(), { X = 0, Y = 0, Z = 0, act = "jump" }, { previous = { X = 0, Y = 0, Z = 0 }, started = T },
+        "missed", "far", T, log)
+    check("verdict line: no frames recorded says max_dt=- over250=- cut_dt=-", tostring(logs[#logs]):find("max_dt=- over250=- frames=- cut_dt=- fdt=- fz=-", 1, true) ~= nil
+        and #logs == n0 + 1, tostring(logs[#logs]))
+    M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
 -- A hop over a one-cell top, down at the path's NEXT point on its level, has landed (the ford east of home,
 -- 2026-11-18 04:48-09:05Z: from a 270 cm/s wade he passed 3-17 cm over a 22-54 cm lip's cell and came down 8-57 cm
 -- from the following point at its floor; the rise is under the step slack, so only 45 cm of the cell was allowed and
