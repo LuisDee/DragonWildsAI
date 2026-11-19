@@ -61,6 +61,26 @@ class TaskSpec(BaseModel):
     args: dict = {}
 
 
+def parse_steps(skills: SkillRegistry, specs: list) -> tuple[list[Task], list[str]]:
+    """Steps {skill, args} to Tasks through the skill registry, with an error per step that is not one. The one step
+    parser: the Planner's plan and the Controller's own first_steps of a start_goal (DW_ASYNC_PLAN) both go through it."""
+    errors, tasks = [], []
+    for i, raw in enumerate(specs):
+        try:
+            spec = raw if isinstance(raw, TaskSpec) else TaskSpec.model_validate(raw)
+        except ValidationError as exc:
+            errors.append(f"task {i}: {exc.errors(include_url=False)}")
+            continue
+        if spec.skill not in skills:
+            errors.append(f"task {i}: unknown skill {spec.skill!r}; allowed: {skills.names()}")
+            continue
+        try:
+            tasks.append(Task(skill=spec.skill, args=skills.validate(spec.skill, spec.args)))
+        except ValidationError as exc:
+            errors.append(f"task {i} ({spec.skill}): {exc.errors(include_url=False)}")
+    return tasks, errors
+
+
 class PlanModel(BaseModel):
     description: str | None = None
     explanation: str | None = None
@@ -240,15 +260,7 @@ class Planner:
 
     def _validate(self, text: str) -> PlanResult:
         plan = PlanModel.model_validate_json(extract_json(text))
-        errors, tasks = [], []
-        for i, spec in enumerate(plan.tasks):
-            if spec.skill not in self.skills:
-                errors.append(f"task {i}: unknown skill {spec.skill!r}; allowed: {self.skills.names()}")
-                continue
-            try:
-                tasks.append(Task(skill=spec.skill, args=self.skills.validate(spec.skill, spec.args)))
-            except ValidationError as exc:
-                errors.append(f"task {i} ({spec.skill}): {exc.errors(include_url=False)}")
+        tasks, errors = parse_steps(self.skills, plan.tasks)
         if errors:
             raise ValueError("; ".join(errors))
         if not tasks and not plan.ask_help:

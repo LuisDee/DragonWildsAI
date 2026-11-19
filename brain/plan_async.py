@@ -129,6 +129,31 @@ def stale_reasons(basis: dict | None, now: dict | None, tasks: list, died: bool 
     return out
 
 
+def already_done(tasks: list, basis: dict | None, now: dict | None) -> list[tuple[int, str]]:
+    """(index, why) of the plan's steps whose own effect the game shows true since the plan's state was read: the
+    same reading as a stale first step (_first_done), applied to each step. Counts are consumed in order, so two steps
+    of the same item need twice the growth; a go_to counts only while no step before it is left to do."""
+    grown = {}
+    out: list[tuple[int, str]] = []
+    left = False  # a step before this one is still to do
+    for i, t in enumerate(tasks):
+        skill, args = getattr(t, "skill", None), getattr(t, "args", None) or {}
+        item = args.get("resource") or args.get("item") or args.get("recipe") if skill in ("gather", "pickup", "craft") else None
+        if item:
+            key, n = _norm(str(item)), _num(args.get("count")) or 1.0
+            if key not in grown:
+                grown[key] = _count(_bag(now), str(item)) - _count(_bag(basis), str(item))
+            if grown[key] >= n:
+                grown[key] -= n
+                out.append((i, f"{skill} {n:g} {item}: you got them since the plan was asked for"))
+                continue
+        elif skill == "go_to" and not left and (why := _first_done(t, basis, now)):
+            out.append((i, why.replace("its first step", "this step")))
+            continue
+        left = True
+    return out
+
+
 def step_label(task) -> str:
     args = getattr(task, "args", None) or {}
     bits = ", ".join(f"{k}={v}" for k, v in args.items())
@@ -148,6 +173,8 @@ class PendingPlan:
     acts: list[tuple[float, str]] = field(default_factory=list)  # (wall time, tool) of his body acts meanwhile
     died: bool = False
     shown: str | None = None  # "fresh" | "stale": what the next Controller turn was told when it landed
+    req: dict = field(default_factory=dict)  # the player's words the job came from (agent._goal_request)
+    marked: list[tuple[int, str]] = field(default_factory=list)  # plan steps the game shows done at landing (already_done)
 
     def done(self) -> bool:
         return self.future is not None and self.future.done()

@@ -255,3 +255,139 @@ def test_stale_reasons_count_only_death_and_a_first_step_already_done():
     gathered = {"position": [0, 0, 0], "inventory": {"Logs": 4}}
     assert plan_async.stale_reasons(basis, gathered, [Task(skill="gather", args={"resource": "log", "count": 3})])
     assert not plan_async.stale_reasons(basis, gathered, [Task(skill="gather", args={"resource": "log", "count": 5})])
+
+
+# ---------------------------------------------------------------- start_goal first_steps (DW_ASYNC_PLAN=1)
+# Live 2026-11-19: 2 of 24 compositions had an act of his while the plan was made; the job was the Planner's and its
+# step queue stood empty until the plan landed. His own first steps fill it; the plan lands as a revision of the steps
+# not yet started, at a step boundary.
+
+GATHER_2 = {"skill": "gather", "args": {"resource": "log", "count": 2}}
+
+
+def _ask_with_steps(rig, steps):
+    rig.game.player_say("get me 2 logs")
+    rig.controller_llm.push(FakeLLM.say("On it.", FakeLLM.call(
+        "start_goal", goal="gather 2 logs and give them to Luis", first_steps=steps)))
+
+
+def _on_call(rig, tool, fn):
+    """Run fn(args) when the body gets ``tool`` (before the mock does it)."""
+    begin = rig.game._begin
+
+    def hooked(name, **args):
+        if name == tool:
+            fn(args)
+        return begin(name, **args)
+    rig.game._begin = hooked
+
+
+def _start_goal_schema(rig) -> dict:
+    tools = rig.controller_llm.calls[0]["tools"]
+    return next(t for t in tools if t["function"]["name"] == "start_goal")["function"]
+
+
+def test_start_goal_first_steps_run_while_the_plan_is_composed(tmp_path, monkeypatch):
+    rig = _rig(tmp_path, monkeypatch)
+    slow = SlowPlanner(PLAN)
+    rig.planner_llm.push(slow)
+    _ask_with_steps(rig, [GATHER_2])
+    seen = {}
+    _on_call(rig, "gather", lambda args: seen.setdefault("gate_shut", not slow.gate.is_set()))
+
+    def steps_done_plan_pending(messages, tools):  # his steps ran out with the plan still pending: his turn
+        seen["event"] = json.loads(messages[1]["content"]).get("body_event") or {}
+        slow.gate.set()
+        return LLMResponse(content="")
+
+    rig.controller_llm.push(steps_done_plan_pending)
+    try:
+        assert rig.agent.step() == "done"
+    finally:
+        slow.gate.set()
+    assert seen["gate_shut"] is True  # his first step reached the body before the plan landed
+    assert seen["event"]["type"] == "plan_pending"
+    assert "first_steps" in _start_goal_schema(rig)["parameters"]["properties"]
+    (first,) = _rows(rig, "first_steps_started")
+    assert first["steps"][0].startswith("gather(")
+    (acted,) = _rows(rig, "acted_while_planning")
+    assert acted["n"] >= 1 and acted["tools"][0] == "gather" and acted["first_steps"] is True
+    assert rig.game.players["Luis"].inventory["log"] == 2  # the plan ran on after it landed
+
+
+def test_a_step_already_done_in_the_game_is_not_repeated(tmp_path, monkeypatch):
+    rig = _rig(tmp_path, monkeypatch)
+    slow = SlowPlanner(PLAN)  # its first step is the gather he already did
+    rig.planner_llm.push(slow)
+    _ask_with_steps(rig, [GATHER_2])
+
+    def open_gate(messages, tools):
+        slow.gate.set()
+        return LLMResponse(content="")
+    rig.controller_llm.push(open_gate)
+    try:
+        assert rig.agent.step() == "done"
+    finally:
+        slow.gate.set()
+    assert len(rig.calls("gather")) == 1  # his; the plan's gather was marked done from the bag, not run again
+    (spliced,) = _rows(rig, "plan_spliced")
+    assert len(spliced["marked_done"]) == 1 and spliced["marked_done"][0].startswith("gather(")
+    (arrived,) = _rows(rig, "plan_arrived")
+    assert arrived["stale"] is False and arrived["applied"] is True  # his own effect is no staleness
+    assert any("already true in the game" in (t.detail or "") for t in rig.store.tree.tasks if t.done)
+    assert rig.game.players["Luis"].inventory["log"] == 2
+
+
+def test_a_landed_plan_replaces_only_unstarted_steps(tmp_path, monkeypatch):
+    rig = _rig(tmp_path, monkeypatch)
+    slow = SlowPlanner([{"skill": "gather", "args": {"resource": "log", "count": 1}},
+                        {"skill": "go_to", "args": {"target": "Luis"}},
+                        {"skill": "give", "args": {"player": "Luis", "item": "log", "count": 1}}])
+    rig.planner_llm.push(slow)
+    _ask_with_steps(rig, [{"skill": "gather", "args": {"resource": "log", "count": 1}},
+                          {"skill": "gather", "args": {"resource": "stone", "count": 1}}])
+
+    def land_now(args):  # the plan lands while his first step runs
+        slow.gate.set()
+        rig.agent._steps_plan.future.result(timeout=5)
+    _on_call(rig, "gather", land_now)
+    try:
+        assert rig.agent.step() == "done"
+    finally:
+        slow.gate.set()
+    gathered = rig.calls("gather")
+    assert len(gathered) == 1 and gathered[0]["resource"] == "log"  # step 1 finished; step 2 never started
+    (spliced,) = _rows(rig, "plan_spliced")
+    assert len(spliced["kept"]) == 1 and "log" in spliced["kept"][0]
+    assert len(spliced["replaced"]) == 1 and "stone" in spliced["replaced"][0]
+    assert len(spliced["marked_done"]) == 1 and spliced["running"] == []
+    assert rig.game.players["Luis"].inventory["log"] == 1
+    assert not _rows(rig, "plan_abandoned")
+    (acted,) = _rows(rig, "acted_while_planning")
+    assert acted["n"] == 1 and acted["tools"] == ["gather"]  # sent before the plan landed
+
+
+def test_an_invalid_first_step_is_his_calls_failed_result(tmp_path, monkeypatch):
+    rig = _rig(tmp_path, monkeypatch)
+    _ask_with_steps(rig, [{"skill": "fly", "args": {}}])
+    seen = {}
+
+    def hears_it(messages, tools):
+        seen["result"] = json.dumps(messages)
+        return LLMResponse(content="")
+    rig.controller_llm.push(hears_it)
+    assert rig.agent.step() is None  # no job queued: the call was refused with why, his to decide again
+    assert "unknown skill 'fly'" in seen["result"]
+    assert rig.agent.pending_goal is None and not rig.planner_llm.calls
+
+
+def test_flag_off_first_steps_are_not_offered_and_change_nothing(tmp_path, monkeypatch):
+    rig = _rig(tmp_path, monkeypatch, on=False)
+    rig.planner_llm.push(FakeLLM.plan(PLAN))
+    _ask_with_steps(rig, [GATHER_2])
+    assert rig.agent.step() == "done"
+    assert "first_steps" not in _start_goal_schema(rig)["parameters"]["properties"]
+    assert len(rig.calls("gather")) == 1  # the plan's; his first_steps were not run
+    assert rig.game.players["Luis"].inventory["log"] == 2
+    kinds = {r["kind"] for r in rig.log.read_all()}
+    assert not kinds & {"first_steps_started", "plan_spliced", "plan_started", "acted_while_planning"}

@@ -46,7 +46,9 @@ from .open_ask import ASK_TOOLS
 from .llm import (LLMClient, LLMResponse, ToolCall, assistant_message, model_view, request_log_fields, strip_markers,
                   tool_result_message)
 from .spells import SpellBook
+from . import plan_async
 from . import tool_registry
+from .planner import parse_steps
 from .tool_registry import ACTION_TOOLS, FOOD_OPTIONS, FORGET_SKILL, LIST_SKILLS, START_GOAL  # noqa: F401
 from .state_store import StateStore
 from .voice import Voice
@@ -207,6 +209,7 @@ class Decision:
     actions: list[ToolCall] = field(default_factory=list)
     speech: str | None = None
     goal: str | None = None
+    first_steps: list | None = None  # start_goal's first_steps as Tasks (DW_ASYNC_PLAN=1): they run while it is planned
     skill: tuple[str, dict] | None = None  # run_skill(name, params)
     skill_call: ToolCall | None = None  # the model's run_skill call (its result goes back when it cannot start)
     interrupts: bool = False
@@ -1082,8 +1085,23 @@ class Controller:
                 d.actions.append(call)
                 continue
             if call.name == "start_goal":
+                steps, tasks = call.arguments.get("first_steps") if plan_async.enabled() else None, None
+                if steps is not None and call.arguments.get("goal"):
+                    # his own first steps through the Planner's step parser; a step it cannot run is his call's
+                    # failed result with why (the model decides again), never dropped or rewritten
+                    ok = isinstance(steps, list) and 1 <= len(steps) <= 3
+                    try:
+                        tasks, errors = parse_steps(self.store.skills, steps) if ok else \
+                            ([], ["first_steps takes 1 to 3 steps"])
+                    except Exception as exc:
+                        tasks, errors = [], [str(exc)[:300]]
+                    if errors:
+                        self.log.log("controller_invalid_call", tool=call.name, error="; ".join(errors)[:300])
+                        d.refusals.append((call.name, Reason.INVALID_ARGS, {"error": "; ".join(errors)[:300]}))
+                        d.invalid.append(call)
+                        continue
                 if call.arguments.get("goal"):
-                    d.goal = str(call.arguments["goal"])
+                    d.goal, d.first_steps = str(call.arguments["goal"]), tasks
                 else:
                     d.refusals.append((call.name, Reason.INVALID_ARGS, {"error": "start_goal needs a goal"}))
                     d.invalid.append(call)

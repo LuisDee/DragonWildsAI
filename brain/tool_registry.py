@@ -125,6 +125,23 @@ START_GOAL = {
                        "The job in plain words, as he asked for it."}}, "required": ["goal"]},
     },
 }
+# DW_ASYNC_PLAN=1 only (brain/plan_async.py): his own first steps, run while the Planner composes (agent._run_goal)
+FIRST_STEPS = {"type": "array", "minItems": 1, "maxItems": 3, "description": (
+    "Optional: 1 to 3 calls of your own tools that start the job, each {skill: tool name, args}. They run now, "
+    "while your planner makes the plan; its plan replaces the steps not yet started."),
+    "items": {"type": "object", "properties": {"skill": {"type": "string"}, "args": {"type": "object"}},
+              "required": ["skill"]}}
+START_GOAL_FIRST_STEPS = {"type": "function", "function": {
+    **START_GOAL["function"], "parameters": {**START_GOAL["function"]["parameters"], "properties": {
+        **START_GOAL["function"]["parameters"]["properties"], "first_steps": FIRST_STEPS}}}}
+
+
+def start_goal_schema() -> dict:
+    """start_goal as offered: with first_steps under DW_ASYNC_PLAN=1, else exactly as before."""
+    from . import plan_async
+    return START_GOAL_FIRST_STEPS if plan_async.enabled() else START_GOAL
+
+
 LIST_SKILLS = {
     "type": "function",
     "function": {"name": "list_skills", "description": "Read-only: the skills you have learned, with how often each worked.",
@@ -239,7 +256,7 @@ def controller_view(*, caps=None, has: Callable[[str], bool] = lambda n: True, k
                     director=None) -> list[dict]:
     """The Controller's full list (Controller._schemas), unchanged in content and order."""
     hide_goal = director is not None and director.hides_start_goal
-    brain = [brain_schema("remember"), brain_schema("run_skill")] + ([] if hide_goal else [START_GOAL]) + \
+    brain = [brain_schema("remember"), brain_schema("run_skill")] + ([] if hide_goal else [start_goal_schema()]) + \
         ([LIST_SKILLS, FORGET_SKILL] if skills else []) + [FOOD_OPTIONS]
     if knowledge is not None:  # the kinds it can filter on come from the index itself
         brain.insert(0, lookup_schema(knowledge))

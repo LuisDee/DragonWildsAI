@@ -255,6 +255,7 @@ class Agent:
         self.pending_goal: str | None = None
         self.pending_tasks: list[Task] | None = None
         self.pending_skill: str | None = None
+        self.pending_first: list[Task] | None = None  # start_goal's first_steps (DW_ASYNC_PLAN=1), run while it is planned
         self._cancelled = False
         self._last_reason: str | None = None
         self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
@@ -335,6 +336,7 @@ class Agent:
         # turn has not been told about yet (the "planner" fact in its context)
         self.async_plan = plan_async.enabled()
         self._planning: plan_async.PendingPlan | None = None
+        self._steps_plan: plan_async.PendingPlan | None = None  # composed beside his first steps (start_goal first_steps)
         self._plan_landed: dict | None = None
         self._turn_ended_at: float | None = None  # when his last Controller run ended (every run goes through _command)
         controller.plan_provider = self._plan_fact
@@ -346,8 +348,8 @@ class Agent:
         """Handle pending events, then start any goal the controller queued."""
         self.pump()
         if self.pending_goal:
-            goal, tasks, skill = self.pending_goal, self.pending_tasks, self.pending_skill
-            self.pending_goal, self.pending_tasks, self.pending_skill = None, None, None
+            goal, tasks, skill, first = self.pending_goal, self.pending_tasks, self.pending_skill, self.pending_first
+            self.pending_goal, self.pending_tasks, self.pending_skill, self.pending_first = None, None, None, None
             if self.budget is not None and not self.budget.allows("planner"):
                 self.log.log("goal_dropped", goal=goal, why="out of model budget")
                 if self.budget.out_line_due():
@@ -355,7 +357,7 @@ class Agent:
                 return "stuck"
             eid, self._goal_episode = getattr(self, "_goal_episode", None), None
             with self.log.episode(eid or self.log.new_episode_id("goal")):
-                return self.run_goal(goal, tasks=tasks, skill=skill)
+                return self.run_goal(goal, tasks=tasks, skill=skill, first=first)
         return None
 
     def run_forever(self, poll_interval: float = 0.25) -> None:
@@ -1082,7 +1084,7 @@ class Agent:
         if self.director is not None and event.text and (ran_all or d.goal or d.skill):
             self.director.on_player_command(event.player, ran_all + (["run_skill"] if d.skill else []), event.text)
         if d.goal and not d.skill:
-            self.pending_goal = d.goal
+            self.pending_goal, self.pending_first = d.goal, d.first_steps
             # a body-only run before the goal starts clears self._asked. A body run on the open ask (no line, no
             # asked_at in its event) queues it for that ask: live 20261118-010135 row 567, a run after a fight queued
             # "Mine 30 copper ore", and its stuck event (row 692) reached the model with no request
@@ -1780,7 +1782,7 @@ class Agent:
         bits = ", ".join(f"{k}={v}" for k, v in params.items())
         self.pending_goal = f"{name}({bits})" if bits else name
         self._pending_asked = self._asked
-        self.pending_tasks, self.pending_skill = tasks, rec.name
+        self.pending_tasks, self.pending_skill, self.pending_first = tasks, rec.name, None
         self.log.log("skill_queued", name=name, params=params, tasks=[t.model_dump() for t in tasks])
         return None
 
@@ -1934,7 +1936,9 @@ class Agent:
         if p is None or p.shown or not p.done() or p.future.exception() is not None:
             return []
         plan = p.future.result()
-        why = plan_async.stale_reasons(p.basis, self._fresh_state(reuse=True), plan.tasks, p.died)
+        # beside his own first steps a plan step their effect made true is marked done at the splice, not stale
+        why = plan_async.stale_reasons(p.basis, self._fresh_state(reuse=True),
+                                       [] if p is self._steps_plan else plan.tasks, p.died)
         p.shown = "stale" if why else "fresh"
         steps = "; ".join(plan_async.step_label(t) for t in plan.tasks[:8]) or "none"
         head = f"Your planner's {'revised ' if p.kind == 'replan' else ''}plan for {p.goal!r} has arrived"
@@ -1947,17 +1951,28 @@ class Agent:
         """The Planner call on the worker; the loop keeps pumping, so the Controller hears body events and chat and
         gets one turn told that the plan is being made. Returns the plan to run, None when the job was replaced
         meanwhile or the plan arrived stale (then shown to him as a situation), or raises PlanError as ask() does."""
+        p = self._submit_plan(kind, goal, state, ask, failed)
+        return self._land_plan(p, self._await_plan(p, failed))
+
+    def _submit_plan(self, kind: str, goal: str, state: dict, ask, failed: dict | None = None):
+        """The Planner call submitted to the worker and held as the one in flight (self._planning)."""
         # the basis is a copy: the executor's cached state object may be read again (and changed) while this runs
         p = plan_async.PendingPlan(kind=kind, goal=goal, basis=copy.deepcopy(state), started=self.clock())
         plan_async.submit(p, ask, self.log, self.log.episode_id)
         self._planning = p
-        req = self._goal_request()
-        self.log.log("plan_started", composer="planner", plan_kind=kind, goal=goal, request=req.get("request"),
+        p.req = self._goal_request()
+        self.log.log("plan_started", composer="planner", plan_kind=kind, goal=goal, request=p.req.get("request"),
                      basis=plan_async.digest(state), failed_step=failed)
+        return p
+
+    def _await_plan(self, p, failed: dict | None = None, extra: dict | None = None) -> int:
+        """Wait for the plan with his turns: one plan_pending turn, then a turn while the body stands idle. Returns
+        the idle turns he was given."""
+        kind, goal, req = p.kind, p.goal, p.req
         idle_turns = 0  # the turns he was given because the body stood idle while it was made (plan_idle_turn)
         try:
             ev = {"type": "plan_pending", "goal": goal, "about": REPLAN_PENDING_NOTE if failed else PLAN_PENDING_NOTE,
-                  **({"failed_step": failed} if failed else {}), **req}
+                  **({"failed_step": failed} if failed else {}), **(extra or {}), **req}
             self._plan_turn(ev)
             seen, offered = len(p.acts), self.clock()
             quiet = 0 if seen else 1  # his turns in a row with no body act while it is made
@@ -1986,9 +2001,17 @@ class Agent:
                         pass
         finally:
             self._planning = None
+        return idle_turns
+
+    def _land_plan(self, p, idle_turns: int = 0, his_steps: bool = False):
+        """The plan as it lands: the plan to run, None when the job was replaced or the plan is stale (shown to him
+        as a situation), or raises PlanError. his_steps: his own first steps ran meanwhile (start_goal first_steps),
+        so a plan step their effect made true is no reason to call the plan stale (the splice marks it done)."""
+        self._planning = None
+        kind, goal, req = p.kind, p.goal, p.req
         acts = p.acts_while_composed()
         self.log.log("acted_while_planning", n=len(acts), tools=acts, n_before_start=len(p.acts), plan_kind=kind,
-                     goal=goal, idle_turns=idle_turns)
+                     goal=goal, idle_turns=idle_turns, **({"first_steps": True} if his_steps else {}))
         age = round(self.clock() - p.started, 2)
         composed = round(p.composed_wall - p.started_wall, 2) if p.composed_wall is not None else None
         if self._cancelled and not p.done():
@@ -2005,7 +2028,7 @@ class Agent:
                          ok=True, steps=len(plan.tasks), applied=False, why=["the job was replaced"])
             return None
         now = self.executor.state()
-        why = plan_async.stale_reasons(p.basis, now, plan.tasks, p.died)
+        why = plan_async.stale_reasons(p.basis, now, [] if his_steps else plan.tasks, p.died)
         if p.shown == "stale" and not why:  # he was told it will not start by itself: it does not
             why = ["it was shown to you as stale"]
         moved = plan_async.drift(p.basis, now)
@@ -2017,11 +2040,42 @@ class Agent:
             self._situations.append({"type": "plan_arrived", "stale": True, "goal": goal, "why": why, "steps": steps,
                                      "since_it_was_asked_for": moved, "about": PLAN_STALE_NOTE, **req})
             return None
+        if his_steps:  # the plan steps his own steps' effects made true, read from the game (never his claim)
+            p.marked = plan_async.already_done(plan.tasks, p.basis, now)
         if p.shown is None:  # he has not heard it landed: his next turn is told (context "planner")
             self._plan_landed = {"state": "plan arrived and running" if plan.tasks else "plan arrived",
                                  "job": goal, "after_s": composed, "steps": steps[:8],
                                  **({"since_it_was_asked_for": moved} if moved else {})}
         return plan
+
+    def _splice_plan(self, p, tree, started: set, idle_turns: int = 0) -> tuple:
+        """A plan landed while his own first steps ran (start_goal first_steps): at this step boundary it replaces
+        only the steps not yet started; a step already started is kept, and a plan step the game shows done is
+        marked done. Returns ("spliced" | "stale" (shown to him; his steps run on) | "none" (no steps), plan)."""
+        plan = self._land_plan(p, idle_turns, his_steps=True)
+        if plan is None:
+            return "stale", None
+        if not plan.tasks:
+            return "none", plan
+        marked = dict(p.marked)
+        for i, t in enumerate(plan.tasks):
+            if i in marked:
+                t.status, t.detail = "done", f"already true in the game when the plan landed: {marked[i]}"
+        # started: a step sent to the body (an interrupted one is pending again, and is resumed, not replaced)
+        kept = [t for t in tree.tasks if t.status != "pending" or t.id in started]
+        replaced = [t for t in tree.tasks if t not in kept]
+        tree.tasks = kept + plan.tasks
+        self.store.save_tree()
+        self.log.log("plan_spliced", goal=p.goal, kept=[plan_async.step_label(t) for t in kept],
+                     replaced=[plan_async.step_label(t) for t in replaced],
+                     marked_done=[plan_async.step_label(plan.tasks[i]) for i in sorted(marked)],
+                     running=[plan_async.step_label(t) for t in kept if t.status in ("pending", "running")],
+                     steps=len(plan.tasks))
+        self.store.progress("plan spliced", goal=p.goal, kept=len(kept), replaced=len(replaced),
+                            marked_done=len(marked))
+        if plan.ask_help:
+            self._plan_question(p.goal, plan.ask_help, plan.tasks)
+        return "spliced", plan
 
     def _idle_while_planning(self, p, offered: float) -> float | None:
         """Seconds the body has stood idle since his last turn ended (or the last offer), once that is
@@ -2051,6 +2105,18 @@ class Agent:
         except Exception as exc:  # the model call failed: the plan is still on its way
             self.log.log("situation_error", error=repr(exc), events=[ev])
 
+    def _drop_steps_plan(self) -> None:
+        """The job ended (replaced, stuck) with the plan composed beside his first steps not applied: logged, let go."""
+        p, self._steps_plan = self._steps_plan, None
+        if p is None:
+            return
+        self._planning = None
+        acts = p.acts_while_composed()
+        self.log.log("acted_while_planning", n=len(acts), tools=acts, n_before_start=len(p.acts), plan_kind=p.kind,
+                     goal=p.goal, idle_turns=0, first_steps=True)
+        self.log.log("plan_abandoned", plan_kind=p.kind, goal=p.goal, age_s=round(self.clock() - p.started, 2),
+                     why="the job was replaced" if self._cancelled else "the job ended before it was applied")
+
     def _plan_not_run(self, goal: str, tree) -> GoalResult:
         """The plan was not started: the job was replaced while it was made, or it arrived stale (shown to him)."""
         if tree is not None:
@@ -2061,7 +2127,7 @@ class Agent:
         return "interrupted"
 
     def run_goal(self, goal: str, tasks: list[Task] | None = None, skill: str | None = None,
-                 quiet: bool = False) -> GoalResult:
+                 quiet: bool = False, first: list[Task] | None = None) -> GoalResult:
         """quiet=True (a run_skill inside a board run): no goal_done / stuck situations and no Planner replans;
         the result goes back to the board (docs/design/director.md section 12 item 7)."""
         self._quiet_goal = quiet
@@ -2071,10 +2137,11 @@ class Agent:
         result: GoalResult = "stuck"
         serving = self._serving_ask
         try:
-            result = self._run_goal(goal, tasks)
+            result = self._run_goal(goal, tasks, first)
         except StateUnavailable:  # the planner needs fresh state too
             result = self._stuck(goal, None, Reason.STATE_UNAVAILABLE)
         finally:
+            self._drop_steps_plan()
             self.active_goal = None
             self._quiet_goal = False
             self._serving_ask = serving
@@ -2085,7 +2152,7 @@ class Agent:
             self._learn(goal, elapsed)
         return result
 
-    def _run_goal(self, goal: str, given: list[Task] | None = None) -> GoalResult:
+    def _run_goal(self, goal: str, given: list[Task] | None = None, first: list[Task] | None = None) -> GoalResult:
         self.store.progress("goal started", goal=goal, from_skill=given is not None)
         # the request this goal came from, kept from the run that queued it. Window s18 (2026-11-17), run 054545: a
         # hunger run came between start_goal and the goal's start and, as a body-only run, cleared self._asked; the
@@ -2103,26 +2170,61 @@ class Agent:
                 notes = self._planner_notes(goal, state, where="plan")
                 ask = lambda: self.planner.plan(goal, sit.with_asked(state, asked), notes)  # noqa: E731
                 if self._plan_async_now():
-                    self.store.tree = None  # in memory only: no earlier job's steps beside this one while it is planned
                     s_c, n_c = self._snapshot(sit.with_asked(state, asked), notes)
-                    plan = self._plan_in_background("plan", goal, state,
-                                                    lambda: self.planner.plan(goal, s_c, n_c))
-                    if plan is None:  # the job was replaced meanwhile, or the plan arrived stale (shown to him)
-                        return self._plan_not_run(goal, None)
+                    if first:  # his own first steps (start_goal first_steps) run now; the plan lands at a boundary
+                        self._steps_plan = self._submit_plan("plan", goal, state,
+                                                             lambda: self.planner.plan(goal, s_c, n_c))
+                        self.log.log("first_steps_started", goal=goal, steps=[plan_async.step_label(t) for t in first])
+                        plan = None
+                    else:
+                        self.store.tree = None  # in memory only: no earlier job's steps beside it while it is planned
+                        plan = self._plan_in_background("plan", goal, state,
+                                                        lambda: self.planner.plan(goal, s_c, n_c))
+                        if plan is None:  # the job was replaced meanwhile, or the plan arrived stale (shown to him)
+                            return self._plan_not_run(goal, None)
                 else:
                     plan = ask()
             except PlanError as exc:
                 return self._stuck(goal, None, str(exc))
-            if not plan.tasks:
+            if plan is None:
+                given = list(first)
+            elif not plan.tasks:
                 return self._stuck(goal, None, "no plan", plan.ask_help)
-            given, plan_q = plan.tasks, plan.ask_help
+            else:
+                given, plan_q = plan.tasks, plan.ask_help
         tree = self.store.set_goal(goal, given)
         self._plan_asked = set()
         if plan_q:
             self._plan_question(goal, plan_q, given)
         interrupts = 0
+        failed_mine = None  # (task, reason): a first step of his that failed while the plan was made
+        not_run = False  # the plan landed stale while his first steps ran: they run on, the job ends without it
+        started: set[str] = set()  # ids of the steps sent to the body (the splice keeps them)
 
-        while (task := tree.next_task()) is not None:
+        while True:
+            p = self._steps_plan  # at this step boundary: the plan composed beside his first steps, landed or awaited
+            if p is not None and not self._cancelled and (p.done() or failed_mine or tree.next_task() is None):
+                try:
+                    extra = {"failed_step": {"skill": failed_mine[0].skill, "args": failed_mine[0].args,
+                                             "reason": failed_mine[1]}} if failed_mine else None
+                    idle = 0 if p.done() else self._await_plan(p, extra=extra)
+                    if self._cancelled:
+                        break
+                    self._steps_plan = None
+                    got, plan = self._splice_plan(p, tree, started, idle)
+                except PlanError as exc:
+                    self._steps_plan = None
+                    return self._stuck(goal, failed_mine[0] if failed_mine else None, str(exc))
+                if got == "none":
+                    return self._stuck(goal, failed_mine[0] if failed_mine else None, "no plan", plan.ask_help)
+                if got == "stale" and failed_mine:
+                    return self._stuck(goal, failed_mine[0], failed_mine[1])
+                not_run, failed_mine = got == "stale", None
+            if (task := tree.next_task()) is None:
+                break
+            started.add(task.id)
+            if self._steps_plan is not None:  # a first step of his sent while the Planner composes
+                self._steps_plan.acted(task.skill)
             outcome = self._run_task(task)
             if outcome.interrupt:
                 # a fight on him is bounded by the game, not by chat: it never makes the job "interrupted too often"
@@ -2142,6 +2244,9 @@ class Agent:
                 continue
             # Retries exhausted (or not retryable): DEPS replan, bounded.
             self._last_reason = outcome.reason
+            if self._steps_plan is not None:  # a first step of his failed while the plan is made: it lands next
+                failed_mine = (task, outcome.reason)
+                continue
             if tree.replans >= (0 if self._quiet_goal else self.max_replans):
                 return self._stuck(goal, task, outcome.reason)
             tree.replans += 1
@@ -2177,6 +2282,8 @@ class Agent:
             self.store.save_tree()
             self.store.progress("goal interrupted", goal=goal)
             return "interrupted"
+        if not_run:  # his first steps ended; the plan beside them arrived stale and was shown to him, not started
+            return self._plan_not_run(goal, tree)
         tree.status = "done"
         self.store.save_tree()
         self.store.progress("goal done", goal=goal)
