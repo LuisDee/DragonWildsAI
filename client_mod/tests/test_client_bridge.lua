@@ -1427,6 +1427,39 @@ test("craft plan reads the game's own count where the slot rows miss an item (re
     FAKE.native_input, FAKE.native_goal=nil, nil; uninstall("crafting"); install("inventory")
 end)
 
+-- A typed jump from its run-up to its verdict (move.jump_quiet): the step keeps the frames short. Commands wait in
+-- their file (get_state 215-262 ms) and the 2 s drop census (about 200 ms) waits; both run after the verdict (snap
+-- study 2026-11-19: flights cut back to the takeoff at 3-9 client frames/s, a frame over the server's 0.25 s update
+-- interval suspected).
+test("a typed jump in flight: commands and the drop census wait, and run after the verdict", function()
+    install("move"); install("sense")
+    assert(B.module("move") and B.module("sense"))
+    local sn = B.module("sense")
+    local real, n = sn.census, 0
+    sn.census = function(...) n = n + 1; return real(...) end
+    step(); T = T + 3; step(); drain()
+    n = 0
+    FAKE.move.jump_quiet = true
+    local id = send("get_state")
+    T = T + 3; step(); T = T + 3; step()
+    local msgs = drain()
+    local during = #results(msgs, id)
+    local census_during = n
+    FAKE.move.jump_quiet = false
+    local ev0 = #H.log.events
+    T = T + 3; step()
+    msgs = drain()
+    local r = results(msgs, id)[1]
+    local logged
+    for i = ev0 + 1, #H.log.events do if H.log.events[i].name == "client_jump_deferred" then logged = H.log.events[i].data end end
+    sn.census, FAKE.move.jump_quiet = real, nil
+    assert(during == 0, "get_state answered during the jump")
+    assert(census_during == 0, "a census ran during the jump: " .. census_during)
+    assert(r and r.ok, "get_state answered after the verdict: " .. json.encode(r))
+    assert(n > 0, "the drop census runs again after the verdict")
+    assert(logged and logged.steps == 2, "deferral logged: " .. json.encode(logged))
+end)
+
 -- ------------------------------------------------------------------ run
 for _, t in ipairs(tests) do
     local ok, err = pcall(t[2])

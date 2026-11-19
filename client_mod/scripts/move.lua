@@ -137,6 +137,10 @@ M.cfg = {
     run_up_up_cms = 100,       -- a jump up onto another level faster than this: no input, facing the landing, until he
                                -- ... is slower, at most run_up_wait_s (2026-11-17 study: pressed under 100 cm/s 0 of
                                -- ... 40 single jumps missed, faster 28 of 69)
+    jump_quiet_dt_s = 0.10,    -- a jump pressed from a standstill waits for jump_quiet_n frames in a row under this
+    jump_quiet_n = 3,          -- ... (M.jump_quiet_wait; snap study 2026-11-19: cut flights at 3-9 frames/s)
+    jump_quiet_wait_s = 0.5,   -- ... at most this long, then he presses anyway and says so
+    jump_quiet_cap_s = 4.0,    -- st.in_jump (other work deferred: M.jump_quiet) ends by itself this long after it began
     below_max_cm = 500,        -- a go_to spot hanging over his floor up to this above his feet: arrived right under it        -- a leap's landing counts within this of the planned cell (he leaves the edge at speed)
     cam_taken_deg = 1.0,       -- the control rotation moved this far from move's own last write: another skill aims
     cam_yield_s = 0.6,         -- ... and move leaves the camera alone this long (renewed while it keeps aiming)
@@ -3409,7 +3413,7 @@ function M.jump_landing_line(st, pawn, me, p, j, verdict, why, t, log)
     local function yn(b) return b == nil and "-" or (b and "1" or "0") end
     -- his frames from the run-up to this verdict (M.jump_frames_stats); the trace ends here
     local fs = M.jump_frames_stats(st.jtrace, tk.Z, (st.env and st.env.step) or 45, verdict == "cut")
-    st.jtrace = nil
+    st.jtrace, st.in_jump = nil, nil -- (and the deferred work goes on: M.jump_quiet)
     local function f3(x) return x and string.format("%.3f", x) or "-" end
     log(string.format("move: jump verdict=%s why=%s act=%s rise=%.0f run=%.0f k=%s/%s from=%s to=%s takeoff=%s"
         .. " takeoff_off=%s v0=%s v0h=%s toward=%s air=%.2f apex=%s nearest=%s at=%s feet_dz=%.0f"
@@ -3540,19 +3544,73 @@ end
 -- (the main chunk's 200-local limit). st.jtrace = {path, index, t0, dts, zs, press = index of the press frame}.
 M.jtrace_cap = 64
 function M.jump_frame(st, t, dt, me)
+    -- the last few frames' dt, every frame (M.jump_quiet_wait)
+    local r = st.dt_ring or {}
+    st.dt_ring = r
+    r[#r + 1] = dt
+    if #r > 8 then table.remove(r, 1) end
     local jt = st.jtrace
     if not jt then return end
+    if jt.path ~= st.lpath and not st.lp_jump_exec then -- the plan went with no verdict: the trace and the quiet end
+        st.jtrace, st.in_jump = nil, nil
+        return
+    end
     local n = #jt.dts
     if n >= M.jtrace_cap then return end
     jt.dts[n + 1], jt.zs[n + 1] = dt, me.Z
 end
--- (begun in a frame the tick has already recorded nothing for: this frame is its first)
+-- (begun in a frame the tick has already recorded nothing for: this frame is its first). It also begins st.in_jump:
+-- from here to the verdict his own other work waits (M.jump_quiet).
 function M.jump_trace_begin(st, t, dt, me)
     local jt = st.jtrace
     if jt and jt.path == st.lpath and jt.index == st.lwp then return jt end
     jt = { path = st.lpath, index = st.lwp, t0 = t, dts = { dt or 0 }, zs = { me and me.Z or 0 } }
     st.jtrace = jt
+    st.in_jump = { c = os.clock(), t = t }
     return jt
+end
+
+-- From a typed jump's run-up at the takeoff to its verdict, the client's own Lua work that can take a long frame
+-- waits, so the frames around the press and the flight stay short (snap study 2026-11-19: a frame over the server's
+-- MAXCLIENTUPDATEINTERVAL, 0.25 s, is the suspected cause of the cut flights). What waits: the brain bridge's
+-- command polls (get_state: census, inventory and module extras, 215-262 ms measured, DISCOVERIES), its 2 s drop
+-- check (a census of every actor class, about 200 ms), its 0.5 s vitals read and service check (client_bridge.step,
+-- commands stay queued in their file), and here the cone prefetch traces and the 1 s hostile scan (FindAllOf of
+-- every creature). The stay-fed reflex and the combat guard run on. True while st.in_jump is set, the move is live
+-- and it began under jump_quiet_cap_s ago. Any move.lua instance (state in _G.DW_MOVE). A field (200-local limit).
+function M.jump_quiet(st)
+    st = st or rawget(_G, "DW_MOVE")
+    local q = type(st) == "table" and st.in_jump
+    if not q or st.mode == "idle" then return false end
+    return os.clock() - (q.c or 0) < M.cfg.jump_quiet_cap_s
+end
+
+-- Before a jump pressed from a standstill: the last jump_quiet_n frames each under jump_quiet_dt_s, else he stands
+-- (no input) up to jump_quiet_wait_s for them, then presses anyway. True: hold this frame. The tick's own dt (the
+-- st.dt_ring of M.jump_frame): no engine call. A field (200-local limit).
+function M.jump_quiet_wait(st, t, log)
+    local c = M.cfg
+    local r, n = st.dt_ring or {}, c.jump_quiet_n
+    local quiet, worst, last = #r >= n, 0, {}
+    for i = math.max(1, #r - n + 1), #r do
+        local d = r[i]
+        if d > worst then worst = d end
+        if d >= c.jump_quiet_dt_s then quiet = false end
+        last[#last + 1] = string.format("%.0f", d * 1000)
+    end
+    local w = st.jq
+    if not (w and w.path == st.lpath and w.index == st.lwp) then w = { path = st.lpath, index = st.lwp, t = t }; st.jq = w end
+    if quiet then
+        if log then log(string.format("move: jump quiet frames: the last %d under %.0f ms (%s ms) after %.2f s; pressing",
+            n, c.jump_quiet_dt_s * 1000, table.concat(last, ","), t - w.t)) end
+        st.jq = nil
+        return false
+    end
+    if t - w.t < c.jump_quiet_wait_s then return true end
+    if log then log(string.format("move: jump quiet frames: none after %.2f s (the last %d %s ms, longest %.0f); pressing anyway",
+        t - w.t, #last, table.concat(last, ","), worst * 1000)) end
+    st.jq = nil
+    return false
 end
 -- -> {max_dt, over (frames over 250 ms), n, fdt (ms per frame from the press on), fz (cm over the takeoff from the
 -- press on), cut_dt (on a cut: the dt of the frame he was first seen back on the takeoff's level after being up
@@ -3604,6 +3662,7 @@ local function steer_typed_jump(f, p)
         end
         st.local_authority, st.local_binding, st.lpath, st.lp_jump_exec = nil, nil, nil, nil
         st.jump_double = false
+        st.jtrace, st.in_jump = nil, nil -- (M.jump_quiet: the deferred work goes on)
         st.trav_fails = (st.trav_fails or 0) + 1
         -- follow too (a fight's approach): one missed landing was "no_route" at once, and the fight ended path_blocked
         -- while the rat stood 22 m up an open slope he then walked (live 2026-11-01 20:09:02Z and 20:09:07Z, ClaudeQ4
@@ -3687,6 +3746,13 @@ local function steer_typed_jump(f, p)
             if log then log(why == "fast" and string.format("move: jump run-up still at %.0f cm/s after %.1f s (toward=%.2f); jumping anyway",
                 vh, t - ru.t, cosr) or string.format("move: jump run-up still sideways after %.1f s (toward=%.2f at %.0f cm/s); jumping anyway",
                 t - ru.t, cosr, vh)) end
+        end
+        -- pressed from a standstill, only after a few short frames in a row (M.jump_quiet_wait: a frame over the
+        -- server's 0.25 s update interval at the press is the suspected cause of the cut flights); he stands meanwhile
+        -- with no input. A running jump presses on its stride.
+        if not st.jump_t and (up or vh <= M.cfg.run_up_up_cms) and M.jump_quiet_wait(st, t, log) then
+            st.status, st.hold_gap, st.win_t, st.win_pos = "slowing", true, t, v(me)
+            return
         end
         local jr = start_jump(st, t, pawn, p.act == "djump" and st.env and st.env.double_jump, log)
         if st.local_authority and not local_route_owned(st, gen, pawn, pc, goal) then return true end
@@ -4265,6 +4331,7 @@ end
 local function prefetch(f)
     local st, pawn, t, me, dx, dy = f.st, f.pawn, f.t, f.me, f.dx, f.dy
     if st.local_authority or not st.use_lp or st.ticks % M.cfg.prefetch_every ~= 0 then return end
+    if st.in_jump then return end -- run-up to verdict: no trace batch (M.jump_quiet)
     local LP = lp_module()
     if not (LP and LP.prefetch) then return end
     local cache, feet = lp_cache(), me.Z - (st.half_h or 90)
@@ -4348,6 +4415,7 @@ end
 function M._mob_replan(f)
     local st, t, me, log = f.st, f.t, f.me, f.log
     if not (M.cfg.mob_avoid and st.use_lp and (st.mode == "go_to" or st.mode == "follow")) or st.local_authority then return false end
+    if st.in_jump then return false end -- run-up to verdict: no FindAllOf sweep (M.jump_quiet)
     local ok, mobs = pcall(M._mobs_scan, st, t, me, f.goal)
     if not (ok and mobs and #mobs > 0) then return false end
     if st.lpath and st.lp_mver == st.mob_ver then return false end -- this plan already weighed them

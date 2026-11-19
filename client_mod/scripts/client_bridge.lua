@@ -2336,7 +2336,36 @@ local function check_unpause()
     end
 end
 
+-- A typed jump from its run-up at the takeoff to its verdict (move.jump_quiet, at most its jump_quiet_cap_s): the
+-- step keeps only the action slot and the waiters. The command polls of both channels (get_state 215-262 ms: census,
+-- inventory, module extras; DISCOVERIES), the 2 s drop census (every actor class, about 200 ms), the 0.5 s vitals
+-- read, the event forwards and the service check wait; commands stay queued in their file and are read at the next
+-- step after the verdict. Snap study 2026-11-19 (scratchpad jump_snapback): flights cut back to the takeoff at 3-9
+-- client frames/s (10 of 22), suspected a frame over the server's 0.25 s MAXCLIENTUPDATEINTERVAL. Read from the
+-- move module already loaded (no file read); none loaded = no jump.
+function M.jump_quiet()
+    local c = S and S.mods and S.mods.move
+    local mv = c and c.mod
+    if not (mv and type(mv.jump_quiet) == "function") then return false end
+    local ok, q = pcall(mv.jump_quiet)
+    return ok and q == true
+end
+
 function M.step()
+    if not paused() and M.jump_quiet() then
+        S.jump_deferred = S.jump_deferred or { steps = 0, since = now_s() }
+        S.jump_deferred.steps = S.jump_deferred.steps + 1
+        local ok, err = pcall(tick_action)
+        if not ok then ev("client_action_tick_error", { err = tostring(err) }) end
+        ok, err = pcall(tick_waiters)
+        if not ok then ev("client_waiters_error", { err = tostring(err) }) end
+        return
+    end
+    if S.jump_deferred then
+        -- the log line that shows the deferral ran (tools.unseen)
+        ev("client_jump_deferred", { steps = S.jump_deferred.steps, s = now_s() - S.jump_deferred.since })
+        S.jump_deferred = nil
+    end
     if rawget(_G, "DWTeleport") then
         local okt, errt = pcall(teleport_watch)
         if not okt then ev("client_teleport_watch_error", { err = tostring(errt) }) end

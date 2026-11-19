@@ -3651,7 +3651,8 @@ end
 -- a cut the dt of the frame he came back in, and ms / cm over the takeoff per frame from the press on (snap study
 -- 2026-11-19, scratchpad jump_snapback: cuts at 3-9 frames/s 10 of 22, at 9-30 1 of 241; the server's
 -- MAXCLIENTUPDATEINTERVAL is 0.25 s, and per-frame dt was never logged). The tick's own dt and location: no new call.
-local function typed_flight(act, rise, dts, zs)
+local function typed_flight(act, rise, dts, zs, opts)
+    opts = opts or {}
     M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false; PINCH = nil
     pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = rise }
     M.follow(log, "Zezima", 2, { nav = false })
@@ -3665,13 +3666,20 @@ local function typed_flight(act, rise, dts, zs)
     mv.trav_fails, mv.lp_fail = nil, nil
     mv.win_t, mv.win_pos = T, { X = here.X, Y = here.Y, Z = here.Z }
     local j0, n0 = pawn.jumps, #logs
+    if opts.at_takeoff then opts.at_takeoff(mv) end
     local k = 0
-    while pawn.jumps == j0 and k < 60 do step(1); k = k + 1 end
+    while pawn.jumps == j0 and k < 60 do
+        DT = opts.pre and opts.pre(k + 1) or 1 / 30 -- (frame k+1's dt before the press)
+        step(1); k = k + 1
+        if opts.probe_pre then opts.probe_pre(k, mv) end
+    end
     local pressed_after = k
     for i, d in ipairs(dts or {}) do
         DT = d
         frame_hook = function() pawn.loc.Z = here.Z + zs[i]; air = zs[i] > 3 and 1 or 0 end
+        if opts.before then opts.before(i, mv) end
         step(1)
+        if opts.probe then opts.probe(i, mv) end
     end
     DT, frame_hook = 1 / 30, nil
     local vl
@@ -3701,6 +3709,64 @@ do
     check("verdict line: no frames recorded says max_dt=- over250=- cut_dt=-", tostring(logs[#logs]):find("max_dt=- over250=- frames=- cut_dt=- fdt=- fz=-", 1, true) ~= nil
         and #logs == n0 + 1, tostring(logs[#logs]))
     M.stop(log); luis.loc = { X = 3000, Y = 0, Z = 0 }
+end
+
+-- From a typed jump's run-up to its verdict his own other work waits (st.in_jump, M.jump_quiet: the bridge's polls
+-- and census, the prefetch traces, the hostile scan's FindAllOf), and a jump from a standstill is pressed only after
+-- a few short frames (M.jump_quiet_wait: up to 0.5 s, then anyway). Snap study 2026-11-19: cut flights at 3-9
+-- frames/s, a frame over the server's 0.25 s update interval suspected.
+do
+    local function said(n0, pat) local o = {}; for i = n0 + 1, #logs do
+        if tostring(logs[i]):find(pat, 1, true) then o[#o + 1] = logs[i] end end; return o end
+    -- frames of 200 ms at the takeoff: he stands, then presses anyway after 0.5 s and says so
+    local _, _, k, n0 = typed_flight("djump", 294, nil, nil, { pre = function() return 0.2 end })
+    local q = said(n0, "move: jump quiet frames")
+    check("quiet frames: at 200 ms frames he does not press at once; after 0.5 s he presses anyway and says so",
+        k == 4 and q[1] ~= nil and q[1]:find("none after 0.60 s (the last 3 200,200,200 ms, longest 200); pressing anyway", 1, true) ~= nil,
+        "pressed after " .. k .. " frames " .. tostring(q[1]))
+    -- two long frames, then short ones: he presses once the last three were under 100 ms
+    _, _, k, n0 = typed_flight("djump", 294, nil, nil, { pre = function(i) return i <= 2 and 0.2 or 1 / 30 end })
+    q = said(n0, "move: jump quiet frames")
+    check("quiet frames: after two long frames he presses on the third short one",
+        k == 5 and q[1] ~= nil and q[1]:find("the last 3 under 100 ms (33,33,33 ms)", 1, true) ~= nil and q[1]:find("pressing", 1, true) ~= nil,
+        "pressed after " .. k .. " frames " .. tostring(q[1]))
+    -- short frames: at once, as before
+    _, _, k = typed_flight("djump", 294)
+    check("quiet frames: at 30 frames/s he presses at once", k == 1, "pressed after " .. k)
+    -- run-up to verdict: M.jump_quiet is on; the hostile scan makes no FindAllOf; after the verdict it is off
+    local real_find, sweeps = FindAllOf, 0
+    local held = 0 -- sweeps made while st.in_jump is set (a due scan runs once the verdict ends it)
+    FindAllOf = function(c)
+        if c == "DominionAICharacter" then sweeps = sweeps + 1; if _G.DW_MOVE and _G.DW_MOVE.in_jump then held = held + 1 end end
+        return real_find(c)
+    end
+    local quiet_wait, quiet_air, after = nil, true, nil
+    local mv, vl = typed_flight("djump", 294, { 1 / 30, 1 / 30, 0.30 }, { 60, 100, 2 }, {
+        pre = function(i) return i <= 1 and 0.2 or 1 / 30 end,
+        at_takeoff = function(m) sweeps, held = 0, 0; m.mobs_t = -99 end,
+        probe_pre = function(i, m) m.mobs_t = -99; if i == 1 then quiet_wait = M.jump_quiet(m) end end,
+        before = function(i, m) m.mobs_t = -99 end, -- (a hostile scan due every frame of the flight)
+        probe = function(i, m) if i < 3 then quiet_air = quiet_air and M.jump_quiet(m) and M.jump_quiet() end end })
+    after = M.jump_quiet(mv)
+    local s0 = sweeps
+    mv.mobs_t = -99; step(1) -- (the control: after the verdict the scan runs)
+    local control = sweeps - s0
+    FindAllOf = real_find
+    check("in_jump control: after the verdict the hostile scan runs again", control > 0, "control=" .. control)
+    check("in_jump: on while he waits at the takeoff and in the air, off after the verdict",
+        quiet_wait == true and quiet_air == true and after == false and vl ~= nil and vl:find("verdict=cut", 1, true) ~= nil,
+        "wait=" .. tostring(quiet_wait) .. " air=" .. tostring(quiet_air) .. " after=" .. tostring(after) .. " " .. tostring(vl))
+    check("in_jump: no hostile scan (FindAllOf) from the run-up to the verdict", held == 0, "held=" .. held .. " sweeps=" .. sweeps)
+    -- it ends by itself (jump_quiet_cap_s) and with the move
+    mv.in_jump = { c = os.clock() }
+    local live = M.jump_quiet(mv)
+    mv.in_jump = { c = os.clock() - M.cfg.jump_quiet_cap_s - 1 }
+    local stale = M.jump_quiet(mv)
+    mv.in_jump = { c = os.clock() }
+    M.stop(log)
+    check("in_jump: ends jump_quiet_cap_s after it began, and when the move stops", live == true and stale == false
+        and M.jump_quiet(mv) == false, "live=" .. tostring(live) .. " stale=" .. tostring(stale))
+    luis.loc = { X = 3000, Y = 0, Z = 0 }
 end
 
 -- A hop over a one-cell top, down at the path's NEXT point on its level, has landed (the ford east of home,
