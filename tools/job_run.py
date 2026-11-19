@@ -98,7 +98,7 @@ RESPAWN_M = 20.0
 DEADLINE_S = 1800.0   # a trial's deadline when neither --deadline nor the job's deadline_s names one
 # a job's world_needs census (world_check): rows asked of the body's census, past get_state's 15 nearest. describe runs
 # on every resource in the radius before the cap, so the cap bounds the reply's size, not the read's cost
-WORLD_CENSUS_MAX = 1000
+WORLD_CENSUS_MAX = 6000  # sense.census caps tree and pickup foliage at max/3 each; 19 Nov at home 652 ash branches and 167 stones came before the 7 flax (cut at 834): 2000 a kind lists them
 WORLD_SHORT = "world short"
 
 
@@ -1704,8 +1704,10 @@ def world_count(io, need: dict, raw: dict | None, snap: dict) -> dict:
         return out
     radius = round(within + math.dist(pos, centre) + 5.0, 1)  # the census counts from him: reach the far side
     try:
+        # foliage on: wild flax, cabbage and potatoes are foliage instances (live probe 19 Nov 13:55Z: with foliage
+        # off the census listed no flax at all; on, 7 Flax at 221 m and 1057 resources within 450 m of home)
         reply = io.census({"radius_m": radius, "max": WORLD_CENSUS_MAX, "kinds": {"resources": True},
-                           "lean": True, "foliage": False})
+                           "lean": True, "foliage": True})
     except Exception as exc:
         reply = {"ok": False, "reason": repr(exc)[:200]}
     d, err = _census_data(reply)

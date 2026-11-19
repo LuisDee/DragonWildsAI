@@ -39,10 +39,7 @@
         "note": "a floor: walking between cows, flax, tannery, wheel and bench is not in it (the per-run human_bar adds his own path). The spinning wheel works only under a roof (parked item 5): thread may block L1 before any interruption is tried."
       },
       "start": "ClaudeDev",
-      "world_needs": [
-        {"resource": "flax", "match": "Spawner_Flax", "at_least": 22, "within_m": 350, "of": "home",
-         "why": "16 thread + 2 for the tannery + 4 for the wheel (his 7 fur make at most 2 thread): wild flax gives 1 a root, grows only 200-330 m E/NE of home and stays gone over an hour once picked; nothing proved 22 stood after a base restore (six I4 trials of 18-19 Nov were voided for a false flax precondition). job_run.world_check counts the standing roots with the body's census before the ask is sent"}
-      ],
+      "world_needs_note": "2026-11-19: no world need for L1. Flax is one source of linen thread, not a precondition: RECIPE_Process_Thread_Linen_From_Coarse_Animal_Fur spins it from coarse fur (wool from soft fur), so a flax count would refuse fair trials. Read live at home that day (job_run.world_check, census with foliage): 4 flax standing within 350 m.",
       "deadline_s": 2700,
       "deadline_note": "2026-11-19: the bar (457 s) is a floor with no walking; flax, cows, wheel and tannery are about 250 m apart and walked several times, and V1 trials ran to 34 min (2040 s). 2700 s (45 min) is that longest run with about a third more, so a slow run that is still working is not cut; the 1.5x-of-human_bar bar still judges the time. --deadline still wins. A default window (--window-s 3600, reserve 240) then holds one L1 trial: give --window-s for more.",
       "interrupt_from": "job_l1_mid",
