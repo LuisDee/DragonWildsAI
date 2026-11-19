@@ -1,0 +1,31 @@
+variant    acts    read    park    done    need    asks  silent       n
+A0            7       0       0       0       0      21       2      30
+E             8       0       0       0       0      20       2      30
+acts   A0 7/30 vs E 8/30: Fisher p = 1.0000
+park   A0 0/30 vs E 0/30: Fisher p = 1.0000
+silent A0 2/30 vs E 2/30: Fisher p = 1.0000
+per case:
+  20261118-000146-L2       A0 asks,acts,asks | E acts,acts,asks
+  20261118-040149-N1-I4    A0 asks,asks,asks | E asks,asks,asks
+  20261118-053829-N1-I2    A0 asks,asks,asks | E asks,asks,asks
+  20261118-071340-L2-V1    A0 acts,acts,acts | E acts,acts,acts
+  20261118-071711-L2-V1    A0 asks,asks,asks | E acts,acts,asks
+  20261118-072043-L2-V1    A0 silent,asks,silent | E asks,silent,silent
+  20261118-095833-L2-V1    A0 asks,asks,asks | E asks,asks,asks
+  20261118-145610-L2-V1    A0 asks,asks,asks | E asks,asks,asks
+  20261119-004236-N2-I4    A0 asks,asks,asks | E asks,asks,asks
+  20261119-090926-L2-V1    A0 acts,acts,acts | E asks,asks,acts
+unless_told_otherwise filled: 0/30 samples, 0/10 cases at least once
+
+notes:
+- E: the asking turn (the Controller call whose reply said the question), re-sent as logged with only the say schema
+  replaced by brain/controller.py SAY_SCHEMA (its optional unless_told_otherwise: "a goal or one tool call of yours,
+  done once 20 s after this line if no player has said anything and you have called no tool by then; any player line
+  or call of yours cancels it"). 30 calls of anthropic/claude-haiku-5-5, $0.0423. A0 rows are those of
+  samples-20261119-122536-askturn.jsonl (same 10 cases; held-out H1/H2/H3 excluded).
+- GATE FAILED, do not run live: he filled unless_told_otherwise in 0 of 30 samples, 0 of 10 cases (rule: under 4 of
+  10 cases filled at least once). 20 of the 30 replies were a say only (a question or a stuck report), none with a
+  default.
+- Acts directly: 8/30 (E) vs 7/30 (A0), Fisher p = 1.0: the schema change did not move it either.
+- Limits: one model (Haiku 5.5, the live Controller); the persona as logged (it says nothing of the argument: no
+  instruction to use it and no examples, by the brief); the history's earlier say calls carry no default.
