@@ -1,6 +1,32 @@
 """brain/gear_plan.py: the gear profile for his region, from the game's items and recipes data."""
 from brain import gear_plan
 
+L3_STATE = {  # ClaudeDev's armour in the L3 runs of 19 Nov: Leather Cowl (PL 2), Adventurer's Tunic and Leggings (PL 1)
+    "gear": {"Head": "ITEM_Armour_T2_Head_Leather", "Body": "ITEM_Armour_T1_Body_Adventurers",
+             "Legs": "ITEM_Armour_T1_Legs_Adventurers", "HeldRight": "ITEM_Sword_Bronze"},
+    "inventory": {"ITEM_Resources_AnimalHideScraps": 7},
+    "power_level": 0.0,
+    "nearby_entities": [{"name": "Kebbit", "power_level": 1, "alive": True}],
+}
+
+
+def test_worn_armour_gives_his_pl_and_pieces():
+    w = gear_plan.worn_armour(L3_STATE)
+    assert w["pl"] == 1 and w["pieces"] == ["Leather Cowl PL 2", "Adventurer's Tunic PL 1", "Adventurer's Leggings PL 1"]
+
+
+def test_for_vault_states_the_vaults_pl_and_the_armour_at_that_pl():
+    """L3 2026-11-19: the vault's PL 2 was on its card only; the gear line (cap worn top + 1 = 3, no vault) sent him
+    after a PL 3 bronze set for 30 min while the Reinforced set (PL 2) needed bones and leather."""
+    f = gear_plan.for_vault(L3_STATE, "Crasorak Kara")
+    assert f["vault"] == "Crasorak Kara" and f["enemies_pl"] == 2 and "Vault Overlord x1 PL 2" in f["enemies"]
+    assert f["you_pl_from_worn_armour"] == 1 and f["you_pl_game_reads"] == 0.0
+    assert f["you_wear"] == ["Leather Cowl PL 2", "Adventurer's Tunic PL 1", "Adventurer's Leggings PL 1"]
+    assert "this vault's PL 2" in f["armour"] and "Reinforced Body/Platelegs" in f["armour"]
+    assert "PL 3" not in f["armour"]  # the vault's level caps the line, not one tier above what he wears
+    assert "PL 3" in (gear_plan.set_line(gear_plan.plan(L3_STATE), L3_STATE) or "")  # without the vault: +1
+    assert gear_plan.for_vault(L3_STATE, "Temple Woods vault")["vault"] == "Crasorak Kara"  # an alias names it
+
 
 def _state(**kw):
     st = {

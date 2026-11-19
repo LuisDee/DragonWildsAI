@@ -65,8 +65,29 @@ def _lookup(ctx: ReadContext, args: dict) -> Any:
     from .knowledge import node_gates  # the gates of the nodes he perceives: a gathered item's card names them
     gates = node_gates(ctx.snap.get("state"))
     if gates:
-        return ctx.knowledge.lookup(str(args.get("query") or ""), args.get("kind"), gates=gates)
-    return ctx.knowledge.lookup(str(args.get("query") or ""), args.get("kind"))
+        res = ctx.knowledge.lookup(str(args.get("query") or ""), args.get("kind"), gates=gates)
+    else:
+        res = ctx.knowledge.lookup(str(args.get("query") or ""), args.get("kind"))
+    # a vault's card carries its enemies' PL against his armour and the armour he can reach at that PL (gear_plan
+    # for_vault). L3 2026-11-19: the card said "power level 2" and nothing tied it to his gear; he chased PL 3 bronze
+    state = ctx.snap.get("state") or {}
+    rows = ((res or {}).get("data") or {}).get("results") if isinstance(res, dict) else None
+    if state and isinstance(rows, list):
+        from . import gear_plan
+        done: set[str] = set()
+        for i, r in enumerate(rows):
+            if not isinstance(r, dict) or r.get("kind") != "vault" or not r.get("title") or r["title"] in done:
+                continue
+            done.add(r["title"])
+            try:
+                facts = gear_plan.for_vault(state, r["title"], stash=state.get("containers_remembered") or None)
+            except Exception as exc:  # a gap in the data: the card stands, and says why it has no gear facts
+                facts = {"unavailable": f"{type(exc).__name__}: {exc}"[:200]}
+            # a copy (the index's own row is never changed), the facts right after the title: the planner_research
+            # log row keeps a result's first 2000 characters, and the card's text runs longer
+            head = {k: r[k] for k in ("source", "authoritative", "kind", "title") if k in r}
+            rows[i] = {**head, "gear_for_vault": facts, **{k: v for k, v in r.items() if k not in head}}
+    return res
 
 
 def _recall(ctx: ReadContext, args: dict) -> Any:

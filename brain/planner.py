@@ -121,6 +121,46 @@ def creature_rows(state: dict) -> list[dict]:
     return out
 
 
+def gear_fields(state: dict) -> dict:
+    """What he wears (slot -> the item's name) and his power level: the game's reading, as his situation's "You:" line
+    shows it, and beside it the level his worn armour gives (gear_plan's rule) when the two differ or the game gave
+    none, each labelled by its source. L3 2026-11-19: the Planner had no gear and said "I have no armour" while he wore
+    an Adventurer's Tunic, Adventurer's Leggings and a Leather Cowl."""
+    from .situation import HELD_SLOTS, item_names, name_of_item
+    gear = state.get("gear") if isinstance(state.get("gear"), dict) else {}
+    if not gear:
+        return {}
+    names = item_names(state)
+    worn: dict[str, str] = {}
+    seen: set[str] = set()
+    for slot, item in gear.items():
+        key = str(slot).lower().replace("_", "")  # "held_right" and "HeldRight" are one slot
+        if not item or key in seen:
+            continue
+        seen.add(key)
+        label = {"heldright": "right hand", "heldleft": "left hand", "right": "right hand", "left": "left hand"}.get(
+            key, str(slot)) if str(slot).lower() in HELD_SLOTS else str(slot)
+        worn[label] = name_of_item(str(item).rsplit("/", 1)[-1].rsplit(".", 1)[-1], names)
+    out: dict[str, Any] = {"gear": worn}
+    game = state.get("power_level")
+    game = game if isinstance(game, (int, float)) and not isinstance(game, bool) else None
+    try:
+        from .gear_plan import worn_armour
+        mine = worn_armour(state)
+    except Exception:  # item data missing: the game's reading alone
+        mine = None
+    pl: dict[str, Any] = {}
+    if game is not None:
+        pl["game_reads"] = int(game) if float(game).is_integer() else game
+    if mine is not None and (game is None or mine["pl"] != game):
+        pl["from_worn_armour"] = mine["pl"]
+        pl["from_worn_armour_rule"] = ("mean of worn head, body, legs power level, rounded down; an empty slot is 0: "
+                                       + (", ".join(mine["pieces"]) or "none worn"))
+    if pl:
+        out["power_level"] = pl
+    return out
+
+
 def _trim_state(state: dict) -> dict:
     keep = ("position", "health", "inventory", "following", "players", "nearby_entities",
             "nearby_resources", "nearby_items", "structures", "places",
@@ -129,6 +169,7 @@ def _trim_state(state: dict) -> dict:
     if isinstance(state.get("nearby_entities"), list):
         out["nearby_entities"] = creature_rows(state)
     out.update(vault_fields(state))  # in a vault and which (its registry box, else the flag); nothing when not read in one
+    out.update(gear_fields(state))
     # his spells with their recharge: castable now and how long it recharges after each cast, or the seconds left.
     # L2-V1 2026-11-19: plans queued four 300 s Bark to Bones casts in a row and a replan put one back with 82 s left
     if spell_lines := state_spell_lines(state):

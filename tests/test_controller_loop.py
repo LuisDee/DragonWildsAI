@@ -241,6 +241,23 @@ def test_the_planner_is_given_the_kinds_further_off():
     assert "further_off" not in _trim_state({"position": [0, 0, 0]})
 
 
+def test_the_planner_state_carries_his_worn_gear_and_power_level_by_source():
+    """L3 2026-11-19 (log 30608 line 48): the Planner said "I have no armour" while he wore an Adventurer's Tunic,
+    Adventurer's Leggings and a Leather Cowl; its state had no gear and no power level."""
+    from brain.planner import _trim_state
+    gear = {"Head": "ITEM_Armour_T2_Head_Leather", "Body": "ITEM_Armour_T1_Body_Adventurers",
+            "Legs": "ITEM_Armour_T1_Legs_Adventurers", "HeldRight": "ITEM_Sword_Bronze", "held_right": "ITEM_Sword_Bronze"}
+    out = _trim_state({"position": [0, 0, 0], "gear": gear, "power_level": 0.0})
+    assert out["gear"] == {"Head": "Leather Cowl", "Body": "Adventurer's Tunic", "Legs": "Adventurer's Leggings",
+                           "right hand": "Bronze Sword"}
+    pl = out["power_level"]
+    assert pl["game_reads"] == 0 and pl["from_worn_armour"] == 1  # they differ: both, each by its source
+    assert "Leather Cowl PL 2, Adventurer's Tunic PL 1, Adventurer's Leggings PL 1" in pl["from_worn_armour_rule"]
+    same = _trim_state({"position": [0, 0, 0], "gear": {"Body": "ITEM_Armour_T1_Body_Adventurers"}, "power_level": 0})
+    assert same["power_level"] == {"game_reads": 0}  # they agree: the game's reading alone
+    assert "gear" not in _trim_state({"position": [0, 0, 0]})
+
+
 def test_the_planner_is_given_the_quest_log_with_its_map_markers():
     """Run 20261116-222242: the quest step's own marker (Windmill Area, an 80 m area he stood inside) was in the
     Controller's situation only. The plan had no place to name and explored for 'rats near the windmill', then for

@@ -136,11 +136,49 @@ def _d(a, b) -> float | None:
     return round(v) if v is not None else None
 
 
+def _bestiary_vaults() -> dict:
+    try:
+        from .plan_sources import bestiary
+        return bestiary().get("vaults") or {}
+    except Exception:  # the bestiary is optional data
+        return {}
+
+
+def _intish(v) -> int | None:
+    m = re.match(r"\s*(\d+)", str(v)) if v is not None else None
+    return int(m.group(1)) if m else None
+
+
+def _vault_rows(vaults: dict) -> dict[str, dict]:
+    """bestiary vaults -> {name: {kind, aliases, area, power_level, position, approximate, basis}}: the door the game
+    read when there is one, else the wiki map centre (approximate, within its stated metres), else no position."""
+    out: dict[str, dict] = {}
+    for key, v in (vaults or {}).items():
+        if not isinstance(v, dict):
+            continue
+        name = v.get("name") or key
+        door, centre = _pos((v.get("door") or {}).get("position")), _pos((v.get("map_centre") or {}).get("position"))
+        if door:
+            pos, approx = door, False
+            basis = f"the vault's door, read by the game (build {(v.get('door') or {}).get('build')})"
+        elif centre:
+            acc = (v.get("map_centre") or {}).get("accuracy_m")
+            pos, approx = centre, True
+            basis = "the wiki map's centre for it" + (f" (within about {acc} m)" if acc else "") + "; its door is not read yet"
+        else:
+            pos, approx = None, True
+            basis = "no position in the data" + (f"; the wiki puts it in {v['area']}" if v.get("area") else "")
+        out[name] = {"name": name, "kind": str(v.get("kind") or "vault"), "aliases": [a for a in v.get("aliases") or [] if a],
+                     "area": v.get("area"), "province": v.get("province"), "power_level": _intish(v.get("power_level")),
+                     "position": pos, "approximate": approx, "basis": basis}
+    return out
+
+
 # ------------------------------------------------------------------------------ the resolver
 
 
 class Places:
-    def __init__(self, data: dict | str | Path | None = None, knowledge=None):
+    def __init__(self, data: dict | str | Path | None = None, knowledge=None, vaults: dict | None = None):
         if data is None:
             f = newest_file()
             data = _load(str(f)) if f else {}
@@ -171,6 +209,10 @@ class Places:
         for lm in data.get("landmarks") or []:
             if lm.get("name") and _pos(lm.get("position")):
                 self.landmarks.setdefault(lm["name"], []).append(lm)
+        # the vaults and dungeons of data/bestiary.json (tools/build_vaults.py): name, aliases, kind, power level, and
+        # the door the game read, else the wiki's map centre. The game's landmark registry has no vault doors: L3
+        # 2026-11-19 read "the vault" as the Vault Guardian landmarks 3.5 km off while Crasorak Kara's door was 223 m
+        self.vaults: dict[str, dict] = _vault_rows(_bestiary_vaults() if vaults is None else vaults)
 
     @property
     def source(self) -> str:
@@ -351,6 +393,38 @@ class Places:
                         "inside the province, height unknown, not checked for ground or a path"})
         return ans
 
+    def _vault_match(self, v: dict, q: set[str]) -> str | None:
+        """Its name; an alias said in full ("Temple Woods vault"; its first words "Temple" are the region's, not the
+        vault's); the bare kind word ("vault") as a part match."""
+        how = _match(v["name"], q)
+        for a in v["aliases"]:
+            h = _match(a, q)
+            if h in ("exact", "named") and (how is None or _RANK[h] < _RANK[how]):
+                how = h
+        if how is None and q == _terms(v["kind"]):
+            how = "part"
+        return how
+
+    def _vault_answer(self, v: dict, how: str, here, lodestones) -> dict:
+        ans: dict[str, Any] = {"name": v["name"], "kind": v["kind"], "match": how,
+                               "source": "data/bestiary.json (wiki vault pages + the game's door reads)",
+                               "approximate": v["approximate"], "power_level": v["power_level"], "basis": v["basis"]}
+        if v["position"]:
+            ans.update(self._spot(v["position"], here, lodestones))
+        else:
+            ans.update({"position": None, "region": v.get("area"), "province": v.get("province")})
+        return ans
+
+    def vault_label(self, v: dict, here) -> str:
+        """'Crasorak Kara (a vault in Temple Woods, PL 2, 223 m)'."""
+        d = _d(here, v["position"]) if _pos(here) and v["position"] else None
+        bits = [f"a {v['kind']}" + (f" in {v['area']}" if v.get("area") else "")]
+        if v.get("power_level") is not None:
+            bits.append(f"PL {v['power_level']}")
+        bits.append((f"{d:.0f} m" + (" (approximate)" if v["approximate"] else "")) if d is not None
+                    else "position not known" if not v["position"] else "")
+        return f"{v['name']} ({', '.join(b for b in bits if b)})"
+
     def _lodestone_by(self, rest: set[str], here, lodes: list[dict]) -> list[dict]:
         """"the lodestone by the Wise Old Man" / "Zanik lodestone": the lodestone nearest the map place of that name
         (its spot nearest to him). Lodestones carry no names in the game, so a player names one by what stands by it."""
@@ -446,11 +520,26 @@ class Places:
             return []
         names = [(n, "landmark") for n in self.landmarks if len(_terms(n)) >= 2]
         names += [(r["name"], "region") for r in self.regions] + [(p["name"], "province") for p in self.provinces]
+        alias_of: dict[str, str] = {}  # a vault's name or alias said in full ("the Temple Woods vault") names it
+        for v in self.vaults.values():
+            for n in [v["name"], *v["aliases"]]:
+                if len(_terms(n)) >= 2:
+                    names.append((n, "vault"))
+                    alias_of[n] = v["name"]
         hits = [(n, kind) for n, kind in names if _terms(n) and _terms(n) <= q]
         hits = [(n, kind) for n, kind in hits if not any(_terms(n) < _terms(m) for m, _ in hits)]
         out: list[str] = []
+        said_vaults: set[str] = set()
         for n, kind in sorted(hits, key=lambda h: -len(_terms(h[0])))[:k]:
             here_p = _pos(here)
+            if kind == "vault":
+                v = self.vaults[alias_of[n]]
+                if v["name"] not in said_vaults:
+                    said_vaults.add(v["name"])
+                    out.append((f"\"{n}\" is " if n != v["name"] else "") + self.vault_label(v, here)
+                               + (f"; go_to \"{v['name']}\" walks to it" if v["position"] else
+                                  "; its position is not in the data"))
+                continue
             if kind != "landmark" and here_p and n in (self.region_name(here_p), self.province_name(here_p)):
                 out.append(f"{n}: a {kind} on the game map; you are in it")
                 continue
@@ -467,6 +556,19 @@ class Places:
         everything = [(n, "landmark") for n in self.landmarks] + [(r["name"], "region") for r in self.regions] \
             + [(p["name"], "province") for p in self.provinces]
         covered = set().union(*(_terms(n) for n, _ in hits)) if hits else set()
+        # a word that is the data's own kind of place ("vault": the bestiary's vaults), nearest first. The vaults'
+        # names hold no such word ("Crasorak Kara"), so the map-name words below never reach them
+        kinds: dict[str, list[dict]] = {}
+        for v in self.vaults.values():
+            for t in _terms(v["kind"]):
+                kinds.setdefault(t, []).append(v)
+        here_p = _pos(here)
+        for w in sorted(t for t in q - covered if t in kinds):
+            vs = sorted(kinds[w], key=lambda v: (v["position"] is None,
+                                                  (_d(here_p, v["position"]) or 0) if here_p and v["position"] else 0))
+            out.append(f"\"{w}\": the game's data has {len(vs)} {vs[0]['kind']}s; "
+                       + ("nearest: " if here_p else "") + ", ".join(self.vault_label(v, here) for v in vs[:3])
+                       + "; go_to takes the full name")
         for w in sorted(t for t in q - covered if len(t) >= 4):
             cands = [(n, kind) for n, kind in everything if w in _terms(n) and len(_terms(n)) >= 2]
             if not 1 <= len(cands) <= 3:
@@ -536,6 +638,10 @@ class Places:
             how = _match(pv["name"], q)
             if how:
                 out.append(self._province_answer(pv, how, here, lodes, known))
+        for v in self.vaults.values():  # data/bestiary.json: the game's map registry holds no vault doors
+            how = self._vault_match(v, q)
+            if how:
+                out.append(self._vault_answer(v, how, here, lodes))
         wiki = None
         if not any(o["match"] in ("exact", "named") for o in out):
             wiki = self._via_wiki(query, q, here, lodes, known)

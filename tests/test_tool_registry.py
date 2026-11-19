@@ -215,6 +215,31 @@ def test_a_background_plan_reads_the_body_through_the_loop_thread(tmp_path):
     assert tool_results(llm.calls[1]) == [{"ok": True, "data": {}}]
 
 
+def test_a_lookup_of_a_vault_carries_its_pl_and_the_armour_he_can_reach_at_it():
+    """L3 2026-11-19: the vault's card said "power level 2" and nothing tied it to his armour (cowl PL 2, tunic and
+    leggings PL 1); the gear line he had capped at worn top + 1 and he chased a PL 3 bronze set for 30 min."""
+    from brain.tool_registry import ReadContext, _lookup
+    card = {"source": "bestiary (wiki mirror)", "authoritative": False, "kind": "vault", "title": "Crasorak Kara",
+            "text": "Crasorak Kara: dragonkin vault in Temple Woods (Brynmoor), power level 2 [wiki]"}
+
+    class Know:
+        def lookup(self, query, kind=None, gates=None):
+            return {"ok": True, "data": {"query": query, "results": [card, {"kind": "item", "title": "Vault Shard"}]}}
+
+    state = {"gear": {"Head": "ITEM_Armour_T2_Head_Leather", "Body": "ITEM_Armour_T1_Body_Adventurers",
+                      "Legs": "ITEM_Armour_T1_Legs_Adventurers"}, "inventory": {"ITEM_Resources_AnimalHideScraps": 7},
+             "power_level": 0.0}
+    res = _lookup(ReadContext(snap={"state": state}, knowledge=Know()), {"query": "Crasorak Kara"})
+    row, other = res["data"]["results"]
+    g = row["gear_for_vault"]
+    assert list(row)[:5] == ["source", "authoritative", "kind", "title", "gear_for_vault"]  # within the log's 2000 chars
+    assert g["enemies_pl"] == 2 and g["you_pl_from_worn_armour"] == 1 and g["you_pl_game_reads"] == 0.0
+    assert "this vault's PL 2" in g["armour"] and "Reinforced Body/Platelegs" in g["armour"] and "short " in g["armour"]
+    assert "gear_for_vault" not in card and "gear_for_vault" not in other  # the index's row is not changed; not a vault
+    bare = _lookup(ReadContext(snap={}, knowledge=Know()), {"query": "Crasorak Kara"})  # no state: the card alone
+    assert "gear_for_vault" not in bare["data"]["results"][0]
+
+
 if __name__ == "__main__" and "--write" in sys.argv:
     import tempfile
     with tempfile.TemporaryDirectory() as d:

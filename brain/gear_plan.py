@@ -472,6 +472,49 @@ def set_line(p: dict, state: dict) -> str | None:
     return ("Whole armour set per style, all pieces together: " + " | ".join(parts)) if parts else None
 
 
+def worn_armour(state: dict, cat: dict | None = None) -> dict:
+    """His power level from what he wears: {"pl": mean of head, body, legs PL rounded down (an empty slot is 0),
+    "pieces": ["Leather Cowl PL 2", ...]}. The same rule as plan()'s pl_now, without the recipe search."""
+    cat = cat or item_stats.catalog()
+    gear = state.get("gear") if isinstance(state.get("gear"), dict) else {}
+    pls, pieces = [], []
+    for slot in ARMOUR_SLOTS:
+        iid = next((gear[k] for k in WORN_KEYS[slot] if gear.get(k)), None)
+        c = cat.get(iid) or {}
+        pl = int(c.get("power_level") or 0) if iid else 0
+        pls.append(pl)
+        if iid:
+            pieces.append(f"{c.get('name') or iid} PL {pl}")
+    return {"pl": math.floor(sum(pls) / len(ARMOUR_SLOTS)), "pieces": pieces}
+
+
+def for_vault(state: dict, vault: str, stash: dict | None = None) -> dict:
+    """A vault's enemies against his armour, facts only: the enemies' power level, his own (from worn armour, and the
+    game's reading beside it when the state has one), and every armour style's whole bill at the vault's level
+    (set_line over plan(vault=...)). L3 2026-11-19: the vault's PL 2 and the Reinforced set it allows were never shown
+    together; he chased a PL 3 bronze set for 30 min. Raises KeyError for a vault the data does not hold."""
+    p = plan(state, stash=stash, vault=vault)
+    need = p["vault"]
+    out: dict[str, Any] = {"vault": need["vault"], "enemies_pl": need["pl"], "enemies": need["enemies"],
+                           "you_pl_from_worn_armour": p["pl_now"],
+                           "you_wear": [f"{s['worn']} PL {int(s['worn_pl'] or 0)}" for s in
+                                        (p["slots"][x] for x in ARMOUR_SLOTS) if s.get("worn")]}
+    if isinstance(state.get("power_level"), (int, float)):
+        out["you_pl_game_reads"] = state["power_level"]
+    if need.get("weak"):
+        out["enemies_weak_to"] = need["weak"]
+    line = set_line(p, state)
+    if need["pl"] is not None and p["pl_now"] >= need["pl"]:
+        out["armour"] = f"your worn armour is PL {p['pl_now']}, at or above this vault's enemies (PL {need['pl']})"
+    elif line:
+        out["armour"] = (f"armour up to this vault's PL {need['pl']} you can reach; best whole set makes you PL "
+                         f"{p['pl_full_set']}. {line}")
+    else:
+        out["armour"] = (f"no armour piece above what you wear is reachable up to PL {need['pl']} "
+                         f"(best whole set makes you PL {p['pl_full_set']})")
+    return out
+
+
 def describe(state: dict, stash: dict | None = None) -> list[str]:
     try:
         return lines(plan(state, stash=stash))

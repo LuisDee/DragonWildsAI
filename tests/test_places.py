@@ -550,3 +550,44 @@ def test_look_rows_beside_another_things_map_spot_keep_their_own_name():
     # asked about the Water vent, the Law one in sight: its map name lacks a word of it, so it is no match
     rows = [{"name": "Anima Vent", "position": [20.5, 20, 0], "match": 2}]
     assert _map_names(rows, Places(VENT_MAP), "Water Anima Vent") is False and "match" not in rows[0]
+
+
+L3_HERE = [148.48, 1912.74, -31.85]  # ClaudeDev in Temple Woods, 19 Nov (L3 runs): Crasorak Kara's door ~226 m east
+
+
+@pytest.mark.skipif(newest_file() is None, reason="no data/places_<build>.json")
+def test_the_word_vault_names_the_bestiary_vaults_nearest_first():
+    """L3 2026-11-19 (log 30608 line 24): "vault" read only as the Vault Guardian landmarks 3.5 km off; the bestiary's
+    vaults (Crasorak Kara's door 223 m away) were not part of the map names at all."""
+    p = Places()
+    said = p.mentioned("gear up for the vault", L3_HERE)
+    line = next(s for s in said if s.startswith('"vault": the game\'s data has'))
+    assert line.split("nearest: ")[1].startswith("Crasorak Kara (a vault in Temple Woods, PL 2, 226 m), ")
+    assert any("Vault Guardian (a landmark" in s for s in said)  # the landmarks stay listed beside it
+    assert p.mentioned("go to the Temple Woods vault", L3_HERE) == [
+        '"Temple Woods vault" is Crasorak Kara (a vault in Temple Woods, PL 2, 226 m); go_to "Crasorak Kara" walks to it']
+
+
+@pytest.mark.skipif(newest_file() is None, reason="no data/places_<build>.json")
+def test_where_resolves_a_vault_by_name_or_full_alias_to_its_door():
+    p = Places()
+    top = p.where("Crasorak Kara", L3_HERE)["data"]["results"][0]
+    assert (top["kind"], top["match"], top["approximate"], top["power_level"]) == ("vault", "exact", False, 2)
+    assert top["position"] == [374.58, 1918.74, -2.76] and "door, read by the game" in top["basis"]
+    assert p.where("Temple Woods vault", L3_HERE)["data"]["results"][0]["name"] == "Crasorak Kara"
+    assert "Crasorak Kara" not in [o["name"] for o in p.where("Temple", L3_HERE)["data"]["results"]
+                                   if o["match"] == "leading"]  # "Temple" leads the region, not the vault's alias
+
+
+def test_a_vault_without_a_door_read_is_approximate_or_unplaced():
+    vaults = {"Aa Kara": {"kind": "vault", "name": "Aa Kara", "aliases": ["Sand vault"], "area": "Temple Woods",
+                          "power_level": "3", "map_centre": {"position": [-40.0, 50.0], "accuracy_m": 50}},
+              "Bb Kara": {"kind": "vault", "name": "Bb Kara", "area": "Sand Reach", "power_level": "7"}}
+    p = Places(DATA, vaults=vaults)
+    a = p.where("Aa Kara", HERE)["data"]["results"][0]
+    assert a["approximate"] and a["distance_m"] == 20 and "within about 50 m" in a["basis"]
+    b = p.where("Bb Kara", HERE)["data"]["results"][0]
+    assert b["position"] is None and "no position" in b["basis"]
+    line = next(s for s in p.mentioned("the vault", HERE) if s.startswith('"vault"'))
+    assert ("Aa Kara (a vault in Temple Woods, PL 3, 20 m (approximate)), Bb Kara (a vault in Sand Reach, PL 7, "
+            "position not known)") in line
