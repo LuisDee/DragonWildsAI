@@ -131,6 +131,15 @@ def test_the_camp_and_the_failed_flee_are_shown_as_the_game_said_them(tmp_path):
     assert s2["your_hp"] == "62/100"
 
 
+def test_a_group_told_again_says_what_changed():
+    """Miss study 2026-11-19: combat.lua tells a group once; a second threat_seen for it carries ``again`` (a
+    newcomer not a likely win alone, worse odds, or the group much closer) and the fight turn says it."""
+    s = fight_news.fight_situation([_ev(dict(CAMP, again="newly in sight: Goblin Archer, too_strong on its own"))],
+                                   {"health": 100.0, "max_health": 100.0}, None, "threat")
+    assert s["told_again_because"] == "newly in sight: Goblin Archer, too_strong on its own", s
+    assert "told_again_because" not in fight_news.fight_situation([_ev(CAMP)], {}, None, "threat")
+
+
 def test_a_goal_step_cut_by_a_fight_gives_a_turn_and_is_not_counted_as_an_interrupt(tmp_path):
     agent, body, model, log = _agent(tmp_path)
     agent.max_interrupts = 0  # one chat interrupt would end the job: fights never count

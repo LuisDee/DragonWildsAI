@@ -119,6 +119,8 @@ def fight_situation(events: list[Activity], state: dict, running: dict | None, b
             out["hostiles_in_sight"] = f"{tf['hostiles']} ({tf.get('pack')} within 40 m)"
         if _num(tf.get("distance_m")) is not None:
             out["nearest_m"] = tf["distance_m"]
+        if tf.get("again"):  # combat.lua tells a group once; again only when it changed (2026-11-19)
+            out["told_again_because"] = str(tf["again"])
     elif _num(f.get("pack")) is not None:
         out["pack"] = f["pack"]
     if odds := _odds(f):

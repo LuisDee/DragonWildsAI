@@ -3414,6 +3414,56 @@ do
     reset_world()
 end
 
+-- threat_seen once per group (miss study 2026-11-19, run 20261119-084553 at 295-340 s: one Giant Rat / Goblin Runt
+-- group re-reported at 295, 303, 306, 312, 317 s as rats and runts joined, each report cutting his wait on the call
+-- the body was still doing): a newcomer that is a likely win alone joins the told group silently (logged as held);
+-- one he does not rate a likely win alone, and the group coming much closer, are told again and say why
+reset_world()
+do
+    Cm.guard_start(nil)
+    local emitted, emit = {}, Cm.emit_activity
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    local function seen() local out = {}; for _, e in ipairs(emitted) do if e.kind == "threat_seen" then out[#out + 1] = e end end; return out end
+    local function logged(pat) for _, l in ipairs(Cm._state().log_lines or {}) do if l:find(pat, 1, true) then return true end end return false end
+    for i = 1, 3 do new_creature("BP_AI_RuntGoblin_Character_C_2" .. i, "Goblin Runt", { X = 2000 + i * 200, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0, alert = 0 }) end
+    step(300)
+    check("threat_seen once per group: the pack is told", #seen() == 1, #seen())
+    -- a fourth runt walks up: a likely win alone, the odds the same as told
+    new_creature("BP_AI_RuntGoblin_Character_C_24", "Goblin Runt", { X = 2900, Y = 100, Z = 0 }, { hp = 20, pl = 1, arch = 0, alert = 0 })
+    step(300)
+    check("threat_seen once per group: a weak newcomer to a told group is not told again", #seen() == 1, #seen())
+    check("threat_seen once per group: the held newcomer is logged", logged("threat_seen held (same group: 3 told still in sight; newcomers Goblin Runt"),
+        table.concat(Cm._state().log_lines or {}, " | "):sub(-400))
+    -- the told group stays in sight past threat_repeat_s: still the same group, nothing new to tell
+    step(7000)
+    check("threat_seen once per group: a group that stays in sight is not told again after threat_repeat_s", #seen() == 1, #seen())
+    -- an archer he does not rate a likely win alone comes into sight with them: told again, and why
+    new_creature("BP_AI_RangedGoblin_Character_C_25", "Goblin Archer", { X = 3200, Y = 0, Z = 0 }, { hp = 570, pl = 8, arch = 0, alert = 0 })
+    step(300)
+    local s = seen()
+    check("threat_seen once per group: a newcomer not a likely win alone is told again", #s == 2 and s[2].again ~= nil
+        and s[2].again:find("newly in sight: Goblin Archer", 1, true) ~= nil and s[2].pack == 5, s[2] and tostring(s[2].again))
+    check("threat_seen once per group: the re-tell is logged", logged("threat_seen again (newly in sight: Goblin Archer"),
+        table.concat(Cm._state().log_lines or {}, " | "):sub(-300))
+    Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
+    -- a group told far off that comes within aggro range: told again once (an attack on him is combat_started's)
+    reset_world(); Cm.guard_start(nil); emitted = {}
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    local pack = {}
+    for i = 1, 3 do pack[i] = new_creature("BP_AI_RuntGoblin_Character_C_3" .. i, "Goblin Runt", { X = 3400 + i * 100, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0, alert = 0 }) end
+    step(300)
+    check("threat_seen once per group: a far group is told", #seen() == 1 and seen()[1].distance_m == 35, seen()[1] and seen()[1].distance_m)
+    for i = 1, 3 do pack[i].loc = { X = 1000 + i * 100, Y = 0, Z = 0 } end
+    step(300)
+    s = seen()
+    check("threat_seen once per group: the group much closer is told again", #s == 2 and s[2].again ~= nil
+        and s[2].again:find("came closer: 11 m, was 35 m", 1, true) ~= nil, s[2] and tostring(s[2].again))
+    step(1000)
+    check("threat_seen once per group: and only once", #seen() == 2, #seen())
+    Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
+    reset_world()
+end
+
 -- Fight odds against what his fights really did (16-18 Nov 2026, tools/fight_odds_truth.py; run 20261118-010135 at
 -- 592.8 s: bare hands vs a 100 HP Giant Rat read "likely win, 14 s to kill, 80 s to die"; a second rat joined, he dealt
 -- 90 in 74 s and died). The odds now count the pack, use his real rate and say their uncertainty.

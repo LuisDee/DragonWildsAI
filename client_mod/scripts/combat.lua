@@ -4593,7 +4593,7 @@ local function guard_tick(log)
         if not (fl and t - fl <= (cfg.refled_s or 30) and x.why ~= "attacked_me" and x.why ~= "attacking_me") then th = x; break end
     end
     if not th then
-        local okw, werr = pcall(M.threat_watch, pawn, pc, origin, t)
+        local okw, werr = pcall(M.threat_watch, pawn, pc, origin, t, log)
         if not okw then c.threat_err = tostring(werr) end
         return
     end
@@ -4614,10 +4614,18 @@ M._guard_tick = guard_tick
 
 -- threat_seen (fight study 2026-11-18): hostiles in sight, out of a fight, that the body's own odds do not rate a
 -- likely win, the PACK counted (two deaths came from packs met on one creature's odds; a goblin camp met during an
--- explore reached the model only after he died). One activity when a hostile not reported in threat_repeat_s joins
--- the group; the brain gives the model a turn. Facts only: it never moves, presses or vetoes anything.
+-- explore reached the model only after he died). One activity per GROUP; the brain gives the model a turn.
+-- Once per group (miss study 2026-11-19: it fired again each time one more rat or runt joined a group he had been
+-- told of, every 2-10 s near a camp; each one cut his wait on the running call, 58 detaches in 34 copper trials, and
+-- he then interrupted the walk or gather his body was still doing). A hostile he was told of stays told while it
+-- stays in sight (threat_repeat_s after it was last in sight it counts as new again). While any of the told group is
+-- in sight he is told again only when it is materially different (`again` says why): a newcomer the odds do not rate
+-- a likely win on its own, the group's odds worse than any he was told, or the group from beyond 2 x aggro_m to
+-- within aggro_m. An attack on him is combat_started's news, not this. A newcomer held is logged
+-- ("threat_seen held (same group ...)"). Facts only: it never moves, presses or vetoes anything.
 -- Reads only the census rows (already read for the reflex), his HP and power level (read_me) and held items' data.
-function M.threat_watch(pawn, pc, origin, t)
+M.THREAT_RANK = { likely_win = 0, uncertain = 1, unknown = 1, outnumbered = 2, likely_lose = 3, too_strong = 4, boss = 5 }
+function M.threat_watch(pawn, pc, origin, t, log)
     local cfg, c = M.cfg, C()
     if c.threat_t and t - c.threat_t < (cfg.threat_scan_s or 2) and t >= c.threat_t then return end
     c.threat_t = t
@@ -4630,12 +4638,17 @@ function M.threat_watch(pawn, pc, origin, t)
     if #pack == 0 then return end
     table.sort(pack, function(a, b) return (a.distance_m or 1e9) < (b.distance_m or 1e9) end)
     c.threat_said = c.threat_said or {}
-    local new
+    local said, rep, aggro = c.threat_said, cfg.threat_repeat_s or 60, cfg.aggro_m
+    local known, fresh = {}, {}
     for _, r in ipairs(pack) do
-        local s = c.threat_said[r.id]
-        if not s or t - s >= (cfg.threat_repeat_s or 60) or t < s then new = true end
+        local s = said[r.id]
+        if s and t - s < rep and t >= s then known[#known + 1] = r else fresh[#fresh + 1] = r end
     end
-    if not new then return end
+    for _, r in ipairs(known) do said[r.id] = t end -- told and still in sight: stays told
+    local near = pack[1]
+    local told = #known > 0 and c.threat_told or nil
+    local closer = told and told.d and near.distance_m and told.d > 2 * aggro and near.distance_m <= aggro
+    if #fresh == 0 and not closer then return end
     local me = read_me(pawn, pc)
     if me.dead or not me.hp then return end
     if not (c.threat_dps and t - c.threat_dps.t < 5 and t >= c.threat_dps.t) then
@@ -4647,25 +4660,59 @@ function M.threat_watch(pawn, pc, origin, t)
         -- what is in his hands, at his real rate (a tool or nothing: bare hands; M.fight_rate)
         c.threat_dps = { t = t, v = M.fight_rate(w and w.role == "weapon" and w or nil) }
     end
+    local mine = { hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = c.threat_dps.v }
+    local function foe(r)
+        local d, src = M.enemy_dps(r.name)
+        return { name = r.name, hp = r.hp, max_hp = r.max_hp, pl = r.pl, boss = r.boss == true, dps_obs = d, dps_src = src }
+    end
     -- the fight he would meet: the nearest hostile and every hostile within aggro range of it
-    local near = pack[1]
     local en, group = {}, {}
     for _, r in ipairs(pack) do
-        local close = r == near or (r.pos and near.pos and U.dist(r.pos, near.pos) <= cfg.aggro_m * 100)
-            or (not (r.pos and near.pos) and math.abs((r.distance_m or 1e9) - (near.distance_m or 0)) <= cfg.aggro_m)
+        local close = r == near or (r.pos and near.pos and U.dist(r.pos, near.pos) <= aggro * 100)
+            or (not (r.pos and near.pos) and math.abs((r.distance_m or 1e9) - (near.distance_m or 0)) <= aggro)
         if close and #en < (cfg.odds_max or 6) then
-            local d, src = M.enemy_dps(r.name)
-            en[#en + 1] = { name = r.name, hp = r.hp, max_hp = r.max_hp, pl = r.pl, boss = r.boss == true, dps_obs = d, dps_src = src }
+            en[#en + 1] = foe(r)
             group[#group + 1] = r
         end
     end
-    local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = c.threat_dps.v }, en, { reflexonly = true }, nil, cfg)
-    if not (a and a.verdict) or a.verdict == "likely_win" then return end
-    for _, r in ipairs(pack) do c.threat_said[r.id] = t end
+    local a = M.assess(mine, en, { reflexonly = true }, nil, cfg)
+    if not (a and a.verdict) then return end
+    local rank = M.THREAT_RANK[a.verdict] or 1
+    local again
+    if told then -- some of the group he was told of is still in sight
+        for _, r in ipairs(fresh) do
+            local solo = M.assess(mine, { foe(r) }, { reflexonly = true }, nil, cfg)
+            if solo and solo.verdict and solo.verdict ~= "likely_win" then
+                again = string.format("newly in sight: %s, %s on its own", tostring(r.name), solo.verdict); break
+            end
+        end
+        if not again and rank > (told.rank or 0) then
+            again = string.format("the odds got worse: %s, was %s", a.verdict, tostring(told.verdict))
+        end
+        if not again and closer then
+            again = string.format("the group came closer: %d m, was %d m", math.floor(near.distance_m), math.floor(told.d))
+        end
+        if not again then
+            for _, r in ipairs(fresh) do said[r.id] = t end
+            if #fresh > 0 then
+                say(log, string.format("threat_seen held (same group: %d told still in sight; newcomers %s, each a likely "
+                    .. "win alone; odds %s, told %s)", #known, tostring(M.pack_words(fresh)), a.verdict, tostring(told.verdict)))
+            end
+            return
+        end
+    elseif a.verdict == "likely_win" then
+        return
+    end
+    for _, r in ipairs(pack) do said[r.id] = t end
+    local worse = not told or rank >= (told.rank or 0)
+    c.threat_told = { t = t, d = near.distance_m, verdict = worse and a.verdict or told.verdict,
+        rank = worse and rank or told.rank }
+    say(log, string.format("threat_seen %s (%s; nearest %s %s m; odds %s)", again and "again" or "told",
+        again or "a new group", tostring(near.name), tostring(near.distance_m and math.floor(near.distance_m)), a.verdict))
     M.emit_activity({ kind = "threat_seen", by = "reflex", target = near.name, target_id = near.id,
         distance_m = near.distance_m and math.floor(near.distance_m) or nil, target_pl = near.pl, target_hp = near.hp,
         pack = #pack, hostiles = M.pack_words(pack), fight_pack = #group, fight_hostiles = M.pack_words(group),
-        verdict = a.verdict, pl_gap = a.pl_gap, unknown = a.unknown,
+        verdict = a.verdict, pl_gap = a.pl_gap, unknown = a.unknown, again = again,
         est_s_to_die = a.their_ttk and math.floor(a.their_ttk), est_s_to_kill = a.my_ttk and math.floor(a.my_ttk),
         est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi),
         hp = me.hp, max_hp = me.max_hp, aggro_m = cfg.aggro_m })
