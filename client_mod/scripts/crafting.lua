@@ -393,6 +393,20 @@ function M.assess(rid, crafts, ctx)
         if have < c.count then a.missing[#a.missing + 1] = { item = c.item, name = c.name, need = c.count, have = have } end
     end
     for _, c in ipairs(p.outputs) do a.outputs[#a.outputs + 1] = { item = c.item, name = c.name, count = c.count } end
+    -- how much he lacks by the game's counts, and how many of the item what he holds makes now (nil: it takes no
+    -- inputs). The report of a failed craft names the closest recipe and these (V1 study 2026-11-19, 4 of 15 misses:
+    -- "need 4 Animal Hide, have 0" for Leather while he held 11 of the 12 Animal Hide Scraps the other recipe takes)
+    a.short = 0
+    for _, m in ipairs(a.missing) do a.short = a.short + (m.need - m.have) end
+    local fit
+    for i, c in ipairs(r.inputs or {}) do
+        local per, row = tonumber(c[2]) or 0, a.inputs[i]
+        if per > 0 and row then
+            local n = math.floor((tonumber(row.have) or 0) / per)
+            if fit == nil or n < fit then fit = n end
+        end
+    end
+    a.can_make = fit and fit * per_craft(r, a.item) or nil
     -- station: the nearest live one of any type that crafts it
     local best
     for _, sid in ipairs(r.stations or {}) do
@@ -458,6 +472,16 @@ function M.assess(rid, crafts, ctx)
     return a
 end
 
+-- Best first: the status rank, then the fewest items short by the game's counts, then the fewest kinds short, then the
+-- recipe id. Before 2026-11-19 a tie on kinds went to the id, so Leather_From_Hide (4 short) came before
+-- Leather_From_scraps (1 short) and the failed craft headlined the hide recipe (V1 study, 4 of 15 misses).
+function M.closer(x, y)
+    if x.rank ~= y.rank then return x.rank > y.rank end
+    if (x.short or 0) ~= (y.short or 0) then return (x.short or 0) < (y.short or 0) end
+    if #x.missing ~= #y.missing then return #x.missing < #y.missing end
+    return x.recipe < y.recipe
+end
+
 -- Every recipe that takes item_id as an input, assessed, best first: what a station turns a carried item into (a
 -- player puts raw meat on a fire). crafts nil = as many as the carried stack makes (at least 1).
 function M.uses(item_id_, crafts, ctx)
@@ -468,11 +492,7 @@ function M.uses(item_id_, crafts, ctx)
         for _, c in ipairs(recipe_of(rid).inputs or {}) do if item_id(c[1]) == item_id_ then need = math.max(1, c[2] or 1) end end
         out[#out + 1] = M.assess(rid, crafts or math.max(1, math.min(M.cfg.max_count, math.floor(have / need))), ctx)
     end
-    table.sort(out, function(x, y)
-        if x.rank ~= y.rank then return x.rank > y.rank end
-        if #x.missing ~= #y.missing then return #x.missing < #y.missing end
-        return x.recipe < y.recipe
-    end)
+    table.sort(out, M.closer)
     return out
 end
 
@@ -484,11 +504,7 @@ function M.candidates(item_id, count, ctx)
         local crafts = math.ceil((count or 1) / math.max(1, per_craft(r, item_id)))
         out[#out + 1] = M.assess(rid, crafts, ctx)
     end
-    table.sort(out, function(x, y)
-        if x.rank ~= y.rank then return x.rank > y.rank end
-        if #x.missing ~= #y.missing then return #x.missing < #y.missing end
-        return x.recipe < y.recipe
-    end)
+    table.sort(out, M.closer)
     return out
 end
 
@@ -1442,9 +1458,42 @@ local function cand_wire(list)
     local out = {}
     for _, a in ipairs(list) do
         out[#out + 1] = { recipe = a.recipe, name = a.name, status = a.status, station = a.station_name, missing = (#a.missing > 0) and a.missing or nil,
-                          detail = a.detail }
+                          short = (a.short or 0) > 0 and a.short or nil, can_make = a.can_make, detail = a.detail }
     end
     return out
+end
+
+-- A failed craft's report on the recipes for the same thing (V1 study 2026-11-19: "need 4 Animal Hide, have 0" for
+-- Leather while he held 11 of the 12 Animal Hide Scraps the other recipe takes; 4 of 15 misses). Facts only: which
+-- recipe is closest (list[1], M.closer), each other recipe's shortfall, and how many he can make with what he holds.
+local STATUS_WORDS = { ready = "ready", no_station = "no station for it near", not_unlocked = "not unlocked",
+                       unlock_unknown = "unlock unknown", vendor = "bought, not crafted", no_station_type = "no station makes it" }
+local function shortfall_text(a)
+    if #a.missing == 0 then return a.recipe .. ": " .. (STATUS_WORDS[a.status] or tostring(a.status)) end
+    local parts = {}
+    for _, m in ipairs(a.missing) do parts[#parts + 1] = m.need .. " " .. tostring(m.name or m.item) .. ", I have " .. m.have end
+    return a.recipe .. " needs " .. table.concat(parts, " and ") .. " (" .. a.short .. " short)"
+end
+local MAKEABLE = { ready = true, missing_input = true, no_station = true }
+-- list: the recipes shown (list[1] = best); all: every recipe for the item (default list), for the count.
+-- -> the text after best's own detail, the count sentence, {count, recipe} for the result's data
+function M.closest_report(best, list, all)
+    all = all or list
+    local text = ""
+    if #list > 1 then
+        local others = {}
+        for _, o in ipairs(list) do if o ~= best then others[#others + 1] = shortfall_text(o) end end
+        text = " (recipe " .. best.recipe .. ((best.short or 0) > 0 and (", " .. best.short .. " short, the closest of "
+            .. #list) or "") .. "); " .. (#others == 1 and "the other recipe: " or "the others: ") .. table.concat(others, "; ")
+    end
+    local top
+    for _, o in ipairs(all) do
+        if MAKEABLE[o.status] and o.can_make and (not top or o.can_make > top.can_make) then top = o end
+    end
+    local n = top and top.can_make or 0
+    local count_text = "With what I hold I can make " .. n .. " " .. tostring(best.name or best.item or "of it")
+        .. ((n > 0 and #all > 1) and (" (recipe " .. top.recipe .. ")") or "")
+    return text, count_text, { count = n, recipe = n > 0 and top.recipe or nil }
 end
 
 local function resolve_candidates(api, args, ctx)
@@ -1766,12 +1815,25 @@ local function start_craft(api, args, ctx0)
         -- a recipe he named can't be made, but another recipe for the same item can right now: say so (live 18:24Z:
         -- he asked for thread from fur, locked, while thread from his Flax was ready, and gave up)
         local instead
+        local same = {} -- the recipes listed that make best's item (from an input, the list holds other items too)
+        for _, o in ipairs(list) do if o.item == best.item then same[#same + 1] = o end end
+        local all = same -- every recipe for the item: the named one alone was assessed when he named it
         if args.recipe ~= nil and best.item then
+            all = M.candidates(best.item, best.crafts * math.max(1, per_craft(recipe_of(best.recipe), best.item)), ctx)
             for _, o in ipairs(M.candidates(best.item, 1, ctx)) do -- one craft: what he could start with
                 if o.viable and o.recipe ~= best.recipe then instead = o; break end
             end
         end
         local detail = (best.detail or "I can't make that.")
+        local can_make, count_text
+        if best.item and MAKEABLE[best.status] then -- the count is over every recipe for it, also when he named one
+            local text
+            text, count_text, can_make = M.closest_report(best, same, all)
+            detail = detail .. text
+            api.log(string.format("crafting: closest recipe for %s x%d: %s (%d short of %d recipes); can make %d%s",
+                tostring(best.name or best.item), best.crafts, best.recipe, best.short or 0, #all, can_make.count,
+                can_make.recipe and (" by " .. can_make.recipe) or ""))
+        end
         if instead then
             local ins = {}
             for _, c in ipairs(instead.inputs or {}) do ins[#ins + 1] = c.need .. " " .. tostring(c.name) end
@@ -1784,11 +1846,12 @@ local function start_craft(api, args, ctx0)
         end
         local own = best.status == "no_station" and not instead and W.buildable_station(api, best.recipe) or nil
         if own then detail = detail .. "; " .. own.text end
+        if count_text then detail = detail .. ". " .. count_text end
         return api.fail(reason, { recipe = best.recipe, item = best.item, missing = (#best.missing > 0) and best.missing or nil,
             unlock = best.unlock, unlock_status = best.unlock_status, station = best.station_name, station_buildable = own,
             candidates = (#list > 1) and cand_wire(list) or nil,
             ready_instead = instead and { recipe = instead.recipe, name = instead.name, inputs = instead.inputs } or nil,
-            detail = detail .. "." })
+            can_make = can_make, detail = detail .. "." })
     end
     local row, perr = pick_station(api, a, args, ctx)
     if not row then return perr end

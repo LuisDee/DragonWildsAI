@@ -1359,5 +1359,63 @@ do -- the stay-fed reflex drinks what a boil has just handed him (chain 20261116
     _G.DW_REFLEX_USES = nil
 end
 
+do -- a failed craft names the recipe he is closest to, each other recipe's shortfall, and how many he can make now
+   -- (V1 study 2026-11-19, 4 of 15 misses: "need 4 Animal Hide, have 0" for Leather x4 while he held 11 of the 12
+   -- Animal Hide Scraps the scraps recipe takes; the tie on kinds went to the recipe id, Hide before scraps)
+    local LEATHER = U({ "RECIPE_Process_Leather_From_Hide", "RECIPE_Process_Leather_From_scraps" })
+    local TAN = function() return station("Tannery", "tan_1", { 8, 0, 0 }) end
+    local logged = {}
+    local log0 = api.log
+    api.log = function(m) logged[#logged + 1] = m end
+    reset({ stations = { TAN() }, unlocked = LEATHER, have = { ITEM_Resources_Skin_Scraps = 11 } })
+    local r = run({ item = "Leather", count = 4 })
+    local d = tostring((r.data or {}).detail)
+    check("closest: Leather x4 from 11 scraps -> missing_materials", r.reason == "missing_materials", tostring(r.reason))
+    check("closest: the scraps recipe named, not the hide one", r.data and r.data.recipe == "RECIPE_Process_Leather_From_scraps", r.data and r.data.recipe)
+    check("closest: headline is the scraps shortfall", d:find("^I need 12 Animal Hide Scraps for that and I have 11 %(recipe RECIPE_Process_Leather_From_scraps, 1 short") ~= nil, d)
+    check("closest: the hide recipe's shortfall briefly", d:find("the other recipe: RECIPE_Process_Leather_From_Hide needs 4 Animal Hide, I have 0 (4 short)", 1, true) ~= nil, d)
+    check("closest: says he can make 3 now", d:find("With what I hold I can make 3 Leather (recipe RECIPE_Process_Leather_From_scraps).", 1, true) ~= nil, d)
+    check("closest: can_make in the data", r.data and r.data.can_make and r.data.can_make.count == 3
+          and r.data.can_make.recipe == "RECIPE_Process_Leather_From_scraps")
+    local cw = {}
+    for _, c in ipairs((r.data or {}).candidates or {}) do cw[c.recipe] = c end
+    check("closest: candidates carry short and can_make", cw.RECIPE_Process_Leather_From_scraps and cw.RECIPE_Process_Leather_From_scraps.short == 1
+          and cw.RECIPE_Process_Leather_From_Hide.short == 4 and cw.RECIPE_Process_Leather_From_Hide.can_make == 0
+          and cw.RECIPE_Process_Leather_From_scraps.can_make == 3)
+    check("closest: no walk when it can't work", (F.moves or 0) == 0)
+    local seen
+    for _, m in ipairs(logged) do
+        if tostring(m):find("crafting: closest recipe for Leather x4: RECIPE_Process_Leather_From_scraps (1 short of 2 recipes); can make 3 by RECIPE_Process_Leather_From_scraps", 1, true) then seen = m end
+    end
+    check("closest: the log line", seen ~= nil, table.concat(logged, " | "))
+    -- x3 with 3 scraps: the hide recipe is 3 short, the scraps one 6, so hide is closest, and 1 can be made from scraps
+    reset({ stations = { TAN() }, unlocked = LEATHER, have = { ITEM_Resources_Skin_Scraps = 3 } })
+    r = run({ item = "Leather", count = 3 })
+    d = tostring((r.data or {}).detail)
+    check("closest x3: fewest short by count -> hide named", r.data and r.data.recipe == "RECIPE_Process_Leather_From_Hide"
+          and d:find("(recipe RECIPE_Process_Leather_From_Hide, 3 short", 1, true) ~= nil, d)
+    check("closest x3: scraps 6 short", d:find("RECIPE_Process_Leather_From_scraps needs 9 Animal Hide Scraps, I have 3 (6 short)", 1, true) ~= nil, d)
+    check("closest x3: can make 1 from scraps", d:find("I can make 1 Leather (recipe RECIPE_Process_Leather_From_scraps)", 1, true) ~= nil, d)
+    -- nothing affordable: 0
+    reset({ stations = { TAN() }, unlocked = LEATHER, have = { ITEM_Resources_Skin_Scraps = 2 } })
+    r = run({ item = "Leather", count = 1 })
+    d = tostring((r.data or {}).detail)
+    check("closest: none affordable -> can make 0", d:find("With what I hold I can make 0 Leather.", 1, true) ~= nil
+          and r.data.can_make.count == 0 and r.data.can_make.recipe == nil, d)
+    check("closest: 1 hide vs 1 scrap short: tie on count and kinds -> by id (Hide)", r.data.recipe == "RECIPE_Process_Leather_From_Hide", r.data.recipe)
+    -- he names the hide recipe: that one is the headline, the count still covers every recipe for Leather
+    reset({ stations = { TAN() }, unlocked = LEATHER, have = { ITEM_Resources_Skin_Scraps = 11 } })
+    r = run({ recipe = "RECIPE_Process_Leather_From_Hide", count = 4 })
+    d = tostring((r.data or {}).detail)
+    check("closest: named recipe stays the headline", r.data and r.data.recipe == "RECIPE_Process_Leather_From_Hide"
+          and d:find("^I need 4 Animal Hide for that and I have 0") ~= nil and not d:find("the other recipe", 1, true), d)
+    check("closest: named recipe, count over all recipes", d:find("I can make 3 Leather (recipe RECIPE_Process_Leather_From_scraps)", 1, true) ~= nil, d)
+    -- pure: candidates rank the closest first
+    local cs = C.candidates("ITEM_Resources_Leather", 4, { have = { ITEM_Resources_Skin_Scraps = 11 }, unlocked = LEATHER, near = near("Tannery") })
+    check("closest: candidates() puts scraps (1 short) before hide (4 short)", cs[1].recipe == "RECIPE_Process_Leather_From_scraps"
+          and cs[1].short == 1 and cs[2].short == 4)
+    api.log = log0
+end
+
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)
