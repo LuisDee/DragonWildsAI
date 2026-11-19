@@ -121,6 +121,39 @@ def count_of(counts: dict, pattern: str) -> int:
 # check, which every window's preflight makes too; job_run also makes it per fork, before the walk to the job's start
 # (2026-11-17 19:36Z: both forks of a starved ClaudeDev died to the first rat on that walk)
 from tools.chat_ladder import FIT_PCT, body_unfit as unfit  # noqa: E402,F401
+# A trial starts fed and watered: the save a fork copies and the body at the join hold food and water at START_PCT
+# (70 %), not only the fit bar. Window n2_i4 of 2026-11-19 forked a save at food 67, water 56 (fit at 40), every line
+# met him at water 42-46 %, under his own 40 % drink line within a minute, and drinking ate I4's 120 s resume window in
+# all six trials (tools/vitals_rescue.py START_PCT has the numbers).
+from tools.vitals_rescue import START_PCT  # noqa: E402
+START_WHY = (f"a job trial starts at food and water {START_PCT:.0f} % or more, so the walk to the line and the step's "
+             f"timed part do not cross his {FIT_PCT:.0f} % drink line (2026-11-19 window n2_i4: forks of a save at water "
+             "56 met the line at 42-46 % and spent the 120 s on water)")
+
+
+def start_unfit(src, cli=None) -> str | None:
+    """Why a trial must not start (a harness fault, never his), or None: the save a fork copies (`src`) under
+    START_PCT, else, with `cli`, the body as it joined. The reason names the bar and its remedy."""
+    from tools.vitals_rescue import save_unfit
+    why = save_unfit(src, pct=START_PCT) if cli is None else unfit(cli, START_PCT)
+    return f"{why}; {START_WHY}" if why else None
+
+
+def vitals(d: dict | None) -> dict | None:
+    """{food, water, health} as % of their max from a get_state (flat keys or the survival table), the ones read;
+    None when none was read. The record's start and end carry it, so a start the stay-fed reflex had to answer is
+    readable afterwards (2026-11-19: the six N2/I4 records held no bars; their start water came from the prompts)."""
+    d = d or {}
+    surv = d.get("survival") if isinstance(d.get("survival"), dict) else {}
+    out = {}
+    for what, cur, mx in (("food", "sustenance", "sustenance_max"), ("water", "hydration", "hydration_max"),
+                          ("health", "health", "max_health")):
+        c, m = d.get(cur), d.get(mx)
+        if not isinstance(c, (int, float)) and isinstance(surv.get(cur), list) and len(surv[cur]) >= 2:
+            c, m = surv[cur][0], surv[cur][1]
+        if isinstance(c, (int, float)) and not isinstance(c, bool) and isinstance(m, (int, float)) and m > 0:
+            out[what] = round(100.0 * c / m, 1)
+    return out or None
 
 
 # Loadout slots that point at a stack he already carries in the hotbar or the bag: the Held slots reference a hotbar
@@ -245,6 +278,8 @@ def snapshot(data: dict | None) -> dict:
            "dead": bool(d.get("dead")), "own_containers": sorted(own), "container_kinds": kinds, "container_where": where,
            "empty_slots": d.get("empty_slots"), "bag_room": room, "bag_room_from": room_from if room is not None else None,
            "power_level": pl if isinstance(pl, (int, float)) and not isinstance(pl, bool) else None}
+    if (v := vitals(d)) is not None:
+        out["vitals"] = v
     if left_out:
         out["consumables_left_out"] = left_out
     if unread:
@@ -2412,8 +2447,8 @@ def cmd_window(a, step: str | None) -> int:
     if a.save_as and (quest_clone.CHECKPOINT_DIR / f"{a.save_as}.json").exists():
         print(f"checkpoint {a.save_as!r} exists already: pick a new --save-as label")
         return 2
-    from tools.vitals_rescue import save_unfit  # a fork copies the SAVE, not his live bars (live 2026-11-17 21:05Z)
-    if (why := save_unfit(src)) is not None:
+    # a fork copies the SAVE, not his live bars (live 2026-11-17 21:05Z), and starts at them: START_PCT, not only fit
+    if (why := start_unfit(src)) is not None:
         print(f"not running: {why}")
         return 3
     # a checkpoint pair (tools/checkpoint_pair.py): every trial restores the checkpoint's world and plays its own
@@ -2473,7 +2508,7 @@ def cmd_window(a, step: str | None) -> int:
                     break
                 if got["paired"]:
                     got["prep"]["file_after_join"] = pairs.file_check(pair, got["prep"]["written_at"])
-                bad_start = unfit(cli)  # the body this fork starts as (an unread state refuses too)
+                bad_start = start_unfit(src, cli)  # the body this fork starts as (an unread state refuses too)
                 if bad_start:
                     out["trials"].append({"character": name, "skipped": bad_start})
                     print(f"{name}: {bad_start}")

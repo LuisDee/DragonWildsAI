@@ -14,8 +14,9 @@ What it does, inside the live lock (tools.live_lock.held("vitals"), so no window
   1. the rescue, a dev-only harness fixture logged as one with its purpose (logs/bench/fixture_setup.jsonl and one
      row in logs/vitals_rescue.jsonl): set_health to full, set_stat sustenance and hydration to --pct of their max
      (evals.bench.devrun.default_dev, brain_running off: a rescue between runs, as tools.supply does);
-  2. waits until the save's mtime is after the rescue AND its food, water and health are over the fit bar
-     (chat_ladder.FIT_PCT, 40 %), up to --timeout. The save is only read, never written.
+  2. waits until the save's mtime is after the rescue AND its food, water and health are over --bar (default
+     START_PCT, 70 %: a job trial's start bar; chat_ladder.FIT_PCT, 40 %, is the fit bar), up to --timeout. The save is
+     only read, never written.
 Exit: 0 done; 2 timeout (no save carrying the rescue in time); 3 refused by the fixtures' own guards (not the local
 dev server, another player connected, the client not on ClaudeDev, the live brain running); 1 anything else.
 
@@ -36,6 +37,14 @@ COMMAND = PY + ' -m tools.vitals_rescue --purpose "<why>"'
 HEALTH_MAX = 100.0  # the save holds no maxima: food and water are out of 100 (quest_clone.VITALS_START); health
 SUSTENANCE_MAX = HYDRATION_MAX = 100.0  # is taken out of 100 too (a lower bar when his max is higher; the live gate
 # chat_ladder.body_unfit still reads the real max once he is on)
+# A job trial's start bar (tools/job_run.py), over chat_ladder.FIT_PCT: food and water at least this share of 100 in
+# the save a fork copies. A fork starts at the save's bars and drains on the way to the line, so a save just over the
+# fit bar meets the line under his own 40 % drink line. Window n2_i4 of 2026-11-19: ClaudeDev's save (written
+# 2026-11-18 15:45Z) read food 67, water 56; all six forks' first saves copied it, every line met him at water 42-46 %
+# (brain prompts "+54..58 water, to 100%"), and the forks read 50/34 five minutes after the copy (-17 food, -22 water:
+# logs/quests/forks ClaudeJ190222a/c), so drinking ate the 120 s resume window. From 70: about 58 at the line and
+# over 40 for about four minutes after it (a bite and I4's 120 s).
+START_PCT = 70.0
 # the fixtures' own refusals (DevTarget.guard, mod/bench/fixtures.lua guard): the rescue is not allowed here and now
 REFUSALS = ("not_dev_server", "other_players_connected", "character_not_found", "no_character_guid",
             "forbidden server", "not the local dev server", "cannot tell which server", "live brain")
@@ -140,7 +149,10 @@ def _log(row: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--purpose", help="why the rescue (logged with each fixture call); required unless --check")
-    ap.add_argument("--pct", type=float, default=95.0, help="food and water set to this %% of their max")
+    ap.add_argument("--pct", type=float, default=100.0, help="food and water set to this %% of their max (a rescue "
+                    "at 95 read back 73.7 in the save, 2026-11-17 21:53Z)")
+    ap.add_argument("--bar", type=float, default=START_PCT, help="the save must carry at least this %% (default: a job "
+                    "trial's start bar START_PCT; the fit bar chat_ladder.FIT_PCT is 40)")
     ap.add_argument("--timeout", type=float, default=420.0, help="seconds to wait for a save carrying the rescue")
     ap.add_argument("--poll", type=float, default=5.0)
     ap.add_argument("--lock-wait", type=float, default=1800.0)
@@ -148,8 +160,8 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     path = save_path()
     if a.check:
-        why = save_unfit(path)
-        print(why or f"{path.stem}'s save fit: {read_save(path)}")
+        why = save_unfit(path, pct=a.bar)
+        print(why or f"{path.stem}'s save fit (bar {a.bar:.0f} %): {read_save(path)}")
         return 0 if why is None else 1
     if not a.purpose:
         ap.error("--purpose is required: a harness rescue is logged with its purpose")
@@ -174,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
                 row["rescued_at"] = round(t_done, 1)
                 print(f"rescued (harness fixture, dev only): {row['set']}; waiting up to {a.timeout:.0f} s for "
                       f"{path.name} to carry it", flush=True)
-                w = wait_saved(path, after=t_done, timeout_s=a.timeout, poll_s=a.poll)
+                w = wait_saved(path, after=t_done, pct=a.bar, timeout_s=a.timeout, poll_s=a.poll)
                 row.update(ok=w["ok"], waited_s=w["waited_s"], save_read=w.get("save"))
                 if w["ok"]:
                     code = 0

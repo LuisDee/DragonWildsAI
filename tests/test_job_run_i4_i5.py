@@ -23,6 +23,7 @@ from tests.test_job_run import CRATE, T0, FakeIO, call, model, result, state
 from tests.test_job_run_near_home import store_one
 
 ASH, STONE, FLAX = "ITEM_Resources_Wood_Ash", "ITEM_Resources_Stone", "ITEM_Resources_Flax"
+BERRY = "ITEM_Consumable_Fruit_Redberry"  # N2's item since 2026-11-19 (flax grows ~200 m from his base)
 
 
 @pytest.fixture(scope="module")
@@ -151,11 +152,15 @@ def test_bag_watch_room_before_any_call_met_it_is_never_a_bite():
 def test_n2_is_the_i4_vehicle_a_chest_job_of_an_item_he_holds_none_of(doc):
     job = j.job_of("N2", doc)
     wants = job["end"]["in_own_chest"]
-    assert [w["item"] for w in wants] == [FLAX] and wants[0]["gained"] and not job["held_out"]
-    assert job["line"].startswith("claude, ") and "go_to" not in job["work_tools"]
-    assert FLAX in job["not_carried_at_start"]
-    assert job["check_live"] and {c["item"] for c in job["candidates"]} >= {FLAX, "ITEM_Resources_Weeds"}
+    assert [w["item"] for w in wants] == [BERRY] and wants[0]["gained"] and not job["held_out"]
+    assert job["line"].startswith("claude, ") and "redberries" in job["line"] and "go_to" not in job["work_tools"]
+    assert BERRY in job["not_carried_at_start"]
+    assert job["check_live"] and {c["item"] for c in job["candidates"]} >= {BERRY, FLAX, "ITEM_Resources_Weeds"}
     assert all(c.get("check_live") for c in job["candidates"])
+    # one candidate chosen, the job's own item, with its evidence; the others say why their precondition is false
+    (chosen,) = [c for c in job["candidates"] if c.get("chosen")]
+    assert chosen["item"] == BERRY and chosen["line"] == job["line"] and chosen["evidence"]
+    assert all(c.get("precondition_false") for c in job["candidates"] if not c.get("chosen"))
     assert j.bar_s(job) and j.trigger_ok(job["interrupt_trigger"])
     i4 = doc["interruptions"]["I4"]
     assert i4["job"] == "N2" and i4["from"] and i4["needs_new_slot"] is True and i4["between_calls"] is True
@@ -183,17 +188,17 @@ def test_cli_refuses_i4_on_a_job_that_is_not_its_vehicle(capsys, monkeypatch):
 
 
 def n2_script():
-    """From a checkpoint with no flax: the bag is filled at once (at:0, no call open); his flax pickup 6-14 s comes
-    back nothing_in_range (the bite); he stores his stone 16-20 s (room back at the 21 s read); picks 10 flax 25-45 s;
-    stores them 47-52 s."""
-    rows = model(T0 + 1) + [call(T0 + 6, "p1", "pickup", {"resource": "flax", "count": 10}),
+    """From a checkpoint with no redberries: the bag is filled at once (at:0, no call open); his berry pickup 6-14 s
+    comes back nothing_in_range (the bite); he stores his stone 16-20 s (room back at the 21 s read); picks 10 berries
+    25-45 s; stores them 47-52 s."""
+    rows = model(T0 + 1) + [call(T0 + 6, "p1", "pickup", {"resource": "redberries", "count": 10}),
                             result(T0 + 14, "p1", "pickup", ok=False, reason="nothing_in_range"),
                             call(T0 + 16, "s1", "store", {"item": "Stone", "container": CRATE}),
                             store_one(T0 + 20, "s1", STONE, "Stone", 5, 5, ["5 Stone"]),
-                            call(T0 + 25, "p2", "pickup", {"resource": "flax", "count": 10}),
-                            result(T0 + 45, "p2", "pickup", data={"detail": "Got 10 flax."}),
-                            call(T0 + 47, "s2", "store", {"item": "Flax", "container": CRATE}),
-                            store_one(T0 + 52, "s2", FLAX, "Flax", 10, 10, ["5 Stone", "10 Flax"])]
+                            call(T0 + 25, "p2", "pickup", {"resource": "redberries", "count": 10}),
+                            result(T0 + 45, "p2", "pickup", data={"detail": "Got 10 redberries."}),
+                            call(T0 + 47, "s2", "store", {"item": "Redberries", "container": CRATE}),
+                            store_one(T0 + 52, "s2", BERRY, "Redberries", 10, 10, ["5 Stone", "10 Redberries"])]
     return sorted(rows, key=lambda r: r["ts"])
 
 
@@ -202,9 +207,9 @@ def _nz(carried):
 
 
 def n2_state(t):
-    flax = 10 if T0 + 45 <= t < T0 + 52 else 0
+    berries = 10 if T0 + 45 <= t < T0 + 52 else 0
     stone = 5 if t < T0 + 20 else 0
-    s = state(carried=_nz({STONE: stone, FLAX: flax}), mine=[CRATE])
+    s = state(carried=_nz({STONE: stone, BERRY: berries}), mine=[CRATE])
     s["bag"] = {"used": 32 if t < T0 + 20 else 31, "capacity": 32}
     return s
 
@@ -213,7 +218,7 @@ def n2_crate(t, cid):
     if cid != CRATE:
         return None
     return ([{"item": STONE, "name": "Stone", "count": 5}] if t >= T0 + 20 else []) + \
-           ([{"item": FLAX, "name": "Flax", "count": 10}] if t >= T0 + 52 else [])
+           ([{"item": BERRY, "name": "Redberries", "count": 10}] if t >= T0 + 52 else [])
 
 
 def test_i4_on_n2_bites_clears_and_resumes_by_the_games_reads(doc):
@@ -221,7 +226,7 @@ def test_i4_on_n2_bites_clears_and_resumes_by_the_games_reads(doc):
     rec = j.run_job(io, j.job_of("N2", doc), {"step": "I4", "interruptions": doc["interruptions"], "confirm_s": 5,
                                               "deadline": 200})
     intr = rec["interruption"]
-    assert intr["full_read"] and intr["moment"]["unheld"] == [FLAX] and intr["t_put"] < 6
+    assert intr["full_read"] and intr["moment"]["unheld"] == [BERRY] and intr["t_put"] < 6
     assert intr["bite"]["t"] == 14.0 and intr["bite"]["call"]["tool"] == "pickup"
     assert intr["freed_by"]["tool"] == "store" and 20.0 <= intr["t_clear"] <= 36.0
     r = rec["resume"]

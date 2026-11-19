@@ -660,6 +660,46 @@ def test_the_window_refuses_when_the_save_it_forks_is_under_the_bar(tmp_path, mo
     assert "ClaudeDev's save unfit: food 33 of 100, water 20 of 100" in out and "-m tools.vitals_rescue" in out
 
 
+def test_a_save_fit_but_under_the_start_bar_refuses_the_window(tmp_path, monkeypatch, capsys):
+    # window n2_i4 2026-11-19: ClaudeDev's save read food 67, water 56 (fit at 40); every fork met the line at water
+    # 42-46 % and spent I4's 120 s on drinking. A trial starts at START_PCT (70), and says why and what to run.
+    from tools import quest_clone
+    monkeypatch.setattr(quest_clone, "SAVE_DIR", tmp_path)
+    fit_save(tmp_path / "ClaudeDev.json", food=66.9, water=56.2)
+
+    def no_window(*a, **k):
+        raise AssertionError("opened the lock window")
+    monkeypatch.setattr(q, "refuse_dirty", lambda a: False)
+    monkeypatch.setattr(q, "clone_window", no_window)
+    monkeypatch.setattr(j, "load_jobs", lambda: {"jobs": {"L9": {"start": "ClaudeDev"}}})
+    monkeypatch.setattr(j, "start_ref", lambda job, step, override, spec=None: ("ClaudeDev", "the job's start"))
+    monkeypatch.setattr(quest_clone, "CHECKPOINT_DIR", tmp_path / "no_checkpoints")
+    monkeypatch.setattr(quest_clone, "place_of", lambda ref: None)
+    assert j.main(["trial", "--confirm", "--job", "L9", "-k", "2"]) == 3
+    out = capsys.readouterr().out
+    assert "ClaudeDev's save unfit: food 67 of 100, water 56 of 100 (under 70 % is unfit" in out
+    assert "-m tools.vitals_rescue" in out and "drink line" in out
+    assert j.START_PCT == 70.0 > j.FIT_PCT
+
+
+def test_start_unfit_reads_the_save_then_the_joined_body(tmp_path):
+    save = fit_save(tmp_path / "cp.json", food=80.0, water=75.0)
+    assert j.start_unfit(save) is None
+    body = {"health": 100.0, "max_health": 100.0, "sustenance": 80.0, "sustenance_max": 100.0, "hydration": 56.0,
+            "hydration_max": 100.0}
+    why = j.start_unfit(save, {"ok": True, "data": body})
+    assert why.startswith("body unfit: water 56 of 100 (under 70 % is unfit)") and "drink line" in why
+    body["hydration"] = 71.0
+    assert j.start_unfit(save, {"ok": True, "data": body}) is None
+
+
+def test_the_record_carries_his_bars():
+    st = {"position": [0, 0, 0], "health": 90.0, "max_health": 100.0,
+          "survival": {"sustenance": [60.0, 80.0], "hydration": [44.0, 100.0]}}
+    assert j.snapshot(st)["vitals"] == {"food": 75.0, "water": 44.0, "health": 90.0}
+    assert "vitals" not in j.snapshot({"position": [0, 0, 0]})
+
+
 def test_the_window_skips_a_fork_that_starts_starved(tmp_path, monkeypatch):
     # the per-fork check is chat_ladder's body_unfit, read through the window's debug client before the walk to the start
     import contextlib

@@ -168,6 +168,21 @@ def test_the_save_is_only_read(cmd, monkeypatch):
     assert cmd["save"].read_bytes() == before
 
 
+def test_the_command_waits_for_a_save_a_job_trial_can_fork(cmd, capsys):
+    # a save rewritten fit (over 40) but under the job start bar (70) is not done: job_run would refuse to fork it
+    cmd["clock"].hooks[1020] = lambda: write_save(cmd["save"], 66.9, 56.2, mtime=1019.0)
+    assert vr.main(["--purpose", "t", "--timeout", "60"]) == 2
+    assert "under the bar: food 67 of 100, water 56 of 100" in capsys.readouterr().out
+    assert [a["pct"] for v, _, a in cmd["dev"].calls if v == "set_stat"] == [100.0, 100.0, 100.0]
+
+
+def test_check_reports_against_the_start_bar(saves, capsys):
+    write_save(saves / "ClaudeDev.json", 66.9, 56.2)
+    assert vr.main(["--check"]) == 1
+    assert "under 70 % is unfit" in capsys.readouterr().out
+    assert vr.main(["--check", "--bar", "40"]) == 0
+
+
 def test_no_new_save_in_time_is_exit_2(cmd, capsys):
     assert vr.main(["--purpose", "t", "--timeout", "60"]) == 2
     assert "not rewritten" in capsys.readouterr().out
