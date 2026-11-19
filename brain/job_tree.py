@@ -932,6 +932,7 @@ class Keeper:
         self.targets: list[dict] = []
         self.failures: dict[str, list[dict]] = {}
         self.last: dict | None = None
+        self._memo: tuple[str, dict] | None = None  # (the inputs' key, the tree built from them): tree()
         self.dir: Path | None = None
         self.owner: int | None = threading.get_ident()  # None: any thread (a tool run outside the agent)
 
@@ -974,10 +975,22 @@ class Keeper:
 
     @_loop_only(None)
     def tree(self, state: dict | None, spells: list[dict] | None = None) -> dict | None:
+        """The tree from this state. Built at most once per state snapshot: the same state, spells, targets and kept
+        failures give the tree already built (live 2026-11-19: it was built twice a turn, 2.5-2.9 s each, from the
+        same get_state); any change in them (a bag, a position, a new failure) builds it again, so every status is
+        the current state's."""
         if not self.targets:
             return None
         try:
+            key = json.dumps([self.targets, self.failures, state, spells], sort_keys=True, default=str)
+        except (TypeError, ValueError):  # not keyable: built every call
+            key = None
+        if key is not None and self._memo is not None and self._memo[0] == key:
+            self.last = self._memo[1]
+            return self.last
+        try:
             self.last = build(self.data(), self.targets, state, spells, self.failures)
+            self._memo = (key, self.last) if key is not None else None
         except Exception as exc:  # data is best effort: the last tree stands
             self._log("job_tree_error", where="build", error=repr(exc)[:200])
         return self.last

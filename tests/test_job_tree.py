@@ -340,3 +340,62 @@ def test_a_thing_met_again_under_its_own_first_place_builds_over_the_repo_data()
             todo.extend(n.get("children") or [])
         assert seen > 10, words
         jt.full_text(t), jt.compact(t)
+
+
+# ------------------------------------------------------------------ built once per state (perf 2026-11-19)
+
+
+def test_the_same_state_gives_the_tree_already_built(monkeypatch):
+    """Live 2026-11-19: the tree was built twice a turn from one get_state (agent._open_view, then the Controller's
+    _next_turn), 2.5-2.9 s each. The second call on the same state is the first call's tree, not a build."""
+    builds = []
+    real = jt.build
+    monkeypatch.setattr(jt, "build", lambda *a, **kw: builds.append(1) or real(*a, **kw))
+    k = jt.Keeper(data)
+    k.open(("Luis", LINE))
+    t1 = k.tree(V1, [BARK])
+    assert k.tree(V1, [BARK]) is t1 and k.tree(json.loads(json.dumps(V1)), [BARK]) is t1  # a copy: same snapshot
+    k.compact_view(V1, [BARK]), k.full_view(V1, [BARK])
+    assert len(builds) == 1
+    k.tree(V1, [])  # other spells: built again
+    assert len(builds) == 2
+
+
+def test_a_changed_bag_or_a_new_failure_builds_it_again_with_true_statuses():
+    k = jt.Keeper(data, wall=lambda: 1000.0)
+    k.open(("Luis", LINE))
+    t1 = k.tree(V1)
+    assert find(t1, "tool")[0]["status"] == "blocked"
+    assert find(t1, "craft", "craft Bone Pickaxe")[0]["status"] == "blocked"
+    t2 = k.tree({**V1, "inventory": {**V1["inventory"], LEATHER[0]: 4}})
+    assert t2 is not t1 and find(t2, "craft", "craft Bone Pickaxe")[0]["status"] == "ready"
+    assert find(k.tree({**V1, "inventory": {**V1["inventory"], P_BONE[0]: 1}}), "tool")[0]["status"] == "done"
+    assert find(k.tree(V1), "tool")[0]["status"] == "blocked"  # the old bag again: the old statuses
+    k.record("craft", {"item": "Bone Pickaxe"}, False, "missing_materials", "I need 4 Leather and I have 0")
+    assert find(k.tree(V1), "craft", "craft Bone Pickaxe")[0]["failed"][0]["reason"] == "missing_materials"
+
+
+def test_a_turn_builds_the_tree_over_the_repo_data_in_well_under_a_second():
+    """Repo data with the wiki index and the map: the tree for 30 copper ore at a live position (run 060926), a new
+    snapshot each turn, asked twice per turn as the agent and the Controller do. Target 0.3 s; the bound is generous
+    (it was 4.2-5.3 s a turn before)."""
+    import copy
+    import time
+    from brain.knowledge import open_knowledge
+    from brain.places import Places
+    kn, pl = open_knowledge(), Places()
+    k = jt.Keeper(lambda: jt.GameData.default(knowledge=kn, places=pl))
+    k.open(("Luis", LINE))
+    assert k.targets and k.targets[0]["item"] == ORE[0]
+    base = {"position": [155.32, 1910.18, -30.79], "inventory": {STONE[0]: 6, P_STONE[0]: 1}}
+    k.tree(base)  # the first build of the process fills the caches
+    turns = []
+    for i in range(3):
+        s = copy.deepcopy(base)
+        s["position"][0] += 4 * (i + 1)
+        t0 = time.perf_counter()
+        a = k.compact_view(s, where="open_ask")
+        b = k.compact_view(s, where="next_turn")
+        turns.append(time.perf_counter() - t0)
+        assert a and a == b
+    assert max(turns) < 1.5, turns

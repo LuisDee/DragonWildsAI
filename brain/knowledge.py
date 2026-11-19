@@ -611,6 +611,9 @@ def skill_pages(root: Path | None = None) -> dict[str, dict]:
     return skill_rows(root)
 
 
+_MISS = object()
+
+
 class Knowledge:
     """``lookup(query, kind)`` over game data + wiki. Thread-safe for reads."""
 
@@ -629,6 +632,8 @@ class Knowledge:
         if rebuild or self._meta("signature") != sig:
             self._build(sig)
         self.build = self._meta("build")
+        self._facts: dict = {}  # node_facts / build_facts answers (_cached)
+        self._facts_stamp = None
         self.bestiary = self._load_bestiary(Path(bestiary) if bestiary else self.data / "bestiary.json")
 
     def _load_bestiary(self, path: Path):
@@ -874,9 +879,38 @@ class Knowledge:
         q = _terms(query)
         if not q:
             return None
-        with self._lock:
-            rows = self.db.execute("SELECT title, heading, body, url FROM docs WHERE tier = 1 AND kind = 'resource node' "
-                                   "ORDER BY rowid").fetchall()
+        key = ("node", frozenset(q))
+        hit = self._cached(key)
+        if hit is not _MISS:
+            return dict(hit) if hit else None
+        rows = self._cached(("node_rows",))
+        if rows is _MISS:
+            with self._lock:
+                rows = self.db.execute("SELECT title, heading, body, url FROM docs WHERE tier = 1 AND "
+                                       "kind = 'resource node' ORDER BY rowid").fetchall()
+            self._facts[("node_rows",)] = rows
+        out = self._node_facts(q, rows)
+        self._facts[key] = out
+        return dict(out) if out else None
+
+    def _cached(self, key):
+        """A node_facts / build_facts answer kept from an earlier call, or _MISS. The answers are kept while the index
+        file is the one they were read from (its size and mtime; a rebuild by another brain drops them). The job tree
+        asked node_facts ~30 times a build, each a full read of the resource-node rows: 0.9 s of a 2.8 s build
+        (profile 2026-11-19)."""
+        stamp = None
+        if self.db_path is not None:
+            try:
+                st = self.db_path.stat()
+                stamp = (st.st_size, st.st_mtime_ns)
+            except OSError:
+                stamp = None
+        if stamp != self._facts_stamp:
+            self._facts, self._facts_stamp = {}, stamp
+        return self._facts.get(key, _MISS)
+
+    @staticmethod
+    def _node_facts(q: set, rows: list) -> dict | None:
         best = None
         for title, heading, _, _ in rows:
             if heading:
@@ -905,9 +939,19 @@ class Knowledge:
         Coarse Thread)."""
         if not name or not name.strip():
             return None
+        key = ("build", name.strip().lower())
+        hit = self._cached(key)
+        if hit is not _MISS:
+            return dict(hit, cost=list(hit["cost"])) if hit else None
         with self._lock:
             rows = self.db.execute("SELECT title, heading, body, url FROM docs WHERE tier = 1 AND title = ? COLLATE NOCASE "
                                    "ORDER BY rowid", (name.strip(),)).fetchall()
+        out = self._build_facts(rows)
+        self._facts[key] = out
+        return dict(out, cost=list(out["cost"])) if out else None
+
+    @staticmethod
+    def _build_facts(rows: list) -> dict | None:
         recipe = next((r for r in rows if re.search(r"\bfacility=Build Menu\b", r[2] or "", re.I)), None)
         if recipe is None:
             return None

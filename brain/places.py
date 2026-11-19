@@ -42,6 +42,7 @@ from .geom import dist
 from .knowledge import STOP, _stem, _terms, data_dir, words
 
 SPOTS = 6  # spots listed per landmark name
+AT_CACHE = 20000  # points kept by Places.region_at
 NOTE = ("Positions are game data or what you saw yourself; a point marked approximate is not checked for ground or "
         "a path. Say how you know, and say so when you don't.")
 
@@ -153,7 +154,13 @@ class Places:
             poly = r.get("polygon") if isinstance(r.get("polygon"), list) and len(r["polygon"]) >= 3 else None
             shape = poly or _bbox_poly(r.get("bbox"))
             if r.get("name") and shape:
-                self.regions.append({**r, "_shape": shape, "_exact": poly is not None, "_area": area(shape)})
+                xs, ys = [q[0] for q in shape], [q[1] for q in shape]
+                self.regions.append({**r, "_shape": shape, "_exact": poly is not None, "_area": area(shape),
+                                     "_box": (min(xs), min(ys), max(xs), max(ys))})
+        # region_at by point: the map is fixed for this object (its file is read once), so a point's region is too.
+        # The job tree's map lines asked it ~4000 times a build (every landmark, per region and province), 1.6 s of
+        # a 2.8 s build (profile 2026-11-19); bounded, cleared when full
+        self._at: dict[tuple[float, float], dict | None] = {}
         self.provinces: list[dict] = [dict(p) for p in data.get("provinces") or [] if p.get("name")]
         if not self.provinces:  # older files: provinces only on the regions
             names = dict.fromkeys(r["province"] for r in self.regions if r.get("province"))
@@ -176,8 +183,17 @@ class Places:
         p = _pos(pos)
         if p is None:
             return None
-        hits = [r for r in self.regions if inside(r["_shape"], p[0], p[1])]
-        return min(hits, key=lambda r: r["_area"]) if hits else None
+        key = (p[0], p[1])
+        if key in self._at:
+            return self._at[key]
+        x, y = key
+        hits = [r for r in self.regions if r["_box"][0] <= x <= r["_box"][2] and r["_box"][1] <= y <= r["_box"][3]
+                and inside(r["_shape"], x, y)]
+        best = min(hits, key=lambda r: r["_area"]) if hits else None
+        if len(self._at) >= AT_CACHE:
+            self._at.clear()
+        self._at[key] = best
+        return best
 
     def region_name(self, pos) -> str | None:
         r = self.region_at(pos)

@@ -305,6 +305,25 @@ def test_compass_matches_the_wikis_geography_on_the_real_map():
     assert direction([0, 0], [0, -10]) == "N" and direction([0, 0], [10, 0]) == "E"
 
 
+def test_region_at_cached_and_box_filtered_agrees_with_the_plain_scan():
+    """region_at keeps a point's region (the map is fixed per Places) and skips regions whose box misses the point
+    (perf 2026-11-19); the answer is the plain smallest-polygon scan's, for landmarks of the repo map."""
+    from brain.places import inside
+    p = Places()
+    if not p.regions:
+        pytest.skip("no data/places_<build>.json")
+
+    def plain(pos):
+        hits = [r for r in p.regions if inside(r["_shape"], pos[0], pos[1])]
+        return min(hits, key=lambda r: r["_area"]) if hits else None
+
+    pts = [lm["position"] for rows in p.landmarks.values() for lm in rows][:400]
+    assert pts and any(plain(x) for x in pts)
+    for pos in pts:
+        assert p.region_at(pos) is plain(pos)
+        assert p.region_at(pos) is plain(pos)  # from the cache
+
+
 def test_where_line_names_region_province_named_places_and_the_go_to_point():
     from brain.broker import EventBroker
     b = EventBroker()
