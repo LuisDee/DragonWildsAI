@@ -986,10 +986,12 @@ class Keeper:
         except (TypeError, ValueError):  # not keyable: built every call
             key = None
         if key is not None and self._memo is not None and self._memo[0] == key:
-            self.last = self._memo[1]
+            self.last, self.build_ms = self._memo[1], 0
             return self.last
         try:
+            t0 = time.perf_counter()
             self.last = build(self.data(), self.targets, state, spells, self.failures)
+            self.build_ms = round((time.perf_counter() - t0) * 1000)  # shown on job_tree_shown (b28ab91's line)
             self._memo = (key, self.last) if key is not None else None
         except Exception as exc:  # data is best effort: the last tree stands
             self._log("job_tree_error", where="build", error=repr(exc)[:200])
@@ -1003,7 +1005,8 @@ class Keeper:
         v = compact(t, self.wall())
         if where:
             self._log("job_tree_shown", where=where, view="compact", nodes=t["nodes"], chars=size(v),
-                      ready=len(v.get("nothing_blocks_now") or []), blocked=len(v.get("blocked") or []))
+                      ready=len(v.get("nothing_blocks_now") or []), blocked=len(v.get("blocked") or []),
+                      build_ms=getattr(self, "build_ms", None))
         return v
 
     @_loop_only(None)
