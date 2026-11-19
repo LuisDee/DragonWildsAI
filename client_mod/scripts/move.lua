@@ -125,7 +125,8 @@ M.cfg = {
     jump_gravity_cms2 = 1813,  -- his gravity in flight (GetGravityZ -1813, DISCOVERIES jump envelope): time to fall to a level
     jump_coast_brake_cms2 = nil, -- his horizontal deceleration with no stick in the air; nil = the read
                                -- BrakingDecelerationFalling (move: jump physics), else 0 (the engine default)
-    jump_settle_s = 0.5,       -- down after a typed jump but with no floor within a step under his centre (on his
+    jump_z_cms = nil,          -- his upward speed at a jump press; nil = the read JumpZVelocity, else 808 (DISCOVERIES)
+    jump_settle_s = 0.5,      -- down after a typed jump but with no floor within a step under his centre (on his
                                -- capsule's rim, or caught on the face): he pushes on this long to stand, then it missed
     takeoff_blocked_cm = 75,   -- within this of a jump's start (inside its 1 m cell) and no nearer for
     takeoff_blocked_s = 0.6,   -- ... this long, on the ground: he takes off from where he stands
@@ -3461,23 +3462,36 @@ end
 -- counter-steer once momentum reaches the target (UE CharacterMovementComponent: with no input in the air only
 -- BrakingDecelerationFalling and FallingLateralFriction slow him; AirControl scales input). djump-drift study
 -- 2026-11-18: on the one-cell rock top he pushed at the cell all flight and came down 1.25-1.5 m past it, 16 of 16.
--- Returns hold, distance left, speed toward it, coast, time to its level. A field (the main chunk's 200-local limit).
-function M.air_let_go(st, pawn, me, p)
+-- With a double jump's second press still to come, the flight is counted with it: jump_tick presses at the first
+-- frame past dj_delay_s, and the press sets his upward speed to JumpZVelocity (UE DoJump). Before 2026-11-19 the
+-- rule waited for the press and he pushed until then: on one-cell tops the standing double jumps of 00:43:10Z,
+-- 01:08:41Z, 01:08:44Z and 01:57:38Z were at 221-309 cm/s at the second press (vh2, a cell 100-141 cm off), let go
+-- 0.02-0.05 s after it with a coast of 181-237 cm against 30-92 cm left, and came down 1.1-2.3 m past (scratchpad
+-- study jump_real_1119); at 01:57:38Z the press came at 0.92 s (frames at 12/s), so he pushed 0.9 s.
+-- Returns hold, distance left, speed toward it, coast, time to its level, s to the second press (0 if none).
+-- A field (the main chunk's 200-local limit).
+function M.air_let_go(st, pawn, me, p, t)
     local ok, vx, vy, vz = pcall(function() local u = pawn.CharacterMovement.Velocity; return u.X, u.Y, u.Z end)
     if not (ok and type(vx) == "number" and type(vy) == "number" and type(vz) == "number") then return false end
     local ex, ey = p.X - me.X, p.Y - me.Y
     local d = math.sqrt(ex * ex + ey * ey)
-    if d < 1 then return true, d, 0, 0, 0 end -- over it: a push only takes him off it
+    if d < 1 then return true, d, 0, 0, 0, 0 end -- over it: a push only takes him off it
     local along = (vx * ex + vy * ey) / d
     if along <= 0 then return false, d, along end
     local g = M.cfg.jump_gravity_cms2
-    local disc = vz * vz + 2 * g * ((me.Z - (st.half_h or 88)) - p.Z)
+    local h, wait = (me.Z - (st.half_h or 88)) - p.Z, 0
+    if st.jump_double then
+        wait = (st.jump_t and t) and math.max(0, st.jump_t + ((st.env and st.env.dj_delay_s) or 0.33) - t) or 0
+        h = h + vz * wait - 0.5 * g * wait * wait
+        vz = M.cfg.jump_z_cms or (M.jump_phys and M.jump_phys.JumpZVelocity) or 808
+    end
+    local disc = vz * vz + 2 * g * h
     if disc < 0 then return false, d, along end -- he does not come back down to its level
-    local tdown = (vz + math.sqrt(disc)) / g
+    local tdown = wait + (vz + math.sqrt(disc)) / g
     if tdown <= 0 then return false, d, along end -- under its level and falling
     local a = M.cfg.jump_coast_brake_cms2 or (M.jump_phys and M.jump_phys.BrakingDecelerationFalling) or 0
     local coast = (a > 0 and along / a < tdown) and along * along / (2 * a) or along * tdown - 0.5 * a * tdown * tdown
-    return coast >= d, d, along, coast, tdown
+    return coast >= d, d, along, coast, tdown, wait
 end
 
 local function steer_typed_jump(f, p)
@@ -3607,16 +3621,14 @@ local function steer_typed_jump(f, p)
             j.nearest, j.nearest_dz, j.vhn, j.inn = dn, (me.Z - (st.half_h or 88)) - p.Z, h_speed(st, pawn), pushed
         end
         -- once his drift still to come covers the distance left, no stick this frame (steer_input's no-input frame);
-        -- not while a double jump's second press is still to come (it changes the flight)
-        if not st.jump_double then
-            local okh, hold, dl, along, coast, tdown = pcall(M.air_let_go, st, pawn, me, p)
-            if okh and hold then
-                st.hold_gap = true
-                if not j.let_go then
-                    j.let_go = t
-                    if log then log(string.format("move: jump air: letting go %.0f cm from the landing (coast %.0f cm at %.0f cm/s, %.2f s to its level)",
-                        dl, coast, along, tdown)) end
-                end
+        -- with a double jump's second press still to come, over the flight that press makes (M.air_let_go)
+        local okh, hold, dl, along, coast, tdown, wait = pcall(M.air_let_go, st, pawn, me, p, t)
+        if okh and hold then
+            st.hold_gap = true
+            if not j.let_go then
+                j.let_go = t
+                if log then log(string.format("move: jump air: letting go %.0f cm from the landing (coast %.0f cm at %.0f cm/s, %.2f s to its level%s)",
+                    dl, coast, along, tdown, st.jump_double and string.format("; the second press still to come in %.2f s", wait or 0) or "")) end
             end
         end
     end

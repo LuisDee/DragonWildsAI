@@ -3803,10 +3803,12 @@ end
 -- In the air on a typed jump he lets go of the stick once the drift still to come (his speed toward the landing over
 -- the time left to fall to its level) covers the distance left (djump-drift study 2026-11-18: on a one-cell rock top
 -- he pushed at the cell all flight and came down 1.25-1.5 m past it, 16 of 16). A long gap jump still steers; moving
--- away from the landing, he pushes back at it; with the second press of a double jump still to come he steers on.
+-- away from the landing, he pushes back at it. With the second press of a double jump still to come, the flight is
+-- counted with that press (since 2026-11-19; before, he steered on until it).
 do
     local cm = pawn.CharacterMovement
-    local function airborne(dist, vh, vz, above, rise, act, pending)
+    -- jt: s since the first press (st.jump_t), with a second press pending
+    local function airborne(dist, vh, vz, above, rise, act, pending, jt)
         M.stop(log); frame_hook = nil; walls = {}; raised = {}; air = 0; oracle = nil; pump_oracle(); GEAR = false
         pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 2500, Y = 0, Z = 0 }
         M.follow(log, "Zezima", 2, { nav = false })
@@ -3819,7 +3821,7 @@ do
         mv.lwp = 2; mv.lp_jumped = {}; mv.lp_runup = nil
         mv.lp_jump_exec = { path = mv.lpath, index = 2, endpoint = mv.lpath[2], previous = mv.lpath[1], token = mv.owner_token,
                             started = T - 0.6, saw_air = true }
-        mv.jump_t, mv.jump_double, mv.jump_release, mv.jump_t2 = nil, pending or false, false, nil
+        mv.jump_t, mv.jump_double, mv.jump_release, mv.jump_t2 = jt and T - jt or nil, pending or false, false, nil
         mv.trav_fails, mv.lp_fail = nil, nil
         pawn.loc = { X = here.X + 600 - dist, Y = here.Y, Z = here.Z + rise + above }
         local inputs, real_add = 0, pawn.AddMovementInput
@@ -3843,9 +3845,21 @@ do
     -- past the cell and moving on away from it: he pushes back at it (the stick toward it brakes him)
     inputs, said = airborne(-60, 250, -100, 87, 230)
     check("air: past the cell, moving away, he pushes back at it", inputs == 1 and said == nil, "inputs=" .. inputs .. " " .. tostring(said))
-    -- a double jump with its second press still to come: the flight is not yet known, he steers on
-    inputs, said = airborne(60, 250, 100, -100, 230, "djump", true)
-    check("air: before a double jump's second press he steers on", said == nil, "inputs=" .. inputs .. " " .. tostring(said))
+    -- before a double jump's second press (scratchpad study jump_real_1119): the standing djumps onto one-cell tops
+    -- (00:43:10Z, 01:08:41Z, 01:08:44Z, 01:57:38Z) pushed until the press, were at 221-309 cm/s there and came down
+    -- 1.1-2.3 m past. 01:57:38Z's shape 0.2 s after the first press: the cell 85 cm off and 207 cm up, 82 cm under
+    -- its level, rising at 445 cm/s, 150 cm/s toward it, the press 0.13 s away: the flight with that press carries
+    -- him there, no stick
+    inputs, said, mv = airborne(85, 150, 445, -82, 207, "djump", true, 0.2)
+    check("air: before a double jump's second press, drift to spare over the flight it makes: no stick", inputs == 0
+        and said ~= nil and said:find("the second press still to come in 0.1", 1, true) ~= nil and mv.jump_double == true,
+        "inputs=" .. inputs .. " " .. tostring(said))
+    -- 0.05 s after the press, 40 cm/s toward a cell 100 cm off: the drift falls short, he steers on
+    inputs, said = airborne(100, 40, 717, -169, 207, "djump", true, 0.05)
+    check("air: before the second press with too little drift he steers on", inputs == 1 and said == nil, "inputs=" .. inputs .. " " .. tostring(said))
+    -- a 4 m gap double jump on one level before its second press: he steers on
+    inputs, said = airborne(400, 300, 500, 50, 0, "djump", true, 0.1)
+    check("air: a long gap double jump before its second press still steers", inputs == 1 and said == nil, "inputs=" .. inputs .. " " .. tostring(said))
     -- under the top's level and rising too slowly to reach it: no coast to its level, he steers on
     inputs, said = airborne(60, 250, 100, -200, 230)
     check("air: never back up to the top's level, he steers on", inputs == 1 and said == nil, "inputs=" .. inputs .. " " .. tostring(said))
