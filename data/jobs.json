@@ -243,8 +243,8 @@
           "end": {
             "in_vault": {"vault": "Crasorak Kara"}
           },
-          "note": "Done: the game's own flag (get_state in_vault: ULocalPlayerAudioSubsystem.bInDungeon) true and the registry box that holds him named Crasorak Kara (get_state vault, sense.vault_here). In a vault with the vault unnamed reads unread (not counted), never a pass. from: the checkpoint pair a passing K1 run saved (--save-as vault_door); until it exists the stage cannot run.",
-          "unverified_live": ["in_vault true was never read (7 of 7 reads false, outside)", "the registry reads complete=false (32 entries, one without a box): if Crasorak's is that one, vault stays nil and every K2 trial is unread", "the press on the door: with the teleport hooks off (default) it answers verification_failed or nothing while the world streams; with them on companion_down 'I'm being teleported'. Neither says 'inside': only the end read does", "the teleport through the stream-out with the hooks off is the R16/R17 crash class: run K2 with ProcDump on the client"]
+          "note": "Done: inside Crasorak Kara by tools/job_run.vault_place: the registry box that holds his position named Crasorak Kara (get_state vault, sense.vault_here), else the run's last door jump (over 200 m between two reads) landed him within 60 m of where a door that leads to Crasorak Kara arrives. The game's flag in_vault (ULocalPlayerAudioSubsystem.bInDungeon) is kept as a field, never required: it read false inside Crasorak Kara on 19 Nov (DISCOVERIES 2026-11-19). In a vault with the vault unnamed reads unread (not counted), never a pass. The record keeps vault_arrival (where the jump landed him, the door, the hostiles within 30 m). from: the checkpoint pair a passing K1 run saved (--save-as vault_door); until it exists the stage cannot run.",
+          "unverified_live": ["the door row in get_state at the door (the jump match needs it; the probe of 19 Nov read it by look): without it inside rests on the box alone, which read on 19 Nov", "a K2 trial itself: the box and the jump were read once, by the probe on a fork, never in a trial with the brain", "the press on the door: with the teleport hooks off (default) it answers verification_failed or nothing while the world streams; with them on companion_down 'I'm being teleported'. Neither says 'inside': only the end read does", "the teleport through the stream-out with the hooks off is the R16/R17 crash class: run K2 with ProcDump on the client"]
         },
         "K3": {
           "from": "vault_door",
@@ -264,7 +264,7 @@
             "carried_gain": {"ITEM_Resources_VaultCore": 1},
             "left_vault": {"vault": "Crasorak Kara"}
           },
-          "note": "from: vault_boss_door comes by --save-as from a K run that reached the lever (rule 8), never from a fixture probe. left_vault: a read in the run had him inside Crasorak Kara and the last read has him outside.",
+          "note": "from: vault_boss_door comes by --save-as from a K run that reached the lever (rule 8), never from a fixture probe. left_vault: a read in the run had him inside Crasorak Kara (vault_place: its box, else a door jump into it) and the last read has him outside (no box, no jump in since, in_vault read).",
           "unverified_live": ["the interior positions (the lever stairs, the boss door): unknown until K2/K3 reads or the metabot map", "the lever pull reads ok by its own switch_position (interact changed 'switched', new in skills.lua and client_bridge.lua): SwitchState.SwitchPosition was never read live", "the Overlord: AIName, bIsBoss (the reflex flees any boss), HP 1300 or 650", "the vault core is a WorldItem that interact picks up, and its item id ITEM_Resources_VaultCore (from the recipe data; never carried)"]
         }
       }

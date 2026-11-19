@@ -127,7 +127,7 @@ def _trim_state(state: dict) -> dict:
     out = {k: state[k] for k in keep if k in state}
     if isinstance(state.get("nearby_entities"), list):
         out["nearby_entities"] = creature_rows(state)
-    out.update(vault_fields(state))  # in a vault and which (the game's flag); nothing when not in one or unread
+    out.update(vault_fields(state))  # in a vault and which (its registry box, else the flag); nothing when not read in one
     # his spells with their recharge: castable now and how long it recharges after each cast, or the seconds left.
     # L2-V1 2026-11-19: plans queued four 300 s Bark to Bones casts in a row and a replan put one back with 82 s left
     if spell_lines := state_spell_lines(state):

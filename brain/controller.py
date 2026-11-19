@@ -324,7 +324,7 @@ def _look_row(t):
 
 def look_view(data: dict) -> dict:
     """A body look result as the model sees it: its rows through _look_row, and in_vault / vault only as
-    sit.vault_fields gives them (in_vault only when the game's flag is true; nothing when it was not read)."""
+    sit.vault_fields gives them (in a vault when its registry box holds him or the game's flag reads true)."""
     out = {k: v for k, v in data.items() if k not in ("in_vault", "vault")}
     return {**out, "things": [_look_row(t) for t in data.get("things") or []], **sit.vault_fields(data)}
 

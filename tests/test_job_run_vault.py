@@ -104,15 +104,117 @@ def test_at_place_by_the_door_row_or_the_data_spot():
 
 
 # ------------------------------------------------------------------ in_vault
-def test_in_vault_reads_the_game_flag_and_the_vault_that_holds_him():
+def test_in_vault_reads_the_vault_box_that_holds_him_and_the_flag_when_true():
     spec = {"vault": "Crasorak Kara"}
     assert j.p_in_vault(spec, {}, S(gs(INSIDE, True, "Crasorak Kara")))[0] is True
     assert j.p_in_vault(spec, {}, S(gs(INSIDE, True, "Takla Kara")))[0] is False
     assert j.p_in_vault(spec, {}, S(gs(NEAR, False)))[0] is False
     ok, why = j.p_in_vault(spec, {}, S(gs(INSIDE, True)))  # the registry named no box (complete=false)
     assert ok is None and "registry" in why
-    assert j.p_in_vault(spec, {}, S(gs(NEAR)))[0] is None  # in_vault not read
+    assert j.p_in_vault(spec, {}, S(gs(NEAR)))[0] is None  # nothing read
     assert j.p_in_vault(True, {}, S(gs(INSIDE, True)))[0] is True  # any vault
+
+
+# ------------------------------------------------------------------ the first vault probe (run 20261119-063427)
+# logs/evals/vault_probe.jsonl, build 26670300, fork ClaudeV19053429: the door row at the door, then one press on it
+# moved him 2211 m into Crasorak Kara, where get_state read in_vault FALSE and vault "Crasorak Kara"
+PROBE_DOOR = {"id": "BP_InteractablePlayerTeleporter_C_UAID_18C04D97CB3D30D401_1397338720", "name": "Crasorak Kara",
+              "prompt": "Enter", "distance": 5.46, "position": [374.58, 1918.74, -0.33],
+              "destination": "V_Crasorak Kara (BM_V1)", "arrives_at": [-1633.67, 1011.51, -420.14],
+              "leads_to": "Crasorak Kara", "locked": None}
+PROBE_AT_DOOR = [370.7, 1915.0, -1.2]
+PROBE_LANDED = [-1662.25, 1045.84, -428.21]
+PROBE_EXIT = {"id": "BP_InteractablePlayerTeleporter_C_UAID_18C04D97CB3D97BE01_1273952448", "name": "Vault Door",
+              "prompt": "Exit", "distance": 48.14, "position": [-1630.09, 1011.48, -418.06],
+              "destination": "V_Crasorak Kara_Exit", "arrives_at": [376.17, 1916.01, -1.94]}
+PROBE_HULK = {"id": "BP_AI_MeleeVaultGuardian_Character_C_2147464509", "name": "Vault Guardian Hulk", "distance": 10.73,
+              "hostile": True, "attitude": "hostile", "alertness": "suspicious", "power_level": 2}
+PROBE_RAT = {"id": "BP_AI_GiantRat_Character_C_2147464545", "name": "Giant Rat", "distance": 23.58, "hostile": True,
+             "attitude": "hostile", "alertness": "ambient", "power_level": 2}
+
+
+def probe_door():
+    return gs(PROBE_AT_DOOR, False, interactables=[dict(PROBE_DOOR)])
+
+
+def probe_inside(vault="Crasorak Kara", pos=PROBE_LANDED):
+    return gs(pos, False, vault, interactables=[dict(PROBE_EXIT)], nearby_entities=[PROBE_HULK, PROBE_RAT])
+
+
+def test_probe_inside_crasorak_with_the_flag_false_is_inside():
+    spec = {"vault": "Crasorak Kara"}
+    ok, why = j.p_in_vault(spec, {}, S(probe_inside()))
+    assert ok is True and "registry box" in why and "in_vault flag reads false" in why
+    assert j.p_in_vault(spec, {}, S(probe_door()))[0] is False  # at the door: in_vault false and no box
+    pl = j.vault_place(S(probe_inside()))
+    assert pl["inside"] is True and pl["vault"] == "Crasorak Kara"
+
+
+def test_probe_door_jump_is_kept_with_the_arrival_spot_and_the_guardians():
+    sn = j._Seen()
+    sn.see(S(probe_door()), 0.0)
+    sn.see(S(probe_inside()), 3.0)
+    out = S(probe_inside())
+    sn.into(out)
+    (jump,) = out["jumps"]
+    assert jump["m"] == pytest.approx(2211.0, abs=0.1)  # the probe's wait_jump: jump_m 2211.0
+    assert jump["to"] == PROBE_LANDED and jump["door"]["name"] == "Crasorak Kara"
+    assert jump["arrives_m"] == pytest.approx(44.7, abs=0.1) and jump["into"] == "Crasorak Kara"
+    assert jump["vault"] == "Crasorak Kara" and jump["in_vault"] is False
+    assert [h["name"] for h in jump["hostiles_near"]] == ["Vault Guardian Hulk", "Giant Rat"]
+    assert out["vault_arrival"] == jump
+    assert [(r["inside"], r["inside_vault"], r["in_vault"]) for r in out["vault_trace"]] == [
+        (False, None, False), (True, "Crasorak Kara", False)]
+    assert out["vault_trace"][1]["position"] == PROBE_LANDED
+    assert j.p_in_vault({"vault": "Crasorak Kara"}, {}, out)[0] is True
+
+
+def test_probe_door_jump_alone_says_inside_when_no_box_reads():
+    # the box unread (vault absent) but the jump landed 44.7 m from the Crasorak Kara door's arrives_at: inside it
+    sn = j._Seen()
+    sn.see(S(probe_door()), 0.0)
+    sn.see(S(probe_inside(vault=None)), 3.0)
+    out = S(probe_inside(vault=None))
+    sn.into(out)
+    ok, why = j.p_in_vault({"vault": "Crasorak Kara"}, {}, out)
+    assert ok is True and "door jump" in why
+    assert out["vault_arrival"]["into"] == "Crasorak Kara"
+    # a jump that lands far from every door's arrival (a death's respawn at a bed) says nothing
+    sn = j._Seen()
+    sn.see(S(probe_door()), 0.0)
+    sn.see(S(gs([300.0, 1890.0, 0.0], False)), 3.0)  # 75 m: under VAULT_JUMP_M, no jump
+    sn.see(S(gs([-900.0, 400.0, 0.0], False)), 6.0)
+    out = S(gs([-900.0, 400.0, 0.0], False))
+    sn.into(out)
+    assert len(out["jumps"]) == 1 and out["jumps"][0]["into"] is None and out["vault_arrival"] is None
+    assert j.p_in_vault({"vault": "Crasorak Kara"}, {}, out)[0] is False
+
+
+def test_probe_in_then_out_by_the_exit_door_is_left_vault():
+    sn = j._Seen()
+    sn.see(S(probe_door()), 0.0)
+    sn.see(S(probe_inside()), 3.0)
+    sn.see(S(gs([376.17, 1916.01, -1.94], False)), 60.0)  # the exit door's arrives_at, outside
+    out = S(gs([376.17, 1916.01, -1.94], False))
+    sn.into(out)
+    assert [j_["into"] for j_ in out["jumps"]] == ["Crasorak Kara", None]
+    ok, why = j.p_left_vault({"vault": "Crasorak Kara"}, {}, out)
+    assert ok is True and "outside at the last read" in why
+    assert j.p_in_vault({"vault": "Crasorak Kara"}, {}, out)[0] is False
+
+
+def test_probe_kill_inside_with_the_flag_false_counts_in_the_vault():
+    hulk = kill("Vault Guardian Hulk", "BP_AI_MeleeVaultGuardian_Character_C")
+    spec = {"creature": "Vault Guardian Hulk", "vault": "Crasorak Kara", "mine": True}
+    assert j.p_boss_killed(spec, {}, seen(hulk, in_vault=False, vault="Crasorak Kara"))[0] is True
+    sn = j._Seen()
+    sn.see(S(probe_door()), 0.0)
+    sn.see(S(probe_inside()), 3.0)
+    sn.see(S(gs(PROBE_LANDED, False, "Crasorak Kara", kills=[hulk])), 30.0)
+    out = S(gs(PROBE_LANDED, False, "Crasorak Kara", kills=[hulk]))
+    sn.into(out)
+    assert out["kills_seen"][0]["inside"] is True and out["kills_seen"][0]["inside_vault"] == "Crasorak Kara"
+    assert j.p_boss_killed(spec, {}, out)[0] is True
 
 
 # ------------------------------------------------------------------ boss_killed
@@ -160,6 +262,8 @@ def test_left_vault_inside_then_out():
     assert j.p_left_vault(spec, {}, tr((True, "Takla Kara"), (False, None)))[0] is False
     assert j.p_left_vault(spec, {}, tr((True, None), (False, None)))[0] is None  # inside, vault unnamed
     assert j.p_left_vault(spec, {}, {"vault_trace": []})[0] is None
+    # the probe's reads: in_vault false inside, the box named Crasorak Kara
+    assert j.p_left_vault(spec, {}, tr((False, None), (False, "Crasorak Kara"), (False, None)))[0] is True
 
 
 def test_seen_keeps_the_vault_trace_at_changes_and_each_kill_once_with_its_read():
@@ -214,6 +318,18 @@ def test_k1_ends_at_the_door_read_often(k):
     assert rec["run"].endswith("-K-K1") and "Crasorak Kara row" in rec["done_why"]
     assert rec["wall_s"] <= arrive + j.FAST_SAMPLE_S + 1  # read every 3 s: the stand at the door is caught
     assert rec["state_end"]["in_vault"] is False and rec["state_end"]["vault_rows"][0]["name"] == "Crasorak Kara"
+
+
+def test_k2_ends_inside_on_the_probe_reads_with_the_flag_false(k):
+    k2 = j.rung_job(k, "K2")
+    body = Body(lambda t: probe_inside() if t >= T0 + 20 else probe_door(),
+                model(T0 + 1) + [{"ts": T0 + 3, "kind": "tool_call", "call": "i1", "tool": "interact",
+                                  "args": {"target": PROBE_DOOR["id"]}}])
+    rec = j.run_job(body, k2, {})
+    assert rec["ended"] == "job done" and rec["done"] is True and "registry box" in rec["done_why"]
+    assert rec["state_end"]["in_vault"] is False  # kept as read, not required
+    assert rec["vault_arrival"]["to"] == PROBE_LANDED and rec["vault_arrival"]["into"] == "Crasorak Kara"
+    assert rec["vault_arrival"]["hostiles_near"][0]["name"] == "Vault Guardian Hulk"
 
 
 def test_k2_ends_inside_and_an_unnamed_vault_is_unread(k):

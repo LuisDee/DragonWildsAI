@@ -35,17 +35,24 @@ def test_in_vault_true_with_its_name_on_the_you_line():
     assert vault_here({"in_vault": True}) == "in a vault"
 
 
-def test_in_vault_false_or_unread_shows_nothing():
-    for st in (state(in_vault=False), state(), state(in_vault=False, vault="Vertentis Kara")):
+def test_no_vault_box_and_the_flag_false_or_unread_shows_nothing():
+    for st in (state(in_vault=False), state()):
         t = text(st)
         assert "vault Vertentis" not in t and "in a vault" not in t and "Vault:" not in t and "In vault" not in t
-    assert vault_fields({"in_vault": False, "vault": "X"}) == {} and vault_fields({}) == {}
+    assert vault_fields({"in_vault": False}) == {} and vault_fields({}) == {}
 
 
-def test_vault_name_with_the_flag_unread_says_its_area():
-    assert vault_here({"vault": "Crasorak Kara"}) == "in the area of vault Crasorak Kara"
-    assert vault_fields({"vault": "Crasorak Kara"}) == {"vault": "Crasorak Kara"}
+def test_the_vault_box_says_in_vault_whatever_the_flag():
+    # the probe of 19 Nov (run 20261119-063427, build 26670300): inside Crasorak Kara get_state read in_vault false
+    # and vault "Crasorak Kara" (the registry box that holds him); the model is told he is in it
+    probe = {"position": [-1662.25, 1045.84, -428.21], "in_vault": False, "vault": "Crasorak Kara"}
+    assert vault_here(probe) == "in vault Crasorak Kara"
+    assert vault_fields(probe) == {"in_vault": True, "vault": "Crasorak Kara"}
+    assert summary(state(in_vault=False, vault="Crasorak Kara"))[0].endswith(", in vault Crasorak Kara")
+    assert vault_here({"vault": "Crasorak Kara"}) == "in vault Crasorak Kara"  # the flag unread
     assert vault_fields({"in_vault": True, "vault": " "}) == {"in_vault": True}
+    # at the door outside (the probe's door row): in_vault false, no box: nothing
+    assert vault_here({"position": [370.7, 1915.0, -1.2], "in_vault": False}) is None
 
 
 # ---------------------------------------------------------------- door rows
@@ -117,16 +124,20 @@ def test_look_keeps_vault_fields_and_drops_an_unread_or_false_flag():
     assert chest["chest_state"] == "unopened"
     assert trap["category"] == "hazards" and trap["parts"] == 2 and trap["active_parts"] == 1 and "class" not in trap
     for flag in (False, None):
-        out = look_view({"things": [], "in_vault": flag, "vault": "Vertentis Kara" if flag is False else None})
+        out = look_view({"things": [], "in_vault": flag, "vault": None})
         assert "in_vault" not in out and "vault" not in out
+    # the probe's look inside Crasorak Kara: in_vault false, vault named: he is in it
+    out = look_view({"things": [], "in_vault": False, "vault": "Crasorak Kara"})
+    assert out["in_vault"] is True and out["vault"] == "Crasorak Kara"
     assert _look_row(BENCH) == BENCH
 
 
 def test_planner_state_carries_the_vault_only_when_in_one():
     assert _trim_state(state(in_vault=True, vault="Vertentis Kara"))["vault"] == "Vertentis Kara"
     assert _trim_state(state(in_vault=True))["in_vault"] is True
-    out = _trim_state(state(in_vault=False, vault="Vertentis Kara"))
+    out = _trim_state(state(in_vault=False))
     assert "in_vault" not in out and "vault" not in out
+    assert _trim_state(state(in_vault=False, vault="Crasorak Kara"))["vault"] == "Crasorak Kara"  # the box holds him
 
 
 def test_director_compact_state_rows_say_their_vault_state():

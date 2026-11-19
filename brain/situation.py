@@ -704,23 +704,25 @@ def _text(v) -> str | None:
 
 
 def vault_fields(d: dict) -> dict:
-    """get_state's / look's in_vault and vault as the model is given them: in_vault only when the game's own flag is
-    true (with the vault's name when its box holds him); the name alone when the flag was not read; nothing when the
-    flag is false or neither was read."""
+    """get_state's / look's in_vault and vault as the model is given them, read as tools/job_run.vault_place reads
+    inside: the vault's name when its registry box holds him (get_state vault, sense.vault_here), whatever the game's
+    flag says: in_vault (ULocalPlayerAudioSubsystem.bInDungeon) read FALSE inside Crasorak Kara on 19 Nov while the box
+    named it (DISCOVERIES 2026-11-19). The flag true with no box named: in a vault, unnamed. Nothing otherwise (the
+    flag false or unread and no box: no "not in a vault")."""
     if not isinstance(d, dict):
         return {}
     name = _text(d.get("vault"))
-    if d.get("in_vault") is True:
-        return {"in_vault": True, **({"vault": name} if name else {})}
-    return {"vault": name} if name and d.get("in_vault") is None else {}
+    if name:
+        return {"in_vault": True, "vault": name}
+    return {"in_vault": True} if d.get("in_vault") is True else {}
 
 
 def vault_here(state: dict) -> str | None:
-    """'in vault Vertentis Kara' / 'in a vault' (flag true), 'in the area of vault X' (flag unread, its box holds him)."""
+    """'in vault Crasorak Kara' (its box holds him, whatever the flag), 'in a vault' (the flag true, no box named)."""
     f = vault_fields(state)
     if f.get("in_vault"):
         return f"in vault {f['vault']}" if f.get("vault") else "in a vault"
-    return f"in the area of vault {f['vault']}" if f.get("vault") else None
+    return None
 
 
 def vault_row_fields(r: dict) -> dict:
@@ -1252,7 +1254,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append(f"doing {state['action']}")
     if state.get("sleeping"):
         me.append("asleep")
-    if where := vault_here(state):  # the game's own in-vault flag and the vault whose box holds him (client sense.lua)
+    if where := vault_here(state):  # the vault whose registry box holds him, else the game's flag (client sense.lua)
         me.append(where)
     # words first; the [n%] are for decisions (persona: never read numbers out)
     lines.append("You: " + (", ".join(me) or "ok"))

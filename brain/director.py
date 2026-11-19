@@ -458,7 +458,7 @@ def _compact_state(state: dict) -> dict:
                          "complete": list(q.get("complete") or [])[:30]}
     if state.get("following"):
         out["following"] = state["following"]
-    out.update(vault_fields(state))  # in a vault and which (the game's flag); nothing when not in one or unread
+    out.update(vault_fields(state))  # in a vault and which (its registry box, else the flag); nothing when not read in one
     return out
 
 
