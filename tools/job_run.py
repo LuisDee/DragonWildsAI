@@ -2587,8 +2587,6 @@ def run_job(io, job: dict, opts: dict) -> dict:
         nc = f"the job read done at {t_done} s, at or before the interruption cleared: the step says nothing"
     elif step and ok is True and not res.get("resumed") and why == "job done":
         nc = "the job was done before he could take it up again: the step says nothing"
-    if why == "budget" and ok is not True:  # the trial's spend cap ended his model calls: a run fault (rule 3)
-        nc = "the trial's spend cap (--usd) stopped his model calls before the end: a run fault, not counted"
     if nc:
         rec["not_counted"] = nc
     if ok is None and not step and "bar_open" in str(ok_why):
@@ -2598,6 +2596,10 @@ def run_job(io, job: dict, opts: dict) -> dict:
     elif ok is None and not step:  # a whole job whose end state could not be read: not counted, the reason kept
         rec["unread"] = ok_why
     rec["misses"] = misses(tl["calls"], active - idle_total, intr)
+    if why == "budget" and ok is not True and not rec.get("not_counted") and rec["misses"]["n"] <= 1:
+        # the trial's spend cap ended his model calls while he was within the miss bar: a run fault (rule 3). With
+        # more than one miss by then he had already failed a bar on his own: counted (confirm_1119s trial 2, 29 misses)
+        rec["not_counted"] = "the trial's spend cap (--usd) stopped his model calls before the end: a run fault, not counted"
     try:
         h = q.human_bar(rows, len(sent))
         rec["human"] = h

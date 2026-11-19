@@ -1057,3 +1057,15 @@ def test_a_trial_its_spend_cap_cut_off_ends_budget_and_does_not_count(doc):
                  states=lambda t: state(mine=[CRATE]))
     rec2 = j.run_job(io2, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
     assert rec2["ended"] == "quiet" and not rec2.get("not_counted")
+
+
+def test_a_capped_trial_that_had_already_failed_the_miss_bar_counts(doc):
+    """confirm_1119s trial 2: 29 misses, then the 1.5 dollar cap. He had failed the miss bar on his own: counted."""
+    bad = []
+    for i in range(3):
+        t = T0 + 3 + 6 * i
+        bad += [call(t, f"g{i}", "gather"), result(t + 2, f"g{i}", "gather", ok=False, reason="nothing_in_range")]
+    script = model(T0 + 1) + bad + [{"ts": T0 + 40, "kind": "budget_blocked", "call": "controller", "why": "run cap"}]
+    io = FakeIO(script=sorted(script, key=lambda r: r["ts"]), states=lambda t: state(mine=[CRATE]))
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
+    assert rec["ended"] == "budget" and rec["misses"]["n"] > 1 and not rec.get("not_counted")
