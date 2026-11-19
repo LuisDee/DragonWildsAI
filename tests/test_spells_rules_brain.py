@@ -208,8 +208,8 @@ def test_spellbook_from_body_rows_and_cache():
     assert len(book.castable()) == 3
     rows = from_body([{"id": "a", "name": "A", "role": "x", "use_when": "u", "castable": False, "reason": "on_cooldown",
                        "remaining_s": 12}, {"id": "b", "name": "B", "castable": False, "reason": "not_implemented"}])
-    assert rows == [{"name": "A", "role": "x", "use_when": "u", "note": "on cooldown (12s)", "castable": False,
-                     "reason": "on cooldown (12s)"}]
+    assert rows == [{"name": "A", "role": "x", "use_when": "u", "remaining_s": 12.0, "note": "recharging, 12 s left",
+                     "castable": False, "reason": "recharging, 12 s left"}]
 
 
 def test_blocked_spells_render_as_not_castable_and_requirements_stay_visible():
@@ -230,7 +230,7 @@ def test_blocked_spells_render_as_not_castable_and_requirements_stay_visible():
     assert all(r["castable"] is False for r in rows)
     fake = type("C", (), {"castable_spells": lambda self: rows})()
     lines = Controller.spell_lines(fake)
-    assert any("Tempest Shield" in s and "NOT castable now: on cooldown (40s)" in s for s in lines)
+    assert any("Tempest Shield" in s and "NOT castable now: recharging, 40 s left" in s for s in lines)
     assert any("Windstep" in s and "NOT castable now: no runes for it" in s for s in lines)
     assert any("Enchant Weapon: Fire" in s and "needs A held melee weapon first" in s for s in lines)
 

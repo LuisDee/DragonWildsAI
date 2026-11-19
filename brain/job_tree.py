@@ -491,7 +491,11 @@ class _Builder:
 
     def casts(self, name: str) -> list[dict]:
         out = []
-        mine = {str(r.get("name") or "").lower(): r for r in self.spells or [] if isinstance(r, dict)}
+        from .spells import status_words, with_state
+        rows = [r for r in self.spells or [] if isinstance(r, dict)]
+        if self.spells is not self.state.get("spells"):  # a cached list takes the state's cooldown read (seconds old)
+            rows = with_state(rows, self.state)
+        mine = {str(r.get("name") or "").lower(): r for r in rows}
         for sid in self.d.spell_makes.get(name.lower(), []):
             e = self.d.spells.get(sid) or {}
             sname = e.get("name") or sid
@@ -501,10 +505,11 @@ class _Builder:
             row = mine.get(sname.lower())
             if self.spells is None:
                 s["status"] = "open"
-            elif row is not None and not row.get("note") and row.get("castable", True) is not False:
-                s["status"], s["his"] = "ready", "yours, castable now"
             elif row is not None:
-                s["status"], s["his"] = "blocked", f"yours, {row.get('note') or row.get('reason') or 'not castable now'}"
+                # castable now and how long it then recharges, or "recharging, N s left" (live 2026-11-19: plans
+                # queued four 300 s Bark to Bones casts on "yours, castable now")
+                ok, words = status_words(row, e)
+                s["status"], s["his"] = ("ready" if ok else "blocked"), f"yours, {words}"
             else:
                 u = e.get("unlock") or {}
                 s["status"] = "blocked"

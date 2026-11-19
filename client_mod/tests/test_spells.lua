@@ -379,6 +379,18 @@ reset({ server_cooldown = true })
 do
     local res = run_cast({ spell = "Windstep" })
     check("server cooldown RPC -> on_cooldown", res.reason == "on_cooldown", res.reason)
+    check("server cooldown carries the recharge time (cooldown_s)", res.data.cooldown_s == 3, res.data.cooldown_s)
+end
+-- live shape 2026-11-19 (L2-V1 R2, 287 s): a cast on cooldown pressed the wheel and failed "on_cooldown" with the seconds
+-- only inside the detail sentence; the brain (executor wait, Controller line, job tree, Planner) needs them as data
+reset({ quick_no_select = true })
+do
+    G.last_cast.USD_Windstep = G.server_time - 1
+    local res = run_cast({ spell = "Windstep" })
+    check("on cooldown (live shape): reason", res.reason == "on_cooldown", res.reason)
+    check("on cooldown (live shape): remaining_s as data", type(res.data.remaining_s) == "number" and res.data.remaining_s > 1
+          and res.data.remaining_s <= 3, res.data.remaining_s)
+    check("on cooldown (live shape): cooldown_s as data", res.data.cooldown_s == 3, res.data.cooldown_s)
 end
 reset({ wheel_broken = true })
 do
@@ -1038,6 +1050,8 @@ do
           and by.Windstep.runes_short and by.Windstep.runes_short["Air Rune"] == 2, by.Windstep.reason)
     check("extras: runes needed listed", by["Summon Shelter"].runes and by["Summon Shelter"].runes["Earth Rune"] == 10)
     check("extras: no cooldown -> no remaining_s", by.Windstep.remaining_s == nil)
+    check("extras: the recharge time after a cast (cooldown_s)", by.Windstep.cooldown_s == 3 and by["Summon Shelter"].cooldown_s == 15,
+          tostring(by.Windstep.cooldown_s) .. " " .. tostring(by["Summon Shelter"].cooldown_s))
     do -- cooldown left is perceivable (M2 gap audit 2026-10-26: castable=false/on_cooldown said nothing about how long)
         local saved = { items = G.items[AIR], lc = G.last_cast.USD_Windstep }
         G.items[AIR], G.last_cast.USD_Windstep = 821, G.server_time - 1

@@ -987,7 +987,9 @@ local function new_cast(api, args)
         return nil, api.fail(why, data)
     end
     local st = W.static(snap.objects[row.id])
-    local d = { spell = row.name, id = row.id, cast_type = row.cast_type }
+    -- the game's recharge time (CooldownDuration) rides on every cast answer, so a failure on cooldown can be planned around
+    local d = { spell = row.name, id = row.id, cast_type = row.cast_type,
+                cooldown_s = (row.cooldown_s or 0) > 0 and row.cooldown_s or nil }
     if data and data.matched then d.matched = data.matched end
     -- Fresh, hard gates block (unlock, wheel, runes, mid-air). A cooldown or "already casting" read
     -- may be stale or rest on the clock mapping: the attempt goes ahead and the game's verdict (the
@@ -995,6 +997,7 @@ local function new_cast(api, args)
     if not row.castable then
         if row.reason == "on_cooldown" or (row.reason == "busy" and not snap.falling) then
             d.precheck, d.precheck_detail = row.reason, row.detail
+            if row.reason == "on_cooldown" then d.remaining_s = row.remaining_s end -- seconds left, as data (live 2026-11-19)
         else
             d.why, d.detail, d.remaining_s, d.cost = row.reason, row.detail, row.remaining_s, row.cost
             return nil, api.fail(row.reason, d)
@@ -1588,7 +1591,12 @@ local function step(job)
     -- the server said "on cooldown": give a just-cast spell a moment to show its rune spend / cooldown
     -- (L13: a retry got server_cooldown right after a cast that DID go off) before believing it
     if job.cd_seen and t >= job.cd_seen + cfg.cooldown_grace_s then
-        return failed(job, "on_cooldown", "server_cooldown", job.row.name .. " is still recharging.")
+        -- seconds left from the game's LastCastTimeBySpellData read now (nil when that read shows none)
+        local okr, r2 = pcall(M.row, job.st, snap, mem().cast_at[job.row.id], M.wall())
+        local left = okr and r2 and (r2.remaining_s or 0) > 0 and r2.remaining_s or job.d.remaining_s
+        job.d.remaining_s = left
+        return failed(job, "on_cooldown", "server_cooldown", job.row.name .. " is still recharging"
+            .. (left and (" (" .. math.ceil(left) .. " s left)") or "") .. ".")
     end
     local mode = snap.input_mode
     if job.phase == "open" then
@@ -2089,6 +2097,7 @@ function M.state_extras(api)
             out[#out + 1] = { id = r.id, name = r.name, school = st.perk and st.perk.skill_name or nil, castable = r.castable == true,
                               reason = (not r.castable) and r.reason or nil, runes = next(runes) and runes or nil, runes_short = short,
                               how = mech and mech.how or nil, cast_type = r.cast_type,
+                              cooldown_s = (r.cooldown_s or 0) > 0 and r.cooldown_s or nil, -- the game's recharge after a cast
                               remaining_s = (r.remaining_s or 0) > 0 and r.remaining_s or nil } -- cooldown left (M2 gap audit)
         end
     end

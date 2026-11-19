@@ -118,10 +118,12 @@ def _region(state: dict | None, places) -> str | None:
 # ------------------------------------------------------------------------------ the sources of one item
 
 
-def _spells(name: str, spells: list[dict] | None) -> list[tuple[int, int, str]]:
-    from .spells import effects
+def _spells(name: str, spells: list[dict] | None, state: dict | None = None) -> list[tuple[int, int, str]]:
+    from .spells import effects, status_words, with_state
     out = []
-    mine = {str(r.get("name") or "").lower(): r for r in spells or [] if isinstance(r, dict)}
+    # a cached list (the Controller's SpellBook) takes the state's own cooldown read, seconds old
+    rows = with_state([r for r in spells or [] if isinstance(r, dict)], state)
+    mine = {str(r.get("name") or "").lower(): r for r in rows}
     for sid in spell_makes().get(name.lower(), []):
         e = effects().get(sid) or {}
         sname = e.get("name") or sid
@@ -130,10 +132,10 @@ def _spells(name: str, spells: list[dict] | None) -> list[tuple[int, int, str]]:
         row = mine.get(sname.lower())
         if spells is None:
             tier, status = NEAR, None
-        elif row is not None and not row.get("note") and row.get("castable", True) is not False:
-            tier, status = NOW, "yours, castable now"
         elif row is not None:
-            tier, status = NEAR, f"yours, {row.get('note') or row.get('reason') or 'not castable right now'}"
+            # castable now and its recharge after each cast, or the seconds left (live 2026-11-19, L2-V1)
+            ok, words = status_words(row, e)
+            tier, status = (NOW if ok else NEAR), f"yours, {words}"
         else:
             u = e.get("unlock") or {}
             need = f"{u.get('skill')} {u.get('level')}" if u.get("skill") and u.get("level") else "its unlock"
@@ -230,7 +232,7 @@ TRADER = 3
 def _rows(item: str, name: str, *, state=None, spells=None, knowledge=None, places=None) -> list[tuple[int, int, str]]:
     """(tier, kind, line) for every non-crafting way to get ``item`` (id) / ``name``, can-do-now first (MAX_PER_ITEM)."""
     sight, region, have = _in_sight(state), _region(state, places), counts(state)
-    rows = _spells(name, spells) + _drops(name, sight, region) + _node(name, knowledge, region) + _traders(item, have)
+    rows = _spells(name, spells, state) + _drops(name, sight, region) + _node(name, knowledge, region) + _traders(item, have)
     rows.sort(key=lambda r: (r[0], r[1]))  # by what he can do now, then spell / drop / node / trader
     return rows[:MAX_PER_ITEM]
 

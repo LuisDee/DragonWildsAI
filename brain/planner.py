@@ -24,6 +24,7 @@ from .llm import LLMClient
 from .llm_json import DecisionError, extract_json, json_decision
 from .situation import _creature_note as creature_note
 from .situation import asked_line, bases_line, quest_rows, vault_fields
+from .spells import state_lines as state_spell_lines
 from .state_store import SkillRegistry, Task, TaskTree
 
 SYSTEM = """You are the planner for an AI companion in RuneScape: Dragonwilds.
@@ -127,6 +128,10 @@ def _trim_state(state: dict) -> dict:
     if isinstance(state.get("nearby_entities"), list):
         out["nearby_entities"] = creature_rows(state)
     out.update(vault_fields(state))  # in a vault and which (the game's flag); nothing when not in one or unread
+    # his spells with their recharge: castable now and how long it recharges after each cast, or the seconds left.
+    # L2-V1 2026-11-19: plans queued four 300 s Bark to Bones casts in a row and a replan put one back with 82 s left
+    if spell_lines := state_spell_lines(state):
+        out["spells"] = spell_lines
     # his quest log: each active step in the game's words with its map markers (the places a plan can name). Run
     # 20261116-222242: only the Controller had it, and the plan explored for a marker's name as a thing to see
     q = state.get("quests") if isinstance(state.get("quests"), dict) else {}

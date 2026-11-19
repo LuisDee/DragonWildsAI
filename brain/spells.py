@@ -11,6 +11,7 @@ player snapshot whose route is verified in game. Rows are trimmed to what a prom
 from __future__ import annotations
 
 import json
+import math
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -70,25 +71,112 @@ def element_words(e: dict) -> str | None:
     return None
 
 
+def _num(v) -> float | None:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+
+
+def recharge_of(row: dict | None, effect: dict | None = None) -> float | None:
+    """The game's recharge time after a cast (UtilitySpellData.CooldownDuration), in s: the body's row
+    (``cooldown_s``; ``recharge_s`` on a compact row), else the game data's (data/spell_effects.json). None: unknown."""
+    row = row or {}
+    return _num(row.get("recharge_s")) or _num(row.get("cooldown_s")) or _num((effect or {}).get("cooldown_s"))
+
+
+def recharging_words(left: float | None, recharge: float | None) -> str:
+    """'recharging, 83 s left (300 s after each cast)': the seconds left as the body read them (the game's
+    LastCastTimeBySpellData against the server clock), rounded up as the body's own sentence does."""
+    words = "recharging" + (f", {math.ceil(left)} s left" if left else "")
+    return words + (f" ({recharge:.0f} s after each cast)" if recharge else "")
+
+
+def castable_words(recharge: float | None) -> str:
+    return "castable now" + (f"; recharges {recharge:.0f} s after each cast" if recharge else "")
+
+
+def status_words(row: dict | None, effect: dict | None = None) -> tuple[bool, str]:
+    """(castable now, the words) for one of HIS spell rows, any shape (get_state ``spells``, the body's ``spells``
+    read, a compact row): castable now and how long it then recharges, or the seconds left, or what blocks it.
+    Live 2026-11-19 (L2-V1): "castable now" with no recharge time let plans queue four 300 s casts in a row."""
+    row = row or {}
+    recharge = recharge_of(row, effect)
+    if row.get("reason") == Reason.ON_COOLDOWN or (row.get("castable") is False and _num(row.get("remaining_s"))):
+        return False, recharging_words(_num(row.get("remaining_s")), recharge)
+    if row.get("note") or row.get("castable", True) is False:
+        return False, str(row.get("note") or row.get("reason") or "not castable now")
+    return True, castable_words(recharge)
+
+
+def state_lines(state: dict | None, cap: int = MAX_ROWS) -> list[str]:
+    """His spells from get_state ``spells`` (the unlocked ones, read seconds ago), one short line each, for a prompt
+    with no spell list of its own (the Planner's state): castable now and its recharge after each cast, the seconds
+    left of a recharging one, or why it can't be cast. [] when the state has no spell rows."""
+    out = []
+    for r in (state or {}).get("spells") or []:
+        if not isinstance(r, dict) or not r.get("name"):
+            continue
+        eff = effects().get(str(r.get("id") or ""))
+        ok, words = status_words(r, eff)
+        if not ok and not r.get("note"):
+            words = (_note({**r, "recharge_s": recharge_of(r, eff)}, purpose_of(r.get("id")))
+                     or f"not castable now ({r.get('reason') or '?'})")
+        out.append(f"{r['name']}: {words}")
+    return out[:cap]
+
+
+def _note(row: dict, out: dict) -> str | None:
+    """Why a FIXABLE row is not castable now, in words; None when it is castable or blocked by something else."""
+    reason = row.get("reason")
+    if reason == Reason.ON_COOLDOWN:
+        return recharging_words(_num(row.get("remaining_s")), recharge_of(row))
+    if reason == Reason.NOT_ENOUGH:
+        return "no runes for it"
+    if reason == REQUIREMENT:
+        # the game's own special requirement is unmet (e.g. "A held melee weapon"): he can fix it himself
+        need = row.get("needs") if isinstance(row.get("needs"), str) else out.get("needs")
+        return f"needs {need} first" if need else "its game requirement is not met"
+    return None
+
+
 def compact_row(row: dict) -> dict:
     out = {"name": row.get("name") or row.get("id"), "role": row.get("role", "other"),
            "use_when": (row.get("use_when") or "")[:USE_WHEN_CHARS]}
     out.update(purpose_of(row.get("id")))
     if row.get("how"):  # how it is really used (spells.lua, from data/spell_mechanics.json): e.g. drop 5 ore, then cast on them
         out["how"] = row["how"]
-    reason = row.get("reason")
-    if reason == Reason.ON_COOLDOWN:
-        out["note"] = f"on cooldown ({row.get('remaining_s', 0):.0f}s)"
-    elif reason == Reason.NOT_ENOUGH:
-        out["note"] = "no runes for it"
-    elif reason == REQUIREMENT:
-        # the game's own special requirement is unmet (e.g. "A held melee weapon"): he can fix it himself
-        need = row.get("needs") if isinstance(row.get("needs"), str) else out.get("needs")
-        out["note"] = f"needs {need} first" if need else "its game requirement is not met"
-    if "note" in out:
+    if recharge := recharge_of(row):
+        out["recharge_s"] = recharge  # the game's CooldownDuration: a plan can space its casts
+    if row.get("reason") == Reason.ON_COOLDOWN and _num(row.get("remaining_s")):
+        out["remaining_s"] = float(row["remaining_s"])
+    if note := _note(row, out):
+        out["note"] = note
         # (M2 gap audit 2026-10-26) the Controller's spell_lines renders castable/reason, not `note`: without
         # these a spell on cooldown or out of runes read as castable to the model
-        out["castable"], out["reason"] = False, out["note"]
+        out["castable"], out["reason"] = False, note
+    return out
+
+
+def with_state(rows: list[dict], state: dict | None) -> list[dict]:
+    """The compact rows (a cache up to ``SpellBook.ttl`` old) with the cooldown and castable facts of the state's own
+    spell rows (get_state ``spells``, read seconds ago), matched by name: a spell cast since the cache read shows as
+    recharging, and one recharged since shows castable. Other blocks keep the cached row."""
+    fresh = {str(r.get("name") or "").lower(): r for r in (state or {}).get("spells") or [] if isinstance(r, dict)}
+    if not fresh:
+        return rows
+    out = []
+    for row in rows:
+        f = fresh.get(str(row.get("name") or "").lower())
+        if f is None or not (f.get("castable") is True or f.get("reason") in FIXABLE):
+            out.append(row)
+            continue
+        new = {k: v for k, v in row.items() if k not in ("note", "castable", "reason", "remaining_s")}
+        if recharge := recharge_of(f):
+            new["recharge_s"] = recharge
+        if f.get("reason") == Reason.ON_COOLDOWN and _num(f.get("remaining_s")):
+            new["remaining_s"] = float(f["remaining_s"])
+        if f.get("castable") is not True and (note := _note({**f, "recharge_s": new.get("recharge_s")}, new)):
+            new["note"] = new["reason"] = note
+            new["castable"] = False
+        out.append(new)
     return out
 
 

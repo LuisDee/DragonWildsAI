@@ -45,6 +45,7 @@ from .jsonl_log import JsonlLogger
 from .open_ask import ASK_TOOLS
 from .llm import (LLMClient, LLMResponse, ToolCall, assistant_message, model_view, request_log_fields, strip_markers,
                   tool_result_message)
+from . import spells as spell_rows
 from .spells import SpellBook
 from . import plan_async
 from . import tool_registry
@@ -553,15 +554,17 @@ class Controller:
                 self.log.log("rules_snapshot_error", error=repr(exc))
         return self._rules
 
-    def spell_lines(self) -> list[str]:
+    def spell_lines(self, state: dict | None = None) -> list[str]:
         """One line per spell: name, role, what it is for, what the game needs, and for a spell castable now HOW it
         is really used when it is cast AT something (``how``, body-supplied from data/spell_mechanics.json, cut at
         SPELL_HOW_CHARS): drop-then-cast (Divine Rock: drop 5 ore), cast-on-a-thing, held open while walking (Recall).
         Instant (self) and aimed spells need only their purpose. A spell that can't be cast now
         says only why. The game's flavour text (``use_when``) only when there is no ``for`` (prompt diet 2026-10-31:
-        9.4k -> ~5k chars). ``spells`` (read) has the full rows."""
+        9.4k -> ~5k chars). ``spells`` (read) has the full rows. The cached rows take the cooldown facts of ``state``'s
+        own spell rows (seconds old): the seconds left of a recharging spell, and for a castable one how long it
+        recharges after each cast (live 2026-11-19: plans queued 300 s Bark to Bones casts back to back)."""
         out = []
-        for s in self.castable_spells():
+        for s in spell_rows.with_state(self.castable_spells(), state):
             bits = [str(s.get("role") or "")]
             if s.get("for"):
                 bits.append(f"for {s['for']}")
@@ -570,8 +573,8 @@ class Controller:
             if s.get("castable") is False:
                 out.append(f"{s.get('name')} (NOT castable now: {s.get('reason') or '?'})")
                 continue
-            if s.get("remaining_s"):
-                bits.append(f"cooldown {float(s['remaining_s']):.0f}s")
+            if recharge := spell_rows.recharge_of(s):
+                bits.append(f"recharges {recharge:.0f} s after each cast")
             use = "" if s.get("for") else clip(str(s.get("use_when") or ""), 80)
             # a spell cast at something (placed, held open while walking) needs its how; a self/aimed one its purpose
             how = clip(str(s.get("how") or ""), SPELL_HOW_CHARS) if s.get("role") not in ("instant", "aimed") else ""
@@ -618,7 +621,7 @@ class Controller:
             "notes": self._notes(),
             "learned_skills": self.learned_skills(text or (self.director.retrieval_text(body_event)
                                                             if self.director is not None else "")),
-            "castable_spells": self.spell_lines(),
+            "castable_spells": self.spell_lines(state),
             "reflex_rules": self.reflex_rules(),
             # chat lines are in "chat", body situations in body_status: only the rest, newest 5
             "recent_events": [e for e in self.events if e.get("type") not in ("command_received", "chat_heard")][-5:],
