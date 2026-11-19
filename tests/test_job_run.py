@@ -1042,3 +1042,18 @@ def test_a_gained_want_he_never_held_is_fail_certain_even_unread():
     assert ok is False and "fail_certain" in why
     end["held_in_run"] = {"reads": 12, "peak": {"ITEM_Resources_Stone": 2}, "gained": {}}
     assert j.p_in_own_chest(want, start, end)[0] is None
+
+
+def test_a_trial_its_spend_cap_cut_off_ends_budget_and_does_not_count(doc):
+    """8 of 14 V1 'quiet' ends of 19 Nov were the trial's own --usd cap (study quiet_1119): budget_blocked, then
+    template lines and a blind plan. It ends "budget", not counted; the same run without the row stays quiet."""
+    script = model(T0 + 1) + [call(T0 + 3, "g1", "gather"), result(T0 + 20, "g1", "gather", data={"detail": "Got 3."}),
+                              {"ts": T0 + 25, "kind": "budget_blocked", "call": "controller", "why": "run cap"}]
+    io = FakeIO(script=sorted(script, key=lambda r: r["ts"]), states=lambda t: state(mine=[CRATE]))
+    rec = j.run_job(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
+    assert rec["ended"] == "budget" and "spend cap" in rec["not_counted"] and not rec["done"]
+    io2 = FakeIO(script=model(T0 + 1) + [call(T0 + 3, "g1", "gather"),
+                                         result(T0 + 20, "g1", "gather", data={"detail": "Got 3."})],
+                 states=lambda t: state(mine=[CRATE]))
+    rec2 = j.run_job(io2, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
+    assert rec2["ended"] == "quiet" and not rec2.get("not_counted")

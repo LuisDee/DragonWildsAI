@@ -2470,6 +2470,11 @@ def run_job(io, job: dict, opts: dict) -> dict:
             why = "deadline"
         elif Path(opts.get("stop_file") or STOP_FILE).exists():
             why = "stopped"
+        elif any(r.get("kind") == "budget_blocked" and float(r.get("ts") or 0) >= t0 for r in rows):
+            # the trial's own spend cap (--usd) stopped his model calls: the brain then runs template lines and drops
+            # queued goals, and the stand that follows is not his (study quiet_1119: 8 of 14 V1 'quiet' ends were
+            # this). A run fault: not counted
+            why = "budget"
         elif not open_prompt and not open_tool and quiet >= q.QUIET_S and calls["calls"]:
             why = "quiet"
         if why:
@@ -2582,6 +2587,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
         nc = f"the job read done at {t_done} s, at or before the interruption cleared: the step says nothing"
     elif step and ok is True and not res.get("resumed") and why == "job done":
         nc = "the job was done before he could take it up again: the step says nothing"
+    if why == "budget" and ok is not True:  # the trial's spend cap ended his model calls: a run fault (rule 3)
+        nc = "the trial's spend cap (--usd) stopped his model calls before the end: a run fault, not counted"
     if nc:
         rec["not_counted"] = nc
     if ok is None and not step and "bar_open" in str(ok_why):
@@ -3026,7 +3033,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="which holder carries the ask: the default path, or the board with the Director (DW_DIRECTOR=1)")
         p.add_argument("--deadline", type=float, default=1800.0, help="per trial")
         p.add_argument("--max-haiku", type=int, default=120)
-        p.add_argument("--usd", type=float, default=0.6, help="each trial's spend cap on top of today's spend")
+        p.add_argument("--usd", type=float, default=1.5, help="each trial's spend cap on top of today's spend (was "
+                       "0.6: V1 trials cost 0.60-0.84 and 8 of 14 were cut off by it, study quiet_1119; done runs 0.35)")
         p.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
         p.add_argument("--window-s", type=float, default=3600.0)
         p.add_argument("--reserve-s", type=float, default=240.0)
