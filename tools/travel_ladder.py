@@ -208,7 +208,13 @@ P.update({
     #   Start: where those walks began, on the home platform (10:48:51Z go_to at 173.42,1914.98; 11:00:20Z at
     #   172.54,1915.10); goal: the shore point he walked to, (14523,190770,-3185) at 10:48:50Z (stand, capsule
     #   centre); wade on. The real trips were 36-38 m with that hump their only jump.
-    "jpr_a": [173.42, 1914.98, -30.28], "jpr_b": [145.23, 1907.70, -31.85],
+    #   Goal moved onto dry ground (window 2026-11-19 00:15-00:26Z, 0 of 5): the shore point is in the water, so move's
+    #   under-water arrival (move.lua "the spot is under water") stopped him 2.0-2.4 m short, outside JUMP_TOL_M, in all
+    #   five trips, one with no jump verdict at all. Now the end of the real wading plan past the hump, [wwjwww]
+    #   161,1915 j 160,1914 159,1913 158,1912 157,1911, end=(15700,191100,-3166) + 0.88: dry (no water mark on its
+    #   cell; the jump_pond_bank leg stood by it at -30.71), 4.2 m past the hump's top, so the plan, the sprint and the
+    #   hump are the same; and go_tol 0.5, collect_water's own circle at a stand (skills.lua e.tol 0.5)
+    "jpr_a": [173.42, 1914.98, -30.28], "jpr_b": [157.0, 1911.0, -30.78],
     # - jump_pond_top: its go_to was 3.9 m, so move went straight (src=straight: no water_ahead plan under 10 m
     #   to the goal), walked into the dip at 156.6,1914.4 and planned [wj] there from a standstill (v0h 0-107,
     #   toward -0.71: the slow back-and-up hop, nearer #6 at 04:40:06Z than the two it was made for). The real ones
@@ -221,8 +227,12 @@ P.update({
     #   11:16:56Z (go_to of 211 m to 15623,191688,-3254): plan #6 (water_ahead) at (16821,190782,-3042) at a sprint
     #   (spd 642) heading west, a 15-cell walk to the hump, stuck at (159.36,1912.71), plan #7 [wwwjdw] 159,1913
     #   158,1913 157,1914 j 157,1915, v0 (-314,322). Start plan #6's "at" (15 m from the goal, so water_ahead fires
-    #   as it did); goal that go_to's point, a floor point, + 0.88 like the other goals (he arrived at -31.85)
-    "jpe_a": [168.21, 1907.82, -30.42], "jpe_b": [156.23, 1916.88, -31.66],
+    #   as it did). Goal: the bank's top the hop lands on (jump_pond_top's goal, stood on at -30.54), not that go_to's
+    #   floor point (156.23,1916.88,-31.66): that is in the water past the top, so move's under-water arrival ended
+    #   every trip at 155.8,1914.6 before the hop (0 of 5, 2026-11-19 00:15-00:26Z), and the one jump its plans
+    #   held (157,1916 -> 158,1917) was flat. The top is dry and 61 cm over the dip at 157,1914, and north of it is
+    #   only water: the real 61 cm ledge is the way up; reached = on it (the dip is the foot, as for jump_pond_top)
+    "jpe_a": [168.21, 1907.82, -30.42], "jpe_b": [157.0, 1915.0, -30.52],
 })
 # Reached = on top: within JUMP_TOL_M (2D; the body's own go_to tolerance is 1.5 m, every start is 2.6 m or more
 # from its goal) and within half the leg's rise in height (at least 0.5 m, at most ARRIVE_DZ): standing at the foot
@@ -280,13 +290,13 @@ JUMP_COURSE = [
     # pressed at 450 cm/s out of a plan made running with the goal far off (13:50:09Z from the south, 11:16:56Z from
     # the east). Longer than the other legs on purpose: the run-up to the edge is what they lacked
     _jump("jump_pond_bank_run", "jpr_a", "jpr_b",
-          "jump: home to the pond's shore point at a sprint, wading on (collect_water's walk), over the 63 cm hump",
-          human_m=36, past=True, wade=True),
+          "jump: home toward the pond's shore at a sprint, wading on (collect_water's walk), over the 63 cm hump",
+          human_m=18, go_tol=0.5, past=True, wade=True),
     _jump("jump_pond_top_run", "jpu_a", "jpu_b",
           "jump: north past the pond on a chase, the 61 cm hop onto the bank's top taken at a run", human_m=62, past=True),
     _jump("jump_pond_top_east", "jpe_a", "jpe_b",
-          "jump: west along the pond's south shore at a sprint, then the 61 cm hop onto the bank's top", human_m=15,
-          past=True),
+          "jump: west along the pond's south shore at a sprint, then the 61 cm hop onto the bank's top", human_m=14,
+          go_tol=0.5, foot="jpt_foot"),
 ]
 # kept out of OBSTACLES so `--obstacles` runs what it ran before; `--only` picks from JOURNEYS + OBSTACLES + JUMP_COURSE
 JUMP_IDS = {j["id"] for j in JUMP_COURSE}

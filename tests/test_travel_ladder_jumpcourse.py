@@ -31,12 +31,14 @@ STUDY = {
     # (b) one-cell rocks climbed and dropped off
     "jump_rock_cell": ([163.20, 1913.95, -30.81], [157.0, 1912.0, -30.92]),  # 17 Nov 21:30:43Z plan #1, [wddwwww]
     "jump_rock_step": ([150.67, 1920.94, -31.85], [153.0, 1920.0, -30.12]),  # 13:35:11Z plan #5, [wdw]
-    # home to the learned shore point, collect_water's go_to (10:48:51Z start, shore point logged 10:48:50Z), wading
-    "jump_pond_bank_run": ([173.42, 1914.98, -30.28], [145.23, 1907.70, -31.85]),
+    # home past the hump on collect_water's wading walk (10:48:51Z start); the goal is the real plan's dry end
+    # (end=(15700,191100,-3166) + 0.88), not the shore point in the water (145.23,1907.70,-31.85)
+    "jump_pond_bank_run": ([173.42, 1914.98, -30.28], [157.0, 1911.0, -30.78]),
     # 13:50:01Z plan #2 at, the chase target of its stuck line (follow d=58 m)
     "jump_pond_top_run": ([161.43, 1903.20, -30.49], [138.63, 1964.34, -29.71]),
-    # 11:16:48Z plan #6 (water_ahead) at, the go_to's own point (15623,191688,-3254) + 0.88
-    "jump_pond_top_east": ([168.21, 1907.82, -30.42], [156.23, 1916.88, -31.66]),
+    # 11:16:48Z plan #6 (water_ahead) at; the goal is the bank's top (jump_pond_top's), not the go_to's own point
+    # (15623,191688,-3254) in the water past it
+    "jump_pond_top_east": ([168.21, 1907.82, -30.42], [157.0, 1915.0, -30.52]),
 }
 
 
@@ -79,8 +81,22 @@ def test_reached_means_on_top_not_at_the_foot():
     for leg, plan_at in (("jump_pond_bank_run", [162.79, 1914.44]), ("jump_pond_top_run", [159.21, 1911.83]),
                          ("jump_pond_top_east", [159.36, 1912.71])):
         j = T.pick({leg})[0]
-        assert T.d2(j["start"], plan_at) > 7 and T.d2(j["goal"], plan_at) > 4 and j["past"], leg
+        assert T.d2(j["start"], plan_at) > 7 and T.d2(j["goal"], plan_at) > 3, leg
     assert T.d2(T.P["jpu_b"], T.P["jpt_a"]) > 10 and T.d2(T.P["jpe_a"], T.P["jpe_b"]) > 10
+    # no run leg's goal is in the water (window 2026-11-19: move's under-water arrival, tolerance + 1 m, stopped him
+    # 2.0-2.4 m short of the shore point and of the go_to's point past the top, every trip): the goals are dry
+    # points he has stood on or walked, and the wading go_to (that rule also fires for a dry goal under him while
+    # wading) keeps its ring inside the ladder's circle
+    bank, east = T.pick({"jump_pond_bank_run"})[0], T.pick({"jump_pond_top_east"})[0]
+    assert bank["goal"] != [145.23, 1907.70, -31.85] and east["goal"] != [156.23, 1916.88, -31.66]
+    assert bank["go_tol"] + 1.0 <= T.JUMP_TOL_M and bank["past"] and bank["wade"]
+    # the bank leg's goal is past the 63 cm hump (161,1915 -> 160,1914) by more than that ring, at its level or below
+    assert T.d2(bank["goal"], [160.0, 1914.0]) > 2.5 and bank["goal"][2] - bank["start"][2] < 0
+    # top_east ends ON the bank's top: the 61 cm hop from the dip is the way up, standing in the dip is not reached
+    assert east["goal"] == T.P["jpt_b"] and east["foot"] == T.P["jpt_foot"] and not east.get("past")
+    assert round(east["goal"][2] - east["foot"][2], 2) == 0.6 and east["tol_dz"] == 0.5 and east["go_tol"] == 0.5
+    assert not T.arrived([157.0, 1914.0, -31.12], east["goal"], east["tol_m"], east["tol_dz"])
+    assert T.arrived([157.16, 1915.24, -30.54], east["goal"], east["tol_m"], east["tol_dz"])  # a jump_pond_top reach
     # only collect_water's walk wades
     assert [j["id"] for j in T.JUMP_COURSE if j.get("wade")] == ["jump_pond_bank_run"]
     # the old legs keep the ladder's 3 m / 1.8 m
