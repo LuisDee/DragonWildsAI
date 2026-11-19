@@ -17,6 +17,7 @@ from __future__ import annotations
 import concurrent.futures as cf
 import copy
 import json
+import os
 import time
 from pathlib import Path
 from typing import Literal
@@ -136,6 +137,16 @@ ASKS_SEEN = 8  # baselines kept for asks (where the game stood when each was ask
 # logged as request_left_open with why, and the next run with no goal running carries the ask again (its own one turn).
 # A goal's end, either way, hands the player's words back to the run that hears it (as the open request):
 GOAL_ENDS = {"goal_done": "goal_done", "stuck": "goal_stuck"}
+# DW_ASK_OWNER=1 (off by default, and off while the Director is attached): the goal machinery owns the ask. A run that
+# leaves the open ask with no job (request_left_open) no longer ends the matter: unless the player's newest line, his own
+# stop / park / done, a goal or a waiting chat line stands in the way, the ask's words go to his Planner verbatim as a
+# goal (agent._take_up_ask). Study scratchpad unanswered_1119.md: 19 of 19 questions he asked the silent player were
+# followed by nothing, because nothing schedules the next run. Steps come only from his Planner, which may ask (the
+# ask is parked, by=planner) or decline (parked with its explanation).
+ASK_OWNER_ENV = "DW_ASK_OWNER"
+ASK_PLAN_CAP = 6  # Planner calls on one ask (plans and replans of its hand-over goals), then no more hand-overs
+ASK_PARKED = "ask_parked"  # the situation that tells him an ask was parked for him (by his planner or the stall rule)
+HANDOVER_IF_YOU_STOP = "your planner takes this request as a job, in his words"
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
 ASK_STEP_DETAIL_CHARS = 240  # a step's result words kept with the open ask on disk (brain/ask_store.py)
 GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
@@ -339,6 +350,17 @@ class Agent:
         self._steps_plan: plan_async.PendingPlan | None = None  # composed beside his first steps (start_goal first_steps)
         self._plan_landed: dict | None = None
         self._turn_ended_at: float | None = None  # when his last Controller run ended (every run goes through _command)
+        # DW_ASK_OWNER=1 (_take_up_ask): the ask a run left with no job, (ask, run_for, why, when); his own stop on the
+        # open ask; the hand-over goal queued and the one running ({ask, goal, n, continue, his_calls}); the last stuck
+        # goal on an ask ({ask, goal, tree, failed_i, failed, reason, state, prev}); Planner calls and hand-overs per ask
+        self.ask_owner = os.environ.get(ASK_OWNER_ENV, "0") == "1"
+        self._unowned: tuple | None = None
+        self._stopped_ask: tuple | None = None
+        self._handover_next: dict | None = None
+        self._handover: dict | None = None
+        self._last_stuck: dict | None = None
+        self._ask_plan_calls: dict[tuple, int] = {}
+        self._handovers: dict[tuple, int] = {}
         controller.plan_provider = self._plan_fact
         game.set_progress_listener(self._on_progress)
 
@@ -347,14 +369,18 @@ class Agent:
     def step(self) -> GoalResult | None:
         """Handle pending events, then start any goal the controller queued."""
         self.pump()
+        if self._unowned is not None:  # (only ever set with DW_ASK_OWNER=1)
+            self._take_up_ask()
         if self.pending_goal:
             goal, tasks, skill, first = self.pending_goal, self.pending_tasks, self.pending_skill, self.pending_first
             self.pending_goal, self.pending_tasks, self.pending_skill, self.pending_first = None, None, None, None
+            ho, self._handover_next = self._handover_next, None
             if self.budget is not None and not self.budget.allows("planner"):
                 self.log.log("goal_dropped", goal=goal, why="out of model budget")
                 if self.budget.out_line_due():
                     self.controller.say(self.budget.out_line())
                 return "stuck"
+            self._handover = ho if ho is not None and ho["goal"] == goal and not skill else None
             eid, self._goal_episode = getattr(self, "_goal_episode", None), None
             with self.log.episode(eid or self.log.new_episode_id("goal")):
                 return self.run_goal(goal, tasks=tasks, skill=skill, first=first)
@@ -784,6 +810,12 @@ class Agent:
             self._note_ask(self._open_request, state, new=True)  # a line heard now is a new ask
             self._drop_ask_facts("a new line")
             self._parked = None  # his new line is the ask now
+            if self.ask_owner:  # a new ask, even in the same words: its own stop, Planner count and stuck record
+                self._stopped_ask = None
+                self._ask_plan_calls.pop(self._open_request, None)
+                self._handovers.pop(self._open_request, None)
+                if self._last_stuck and oa.same_ask(self._last_stuck["ask"], self._open_request):
+                    self._last_stuck = None
             self._ask_steps, self._ask_steps_for = [], self._open_request
             self._save_ask()  # on disk before the first model call: a brain killed while thinking keeps it
         # the request this run is for: his line, the one a goal came from at its end, or the one still open. A goal's
@@ -1073,6 +1105,8 @@ class Agent:
                     self._left_open(run_asked, run_for, "had one this run" if open_asked else "handed to a job"
                                     if handed else self._no_open_ask_turn() or "silent after a failure", open_prev)
                 break
+        if self._ask_owner_on():
+            self._note_his_stop(run_asked, ran_all)
         if not said and body_events and not event.text:  # the model said nothing about a body situation
             # Live 20:21:53: the model fixed it silently (picked up 4 sandwiches) and the template "I'm really
             # hungry and have nothing left" was said anyway. Re-check on fresh state at speak time: only
@@ -1213,6 +1247,8 @@ class Agent:
                 failed_call = d.skill_call
                 results[failed_call.id or failed_call.name] = {"ok": False, "reason": failure[1], "data": failure[2],
                                                                "args_help": self.controller.arg_help("run_skill")}
+        if ran and self._handover is not None and self.active_goal:
+            self._handover["his_calls"] += len(ran)  # his own body calls while his planner's job runs (double work)
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
                 "spoken": spoken, "ran": ran, "body": body, "closed": closed}
 
@@ -1352,6 +1388,8 @@ class Agent:
         self.log.log("request_left_open", request=ask[1], player=ask[0], run_for=run_for,
                      after_open_ask_turn=after_open_ask_turn,
                      **({} if after_open_ask_turn else {"no_open_ask_turn": why}))
+        if self._ask_owner_on() and why not in ("the player spoke", "off"):
+            self._unowned = (ask, run_for, why, self.clock())  # step() decides whether his Planner takes it up
 
     def _told_back(self, ask: tuple, state: dict | None, t: dict, d, handed: bool) -> dict:
         """What is true about a line he just said on the open ask, for its say result (study ask_vs_act 2026-11-18,
@@ -1376,7 +1414,15 @@ class Agent:
         if d.goal or d.skill:
             work.append(f"a goal queued: {d.goal or d.skill}")
         elif self.active_goal or self.pending_goal:
-            work.append(f"a goal {'running' if self.active_goal else 'queued'}: {self.active_goal or self.pending_goal}")
+            ho = (self._handover if self.active_goal else self._handover_next) if self._ask_owner_on() else None
+            if ho is not None and oa.same_ask(ho["ask"], ask):  # DW_ASK_OWNER=1: his planner's job on this request
+                step = self.store.tree.next_task() if self.active_goal and self.store.tree else None
+                work.append(f"your planner's job on this request, in his words, "
+                            f"{'running' if self.active_goal else 'queued'}: {ho['goal']}"
+                            + (f"; step now: {_task_label(step)}" if step else ""))
+            else:
+                work.append(f"a goal {'running' if self.active_goal else 'queued'}: "
+                            f"{self.active_goal or self.pending_goal}")
         elif handed:
             work.append("a long job handed on in this run")
         if t.get("ran"):
@@ -1400,9 +1446,13 @@ class Agent:
         if tree:  # DW_JOB_TREE=1: the tree in the facts' place
             blk = oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed)
             blk["open_request"]["job_tree"] = tree
-            return blk
-        return oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed,
-                        known=self._request_facts(where="open_ask") if oa.same_ask(ask, self._open_request) else None)
+        else:
+            blk = oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed,
+                           known=self._request_facts(where="open_ask") if oa.same_ask(ask, self._open_request)
+                           else None)
+        if self._ask_owner_on() and self._handover_bar(ask, standing=True) is None:
+            blk["open_request"]["if_you_stop"] = HANDOVER_IF_YOU_STOP  # what a stop now leads to (DW_ASK_OWNER=1)
+        return blk
 
     def _close_ask(self, call, extra: list[str]) -> dict:
         """request_done / park_request: the open ask ends here. The claim or the reason is recorded, never judged; a
@@ -1425,6 +1475,189 @@ class Agent:
         else:
             self.log.log("request_done_claimed", request=what, player=who, evidence=words)
         return {"ok": True, "note": "request parked" if call.name == oa.PARK else "request closed as finished"}
+
+    # ------------------------------------------------ the goal machinery owns the ask (DW_ASK_OWNER=1, _take_up_ask)
+
+    def _ask_owner_on(self) -> bool:
+        """DW_ASK_OWNER=1 and no Director attached (the board owns its own steps)."""
+        return self.ask_owner and self.director is None
+
+    @staticmethod
+    def _per_ask(table: dict, ask: tuple | None) -> int:
+        return sum(n for k, n in table.items() if oa.same_ask(k, ask))
+
+    def _note_his_stop(self, run_asked: tuple | None, ran_all: list[str]) -> None:
+        """His own stop while the ask is open stands: no hand-over of it until a later call of his on it (or a new
+        line, which is a new ask)."""
+        ask = self._open_request
+        if not ask:
+            return
+        if "stop" in ran_all:
+            self._stopped_ask = ask
+            self.log.log("ask_stopped_by_him", request=ask[1], player=ask[0])
+        elif self._stopped_ask and oa.same_ask(run_asked, ask) and set(ran_all) - STANDING:
+            self._stopped_ask = None  # he took it up again himself
+
+    def _newer_line(self, ask: tuple, since: float | None) -> bool:
+        """A player line newer than the ask: the asker's last line is other words, or anyone spoke after ``since``."""
+        last = next((v for k, v in self._last_line.items() if sit.same_player(k, ask[0])), None) if ask[0] else None
+        if last is not None and last[0] != ask[1]:
+            return True
+        return since is not None and any(t > since for _, t in self._last_line.values())
+
+    def _handover_bar(self, ask: tuple, since: float | None = None, standing: bool = False) -> str | None:
+        """Why the ask can not go to his Planner now, or None. ``standing``: only what holds whatever runs next (his
+        stop, the budget, the cap, the stall rule): the open-ask block's if_you_stop is shown only when none does."""
+        if not standing:
+            if not oa.same_ask(self._open_request, ask):
+                if self._newer_line(ask, since):
+                    return "a newer player line"
+                if self._parked and oa.same_ask(self._parked["ask"], ask):
+                    return "parked by him"
+                return "closed"
+            if self._newer_line(ask, since):
+                return "a newer player line"
+        if self._stopped_ask and oa.same_ask(self._stopped_ask, ask):
+            return "stopped by him"
+        if not standing:
+            if self.active_goal or self._planning is not None:
+                return "a goal is running"
+            if self.pending_goal:
+                return "a goal is queued"
+            if self._chat_waiting() or self._chat_stashed():
+                return "a chat line waits"
+        if self.budget is not None and not self.budget.allows("planner"):
+            return "out of model budget"
+        if (n := self._per_ask(self._ask_plan_calls, ask)) >= ASK_PLAN_CAP:
+            return f"cap: {n} Planner calls on this request"
+        if standing and self._stalled(ask):
+            return "stall"
+        return None
+
+    def _stalled(self, ask: tuple) -> str | None:
+        """THE ONE CODE-MADE BOUND of the hand-over (CLAUDE.md section 3 leaves stopping to him; this is flagged as the
+        exception): the last two goals on this ask stuck at the same step for the same reason, and the bag, the gear
+        and the quest log show nothing changed between the two. Another hand-over would only repeat it. Returns the
+        reason (code's words), or None. Unknown state on either side is no stall."""
+        last = self._last_stuck
+        if not last or not oa.same_ask(last["ask"], ask) or not last.get("prev"):
+            return None
+        prev = last["prev"]
+        if (prev["failed"], prev["reason"]) != (last["failed"], last["reason"]):
+            return None
+        if not (oa.readable(prev["state"]) and oa.readable(last["state"])):
+            return None
+        try:
+            cat = item_stats.catalog()
+        except Exception:  # names fall back to the body's own and the id
+            cat = {}
+        ch = oa.changes(prev["state"], last["state"], cat)
+        if any(v != "no change" for v in ch.values()):
+            return None
+        step = (f"{last['failed']['skill']} {json.dumps(last['failed']['args'], ensure_ascii=False)}"
+                if last["failed"] else "planning")
+        return (f"stopped by code after the same failure twice: {step} failed again ({last['reason']}), and nothing in "
+                "the bag, the gear or the quest log changed since the try before")
+
+    def _take_up_ask(self) -> None:
+        """A run left the open ask with no job (request_left_open): unless something stands in the way, the ask's words
+        go to his Planner verbatim as a goal, started by step() right after this. What stands in the way: the ask is
+        no longer the open one or the player's newest line; he parked, closed or stopped it; a goal is queued or
+        running; a chat line waits; the budget; ASK_PLAN_CAP Planner calls on it; the stall rule (_stalled, which
+        parks it). One decision per left-open run, logged either way."""
+        u, self._unowned = self._unowned, None
+        if u is None or not self._ask_owner_on():
+            return
+        ask, run_for, why_unowned, since = u
+        why = self._handover_bar(ask, since)
+        if why is None and (stall := self._stalled(ask)):
+            why = "stall"
+            self.log.log("ask_handover_skipped", request=ask[1], player=ask[0], why=why, reason=stall)
+            self._park_for(ask, stall, by="code")
+            return
+        if why is not None:
+            self.log.log("ask_handover_skipped", request=ask[1], player=ask[0], why=why)
+            return
+        last = self._last_stuck
+        cont = last if (last and oa.same_ask(last["ask"], ask) and last.get("failed_i") is not None) else None
+        self._handovers[ask] = self._handovers.get(ask, 0) + 1
+        self.pending_goal, self.pending_tasks, self.pending_skill, self.pending_first = ask[1], None, None, None
+        self._pending_asked = self._asked_of(ask)
+        self._handover_next = {"ask": ask, "goal": ask[1], "n": self._per_ask(self._handovers, ask),
+                               "continue": cont, "his_calls": 0}
+        said = next((s.text for s in reversed(getattr(getattr(self.controller, "voice", None), "history", None) or [])
+                     if s.kind != "system"), None)
+        self.log.log("ask_handover", request=ask[1], player=ask[0], run_for=run_for, why_unowned=why_unowned,
+                     n=self._handover_next["n"], plan_calls=self._per_ask(self._ask_plan_calls, ask),
+                     mode="replan" if cont else "plan",
+                     prior={"goal": cont["goal"], "failed": cont["failed"], "reason": cont["reason"]} if cont else None,
+                     question_pending=bool(said and said.rstrip().endswith("?")))  # (logged only, never decides)
+
+    def _park_for(self, ask: tuple, reason: str, by: str, **extra) -> None:
+        """The ask parked for him (by his planner, or by the stall rule): kept as parked with its facts, so his own
+        later call on one of its items or the player's next line opens it again, and told to him as a situation (he
+        decides what to say; code never speaks for him unless the model call fails: broker.fallback_line)."""
+        if oa.same_ask(self._open_request, ask):
+            self._open_request = None
+        self._park(ask, reason)
+        self._drop_ask_facts(f"parked by {by}")
+        self._save_ask()
+        self.log.log("request_parked", request=ask[1], player=ask[0], reason=reason, by=by)
+        what = {"planner": "your planner took this request as a job and did not plan steps for it",
+                "code": "your planner's jobs on this request stopped twice the same way with nothing changed"}[by]
+        self._situations.append({"type": ASK_PARKED, "by": by, "request": ask[1], "from": ask[0], "reason": reason,
+                                 **{k: v for k, v in extra.items() if v}, "about": f"{what}; the request is parked"})
+        self.flush_situations()
+
+    def _handover_park(self, goal: str, ho: dict, plan, task: Task | None) -> GoalResult:
+        """A hand-over goal's plan with no steps: only a question for the player (parked, waiting on him), or a decline
+        with its explanation (parked with it). The job ends; nothing here re-plans."""
+        tree = self.store.tree
+        if tree is not None:
+            tree.status = "stuck"
+            self.store.save_tree()
+        ask = ho["ask"]
+        if plan.ask_help:
+            reason = f"planner waits on the player: {plan.ask_help.strip()}"
+        else:
+            reason = f"planner: {(plan.explanation or '').strip()}"
+            self.log.log("planner_declined", request=ask[1], player=ask[0], goal=goal,
+                         explanation=plan.explanation, failed=task.skill if task else None)
+        self.store.progress("goal parked", goal=goal, by="planner", reason=reason)
+        self._park_for(ask, reason, by="planner", question=plan.ask_help,
+                       explanation=None if plan.ask_help else plan.explanation)
+        return "stuck"
+
+    def _count_plan(self, ho: dict | None, kind: str, goal: str, log_start: bool) -> None:
+        """A Planner call of a hand-over goal counts against its ask (ASK_PLAN_CAP). log_start: the in-line call has
+        no plan_started row of its own (the background one logs it, from_ask=true, in _submit_plan)."""
+        if ho is None:
+            return
+        self._ask_plan_calls[ho["ask"]] = self._ask_plan_calls.get(ho["ask"], 0) + 1
+        if log_start:
+            self.log.log("plan_started", composer="planner", plan_kind=kind, goal=goal, request=ho["ask"][1],
+                         from_ask=True)
+
+    def _note_stuck(self, goal: str, task: Task | None, reason: str | None) -> None:
+        """The goal on the open ask got stuck: kept for a hand-over that goes on from it (its tree, the failed step and
+        the reason go to planner.replan) and for the stall rule (the state read beside it)."""
+        a = self._goal_asked
+        ask = (a.get("player"), a["request"]) if isinstance(a, dict) and a.get("request") else None
+        if not (ask and oa.same_ask(ask, self._open_request)):
+            return
+        tree = self.store.tree
+        idx = next((i for i, t in enumerate(tree.tasks) if t is task), None) if tree is not None and task else None
+        try:
+            state = ask_store.baseline(self.executor.state(max_age=POST_ACTION_REUSE_S))
+        except Exception:  # unknown state: never a stall
+            state = None
+        prev = self._last_stuck if self._last_stuck and oa.same_ask(self._last_stuck["ask"], ask) else None
+        failed = {"skill": task.skill, "args": dict(task.args or {})} if task else None
+        self._last_stuck = {"ask": self._open_request, "goal": goal,
+                            "tree": copy.deepcopy(tree) if tree is not None and idx is not None else None,
+                            "failed_i": idx, "failed": failed, "reason": reason, "state": state,
+                            "prev": {"failed": prev["failed"], "reason": prev["reason"], "state": prev["state"]}
+                            if prev else None}
 
     # ---------------------------------------------------------------- the open ask on disk (brain/ask_store.py)
 
@@ -1820,6 +2053,8 @@ class Agent:
         self.store.progress("stuck", goal=goal, reason=reason)
         if self._quiet_goal:
             return "stuck"  # the board hears it from run_directed's records and decides
+        if self._ask_owner_on():
+            self._note_stuck(goal, task, reason)
         self._situations.append({"type": "stuck", "goal": goal, "failed": task.skill if task else None,
                                  "reason": reason, "question": question,
                                  **({"result": task.detail} if task and task.detail else {}),  # what the step said
@@ -1970,7 +2205,8 @@ class Agent:
         self._planning = p
         p.req = self._goal_request()
         self.log.log("plan_started", composer="planner", plan_kind=kind, goal=goal, request=p.req.get("request"),
-                     basis=plan_async.digest(state), failed_step=failed)
+                     basis=plan_async.digest(state), failed_step=failed,
+                     **({"from_ask": True} if self._handover is not None else {}))
         return p
 
     def _await_plan(self, p, failed: dict | None = None, extra: dict | None = None) -> int:
@@ -2153,6 +2389,11 @@ class Agent:
             self.active_goal = None
             self._quiet_goal = False
             self._serving_ask = serving
+            ho, self._handover = self._handover, None
+            if ho is not None:
+                self.log.log("ask_handover_ended", request=ho["ask"][1], player=ho["ask"][0], n=ho["n"],
+                             result=result, his_calls=ho["his_calls"],
+                             plan_calls=self._per_ask(self._ask_plan_calls, ho["ask"]))
         elapsed = time.monotonic() - start
         if skill and self.skills and result != "interrupted":
             self.skills.record_run(skill, result == "done", elapsed, self._last_reason)
@@ -2173,11 +2414,24 @@ class Agent:
         self._serving_ask = mine if oa.same_ask(mine, self._open_request) else None
         plan_q = None  # the plan's question beside its steps (_plan_question)
         plan_state = None  # the state the plan is made from (a held craft says what the bag gained since)
+        # DW_ASK_OWNER=1: a hand-over goal (the ask's words, _take_up_ask) may be declined, counts its Planner calls
+        # against the ask, and goes on from the last stuck goal on that ask (its tree, failed step and reason: a replan)
+        ho = self._handover
+        kw = {"may_decline": True} if ho is not None else {}
+        cont = ho.get("continue") if ho is not None else None
         if given is None:
             try:
                 state = plan_state = self.executor.state()
                 notes = self._planner_notes(goal, state, where="plan")
-                ask = lambda: self.planner.plan(goal, sit.with_asked(state, asked), notes)  # noqa: E731
+                ask = lambda: self.planner.plan(goal, sit.with_asked(state, asked), notes, **kw)  # noqa: E731
+                if cont is not None:  # the prior job's tree in the ask's words, its replan count reset
+                    prior = copy.deepcopy(cont["tree"])
+                    prior.goal, prior.replans, prior.status = goal, 0, "active"
+                    reason = cont["reason"]
+                    ask = lambda: self.planner.replan(prior, prior.tasks[cont["failed_i"]], reason,  # noqa: E731
+                                                      sit.with_asked(state, asked), notes, **kw)
+                self._count_plan(ho, "replan" if cont is not None else "plan", goal,
+                                 log_start=not self._plan_async_now())
                 if self._plan_async_now():
                     s_c, n_c = self._snapshot(sit.with_asked(state, asked), notes)
                     if first:  # his own first steps (start_goal first_steps) run now; the plan lands at a boundary
@@ -2185,10 +2439,19 @@ class Agent:
                                                              lambda: self.planner.plan(goal, s_c, n_c))
                         self.log.log("first_steps_started", goal=goal, steps=[plan_async.step_label(t) for t in first])
                         plan = None
+                    elif cont is not None:
+                        self.store.tree = None
+                        p_c, s_c, n_c = self._snapshot(prior, sit.with_asked(state, asked), notes)
+                        f = p_c.tasks[cont["failed_i"]]
+                        plan = self._plan_in_background(
+                            "replan", goal, state, lambda: self.planner.replan(p_c, f, reason, s_c, n_c, **kw),
+                            failed={"skill": f.skill, "args": f.args, "reason": reason})
+                        if plan is None:
+                            return self._plan_not_run(goal, None)
                     else:
                         self.store.tree = None  # in memory only: no earlier job's steps beside it while it is planned
                         plan = self._plan_in_background("plan", goal, state,
-                                                        lambda: self.planner.plan(goal, s_c, n_c))
+                                                        lambda: self.planner.plan(goal, s_c, n_c, **kw))
                         if plan is None:  # the job was replaced meanwhile, or the plan arrived stale (shown to him)
                             return self._plan_not_run(goal, None)
                 else:
@@ -2198,6 +2461,8 @@ class Agent:
             if plan is None:
                 given = list(first)
             elif not plan.tasks:
+                if ho is not None and (plan.ask_help or plan.declined):  # only a question, or a decline: parked
+                    return self._handover_park(goal, ho, plan, None)
                 return self._stuck(goal, None, "no plan", plan.ask_help)
             else:
                 given, plan_q = plan.tasks, plan.ask_help
@@ -2268,14 +2533,15 @@ class Agent:
                 state = self.executor.state()
                 notes = self._planner_notes(goal, state, exclude=task.detail, where="replan")
                 ask = lambda: self.planner.replan(tree, task, outcome.reason,  # noqa: E731
-                                                  sit.with_asked(state, asked), notes)
+                                                  sit.with_asked(state, asked), notes, **kw)
+                self._count_plan(ho, "replan", goal, log_start=not self._plan_async_now())
                 if self._plan_async_now():
                     failed = {"skill": task.skill, "args": task.args, "reason": outcome.reason,
                               **({"result": task.detail[:GOAL_RESULT_CHARS]} if task.detail else {})}
                     tree_c, task_c, s_c, n_c = self._snapshot(tree, task, sit.with_asked(state, asked), notes)
                     reason = outcome.reason
                     new = self._plan_in_background(
-                        "replan", goal, state, lambda: self.planner.replan(tree_c, task_c, reason, s_c, n_c),
+                        "replan", goal, state, lambda: self.planner.replan(tree_c, task_c, reason, s_c, n_c, **kw),
                         failed=failed)
                     if new is None:
                         return self._plan_not_run(goal, tree)
@@ -2286,6 +2552,8 @@ class Agent:
             self._plan_bag(state)
             self.store.progress("replanned", goal=goal, explanation=new.explanation, ask_help=new.ask_help)
             if not new.tasks:  # only a question (or nothing): the job stops honestly with its reason and the question
+                if ho is not None and (new.ask_help or new.declined):  # a hand-over goal: the ask is parked instead
+                    return self._handover_park(goal, ho, new, task)
                 return self._stuck(goal, task, outcome.reason, new.ask_help)
             tree.tasks = [t for t in tree.tasks if t.done or t is task] + new.tasks
             self.store.save_tree()

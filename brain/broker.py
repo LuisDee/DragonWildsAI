@@ -217,6 +217,11 @@ def fallback_line(events: list[dict]) -> str | None:
                                                e.get("question")))
         elif e.get("type") == "plan_question" and e.get("question"):  # agent._plan_question: its steps run on
             lines.append(str(e["question"]).strip())
+        elif e.get("type") == "ask_parked":  # agent._park_for (DW_ASK_OWNER=1): the ask parked for him, by its reason
+            said = e.get("question") or e.get("explanation")
+            req = str(e.get("request") or "").strip()
+            lines.append(str(said).strip() if said else
+                         f"I've stopped on {repr(req[:80]) if req else 'that'}: {str(e.get('reason') or '').strip()}.")
         elif e.get("type") == "chain_budget":  # agent._hand_on: the request's turns ran out (model silent or failed)
             req = str(e.get("request") or "").strip()
             lines.append(f"I've stopped partway through{' ' + repr(req[:80]) if req else ' that'}: I ran out of steps "

@@ -51,6 +51,13 @@ RESEARCH_LINE = ("Read-only research tools are offered with this request ({names
 MAX_RESEARCH_CALLS = 4
 RESULT_LOG_CHARS = 2000  # a research result as the planner_research row keeps it
 
+# DW_ASK_OWNER=1 (agent._take_up_ask): a request the Controller left with no job is handed to the Planner in the
+# player's own words, which may ask for no work at all (a question, a remark). Only then is a decline offered: one
+# schema line saying what it is, no advice. An empty plan with an explanation and no question is that decline
+# (PlanResult.declined).
+DECLINE_LINE = ("- This goal is the player's own words. If they ask for no work these skills can do (a question, a "
+                "remark), you may decline it: no tasks, no ask_help, and the reason in \"explanation\".")
+
 REPLAN = """The plan failed. Follow these steps.
 1. description: describe what was executed and what happened.
 2. explanation: explain the most likely cause of the failure.
@@ -96,6 +103,11 @@ class PlanResult:
     ask_help: str | None = None
     explanation: str | None = None
     description: str | None = None
+
+    @property
+    def declined(self) -> bool:
+        """No steps, no question, a reason: the Planner declined the goal (offered only with may_decline)."""
+        return not self.tasks and not self.ask_help and bool((self.explanation or "").strip())
 
 
 class PlanError(Exception):
@@ -206,8 +218,10 @@ class Planner:
         self.research = research
         self.max_research = max_research
 
-    def _system(self, tools: list[dict] | None = None) -> dict:
+    def _system(self, tools: list[dict] | None = None, may_decline: bool = False) -> dict:
         text = SYSTEM.format(skills=json.dumps(self.skills.describe(), indent=1))
+        if may_decline:
+            text += "\n" + DECLINE_LINE
         if tools:
             names = ", ".join(t["function"]["name"] for t in tools)
             text += "\n\n" + RESEARCH_LINE.format(names=names, n=self.max_research)
@@ -222,13 +236,15 @@ class Planner:
             self.log.log("planner_research_unavailable", component="planner", error=repr(exc)[:300])
             return None
 
-    def plan(self, goal: str, state: dict, notes: dict) -> PlanResult:
+    def plan(self, goal: str, state: dict, notes: dict, may_decline: bool = False) -> PlanResult:
         user = {"goal": goal, **_where(state), "notes": notes, "state": _trim_state(state)}
         research = self._research(state)
         tools = research.tools() if research is not None else None
-        return self._ask([self._system(tools), {"role": "user", "content": json.dumps(user)}], "plan", research, tools)
+        return self._ask([self._system(tools, may_decline), {"role": "user", "content": json.dumps(user)}], "plan",
+                         research, tools, may_decline=may_decline)
 
-    def replan(self, tree: TaskTree, failed: Task, reason: str | None, state: dict, notes: dict) -> PlanResult:
+    def replan(self, tree: TaskTree, failed: Task, reason: str | None, state: dict, notes: dict,
+               may_decline: bool = False) -> PlanResult:
         user = {
             "goal": tree.goal,
             **_where(state),
@@ -244,11 +260,12 @@ class Planner:
         }
         research = self._research(state)
         tools = research.tools() if research is not None else None
-        messages = [self._system(tools), {"role": "user", "content": json.dumps(user) + "\n\n" + REPLAN}]
-        return self._ask(messages, "replan", research, tools)
+        messages = [self._system(tools, may_decline),
+                    {"role": "user", "content": json.dumps(user) + "\n\n" + REPLAN}]
+        return self._ask(messages, "replan", research, tools, may_decline=may_decline)
 
     def _ask(self, messages: list[dict], mode: str = "plan", research: Any = None,
-             tools: list[dict] | None = None) -> PlanResult:
+             tools: list[dict] | None = None, may_decline: bool = False) -> PlanResult:
         """One plan through the shared validate-and-repair loop (brain/llm_json.py, simplify item 10), with up to
         max_research read-only research calls before it."""
         self.log.log("prompt", component="planner", model=self.llm.model, messages=messages,
@@ -268,7 +285,7 @@ class Planner:
 
         def validate(text: str, round_: int) -> PlanResult:
             try:
-                return self._validate(text)
+                return self._validate(text, may_decline)
             except (ValueError, ValidationError) as exc:
                 self.log.log("plan_invalid", error=str(exc), round=round_)
                 raise
@@ -305,11 +322,11 @@ class Planner:
                      tasks=[t.skill for t in plan.tasks] if plan is not None else None,
                      ask_help=plan.ask_help if plan is not None else None, **({"error": error} if error else {}))
 
-    def _validate(self, text: str) -> PlanResult:
+    def _validate(self, text: str, may_decline: bool = False) -> PlanResult:
         plan = PlanModel.model_validate_json(extract_json(text))
         tasks, errors = parse_steps(self.skills, plan.tasks)
         if errors:
             raise ValueError("; ".join(errors))
-        if not tasks and not plan.ask_help:
-            raise ValueError("empty plan without ask_help")
+        if not tasks and not plan.ask_help and not (may_decline and (plan.explanation or "").strip()):
+            raise ValueError("empty plan without ask_help" + (" or explanation" if may_decline else ""))
         return PlanResult(tasks, plan.ask_help, plan.explanation, plan.description)
