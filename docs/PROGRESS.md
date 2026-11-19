@@ -2428,3 +2428,7 @@ A per-job `world_needs` check went into job_run (3424b75): before the ask, the b
 ## 2026-11-19 14:10Z: 61412a5 decided again on today's real play
 
 61412a5 (slope ups read at their quarters) by its own rule (bin at 51 % of slope-range jumps falling back): real play since 08:30Z, 15 slope-range jump-up edges, 2 judged missed (13 %), 1 fell back (7 %); all 65 jump-up paths: 10 strikes (15 %). Far under the bin line: **keep**, now on the 65-path evidence rather than the earlier 3 of 21. The remaining misses are the tall rises (7 of 15 over 165 cm), whose mechanism is the slow-frame snap-back (13:10Z entry), not the slope rule.
+
+## 2026-11-19 14:07Z-14:28Z: the confirm window's first trial (the day's last dollar)
+
+Vitals rescued first (the save read water 64, under the 70 % bar). L2 V1 x1, cap 0.75: **0 of 1**, ended at the day's cap (spend 19.48 of 19.50) with 5 misses (build blocked x2, go_to path_blocked x2, cast too_far), counted. Lines seen: `perception: pile merged` 13 (no bone-id miss: 6c6960e confirmed), `threat_seen held` 2 (3 threat detaches; the row stays open: 14 detaches in 4 trials, 3.5 a trial against 2.3 before), `jump quiet frames` 3 (no cut). Not met in the trial: water views, craft hold, cut-short guard. The confirm window goes on tomorrow (two more trials) before any new fix.
