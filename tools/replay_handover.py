@@ -257,7 +257,7 @@ def run(cases: list[dict], k: int, out: Path, yes: bool, stop_frac: float, resea
                  "ask_help": plan.ask_help if plan else None, "explanation": plan.explanation if plan else None,
                  "error": err}
             samples.append(s)
-            log.log("replay", **s)
+            log.log("replay", **{("case_kind" if k == "kind" else k): v for k, v in s.items()})
             print(f"  {c['case']:34} {s['outcome']:8} "
                   f"{json.dumps(s['tasks'] or s['ask_help'] or s['explanation'] or err, ensure_ascii=False)[:150]}",
                   flush=True)
