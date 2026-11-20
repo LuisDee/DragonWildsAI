@@ -2033,6 +2033,28 @@ do
     check("brief: healing food listed", d.food and #d.food >= 1 and d.food[1].heal == 10)
     check("brief: estimate as information", d.assessment and d.assessment.verdict ~= nil)
     check("brief: invalid args", Cm.HANDLERS.combat_brief(nil, {}, {}).reason == "invalid_args")
+    -- a creature in sight is unchanged by the by-name facts (no known block on a live read)
+    check("brief: in sight carries no by-name block", b.ok and d.known == nil and d.creature.name == "Goblin Runt")
+    -- none in sight (lookup study 2026-11-19, "should we fight the garou?"): the reason stays, the facts come by name
+    local g = Cm.HANDLERS.combat_brief(nil, { target = "garou" }, {})
+    local gd = g.data or {}
+    local kn = gd.known or {}
+    local berserker
+    for _, row in ipairs(kn.creatures or {}) do if row.name == "Garou Berserker" then berserker = row end end
+    check("brief: garou out of sight keeps ok=false and the true reason", g.ok == false and g.reason == "unknown_target"
+        and type(gd.detail) == "string" and gd.detail:find("no living garou", 1, true), gd.detail)
+    check("brief: garou facts by name, labelled not live", kn.source and kn.source:find("not a live read", 1, true) and #(kn.creatures or {}) >= 5)
+    check("brief: garou berserker PL, HP, weak_to and hit damage from the bestiary", berserker and berserker.power_level[1] == 3
+        and berserker.hp[1] == 292 and berserker.weak_to[1] == "DamageType.Ranged" and berserker.hit_damage and berserker.hit_damage.max == 78)
+    check("brief: his own power level beside it, no odds", gd.me and gd.me.power_level == 2 and gd.assessment == nil)
+    local one = Cm.HANDLERS.combat_brief(nil, { target = "Garou Hunter" }, {})
+    local ok1 = one.data and one.data.known and one.data.known.creatures
+    check("brief: an exact name out of sight gives that one creature", ok1 and #ok1 == 1 and ok1[1].name == "Garou Hunter"
+        and ok1[1].weak_to[1] == "DamageType.Magical.Air", ok1 and #ok1)
+    local none = Cm.HANDLERS.combat_brief(nil, { target = "zzqx" }, {})
+    check("brief: a name the bestiary lacks stays a bare unknown_target", none.reason == "unknown_target" and none.data.known == nil)
+    local id = Cm.HANDLERS.combat_brief(nil, { target = "BP_AI_Garou_Character_C_77" }, {})
+    check("brief: a gone id gets no by-name facts", id.reason == "unknown_target" and id.data.known == nil)
 end
 
 -- ================================================================ 17. pre-casting: cadence, timing, active windows

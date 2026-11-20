@@ -4981,8 +4981,19 @@ function M.combat_brief(log, target, ctx)
     local pawn = pc and U.try(function() return pc.Pawn end)
     if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
     local origin = U.loc(pawn)
-    local actor = M.resolve_target(target, origin)
-    if not actor then return { ok = false, reason = "unknown_target", data = { target = tostring(target) } } end
+    local actor, why = M.resolve_target(target, origin)
+    if not actor then
+        -- the true reason stays (none of that name in sight); beside it, what is known of it by name (lookup study
+        -- 2026-11-19: "should we fight the garou?" got a bare unknown_target and he judged from his gear alone)
+        local data = type(why) == "table" and why or { target = tostring(target) }
+        local okk, known = pcall(M.known_by_name, target)
+        if okk and known then
+            data.known = known
+            local me = read_me(pawn, pc)
+            data.me = { power_level = me.pl, hp = me.hp, max_hp = me.max_hp }
+        end
+        return { ok = false, reason = "unknown_target", data = data }
+    end
     local cr = read_creature(actor, origin)
     local me = read_me(pawn, pc)
     local out = { ok = true, data = {} }
@@ -5069,6 +5080,42 @@ function M.combat_brief(log, target, ctx)
         end
     end
     d.orders = M.orders
+    return out
+end
+
+-- What is known of a creature by NAME alone, for combat_brief when none of that name is in sight (no live read,
+-- no odds: there is nothing seen to measure). Plain table reads of the wiki snapshot (creature_wiki.lua) and the
+-- game's attack damage (creature_attacks.lua), plus creature_facts (the path combat_brief already takes for a
+-- creature in sight: his own hits, the journal, priors). An exact name gives that creature; a family word ("garou")
+-- every creature whose name holds it. -> {source, creatures = {...}, more?, affinities?, journal?} | nil
+function M.known_by_name(name)
+    if type(name) ~= "string" or name == "" or name:match("_C_%d+$") then return nil end -- (an id names no kind)
+    local key = name:lower()
+    local WIKI, ATK = M.data("creature_wiki") or {}, M.data("creature_attacks") or {}
+    local keys = {}
+    if WIKI[key] or ATK[key] then keys[1] = key
+    else
+        local seen = {}
+        for _, t in ipairs({ WIKI, ATK }) do
+            for k in pairs(t) do if not seen[k] and k:find(key, 1, true) then seen[k] = true; keys[#keys + 1] = k end end
+        end
+        table.sort(keys)
+    end
+    local out = { source = "known by name from the bestiary (wiki snapshot, game attack data), not a live read: "
+                  .. "none is in sight; power_level and hp list the variants in the same order", creatures = {} }
+    for i, k in ipairs(keys) do
+        if i > 12 then out.more = #keys - 12; break end
+        local w, a = WIKI[k] or {}, ATK[k]
+        out.creatures[#out.creatures + 1] = { name = w.title or k, power_level = w.pl, hp = w.hp, race = w.race and w.race[1],
+            weak_to = w.weak, resists = w.resist, immune = w.immune, immune_effects = w.immune_effects, inflicts = w.inflicts,
+            hit_damage = a and { mean = a.mean, max = a.max } or nil, url = w.url }
+    end
+    local f = M.creature_facts(name)
+    if f then
+        out.affinities = f.affinities -- {tag = {v, src}}: his own hits > journal > wiki > prior
+        out.journal = f.journal and { entry = f.journal.entry, weaknesses = f.journal.list } or nil
+    end
+    if #out.creatures == 0 and not out.affinities and not out.journal then return nil end
     return out
 end
 
@@ -5679,7 +5726,8 @@ do
                 avoid = { type = "array", items = { type = "string" } } }) } },
         combat_brief = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 10,
             description = "Facts to prepare a fight: power levels, the creature's weaknesses, your weapons vs it, usable buff/defence "
-                .. "spells, healing food, the estimate, its learned attacks.",
+                .. "spells, healing food, the estimate, its learned attacks. A name not in sight: unknown_target, with what is known "
+                .. "of it by name (bestiary, not a live read).",
             args = { type = "object", required = { "target" }, properties = obj({
                 target = { type = "string", description = "Creature id, or a name (nearest)." } }) },
             ground = obj({ target = "creature" }) },
