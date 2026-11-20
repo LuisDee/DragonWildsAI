@@ -444,7 +444,8 @@ class LiveSession:
         self.planner_proxy.owner = threading.get_ident()
         research = None if os.environ.get("DW_PLANNER_RESEARCH", "1") == "0" else planner_research(
             self.knowledge, self.planner_proxy, set(self.caps.tools) | set(self.caps.manifest), self.caps.manifest,
-            facts=lambda: KnowledgeMemory(Path(state_dir)).snapshot())
+            facts=lambda: KnowledgeMemory(Path(state_dir)).snapshot(),
+            places=lambda: getattr(self.controller, "places", None))
         self.planner = Planner(planner_llm, self.store.skills, self.log, research=research)
         self.controller = Controller(controller_llm, self.client, self.store, self.log,
                                      name=opts.name, player=opts.player, available_tools=self.caps.tools,
@@ -463,7 +464,8 @@ class LiveSession:
             self.planner_proxy.timeout_s = plan_async.READ_WAIT_S
             self.client.wait_hooks.append(lambda: self.planner_proxy.serve("body_wait"))
         try:  # the game's map data: the Where line (region, named places near) and go_to <place name>
-            self.agent.broker.places = self.executor.places = self.controller.places = Places()
+            # the Planner too: the map names and vaults of the goal (L3 2026-11-20: its state.places was [])
+            self.agent.broker.places = self.executor.places = self.controller.places = self.planner.places = Places()
             self.controller.use_map_names()
         except Exception as exc:  # no data file: both work without it
             self.log.log("places_unavailable", error=repr(exc)[:200])

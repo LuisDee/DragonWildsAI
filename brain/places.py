@@ -558,6 +558,20 @@ class Places:
                 add(v["name"], v["kind"], v["power_level"], f"{v['kind']} (the nearest)", v["position"])
         return out
 
+    def kind_words(self, q: set[str] | str, here=None) -> dict[str, list[dict]]:
+        """The words of ``q`` (terms, or a text) that are the data's own kind of place ("vault", "vaults": the
+        bestiary's vaults) -> those places, nearest ``here`` first, no position last. mentioned() lists them in his
+        situation and the Planner's input; lookup("vault") answers with them (L3 2026-11-20: no vault row came back)."""
+        q = _terms(q) if isinstance(q, str) else q
+        kinds: dict[str, list[dict]] = {}
+        for v in self.vaults.values():
+            for t in _terms(v["kind"]):
+                kinds.setdefault(t, []).append(v)
+        here_p = _pos(here)
+        return {w: sorted(kinds[w], key=lambda v: (v["position"] is None,
+                                                   (_d(here_p, v["position"]) or 0) if here_p and v["position"] else 0))
+                for w in sorted(t for t in q if t in kinds)}
+
     def mentioned(self, text: str, here=None, k: int = 2) -> list[str]:
         """Map names said in ``text`` (every word of the name is in it): regions, provinces and landmarks of two or
         more words ("Statue", "Cow" are too common to mean the map's one). The longest name wins over a name inside
@@ -596,14 +610,8 @@ class Places:
         covered = set().union(*(_terms(n) for n, _ in hits)) if hits else set()
         # a word that is the data's own kind of place ("vault": the bestiary's vaults), nearest first. The vaults'
         # names hold no such word ("Crasorak Kara"), so the map-name words below never reach them
-        kinds: dict[str, list[dict]] = {}
-        for v in self.vaults.values():
-            for t in _terms(v["kind"]):
-                kinds.setdefault(t, []).append(v)
         here_p = _pos(here)
-        for w in sorted(t for t in q - covered if t in kinds):
-            vs = sorted(kinds[w], key=lambda v: (v["position"] is None,
-                                                  (_d(here_p, v["position"]) or 0) if here_p and v["position"] else 0))
+        for w, vs in self.kind_words(q - covered, here).items():
             out.append(f"\"{w}\": the game's data has {len(vs)} {vs[0]['kind']}s; "
                        + ("nearest: " if here_p else "") + ", ".join(self.vault_label(v, here) for v in vs[:3])
                        + "; go_to takes the full name")
