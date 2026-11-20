@@ -2493,3 +2493,8 @@ Session checks: spend $0 of $10; job rates as before (N1 I1-I5 all passing alone
 - Under the 10 % bar on the point estimate; the upper bound (11 %) is not under it yet: about another 60 real-play paths would settle it. The residue is tall rises over 165 cm (2 of 11; both fell short back at the takeoff level).
 - **61412a5 decided on this evidence: kept** (its rule: slope-range jumps falling back under 51 % and strike paths under 10 %; slope range 0 of 23, strike paths 3 %).
 - The cut-short guard (cfbbb07/eab3a52, TEMPORARY) ran once in real play (03:41:13Z, verdict=cut, pressed again): confirmed as running; it stays marked temporary.
+
+## 2026-11-20 03:55Z: combat_brief by name merged; the lookup run waits for tomorrow
+
+- 9068393 (agent, worktree; Lua suite 591 of 591): combat_brief for a creature out of sight keeps unknown_target and its true reason ("no living garou within 60 m") and attaches what the bestiary knows by name (the seven Garou with PL and HP per variant, weak to, resists, hit damage where known), labelled "not a live read", no odds, no engine calls. The brain path passes it to the model untouched. Row added (7 open).
+- The lookup window (all sets, 52 cases) refused to start: its own guard does not run past the day's warn level (spend 8.75). It is tomorrow's first window: named, the decision asks (0 of 2) and the tuned and held-out rates (18 and 19 of 23 before).
