@@ -8,6 +8,14 @@ import pytest
 from tools import job_run as j
 from tools import quest_run as q
 
+
+@pytest.fixture(autouse=True)
+def _no_live_stop_file(monkeypatch, tmp_path):
+    """The live tree's logs/job_run.stop (set by hand to end a window) never reaches a test: 11 tests read it as
+    "stopped" on 2026-11-20 while it stood from 04:13Z."""
+    monkeypatch.setattr(j, "STOP_FILE", tmp_path / "job_run.stop")
+
+
 T0 = 1000.0
 CRATE = "BP_BaseBuilding_Crate_C_7"
 
