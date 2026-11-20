@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ValidationError
 
+from . import predicates as P
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient
 from .llm_json import DecisionError, extract_json, json_decision
@@ -57,6 +58,15 @@ RESULT_LOG_CHARS = 2000  # a research result as the planner_research row keeps i
 # (PlanResult.declined).
 DECLINE_LINE = ("- This goal is the player's own words. If they ask for no work these skills can do (a question, a "
                 "remark), you may decline it: no tasks, no ask_help, and the reason in \"explanation\".")
+
+# DW_PLAN_AT_ASK=1 (agent._submit_at_ask): the call made at the ask also writes the job's end condition, once, in the
+# success-predicate format code checks on fresh game state (predicates.SCHEMA_DOC: the one source, as the Director gets
+# it). One schema line saying what the key is, then the format; no advice (research 2026-11-17-long-jobs-planner-actor.md,
+# decision 6: the end condition is written at the ask and checked by code). L3 2026-11-20: no plan carried what "geared
+# up for the vault" meant, so nothing could read it as met or not.
+DONE_WHEN_LINE = ("- Add \"done_when\" to the JSON: this job's end condition as ONE success predicate (format below), "
+                  "checked by code on fresh game state from now on (\"since this step started\" there means since this "
+                  "request); null when the words ask for no job.")
 
 REPLAN = """The plan failed. Follow these steps.
 1. description: describe what was executed and what happened.
@@ -97,6 +107,7 @@ class PlanModel(BaseModel):
     explanation: str | None = None
     ask_help: str | None = None
     tasks: list[TaskSpec] = []
+    done_when: Any = None  # read only when asked for (Planner.plan(done_when=True)); checked by check_done_when
 
 
 @dataclass
@@ -105,6 +116,11 @@ class PlanResult:
     ask_help: str | None = None
     explanation: str | None = None
     description: str | None = None
+    # DW_PLAN_AT_ASK=1: the job's end condition as written (raw), validated and normalised (None when null or refused),
+    # and why it was refused. An invalid one never costs the plan: the steps land, done_when stays None
+    done_when_raw: Any = None
+    done_when: dict | None = None
+    done_when_error: str | None = None
 
     @property
     def declined(self) -> bool:
@@ -114,6 +130,22 @@ class PlanResult:
 
 class PlanError(Exception):
     pass
+
+
+def check_done_when(raw: Any, items: "P.Items | None" = None) -> tuple[dict | None, str | None]:
+    """A written end condition through predicates.validate (item names to ids) and its net-delta lint: (the normalised
+    predicate, None), or (None, why it is refused). None written: (None, None)."""
+    if raw is None:
+        return None, None
+    try:
+        pred = P.validate(raw, items if items is not None else P.Items())
+    except P.PredicateError as exc:
+        return None, str(exc) + (f" (candidates: {', '.join(exc.candidates)})" if exc.candidates else "")
+    except Exception as exc:  # item data missing, a malformed argument: refused with what went wrong
+        return None, f"{type(exc).__name__}: {exc}"[:300]
+    if clash := P.net_conflicts(pred):
+        return None, "gained and lost of the same item in one all can never both hold: " + ", ".join(clash)
+    return pred, None
 
 
 def creature_rows(state: dict) -> list[dict]:
@@ -237,10 +269,12 @@ class Planner:
         self.research = research
         self.max_research = max_research
 
-    def _system(self, tools: list[dict] | None = None, may_decline: bool = False) -> dict:
+    def _system(self, tools: list[dict] | None = None, may_decline: bool = False, done_when: bool = False) -> dict:
         text = SYSTEM.format(skills=json.dumps(self.skills.describe(), indent=1))
         if may_decline:
             text += "\n" + DECLINE_LINE
+        if done_when:
+            text += "\n" + DONE_WHEN_LINE + "\n" + P.SCHEMA_DOC
         if tools:
             names = ", ".join(t["function"]["name"] for t in tools)
             text += "\n\n" + RESEARCH_LINE.format(names=names, n=self.max_research)
@@ -255,13 +289,23 @@ class Planner:
             self.log.log("planner_research_unavailable", component="planner", error=repr(exc)[:300])
             return None
 
-    def plan(self, goal: str, state: dict, notes: dict, may_decline: bool = False) -> PlanResult:
+    def plan(self, goal: str, state: dict, notes: dict, may_decline: bool = False,
+             done_when: bool = False) -> PlanResult:
+        """``done_when`` (DW_PLAN_AT_ASK=1, the call at the ask): the plan also writes the job's end condition; it is
+        validated here and logged (plan_done_when), and an invalid one is refused with its reason, never the plan."""
         user = {"goal": goal, **_where(state, goal, getattr(self, "places", None)), "notes": notes,
                 "state": _trim_state(state)}
         research = self._research(state)
         tools = research.tools() if research is not None else None
-        return self._ask([self._system(tools, may_decline), {"role": "user", "content": json.dumps(user)}], "plan",
-                         research, tools, may_decline=may_decline)
+        plan = self._ask([self._system(tools, may_decline, done_when), {"role": "user", "content": json.dumps(user)}],
+                         "plan", research, tools, may_decline=may_decline)
+        if done_when:
+            plan.done_when, plan.done_when_error = check_done_when(plan.done_when_raw)
+            self.log.log("plan_done_when", component="planner", request=goal, done_when=plan.done_when_raw,
+                         valid=plan.done_when_error is None,
+                         **({"reads_as": P.describe(plan.done_when)} if plan.done_when else {}),
+                         **({"error": plan.done_when_error} if plan.done_when_error else {}))
+        return plan
 
     def replan(self, tree: TaskTree, failed: Task, reason: str | None, state: dict, notes: dict,
                may_decline: bool = False) -> PlanResult:
@@ -349,4 +393,4 @@ class Planner:
             raise ValueError("; ".join(errors))
         if not tasks and not plan.ask_help and not (may_decline and (plan.explanation or "").strip()):
             raise ValueError("empty plan without ask_help" + (" or explanation" if may_decline else ""))
-        return PlanResult(tasks, plan.ask_help, plan.explanation, plan.description)
+        return PlanResult(tasks, plan.ask_help, plan.explanation, plan.description, done_when_raw=plan.done_when)

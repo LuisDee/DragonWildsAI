@@ -2,8 +2,8 @@
 with may_decline, while his Controller turn runs as before (research 2026-11-17-long-jobs-planner-actor.md, decisions
 3 and 6; L3 2026-11-20: 12 of 12 trials never reached the Planner because Haiku alone decided whether an ask was a
 job). A slow fake Planner (a FakeLLM item blocked on a gate) shows: a job ask gets steps while he acts, and they run
-as the job for the ask; a knowledge question's decline changes nothing; his request_done during a pending plan is
-recorded and told that the job is not dropped; his stop lets it go; a goal he queues takes the call as its plan (one
+as the job for the ask; a knowledge question's decline changes nothing; a plan landing after his request_done starts
+and parks nothing and is shown to him once (his start_goal on it takes it); his stop lets it go; a goal he queues takes the call as its plan (one
 call per ask); no budget, no call; flag off, nothing of this. Offline: scripted LLMs and the mock game.
 """
 from __future__ import annotations
@@ -101,7 +101,10 @@ def test_a_job_ask_gets_steps_while_he_acts_and_they_run_as_its_job(tmp_path, on
     _hear(rig, JOB, acts_meanwhile)
     assert seen["pending"] is True
     assert seen["planner"]["state"] == "making a plan for the player's request"  # he is told, as a fact
-    assert seen["planner"]["request"] == JOB[1] and seen["planner"]["about"] == A.AT_ASK_PENDING_NOTE
+    assert seen["planner"]["request"] == JOB[1]
+    about = seen["planner"]["about"]  # facts only (audit 2026-11-20): composing since N s, what its steps do
+    assert about.startswith("Your planner is composing a plan for this request, started 0 s ago.")
+    assert "plainly" not in about and "look things up" not in about
     started, = _rows(rig, "plan_started")
     assert started["at_ask"] is True and started["from_ask"] is True and started["request"] == JOB[1]
     slow.gate.set()
@@ -151,36 +154,75 @@ def test_only_a_question_parks_the_ask_waiting_on_the_player(tmp_path, on):
 # ----------------------------------------------------------------------------------------------- his calls meanwhile
 
 
-def test_request_done_during_a_pending_plan_is_recorded_and_the_job_runs_on(tmp_path, on):
-    rig = Rig(tmp_path)
-    slow = SlowPlanner(FakeLLM.plan(LOGS))
-    rig.planner_llm.push(slow)
-    results = {}
+def _closes_while_planned(rig, slow, then):
+    """He closes the ask with request_done while its plan is made; ``then`` is his reply in the turn that shows the
+    landed plan (a situation run). Returns that turn's context."""
+    seen = {}
 
     def turn(messages, tools):
-        """Nothing until request_done is offered (the open-ask turn), then the claim; then he reads its result."""
-        assert slow.started.wait(5)
         names = {t["function"]["name"] for t in tools or []}
-        if "claimed" in results:
-            results.setdefault("done", [m for m in messages if m.get("role") == "tool"])
+        if "for_closed_request" in messages[1]["content"]:
+            seen.setdefault("shown", messages[1]["content"])
+            return then
+        if "claimed" in seen:
             return FakeLLM.say("")
         if "request_done" in names:
-            results["claimed"] = True
+            seen["claimed"] = True
             return FakeLLM.say("all set", FakeLLM.call("request_done", evidence="nothing needed"))
         return FakeLLM.say("")
 
-    _hear(rig, JOB, *([turn] * 8))
+    _hear(rig, JOB, *([turn] * 12))
     claimed, = _rows(rig, "request_done_claimed")
     assert claimed["planners_job"]["state"].startswith("being planned")  # the close is recorded with it
-    assert rig.agent._open_request is None
-    told = json.dumps(results["done"])
-    assert "your_planners_job" in told and "being planned" in told  # his request_done result says so
+    assert claimed["planners_job"]["note"] == A.AT_ASK_DONE_PENDING_NOTE
+    assert claimed["game_reads"] == {}  # flag on: no done_when yet, no tree, so no done-reads turn
+    assert not _rows(rig, "done_reads_turn") and rig.agent._open_request is None
+    rig.controller_llm.push(*([turn] * 4))
     slow.gate.set()
     _land(rig)
-    assert rig.agent.step() == "done"  # not silently dropped: the planner's job runs on
+    return seen
+
+
+def test_a_plan_landing_after_his_request_done_starts_nothing_and_is_shown_once(tmp_path, on):
+    """Audit 2026-11-20: code sided with the Planner over his close. Now the close stands: one turn shows the plan."""
+    rig = Rig(tmp_path)
+    slow = SlowPlanner(FakeLLM.plan(LOGS, done_when={"moved": {"min_m": 1}}))
+    rig.planner_llm.push(slow)
+    seen = _closes_while_planned(rig, slow, FakeLLM.say("I'll leave it then"))
+    assert rig.agent.step() is None  # nothing started
+    assert "for_closed_request" in seen["shown"] and A.AT_ASK_CLOSED_NOTE in seen["shown"]
+    assert "gather" in seen["shown"] and "done_when" in seen["shown"] and "move at least 1 m" in seen["shown"]
     row, = _rows(rig, "plan_at_ask")
-    assert row["landed"] == "job" and row["ask_open"] is False
+    assert row["landed"] == "shown, not started: he closed the request"
+    let_go, = _rows(rig, "plan_at_ask_let_go")
+    assert let_go["request"] == JOB[1] and rig.agent._at_ask_held is None
+    assert rig.calls("gather") == [] and rig.agent.pending_goal is None and not _rows(rig, "request_parked")
+    assert rig.agent._open_request is None and rig.agent._parked is None  # his close stands
+    assert rig.agent.step() is None and rig.calls("gather") == []  # and nothing later either
+
+
+def test_in_the_turn_that_shows_it_his_start_goal_takes_the_landed_plan(tmp_path, on):
+    rig = Rig(tmp_path)
+    slow = SlowPlanner(FakeLLM.plan(LOGS))
+    rig.planner_llm.push(slow)
+    _closes_while_planned(rig, slow, FakeLLM.say("on it after all", FakeLLM.call("start_goal", goal=JOB[1])))
+    assert rig.agent.step() == "done"
+    assert len(rig.planner_llm.calls) == 1  # the landed plan, no second Planner call
+    adopted, = _rows(rig, "plan_at_ask_adopted")
+    assert adopted["after_close"] is True and adopted["goal"] == JOB[1]
     assert rig.game.players["Luis"].inventory["log"] == 2
+
+
+def test_a_question_landing_after_his_request_done_is_shown_not_parked(tmp_path, on):
+    rig = Rig(tmp_path)
+    slow = SlowPlanner(FakeLLM.plan([], ask_help="which chest is yours?"))
+    rig.planner_llm.push(slow)
+    seen = _closes_while_planned(rig, slow, FakeLLM.say(""))
+    assert rig.agent.step() is None
+    assert "which chest is yours?" in seen["shown"] and A.AT_ASK_CLOSED_Q_NOTE in seen["shown"]
+    row, = _rows(rig, "plan_at_ask")
+    assert row["landed"] == "shown, not parked: he closed the request"
+    assert not _rows(rig, "request_parked") and rig.agent._parked is None and rig.agent._at_ask_held is None
 
 
 def test_his_stop_lets_the_pending_plan_go(tmp_path, on):
@@ -291,3 +333,105 @@ def test_with_the_ask_owner_on_a_decline_at_the_ask_is_not_handed_over_again(tmp
     skipped, = _rows(rig, "ask_handover_skipped")
     assert skipped["why"] == "declined by his planner at the ask"
     assert len(rig.planner_llm.calls) == 1 and not _rows(rig, "ask_handover")
+
+
+# ----------------------------------------------------------------------------------------------- done_when
+# The job's end condition, written once at the ask by the Planner in predicates.py's vocabulary and checked by code on
+# fresh state (research 2026-11-17-long-jobs-planner-actor.md, decision 6). L3 2026-11-20 ("gear up for the vault"):
+# nothing held what "geared up" meant, so nothing read it as met or not.
+
+PL2 = {"gear_better": {"slot": "body", "stat": "power_level", "than": 2, "op": ">="}}
+T1_BODY, T2_BODY = "ITEM_Armour_T1_Body_Adventurers", "ITEM_Armour_T2_Body_Leather"
+VAULT = ("Luis", "claude, gear up for the vault")
+
+
+def _wearing(rig, body):
+    orig = rig.game.get_state
+
+    def get_state():
+        r = orig()
+        r["data"]["gear"] = {"Body": body} if body else {}
+        return r
+    rig.game.get_state = get_state
+
+
+def test_done_when_is_written_at_the_ask_and_checked_true_or_false_on_fresh_state(tmp_path, on):
+    from brain import predicates as P
+    from brain.planner import DONE_WHEN_LINE
+    rig = Rig(tmp_path)
+    _wearing(rig, T1_BODY)
+    rig.planner_llm.push(FakeLLM.plan(LOGS, done_when=PL2))
+    _hear(rig, VAULT, FakeLLM.say("sure"))
+    _land(rig)
+    system = rig.planner_llm.calls[0]["messages"][0]["content"]
+    assert DONE_WHEN_LINE in system and P.SCHEMA_DOC in system  # one schema line, the format from predicates.py
+    row, = _rows(rig, "plan_done_when")
+    assert row["request"] == VAULT[1] and row["valid"] is True and row["done_when"] == PL2
+    assert rig.agent.step() == "done"
+    ends = [r for r in _rows(rig, "done_when_checked") if r["where"] == "step_end"]
+    assert len(ends) == len(LOGS) and all(r["holds"] is False for r in ends)  # an Adventurer's Tunic is PL 1
+    assert "Adventurer's Tunic 1 vs 2" in ends[0]["reads"]
+    rig.agent._open_request = VAULT  # the ask open again: its block shows the end condition with its truth now
+    blk = rig.agent._open_ask_block(VAULT, rig.agent._fresh_state())
+    dw = blk["open_request"]["done_when"]
+    assert dw["end_condition"] == "a body with power_level >= 2 (equipped)" and dw["now"].startswith("not yet: ")
+    _wearing(rig, T2_BODY)
+    assert rig.agent._done_when_now(VAULT, "test", rig.agent._fresh_state())["now"].startswith("yes: ")
+    assert rig.agent._done_when_now(("Luis", "something else"), "test") is None  # another ask: none
+
+
+def test_request_done_game_reads_carry_done_when_and_get_their_turn(tmp_path, on):
+    rig = Rig(tmp_path)
+    _wearing(rig, T1_BODY)
+    rig.planner_llm.push(FakeLLM.plan([], ask_help="which vault?", done_when=PL2))
+    _hear(rig, VAULT, FakeLLM.say("sure"))
+    _land(rig)
+    rig.agent._plan_at_ask_tick()  # a question with the ask open: parked as before, done_when kept for the ask
+    assert rig.agent._done_when["ask"] == VAULT
+    rig.agent._parked = None
+    rig.planner_llm.push(FakeLLM.plan([], explanation="asked again", done_when=PL2))  # the new ask's own call
+    rig.controller_llm.script.clear()
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+                            FakeLLM.say("", FakeLLM.call("request_done", evidence="all set")), FakeLLM.say("not yet"))
+    rig.agent._command(CommandReceived(player=VAULT[0], text=VAULT[1]))
+    reads = _rows(rig, "request_done_claimed")[-1]["game_reads"]
+    assert set(reads) == {"done_when"} and reads["done_when"]["now"].startswith("not yet: ")  # no power level, places
+    turn, = _rows(rig, "done_reads_turn")
+    assert turn["game_reads"] == reads
+    assert any(r["where"] == "request_done" and r["holds"] is False for r in _rows(rig, "done_when_checked"))
+
+
+def test_an_invalid_done_when_is_refused_with_its_reason_and_the_plan_still_lands(tmp_path, on):
+    rig = Rig(tmp_path)
+    rig.planner_llm.push(FakeLLM.plan(LOGS, done_when={"have": {"item": "banana", "at_least": 2}}))
+    _hear(rig, JOB, FakeLLM.say("sure"))
+    _land(rig)
+    row, = _rows(rig, "plan_done_when")
+    assert row["valid"] is False and "unknown item 'banana'" in row["error"]
+    assert len(rig.planner_llm.calls) == 1  # no repair round for it: the plan is good
+    assert rig.agent.step() == "done" and rig.game.players["Luis"].inventory["log"] == 2  # the steps ran
+    assert rig.agent._done_when is None and not _rows(rig, "done_when_checked")
+
+
+def test_null_done_when_for_an_ask_that_is_no_job(tmp_path, on):
+    rig = Rig(tmp_path)
+    rig.planner_llm.push(FakeLLM.plan([], explanation="just a question", done_when=None))
+    _hear(rig, QUESTION, FakeLLM.say("bronze"))
+    _land(rig)
+    row, = _rows(rig, "plan_done_when")
+    assert row["valid"] is True and row["done_when"] is None
+    rig.agent.step()
+    assert rig.agent._done_when is None
+
+
+def test_flag_off_no_done_when_line_and_request_done_reads_as_before(tmp_path):
+    from brain.planner import DONE_WHEN_LINE
+    rig = Rig(tmp_path)
+    rig.planner_llm.push(FakeLLM.plan(LOGS, done_when=PL2))  # an ordinary plan call: no done_when line, no row
+    res = rig.agent.planner.plan("get 2 logs", rig.agent._fresh_state(), {})
+    assert DONE_WHEN_LINE not in rig.planner_llm.calls[0]["messages"][0]["content"]
+    assert res.done_when is None and not _rows(rig, "plan_done_when")
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+                            FakeLLM.say("", FakeLLM.call("request_done", evidence="ok")), FakeLLM.say(""))
+    rig.agent._command(CommandReceived(player=JOB[0], text=JOB[1]))
+    assert "your_power_level" in _rows(rig, "request_done_claimed")[0]["game_reads"]  # unchanged with the flag off
