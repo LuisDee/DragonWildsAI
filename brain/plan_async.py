@@ -175,6 +175,11 @@ class PendingPlan:
     shown: str | None = None  # "fresh" | "stale": what the next Controller turn was told when it landed
     req: dict = field(default_factory=dict)  # the player's words the job came from (agent._goal_request)
     marked: list[tuple[int, str]] = field(default_factory=list)  # plan steps the game shows done at landing (already_done)
+    # DW_PLAN_AT_ASK=1 (agent._plan_at_ask_open): the player's ask the call was made for at the ask, his asked_at, and
+    # why it was let go before it landed (a newer line, his stop, his park): its result is then never used
+    ask: tuple | None = None
+    asked: dict | None = None
+    dropped: str | None = None
 
     def done(self) -> bool:
         return self.future is not None and self.future.done()

@@ -457,7 +457,8 @@ class LiveSession:
         self.agent.planner_proxy = self.planner_proxy  # the loop serves a background plan's body reads
         self.planner_proxy.holder, self.planner_proxy.log = self.agent.loop_holder, self.log
         self.planner_proxy.label = "planner"
-        if self.agent.async_plan:  # DW_ASYNC_PLAN=1: also served between his calls and inside every body wait
+        # DW_ASYNC_PLAN=1 or DW_PLAN_AT_ASK=1: also served between his calls and inside every body wait
+        if self.agent.async_plan or self.agent.plan_at_ask:
             from . import plan_async
             self.planner_proxy.timeout_s = plan_async.READ_WAIT_S
             self.client.wait_hooks.append(lambda: self.planner_proxy.serve("body_wait"))
