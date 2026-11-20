@@ -55,7 +55,9 @@
 -- clear of the stuck spot, carries on to its goal (one command, one result).
 --   M.snapshot() -> {mode, goal, distance_m, opts} | nil    M.restore(log, snap)   (arbiter suspend/resume)
 -- AVOID ZONES (scripts/avoidzones.lua; docs/design/velgar.md 3c), for combat hazards:
---   M.set_avoid_zones(log, zones)  replace (no merge) the zones every move keeps out of; [] clears.
+--   M.set_avoid_zones(log, zones[, layer])  replace (no merge) one layer's zones; [] clears it. Every move keeps out
+--       of the union of the layers: "combat" (default, the fight's hazards) and "ground" (standing poison clouds seen
+--       on a walk: M._ground_hazards_tick, hazard_profiles `standing`).
 --       zone = {id, kind="circle"|"cone", x, y, z (metres), r_cm, until_s (GetRealTimeSeconds clock)
 --               | ttl_s, cone: yaw_deg, half_angle_deg; h_cm (vertical reach, 400)}, scalars only.
 --       They are a planner COST (not walls): go_to/follow plan round them; when no other way exists the
@@ -203,6 +205,7 @@ M.cfg = {
     log_every_s = 2.0,
     -- avoid zones (combat hazards)
     avoid_margin_cm = 40,      -- capsule radius: "inside" = the capsule overlaps the zone
+    ground_avoid = true, ground_scan_s = 2.0, ground_scan_cm = 6000, ground_zone_s = 10, -- standing poison clouds (M._ground_hazards_tick)
     avoid_dry_slack_cm = 600,  -- planner aims at a zone-free cell up to this much further from the goal
     avoid_check_s = 0.2,       -- route-vs-zones check cadence (pure math)
     avoid_plan_s = 1.0,        -- at most one zone-triggered local plan per this long (unless zones change)
@@ -5292,6 +5295,7 @@ local function tick(st, gen, log)
     -- "near" for the tracker: within tolerance, or a follow idling (incl. holding at a zone's edge)
     f.same_level = type(goal.Z) == "number" and type(me.Z) == "number" and math.abs(goal.Z - me.Z) <= 2 * st.half_h
     progress_tick(st, t, me, goal, dist, (dist <= st.tol_cm and f.same_level) or (st.mode == "follow" and st.idle == true and f.same_level))
+    pcall(M._ground_hazards_tick, f) -- (standing poison clouds -> the "ground" avoid-zone layer, before zone_tick reads it)
     zone_tick(f)
     if leader_far(f) or arrival(f) or unreachable_hold(f) then return end
     f.fe = feet_of(st, me)
@@ -5939,9 +5943,12 @@ local function zone_sig(zs)
     return table.concat(p, "|")
 end
 
--- Replace the avoid zones (no merge); [] clears. The version (which triggers re-planning) changes only
--- when the set or a zone's geometry changes, so re-sending the same zones every frame costs nothing.
-function M.set_avoid_zones(log, zones)
+-- Replace the avoid zones of one LAYER (no merge within it); [] clears that layer. Layers: "combat" (the default:
+-- combat.lua's fight hazards, set and cleared per fight) and "ground" (M._ground_hazards_tick: standing poison clouds
+-- seen on a walk). Every move keeps out of the union (A.zones; an id in two layers counts once). The version (which
+-- triggers re-planning) changes only when the union's set or a zone's geometry changes, so re-sending the same
+-- zones every frame costs nothing.
+function M.set_avoid_zones(log, zones, layer)
     local AZm = az_module()
     if not AZm then return { ok = false, error = "avoidzones.lua missing" } end
     local t = nil
@@ -5953,6 +5960,21 @@ function M.set_avoid_zones(log, zones)
     end
     if t then AZm.prune(zs, t) end
     local A = avoid()
+    A.layers = A.layers or {}
+    A.layers[type(layer) == "string" and layer or "combat"] = zs
+    local names = {}
+    for k in pairs(A.layers) do names[#names + 1] = k end
+    table.sort(names)
+    local union, ids = {}, {}
+    for _, k in ipairs(names) do
+        local lz = A.layers[k]
+        if t then AZm.prune(lz, t) end
+        for _, z in ipairs(lz) do
+            if not ids[z.id] then ids[z.id] = true; union[#union + 1] = z end -- (the same tables: no copies)
+        end
+    end
+    local n_layer = #zs
+    zs = union
     local sig = zone_sig(zs)
     if sig ~= A.sig then
         A.ver, A.sig = A.ver + 1, sig
@@ -5963,7 +5985,50 @@ function M.set_avoid_zones(log, zones)
         end
     end
     A.zones = zs
-    return { ok = true, zones = #zs, ver = A.ver }
+    return { ok = true, zones = #zs, layer_zones = n_layer, ver = A.ver }
+end
+
+-- STANDING GROUND HAZARDS on a walk (poison clouds: hazard_profiles `standing`, read by ground_hazards.lua): every
+-- cfg.ground_scan_s while a go_to / follow runs, the ones within cfg.ground_scan_cm become the "ground" layer of the
+-- avoid zones, so the planner routes round them (a cost, not a wall: zone_replan / lp cell_cost) and a follow standing
+-- in one steps out. Each lasts cfg.ground_zone_s past the scan that saw it (a cloud that is gone stops counting).
+-- Log, once per new cloud: "move: ground hazard: poison cloud <owner> at [x,y,z] r=..m (extent) .. m off; routing round it".
+-- (no new file-level locals here: move.lua's main chunk is at Lua's 200-local limit)
+M.GH_PATH = ROOT .. "/client_mod/scripts/ground_hazards.lua"  -- standing poison clouds: reads and zones
+M.HP_PATH = ROOT .. "/client_mod/scripts/hazard_profiles.lua" -- DATA: which classes, how to read their size
+function M._ground_data()
+    local GHm = lazy(M.GH_PATH, "scan")
+    local d = MODS[M.HP_PATH]
+    if d == nil then
+        local okc, chunk = pcall(loadfile, M.HP_PATH)
+        local okm, t = false, nil
+        if okc and chunk then okm, t = pcall(chunk) end
+        d = (okm and type(t) == "table") and t or false
+        MODS[M.HP_PATH] = d
+    end
+    return GHm, d or nil
+end
+function M._ground_hazards_tick(f)
+    local st, t, me, log = f.st, f.t, f.me, f.log
+    if not (M.cfg.ground_avoid and (st.mode == "go_to" or st.mode == "follow")) then return end
+    if st.in_jump then return end -- run-up to verdict: no FindAllOf sweep (M.jump_quiet)
+    if t - (st.ground_t or -99) < M.cfg.ground_scan_s then return end
+    st.ground_t = t
+    local GHm, prof = M._ground_data()
+    if not (GHm and prof) then return end
+    local rows = GHm.scan({ profiles = prof, origin = me, radius_cm = M.cfg.ground_scan_cm })
+    local A = avoid()
+    local had = A.layers and A.layers.ground and #A.layers.ground > 0
+    if #rows == 0 and not had then return end
+    _G.DW_GROUND_SEEN = _G.DW_GROUND_SEEN or {}
+    for id, t0 in pairs(_G.DW_GROUND_SEEN) do if t - t0 > 600 then _G.DW_GROUND_SEEN[id] = nil end end
+    for _, r in ipairs(rows) do
+        if not _G.DW_GROUND_SEEN[r.id] and log then
+            log("move: ground hazard: " .. GHm.log_words(r) .. "; routing round it")
+        end
+        _G.DW_GROUND_SEEN[r.id] = t
+    end
+    M.set_avoid_zones(log, GHm.zones(rows, t + M.cfg.ground_zone_s), "ground")
 end
 
 function M.avoid_status(st)

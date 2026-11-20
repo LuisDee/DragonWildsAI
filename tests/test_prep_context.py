@@ -147,3 +147,32 @@ def test_boss_phase_statuses_and_buffs_reach_the_digest():
     assert "Status effects: Poison 30/100" in s
     assert "Buffs remembered: Antipoison 590 s left" in s
     assert "Boss fight: creature Velgar, phase 1, phases 4, airborne True" in s
+
+
+def test_poison_says_what_it_does_and_is_near_the_top():
+    """L3 deaths 2026-11-20 (D1): 'Poison 96.6/100' with no consequence; the meter filled and took 100 HP in 23 s while
+    4 healing redberries sat on his hotbar. The line says what the meter does, and his HP beside it."""
+    st = dict(STATE, health=92, status_effects={"Poison": "96.6/100"})
+    lines = summary(st)
+    line = next(ln for ln in lines if ln.startswith("Status effects:"))
+    assert line.startswith("Status effects: Poison 96.6/100 (")
+    for w in ("about 4 HP a second", "until it is back at 0", "keeps hurting on the way down", "Food that heals",
+              "antipoison", "you have 92 of 100 HP"):
+        assert w in line, w
+    assert lines.index(line) == 1  # right under the You: line, not among the module extras at the end
+    assert sum(1 for ln in lines if ln.startswith("Status effects")) == 1  # (not rendered twice by extras_lines)
+    other = next(ln for ln in summary(dict(STATE, status_effects={"Bleeding": "20/100"})) if ln.startswith("Status effects:"))
+    assert other == "Status effects: Bleeding 20/100"  # no known effect: shown bare, nothing made up
+
+
+def test_reflex_policy_says_hp_is_not_healed_by_itself():
+    """The old line 'eat to heal off (always below 10%)' read as an HP floor; the 10 % floor is water and food only
+    (client inventory.lua: HP is healed only when heal_below_pct is set)."""
+    from brain.situation import vitals_policy
+    pol = {"eat_below_pct": 40, "drink_below_pct": 40, "safety_floor_pct": 10, "heal_below_pct": None,
+           "reflex_on": True, "reflex_every_s": 6}
+    off = vitals_policy({"vitals_policy": pol})
+    assert "eat to heal OFF: HP is never healed by itself, however low it gets" in off
+    assert "(water and food always below 10%)" in off and "(always below 10%)" not in off
+    on = vitals_policy({"vitals_policy": dict(pol, heal_below_pct=50)})
+    assert "eat food that heals when HP is below 50%" in on

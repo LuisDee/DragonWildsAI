@@ -8,6 +8,7 @@ os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>n
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
     for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua", "mapplayers.lua", "wetroute.lua",
+                         "ground_hazards.lua", "hazard_profiles.lua",
                          "vendor/jumper/grid.lua", "vendor/jumper/pathfinder.lua", "vendor/jumper/core/bheap.lua", "vendor/jumper/core/heuristics.lua",
                          "vendor/jumper/core/node.lua", "vendor/jumper/core/path.lua", "vendor/jumper/search/astar.lua", "vendor/jumper/search/bfs.lua",
                          "vendor/jumper/search/dfs.lua", "vendor/jumper/search/dijkstra.lua", "vendor/jumper/search/jps.lua" }) do
@@ -1838,6 +1839,56 @@ s = MZ.status()
 check("avoid: expired zones are dropped (straight there)", s.result and s.result.status == "arrived" and not planned36 and s.avoid.zones == 0,
     tostring(s.result and s.result.status) .. " planned=" .. tostring(planned36))
 MZ.stop(log)
+zreset()
+
+-- 36b. STANDING GROUND HAZARDS (L3 deaths 2026-11-20: 4 of 8 were PoisonEmitterBox clouds he walked through while
+--      gathering): a go_to sees the cloud itself (no AI action, no combat), plans round it and never steps in; the
+--      fight's own zones ([] from combat) do not clear it; a cloud that is gone stops counting.
+do
+    local base_find = FindAllOf
+    local cl_owner = obj({ GetFullName = function() return "BP_DEDA_PoisonBreath_PoisonCloud_C /Game/L.L:PersistentLevel.BP_DEDA_PoisonBreath_PoisonCloud_C_7" end })
+    local cl = obj({ NetworkedExtent = { X = 150, Y = 150, Z = 100 },
+                     GetFullName = function() return "PoisonEmitterBox /Game/L.L:PersistentLevel.BP_DEDA_PoisonBreath_PoisonCloud_C_7.PoisonEmitterBox" end })
+    function cl:GetOwner() return cl_owner end
+    function cl:K2_GetComponentLocation() return { X = 750, Y = 0, Z = 0 } end
+    local clouds = { cl }
+    local sweeps = 0
+    FindAllOf = function(c) if c == "PoisonEmitterBox" then sweeps = sweeps + 1; return clouds end return base_find(c) end
+    MZ = dofile(MOVE)
+    local w36b = watch_zone({ { id = "cloud", x = 7.5, y = 0, z = 0, r_cm = math.sqrt(2) * 150, until_s = T + 120 } })
+    local nlog36b = #logs
+    MZ.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, timeout_s = 60, nav = false })
+    for _ = 1, 400 do run(1); if MZ.status().mode == "idle" then break end end
+    s = MZ.status()
+    local seen36b, planned36b = nil, false
+    for i = nlog36b + 1, #logs do
+        if logs[i]:find("move: ground hazard: poison cloud BP_DEDA_PoisonBreath_PoisonCloud_C_7", 1, true) then seen36b = logs[i] end
+        if logs[i]:find("avoid_zone poison_cloud_box:BP_DEDA_PoisonBreath_PoisonCloud_C_7", 1, true) then planned36b = true end
+    end
+    check("ground hazard: a go_to sees the cloud by itself and says so", seen36b ~= nil and sweeps > 0, "sweeps=" .. sweeps)
+    check("ground hazard: arrives round the cloud, never inside it", s.result and s.result.status == "arrived" and planned36b and w36b.inside == 0,
+        tostring(s.result and s.result.status) .. " planned=" .. tostring(planned36b) .. " inside_frames=" .. w36b.inside)
+    check("ground hazard: the zone is the box's half-diagonal", _G.DW_AVOID.layers.ground[1] and math.abs(_G.DW_AVOID.layers.ground[1].r - math.sqrt(2) * 150) < 1,
+        _G.DW_AVOID.layers.ground[1] and _G.DW_AVOID.layers.ground[1].r)
+    -- the fight's zones are another layer: combat clearing its own leaves the cloud
+    MZ.set_avoid_zones(log, { { id = "meteor:m1", x = -20, y = 0, z = 0, r_cm = 300, until_s = T + 30 } })
+    check("ground hazard: combat's zones add to the cloud", MZ.status().avoid.zones == 2, MZ.status().avoid.zones)
+    MZ.set_avoid_zones(log, {})
+    check("ground hazard: combat's [] leaves the cloud", MZ.status().avoid.zones == 1, MZ.status().avoid.zones)
+    -- the cloud is gone: the next walk's scan clears the ground layer
+    clouds = {}
+    MZ.go_to(log, { 0, 0, 0 }, { tolerance_m = 1, timeout_s = 60, nav = false })
+    for _ = 1, 400 do run(1); if MZ.status().mode == "idle" then break end end
+    check("ground hazard: a cloud that is gone stops counting", MZ.status().avoid.zones == 0, MZ.status().avoid.zones)
+    -- off switch (cfg): no sweep at all
+    MZ.cfg.ground_avoid = false
+    local n0 = sweeps
+    MZ.go_to(log, { 3, 0, 0 }, { tolerance_m = 1, timeout_s = 60, nav = false })
+    for _ = 1, 200 do run(1); if MZ.status().mode == "idle" then break end end
+    check("ground hazard: cfg.ground_avoid=false makes no sweep", sweeps == n0, sweeps - n0)
+    MZ.stop(log)
+    FindAllOf = base_find; _G.DW_GROUND_SEEN = nil
+end
 zreset()
 
 -- 37-44. APPROACH PROGRESS (status().progress) and M.why_words: one watchdog for combat/skills/shoot

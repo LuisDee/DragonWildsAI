@@ -18,7 +18,7 @@ return {
     order = { "PoisonBreath", "Breath", "Breathe", "EarthSpikes", "Spikes", "MeteorStrike", "Meteor", "Reposition", "Intro", "Death", "Idle" },
     PoisonBreath = { kind = "breath_cone", threat = true, impact_s = 1.2, aoe = true, unblockable = true, reach_m = 18, jumpable = false,
                      blocked_by_shield_tag = "AntiDragon", status = "Poison",
-                     hazards = { "ground_projectile", "poison_cloud" } },
+                     hazards = { "ground_projectile", "poison_cloud", "poison_cloud_box" } }, -- its cloud is a PoisonEmitterBox (dump)
     Breath       = { kind = "breath_cone", threat = true, impact_s = 1.2, aoe = true, unblockable = true, reach_m = 18, jumpable = false,
                      blocked_by_shield_tag = "AntiDragon", hazards = { "ground_projectile" } },
     EarthSpikes  = { kind = "ground_spikes", threat = true, impact_s = 1.0, aoe = true, unblockable = true, reach_m = 25, jumpable = false,

@@ -1034,6 +1034,36 @@ local function mapplayers()
 end
 M.mapplayers = mapplayers
 
+-- Standing ground hazards (poison clouds) for the census's hazards category: ground_hazards.lua over the
+-- hazard_profiles `standing` entries (property reads on the native emitter component; engine reads listed there).
+-- Each row: {id (the cloud actor), kind "ground_hazard", hazard, name "poison cloud", effect, position, distance (m to
+-- its edge; 0 = he is in it), inside, across_m, direction (compass from the origin), owner_class}. Log on change:
+-- "[DWClient] ground_hazards n=<n> poison cloud <id> at [x,y,z] r=<m> (extent|radius|default) ...".
+local GHMOD, HPDATA
+function M.ground_hazards_into(origin, r_cm, add, seen)
+    if GHMOD == nil then
+        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/ground_hazards.lua"))() end)
+        GHMOD = ok and type(m) == "table" and m or false
+        local okd, d = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/hazard_profiles.lua"))() end)
+        HPDATA = okd and type(d) == "table" and d or false
+    end
+    if not (GHMOD and HPDATA) then return 0 end
+    local rows = GHMOD.scan({ profiles = HPDATA, origin = origin, radius_cm = r_cm, find = function(c) return U.find_all(c, { skip_defaults = true }) end,
+                              read = U.prop })
+    local MAP, words = mapplayers(), {}
+    for _, r in ipairs(rows) do
+        if not (seen and seen[r.id]) then
+            if seen then seen[r.id] = true end
+            add("hazards", GHMOD.describe(r, origin, MAP and MAP.compass or nil))
+            words[#words + 1] = GHMOD.log_words({ words = r.words, id = r.id, X = r.X, Y = r.Y, Z = r.Z, r_cm = r.r_cm, size_from = r.size_from })
+        end
+    end
+    if #words > 0 or M.VAULT.noted.ground_hazards then
+        M.vault_note("ground_hazards", "n=" .. #words .. (#words > 0 and (" " .. table.concat(words, "; ")) or ""), "ground_hazards")
+    end
+    return #rows
+end
+
 -- census(log, {radius_m=30, max=25, kinds={players=true,...}, near="<player>", lean=true}) -> {origin, players,
 -- creatures, items, resources, interactables, totals, ms, map_players}. Each list nearest first, capped at `max`.
 --   near  count from that PLAYER, not from me ("the stones near me", said by him; retro 2026-11-01 root cause 4):
@@ -1159,6 +1189,11 @@ function M.census(log, opts)
     pass("items", { "WorldItem" }, describe_item)
     pass("resources", { "DestructibleWorldActor", "OreNode", "BaseInteractableResource" }, describe_resource)
     pass("hazards", { "SwitchableTrap" }, M.describe_trap) -- a vault's fire jets and spikes (vault section above)
+    -- standing ground hazards (poison clouds: hazard_profiles `standing`, ground_hazards.lua), with compass and size
+    if not want or want.hazards then
+        local okg, err = pcall(M.ground_hazards_into, origin, r_cm, add, seen)
+        if not okg and log then log("sense: ground hazards " .. tostring(err)) end
+    end
     -- standing trees / bushes / pickups still drawn as foliage (see M.foliage); opts.foliage=false skips
     if (not want or want.resources) and opts.foliage ~= false then
         -- trees and pickups capped separately (a third of the rows each), so ground stones and branches
