@@ -336,3 +336,64 @@ def test_lookup_puts_the_wiki_node_tool_beside_a_gathered_items_game_card():
     assert node["source"] == "wiki" and "bone pickaxe" in node["tool"].lower() and "Fractured Plains" in node["found_in"]
     crafted = next(r for r in Knowledge().lookup("bone pickaxe")["data"]["results"] if r["authoritative"])
     assert "wiki_node" not in crafted
+
+
+# ------------------------------------------------------------------ a gather step's tool (L3 study 2026-11-20)
+# The client's gather step ``tool`` (client_mod crafting.lua W.gather_tool: gather_profiles tool/min_tier, gather.best_tool
+# over his inventory; its Lua tests run the real data) becomes one line; lacking it, the tool's recipe facts.
+PICKS = [{"item": "ITEM_Pickaxe_Stone", "name": "Stone Pickaxe", "tier": 1},
+         {"item": "ITEM_Pickaxe_Bone", "name": "Bone Pickaxe", "tier": 2},
+         {"item": "ITEM_Pickaxe_Bronze", "name": "Bronze Pickaxe", "tier": 3}]
+
+
+def lacking(**kw):
+    return {"needs": "pickaxe", "min_tier": 1, "tier_read": True, "carried": "none", "makes": copy.deepcopy(PICKS), **kw}
+
+
+def essence_plan(tool=None, flax=False):
+    st = {"do": "gather", "resource": "rune_essence", "item": "ITEM_Rune_Essence", "name": "Rune Essence", "count": 14}
+    if tool is not None:
+        st["tool"] = tool
+    steps = [st]
+    if flax:
+        steps.append({"do": "gather", "resource": "flax", "item": "ITEM_Resources_Flax", "name": "Flax", "count": 4})
+    return {"root": {"item": "ITEM_Armour_T1_Legs_Lightness", "name": "Lightness Legs", "status": "craft_after",
+                     "inputs": [{"item": "ITEM_Rune_Essence", "name": "Rune Essence", "status": "gather", "need": 14}]},
+            "steps": steps}
+
+
+def test_rune_essence_names_a_pickaxe_its_tier_and_carried_none_with_the_tools_recipe():
+    d = ps.enrich(essence_plan(lacking()), state={"inventory_items": []}, spells=[], knowledge=KB())
+    st = d["steps"][0]
+    assert st["tool"] == "needs a pickaxe of tier 1 or more; carried: none", st["tool"]
+    lines = st["tool_sources"]["Stone Pickaxe"]
+    assert lines[0].startswith("made at Crafting Table from ") and "Stone (you carry 0)" in lines[0], lines
+    assert st["tool_also"] == "Bone Pickaxe (tier 2), Bronze Pickaxe (tier 3)"
+    assert [s["do"] for s in d["steps"]] == ["gather"]  # no step added: a fact, not a route
+
+
+def test_a_resource_with_no_tool_need_has_no_tool_field():
+    d = ps.enrich(essence_plan(lacking(), flax=True), state={}, spells=[], knowledge=KB())
+    assert not any(k.startswith("tool") for k in d["steps"][1]), d["steps"][1]
+
+
+def test_carrying_a_good_enough_pickaxe_says_so():
+    tool = {"needs": "pickaxe", "min_tier": 1, "tier_read": True, "carried": "Bronze Pickaxe (tier 3)", "ok": True}
+    st = ps.enrich(essence_plan(tool), state={}, spells=[], knowledge=KB())["steps"][0]
+    assert st["tool"] == "needs a pickaxe of tier 1 or more; carried: Bronze Pickaxe (tier 3)"
+    assert "tool_sources" not in st and "tool_also" not in st
+
+
+def test_an_unread_gate_a_tool_free_source_and_a_second_step_of_the_kind():
+    d = essence_plan(lacking(makes=copy.deepcopy(PICKS[:1])))
+    d["steps"].append({"do": "gather", "resource": "ash", "item": "ITEM_Resources_Wood_Ash", "name": "Ash Logs", "count": 6,
+                       "tool": {"needs": "logging axe", "min_tier": 1, "tier_read": True, "carried": "none",
+                                "no_tool_source": "sticks"}})
+    d["steps"].append({"do": "gather", "resource": "copper", "item": "ITEM_Resources_CopperOre", "name": "Copper Ore",
+                       "count": 3, "tool": lacking(tier_read=False, makes=copy.deepcopy(PICKS[:1]))})
+    log = Log()
+    ps.enrich(d, state={}, spells=[], knowledge=KB(), log=log)
+    assert d["steps"][1]["tool"].endswith("; carried: none; the same item without a tool: sticks")
+    assert "gate not read yet" in d["steps"][2]["tool"] and "tier 1 or more" not in d["steps"][2]["tool"]
+    assert d["steps"][2]["tool_sources"] == "as for rune_essence"
+    assert log.rows[0][1]["gather_tool_lacking"] == ["rune_essence", "ash", "copper"]

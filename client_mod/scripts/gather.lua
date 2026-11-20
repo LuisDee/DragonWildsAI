@@ -430,6 +430,7 @@ end
 
 local TOOL_WORD = { axe = "logging axe", pickaxe = "pickaxe" }
 local function tool_word(p) return TOOL_WORD[p.tool or ""] or tostring(p.tool) end
+M.tool_word = tool_word -- craft_plan names a gather step's tool in the words gather refuses with
 
 -- ------------------------------------------------------------------ the job
 -- Kinds other than the counted item whose count rose since the job began: {{item, name, count}}, biggest first.

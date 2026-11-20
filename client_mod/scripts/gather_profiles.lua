@@ -26,7 +26,7 @@
 --   settle   = {class, match, max_s, done_prop?}: wait while this transient actor exists near the site
 --              (done_prop: a property that turns non-zero when it has finished, e.g. FelledTree.CollapseState)
 --   site_radius_cm / collect_radius_cm
---   verified = what was seen in game
+--   verified = what was seen in game (gate = true: the tool category and RequiredTier read live, so min_tier is it)
 -- }
 local M = {}
 M.BUILD = "26162923"
@@ -71,9 +71,9 @@ end
 M.RESOURCES = {
     -- Trees. Standard chop for all stages (Overhead Chop is Woodcutting 4: Claude is level 1).
     oak = tree("Oak", 3, { "oak", "oak_log", "oak_logs", "oak logs", "oak tree", "oak trees", "log", "logs", "wood" },
-               { verified = { foliage = true, server_chain = true } }),
+               { verified = { foliage = true, server_chain = true, gate = true } }), -- gate: DISCOVERIES (DA_HatchetOnly_Tier3)
     ash = tree("Ash", 1, { "ash", "ash_log", "ash_logs", "ash logs", "ash tree", "ash trees" },
-               { exclude = { "Sapling", "Bare" }, verified = { foliage = true, server_chain = "splittable only" } }),
+               { exclude = { "Sapling", "Bare" }, verified = { foliage = true, server_chain = "splittable only", gate = true } }),
     willow = tree("Willow", 4, { "willow", "willow_log", "willow_logs", "willow logs" }, { verified = { foliage = true } }),
     maple = tree("Maple", 6, { "maple", "maple_log", "maple_logs", "maple logs" }, { verified = { foliage = true } }),
     yew = tree("Yew", 7, { "yew", "yew_log", "yew_logs", "yew logs" }, { class_match = "YewTree", verified = { foliage = true } }),

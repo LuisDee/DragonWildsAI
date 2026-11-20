@@ -1212,6 +1212,56 @@ function W.gather_for(api)
     return function(item) return map[item] end
 end
 
+-- A gather step's tool, from the data gather refuses wrong_tool with: the profile's `tool` and `min_tier`
+-- (gather_profiles) and his best tool of that kind now (gather.best_tool over his inventory list and weapons_data).
+-- L3 study 2026-11-20: "gather rune_essence x14" with no pickaxe and nothing in the plan said a pickaxe was needed.
+-- -> fn(resource) -> {needs, min_tier, tier_read, carried, ok?, makes?, no_tool_source?} | nil (no tool needed / unread).
+-- makes (only when he lacks one): the tools of that kind of min_tier or more a recipe makes, lowest tier first.
+M.cfg.tool_makes_max = 3
+function W.gather_tool(api)
+    local gp, G, cb = api.module("gather_profiles"), api.module("gather"), api.module("combat")
+    if not (type(gp) == "table" and gp.RESOURCES and type(G) == "table" and type(G.best_tool) == "function") then
+        return function() return nil end
+    end
+    local tools = type(cb) == "table" and type(cb.weapons) == "function" and (cb.weapons() or {}).items or {}
+    local lr = api.call("inventory", "list")
+    local list = type(lr) == "table" and lr.ok and lr.data or nil
+    local memo = {}
+    return function(resource)
+        if memo[resource] ~= nil then return memo[resource] or nil end
+        local p = gp.RESOURCES[resource]
+        if type(p) ~= "table" or not p.tool or not list then memo[resource] = false; return nil end
+        local need = p.min_tier or 1
+        local word = type(G.tool_word) == "function" and G.tool_word(p) or tostring(p.tool)
+        local best = G.best_tool(list, p, tools)
+        -- min_tier is gather's fallback gate; a kind whose gate was read live (verified.gate) has it confirmed, else the
+        -- rock itself may ask more (gather reads the actor's RequiredTier when it gets there)
+        local t = { needs = word, min_tier = need, tier_read = type(p.verified) == "table" and p.verified.gate == true }
+        if best and best.tier >= need then
+            t.carried, t.ok = string.format("%s (tier %d)", tostring(best.name), best.tier), true
+        else
+            t.carried = best and string.format("%s (tier %d, below %d)", tostring(best.name), best.tier, need) or "none"
+            local makes = {}
+            for id, w in pairs(tools) do
+                if w.cat == p.tool and (tonumber(w.tier) or 0) >= need and #(idx().by_output[id] or {}) > 0 then
+                    makes[#makes + 1] = { item = id, name = w.name or name_of_id(id), tier = tonumber(w.tier) }
+                end
+            end
+            table.sort(makes, function(a, b) if a.tier ~= b.tier then return a.tier < b.tier end return a.item < b.item end)
+            for i = #makes, M.cfg.tool_makes_max + 1, -1 do makes[i] = nil end
+            if #makes > 0 then t.makes = makes end
+            -- the same item from a tool-free source (gather falls back to it when one is in range: ash logs from sticks)
+            for k, q in pairs(gp.RESOURCES) do
+                if k ~= resource and not q.tool and q.item and q.item == p.item then
+                    t.no_tool_source = (t.no_tool_source and t.no_tool_source < k) and t.no_tool_source or k
+                end
+            end
+        end
+        memo[resource] = t
+        return t
+    end
+end
+
 -- ------------------------------------------------------------------ live context
 local function unlocked(api)
     local st = state()
@@ -2539,8 +2589,17 @@ local function plan_tool(api, args)
     else return api.fail("invalid_args", { detail = "item or recipe is required" }) end
     local tree, why = M.plan_tree(goal, tonumber(args.count) or 1, ctx)
     if not tree then return api.fail(why, { recipe = args.recipe, detail = "I don't know that recipe." }) end
+    local tool_of
     for _, st in ipairs(tree.steps or {}) do
         if st["do"] == "gather" or st["do"] == "obtain" then st.gathered_before = known_spots(api, st.item) end
+        if st["do"] == "gather" and st.resource then
+            if not tool_of then
+                local ok, f = pcall(W.gather_tool, api)
+                tool_of = ok and f or function() return nil end
+            end
+            local ok, t = pcall(tool_of, st.resource)
+            if ok and t then st.tool = t end
+        end
         -- a station he lacks may be a piece he can build: his own unlocked pieces and their cost (offline check
         -- 2026-11-17 23:4xZ, craft_plan Bone Pickaxe: "find_station Tannery" only, never that he can build one)
         if st["do"] == "find_station" and st.recipe then
