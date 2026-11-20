@@ -24,6 +24,7 @@ from typing import Literal
 
 from . import ask_store, fight_news, item_stats, job_tree, needs
 from . import plan_async
+from . import predicates as P
 from . import open_ask as oa
 from . import result_knowledge
 from . import situation as sit
@@ -156,15 +157,25 @@ HANDOVER_IF_YOU_STOP = "your planner takes this request as a job, in his words"
 # questions. When the plan lands (agent._land_at_ask): steps become the job for the ask (the hand-over's goal path);
 # only a question parks the ask waiting on the player (_handover_park's way); a decline changes nothing. A goal he
 # queues on the ask meanwhile takes that call as its plan (one Planner call per ask). His request_done does not drop
-# the planner's job: its result says the job is being planned or running; his stop or park_request ends it.
+# a planner's job already running: its result says so; his stop or park_request ends it. A plan that lands for an ask
+# he closed meanwhile starts nothing and parks nothing (hardcoding audit 2026-11-20: code sided with the Planner over
+# his close): ONE situation turn shows it (steps, question, done_when with its truth now), his close standing; a
+# start_goal of his on the ask's words in that turn takes the landed plan (no second call), else it is let go.
+# The plan also writes done_when, the job's end condition (planner.DONE_WHEN_LINE), checked by code (_done_when_now).
 PLAN_AT_ASK_ENV = "DW_PLAN_AT_ASK"
 AT_ASK_IN_FLIGHT = 2  # at-ask Planner calls in flight at once (a newer line's ask waits beyond it: chat bursts)
-AT_ASK_PENDING_NOTE = ("Your planner got the player's request in his words and is making a plan for it now. Nothing "
-                       "waits on you: reply, act on what is plainly next, look things up. If the plan brings steps "
-                       "they start by themselves once your turn has ended, as the job for this request; your stop or "
-                       "park_request ends it. If it is only talk, the planner says so and nothing starts.")
+# facts only (audit 2026-11-20: the old note told him what to do meanwhile)
+AT_ASK_PENDING_NOTE = ("Your planner is composing a plan for this request, started {s} s ago. Steps it brings while the "
+                       "request is open start after your turn as its job; your stop or park_request ends it.")
 AT_ASK_DONE_NOTE = ("the request is closed as you said; your planner's job for it is not dropped by that: its steps run "
-                    "(or start when its plan arrives) unless you call stop")
+                    "unless you call stop")
+AT_ASK_DONE_PENDING_NOTE = ("the request is closed as you said; when your planner's plan for it arrives nothing starts "
+                            "by itself: you are shown it once, beside your close")
+AT_ASK_CLOSED_NOTE = ("You closed this request (request_done) before your planner's plan for it arrived. Your close "
+                      "stands and nothing was started or parked. start_goal with goal exactly the request's words, in "
+                      "this turn, runs these steps as planned (no new plan is made); otherwise the plan is let go.")
+AT_ASK_CLOSED_Q_NOTE = ("You closed this request (request_done) before your planner's answer arrived: it plans no steps "
+                        "and asks the player the question here. Your close stands; nothing was parked or said.")
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
 ASK_STEP_DETAIL_CHARS = 240  # a step's result words kept with the open ask on disk (brain/ask_store.py)
 GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
@@ -389,6 +400,10 @@ class Agent:
         self._at_ask_next: tuple | None = None
         self._adopted: plan_async.PendingPlan | None = None
         self._at_ask_outcomes: dict[tuple, str] = {}
+        # a plan landed for an ask he had closed: (the call, the situation that shows it); held for his one turn
+        self._at_ask_held: tuple | None = None
+        # the job's end condition its at-ask plan wrote: {ask, pred (validated), text, baseline (at the ask)}
+        self._done_when: dict | None = None
         controller.plan_provider = self._plan_fact
         game.set_progress_listener(self._on_progress)
 
@@ -397,7 +412,8 @@ class Agent:
     def step(self) -> GoalResult | None:
         """Handle pending events, then start any goal the controller queued."""
         self.pump()
-        if self._at_ask is not None or self._at_ask_gone or self._at_ask_next is not None:  # DW_PLAN_AT_ASK=1
+        if self._at_ask is not None or self._at_ask_gone or self._at_ask_next is not None \
+                or self._at_ask_held is not None:  # DW_PLAN_AT_ASK=1
             self._plan_at_ask_tick()
         if self._unowned is not None:  # (only ever set with DW_ASK_OWNER=1)
             self._take_up_ask()
@@ -1517,6 +1533,8 @@ class Agent:
             blk = oa.block(ask[0], ask[1], round(self.clock() - seen[0]) if seen else None, changed,
                            known=self._request_facts(where="open_ask") if oa.same_ask(ask, self._open_request)
                            else None)
+        if (dw := self._done_when_now(ask, "open_ask", state)) is not None:  # DW_PLAN_AT_ASK=1: written at the ask
+            blk["open_request"]["done_when"] = dw
         if self._ask_owner_on():
             done = self._done_by_plan(ask, state)
             if done is not None and not self._last_done.get("told"):  # told once: his planner's job for it finished
@@ -1763,14 +1781,27 @@ class Agent:
         level from worn armour (gear_plan.worn_armour) and the game's own reading; and each place the ask's words or
         his evidence name that the map data gives a power level (Places.named: a vault or region by name, the bare
         word "vault" as the nearest vault), a vault with its enemies' level (gear_plan.vault_need). L3 2026-11-20:
-        "gear up for the vault" closed as "all set" on a Bronze Shield he already wore, PL 1 against a PL 2 vault."""
+        "gear up for the vault" closed as "all set" on a Bronze Shield he already wore, PL 1 against a PL 2 vault.
+
+        DW_PLAN_AT_ASK=1 (hardcoding audit 2026-11-20: the power level and places were chosen for the vault ask and
+        bought every request_done an extra turn): only the job's own end condition (done_when, with its truth now) and
+        the job tree's root, each when it exists; nothing else, so an ask with neither gets {} and no done-reads turn."""
+        own = self._plan_at_ask_on()
         try:
             state = self._fresh_state(reuse=True)
         except Exception as exc:  # perception never breaks the turn
-            return {"unavailable": f"{type(exc).__name__}: {exc}"[:200]}
+            state = {"unavailable": f"{type(exc).__name__}: {exc}"[:200]}
+        if own:
+            out: dict = {}
+            if (dw := self._done_when_now(ask, "request_done", state)) is not None:
+                out["done_when"] = dw
+            if oa.readable(state) and (tree := self._ask_tree(ask, state)):
+                out["job"] = {"target": job_tree.target_lines(tree),
+                              "done": all(r.get("status") == "done" for r in tree["roots"])}
+            return out
         if not oa.readable(state):
             return {"unavailable": str(state.get("unavailable") or "no state read")[:200]}
-        out: dict = {}
+        out = {}
         if tree := self._ask_tree(ask, state):
             out["job"] = {"target": job_tree.target_lines(tree),
                           "done": all(r.get("status") == "done" for r in tree["roots"])}
@@ -1893,9 +1924,11 @@ class Agent:
         p = plan_async.PendingPlan(kind="plan", goal=goal, basis=copy.deepcopy(state), started=self.clock(),
                                    ask=ask, asked=asked)
         p.req = {"request": ask[1], "from": ask[0]}
-        plan_async.submit(p, lambda: self.planner.plan(goal, s_c, n_c, may_decline=True), self.log,
+        plan_async.submit(p, lambda: self.planner.plan(goal, s_c, n_c, may_decline=True, done_when=True), self.log,
                           self.log.episode_id)
         self._at_ask = p
+        if self._done_when is not None and not oa.same_ask(self._done_when["ask"], ask):
+            self._done_when = None  # an older ask's end condition: this ask writes its own
         self._ask_plan_calls[ask] = self._ask_plan_calls.get(ask, 0) + 1
         self.log.log("plan_started", composer="planner", plan_kind="plan", goal=goal, request=ask[1],
                      basis=plan_async.digest(state), from_ask=True, at_ask=True)
@@ -1942,6 +1975,8 @@ class Agent:
         for g in [g for g in self._at_ask_gone if g.done()]:
             self._at_ask_gone.remove(g)
             self._log_at_ask(g, landed=f"let go: {g.dropped}")
+        if self._at_ask_held is not None:
+            self._held_tick()
         p = self._at_ask
         pa = self._pending_asked if isinstance(self._pending_asked, dict) else {}
         his = p is not None and bool(self.pending_goal) and self._handover_next is None and (
@@ -1968,7 +2003,9 @@ class Agent:
         hand-over's goal (the ask's words, his Planner's steps, its own replans with may_decline); a step the game
         shows done since it was asked for is marked done. Only a question: the ask is parked waiting on the player.
         A decline (or a failed call): nothing changes, his own handling stands. A goal or skill of his queued or
-        running: that job has the floor and the plan is not used. He died since: shown to him, not started."""
+        running: that job has the floor and the plan is not used. He closed the ask meanwhile: nothing starts or
+        parks, it is shown to him once (_show_closed). He died since: shown to him, not started. A done_when the plan
+        wrote is kept for the ask (_take_done_when) whatever happens to its steps."""
         ask = p.ask
         exc = p.future.exception()
         if exc is not None:
@@ -1980,6 +2017,7 @@ class Agent:
         if outcome in ("decline", "empty"):
             self._log_at_ask(p, landed="nothing: his own handling stands")
             return
+        self._take_done_when(p, plan)
         if self.pending_goal or self.active_goal:
             self._log_at_ask(p, landed="not used: a job of his own is queued",
                              his_job=self.pending_goal or self.active_goal)
@@ -1987,6 +2025,9 @@ class Agent:
         now = self._fresh_state(reuse=True)
         steps = [plan_async.step_label(t) for t in plan.tasks]
         why = plan_async.stale_reasons(p.basis, now, [], p.died)  # moves and bag changes are his own acts: drift
+        if not oa.same_ask(ask, self._open_request):  # he closed it meanwhile (his park, stop, a newer line let go)
+            self._show_closed(p, plan, steps, why, now)
+            return
         if why:
             self._situations.append({"type": "plan_arrived", "stale": True, "goal": ask[1], "why": why,
                                      "steps": steps, "since_it_was_asked_for": plan_async.drift(p.basis, now),
@@ -2029,30 +2070,107 @@ class Agent:
             plan = self._land_plan(p, 0 if p.done() else self._await_plan(p), his_steps=True)
         finally:
             self._log_at_ask(p, landed="his goal's plan", goal=goal)
+        if p.done() and p.future.exception() is None:
+            self._take_done_when(p, p.future.result())
         if plan is not None:
             for i, w in p.marked:
                 plan.tasks[i].status = "done"
                 plan.tasks[i].detail = f"already true in the game when the plan landed: {w}"
         return plan
 
+    def _show_closed(self, p: plan_async.PendingPlan, plan, steps: list[str], why: list[str], now: dict) -> None:
+        """A plan landed for an ask he closed with request_done: nothing starts and nothing parks (his close stands);
+        ONE situation turn shows it: the steps or the question, done_when with its truth now, and whether the game
+        moved past it. Steps are held for that turn: a start_goal of his on the ask's words takes them
+        (_plan_at_ask_tick), else they are let go."""
+        ask = p.ask
+        dw = self._done_when_now(ask, "plan_arrived", now)
+        e = {"type": "plan_arrived", "for_closed_request": True, "goal": ask[1],
+             **({"steps": steps} if steps else {}), **({"question": plan.ask_help} if plan.ask_help else {}),
+             **({"done_when": dw} if dw is not None else {}),
+             **({"game_moved_since": why} if why else {}),
+             "about": AT_ASK_CLOSED_NOTE if plan.tasks else AT_ASK_CLOSED_Q_NOTE, **p.req}
+        self._situations.append(e)
+        if plan.tasks:
+            self._at_ask_held = (p, e)
+        self._log_at_ask(p, landed="shown, not started: he closed the request" if plan.tasks
+                         else "shown, not parked: he closed the request")
+        self.flush_situations()
+        if self._at_ask_held is not None:  # the turn that showed it ran now: his start_goal on it, or let go
+            self._held_tick()
+
+    def _held_tick(self) -> None:
+        """The plan held for his one turn after he closed its ask: a goal he queued on the ask's words takes it (no
+        second Planner call); once the turn that showed it has run (its situation taken) without that, let go."""
+        p, e = self._at_ask_held
+        goal = (self.pending_goal or "").strip().lower()
+        if goal and goal == p.ask[1].strip().lower() and not (self.pending_tasks or self.pending_skill):
+            self._at_ask_held, self._adopted = None, p
+            self._pending_asked = p.asked
+            self.log.log("plan_at_ask_adopted", request=p.ask[1], player=p.ask[0], goal=self.pending_goal,
+                         landed=True, age_s=round(self.clock() - p.started, 2), after_close=True)
+        elif not any(x is e for x in self._situations):
+            self._at_ask_held = None
+            self.log.log("plan_at_ask_let_go", request=p.ask[1], player=p.ask[0],
+                         why="he closed the request and did not start it in the turn that showed it",
+                         his_goal=self.pending_goal)
+
+    def _take_done_when(self, p: plan_async.PendingPlan, plan) -> None:
+        """The job's end condition its at-ask plan wrote (validated by the Planner; None when null or refused), kept
+        with the ask and the state read when it was asked (the baseline of 'since')."""
+        pred = getattr(plan, "done_when", None)
+        if not pred:
+            return
+        try:
+            text = P.describe(pred)
+        except Exception:  # a leaf with no words: its JSON
+            text = json.dumps(pred, default=str)[:200]
+        self._done_when = {"ask": p.ask, "pred": pred, "text": text,
+                           "baseline": P.snapshot(p.basis or {}, t=p.started)}
+
+    def _done_when_now(self, ask: tuple | None, where: str, state: dict | None = None) -> dict | None:
+        """The ask's end condition with its truth on fresh state (predicates.evaluate; None = it cannot be read from
+        what the body reports, never done), logged as done_when_checked; None when the ask has none."""
+        dw = self._done_when
+        if not dw or not ask or not oa.same_ask(dw["ask"], ask):
+            return None
+        if state is None:
+            try:
+                state = self._fresh_state(reuse=True)
+            except Exception as exc:  # perception never breaks the turn
+                state = {"unavailable": f"{type(exc).__name__}: {exc}"[:200]}
+        if not oa.readable(state):
+            holds, reads = None, "unknown: " + str((state or {}).get("unavailable") or "no state read")[:200]
+        else:
+            try:
+                r = P.evaluate(dw["pred"], state, {"baseline": dw["baseline"], "now": self.clock()})
+                holds, reads = r.passed, r.detail
+            except Exception as exc:  # a predicate that cannot be checked: unknown, never done
+                holds, reads = None, f"unknown: {type(exc).__name__}: {exc}"[:200]
+        self.log.log("done_when_checked", request=ask[1], where=where, holds=holds, reads=reads,
+                     done_when=dw["text"])
+        return {"end_condition": dw["text"], "written": "by your planner at the request",
+                "now": ("yes" if holds else "not yet" if holds is False else "unknown") + f": {reads}"}
+
     def _at_ask_job(self, ask: tuple | None) -> dict | None:
         """For request_done's result: his planner's job for this ask, being planned, queued or running (None: none).
-        The close stands; the job is not dropped by it (AT_ASK_DONE_NOTE)."""
+        The close stands. A job already running is not dropped by it (AT_ASK_DONE_NOTE); a plan not landed yet starts
+        nothing when it lands, it is shown to him once (AT_ASK_DONE_PENDING_NOTE, _show_closed)."""
         if not ask or not self._plan_at_ask_on():
             return None
         if (a := self._at_ask_for(ask)) is not None:
             if not a.done():
                 return {"state": f"being planned ({round(self.clock() - a.started)} s so far)",
-                        "note": AT_ASK_DONE_NOTE}
+                        "note": AT_ASK_DONE_PENDING_NOTE}
             if a.future.exception() is not None:
                 return None
             plan = a.future.result()
             if plan.tasks:
-                return {"state": "planned; it starts when this turn ends",
-                        "steps": [plan_async.step_label(t) for t in plan.tasks][:10], "note": AT_ASK_DONE_NOTE}
+                return {"state": "planned, not started",
+                        "steps": [plan_async.step_label(t) for t in plan.tasks][:10], "note": AT_ASK_DONE_PENDING_NOTE}
             if plan.ask_help:
-                return {"state": "your planner asks the player first; the request will wait on his answer",
-                        "question": plan.ask_help}
+                return {"state": "your planner asks the player a question; not parked", "question": plan.ask_help,
+                        "note": AT_ASK_DONE_PENDING_NOTE}
             return None
         ho = self._handover if self.active_goal else self._handover_next
         if ho and ho.get("at_ask") and oa.same_ask(ho["ask"], ask):
@@ -2575,7 +2693,8 @@ class Agent:
         a = self._at_ask
         if landed is None and a is not None and a.dropped is None and not a.done():  # DW_PLAN_AT_ASK=1
             return {"state": "making a plan for the player's request", "request": a.ask[1], "from": a.ask[0],
-                    "for_s": round(self.clock() - a.started, 1), "about": AT_ASK_PENDING_NOTE}
+                    "for_s": round(self.clock() - a.started, 1),
+                    "about": AT_ASK_PENDING_NOTE.format(s=round(self.clock() - a.started))}
         return landed
 
     def _plan_news(self) -> list[str]:
@@ -2933,6 +3052,8 @@ class Agent:
                 if interrupts > self.max_interrupts:
                     return self._stuck(goal, task, "interrupted too often")
                 continue  # resume the same task
+            if self._done_when is not None and mine is not None:  # DW_PLAN_AT_ASK=1: the job's end condition, read
+                self._done_when_now(mine, "step_end")  # on the step's own verification read (reuse window)
             if outcome.ok:
                 done = sum(1 for t in tree.tasks if t.done)
                 self.broker.note_progress(f"step {done}/{len(tree.tasks)} done ({_task_label(task)})")
