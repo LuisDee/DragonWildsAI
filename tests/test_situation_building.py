@@ -103,6 +103,18 @@ def test_bases_line_from_his_own_record():
     assert "my_bases" not in text and "Your bases" not in "\n".join(summary({"position": [0, 0, 0]}))
 
 
+def test_bases_line_says_a_roofed_station_is_not_sheltered():
+    """2026-11-20 L3: a roofed 3-wall shell read as 'roofed' while the game refused the wheel for too few side pieces;
+    the body's base_shelter facts (both game checks, per shelter-only station of his) ride on the bases line."""
+    facts = ("Spinning Wheel: roof: yes (1 of 1 roof rays meet a building piece); sides: 4 of 16 rays (25 %) meet a"
+             " building piece, it needs 38 %; open toward S, SE, SW; fails the side check")
+    st = {"position": [0, 0, 0], "my_bases": [
+        {"centre": [10, 0, 0], "distance_m": 10, "direction": "E", "pieces": 6, "covered": True,
+         "stations": ["Spinning Wheel"], "shelter": [facts]}]}
+    text = "\n".join(summary(st))
+    assert "10 m E, roofed, 6 pieces (Spinning Wheel) [shelter: " + facts + "]" in text
+
+
 def test_bases_and_farm_survive_a_full_digest():
     """MAX_LINES cut every line after Creatures (live 2026-11-02 05:33Z: "where's the farm?" with his own plot 7.5 m
     off): with every optional line filled, 'Your bases' and 'Your farm' still reach him, and burn_odds is no noise."""

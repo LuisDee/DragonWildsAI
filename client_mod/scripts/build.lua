@@ -1234,6 +1234,34 @@ function W.covered_at(api, p)
     local function up(a, b) return (W.trace(api, { X = p[1] * 100, Y = p[2] * 100, Z = (p[3] + a) * 100 }, { X = p[1] * 100, Y = p[2] * 100, Z = (p[3] + b) * 100 })) end
     return up(2.2, 10) == true and up(0.3, 2.0) ~= true
 end
+-- A shelter-only piece's own shelter data before it is placed: the BuildingShelter component of a live station of
+-- that piece in the world (its rays, length, thickness, threshold are Blueprint defaults, the same on each one; read
+-- with property reads through crafting.lua W.shelter_rule). Matched by name (piece "Spinning Wheel" -> owner
+-- BP_Station_Spinning_Wheel_C_...). -> rule | nil (none in the world to read; tried again after 30 s)
+function W.shelter_rule_for(api, piece)
+    local U = sense_U(api)
+    local cm = api.module("crafting")
+    if paused() or not (U and piece and cm and cm.W and type(cm.W.shelter_rule) == "function") then return nil end
+    local m = mem()
+    m.shelter_rules = m.shelter_rules or {}
+    local k = tostring(piece.id or piece.name)
+    local kept = m.shelter_rules[k]
+    local t = api.now and api.now() or os.clock()
+    if kept and (kept.rule or t - kept.t < 30) then return kept.rule end
+    local want = lower(piece.name):gsub("[^%a]", "")
+    local rule
+    for _, c in ipairs(want ~= "" and U.find_all("BuildingShelterComponent", { skip_defaults = true }) or {}) do
+        local owner = U.try(function() return c:GetOwner() end)
+        local w = U.valid(owner) and lower(U.short(owner)):gsub("[^%a]", "") or ""
+        if w:find(want, 1, true) then
+            rule = cm.W.shelter_rule(api, c)
+            if rule and (#rule.shelter_rays > 0 or #rule.roof_rays > 0) then break end
+            rule = nil
+        end
+    end
+    m.shelter_rules[k] = { rule = rule, t = t }
+    return rule
+end
 -- Where a shelter-only piece can go near `center`: covered spots, on my own floors first (my house), then any covered
 -- spot round the centre asked for; and a covered place to stand at standoff_m from it (inside, so the camera sees it).
 -- env = {ground_at(x, y, z), covered(p), mine_floors = {{x, y, z}}, reach_m, standoff_m, here}
@@ -1264,12 +1292,30 @@ function M.shelter_plan(env, center)
         if math.sqrt((f[1] - center[1]) ^ 2 + (f[2] - center[2]) ^ 2) <= (env.reach_m or 25) then add(floors, probe(f[1], f[2], f[3] + 1.0)) end
     end
     local function dist(p) return math.sqrt((p[1] - center[1]) ^ 2 + (p[2] - center[2]) ^ 2) end
-    local pick
-    for _, p in ipairs(ring) do if on_mine(p) and (not pick or dist(p) < dist(pick)) then pick = p end end
-    if not pick then for _, p in ipairs(floors) do if not pick or dist(p) < dist(pick) then pick = p end end end
-    local mine = pick ~= nil
-    if not pick then for _, p in ipairs(ring) do if not pick or dist(p) < dist(pick) then pick = p end end end
-    if not pick then return nil end
+    -- the order a player would try them: under my own roof by the asked spot, my own covered floors, any covered spot
+    local order, seen = {}, {}
+    local function take(list, keep, mine)
+        local l = {}
+        for _, p in ipairs(list) do if keep(p) and not seen[p] then l[#l + 1] = p end end
+        table.sort(l, function(x, y) return dist(x) < dist(y) end)
+        for _, p in ipairs(l) do seen[p] = true; order[#order + 1] = { p = p, mine = mine } end
+    end
+    take(ring, on_mine, true)
+    take(floors, function() return true end, true)
+    take(ring, function() return true end, false)
+    if #order == 0 then return nil end
+    -- the game's side check too (env.sides: the station's own rays from the spot, crafting.lua shelter_eval): the first
+    -- covered spot that passes it, of the first few; none -> the first, with its side numbers said
+    local chosen, sides = order[1], nil
+    if env.sides then
+        for i = 1, math.min(#order, env.sides_max or 6) do
+            local ok, ev = pcall(env.sides, order[i].p)
+            ev = ok and ev or nil
+            if i == 1 then sides = ev end
+            if ev and ev.sides_ok then chosen, sides = order[i], ev; break end
+        end
+    end
+    local pick, mine = chosen.p, chosen.mine
     -- stand under the same roof, standoff_m off, nearest me
     local here, so, stand, sd = env.here or pick, (env.standoff_m or 1.5) + 0.5, nil, nil
     for i = 0, 7 do
@@ -1278,11 +1324,13 @@ function M.shelter_plan(env, center)
         local dq = q and math.sqrt((q[1] - here[1]) ^ 2 + (q[2] - here[2]) ^ 2)
         if q and (not sd or dq < sd) then stand, sd = q, dq end
     end
-    return { center = pick, stand_at = stand, on_mine = mine }
+    return { center = pick, stand_at = stand, on_mine = mine, sides = sides }
 end
 -- Built pieces standing where a new piece would go (its box at spot, turned yaw, plus margin_m): the truthful
 -- "what is in the way" for a red preview (live 20:5xZ: a Crafting Table in the middle of a medium foundation kept its
 -- S wall red; the model guessed it). rows: census {id, name, position}; skip: ids to leave out. -> up to 2 rows
+-- A row's position is its foot: one down to 1 m under the new box's bottom still counts (live 2026-11-20 L3: a Spinning
+-- Wheel 0.76 m below the floor's top stood in the S wall's spot, and the "Blocked" wall named nothing in the way).
 function M.standing_in(rows, spot, box, yaw, skip, margin_m)
     if not (spot and box) then return {} end
     local m = margin_m or 0.6
@@ -1295,13 +1343,110 @@ function M.standing_in(rows, spot, box, yaw, skip, margin_m)
             local lx, ly = dx * math.cos(c) + dy * math.sin(c), -dx * math.sin(c) + dy * math.cos(c)
             local zlo, zhi = spot[3] + box.origin[3] - box.extent[3], spot[3] + box.origin[3] + box.extent[3]
             if math.abs(lx - box.origin[1]) <= box.extent[1] + m and math.abs(ly - box.origin[2]) <= box.extent[2] + m
-                and q[3] >= zlo - 0.5 and q[3] <= zhi + 0.5 then
+                and q[3] >= zlo - 1.0 and q[3] <= zhi + 0.5 then
                 out[#out + 1] = st
                 if #out >= 2 then break end
             end
         end
     end
     return out
+end
+-- Do two placed boxes overlap (their footprints turned by yaw, separating axes, and their heights)? margin_m eats
+-- touching faces (pieces built flush share a face). -> true | false
+function M.boxes_overlap(p1, b1, yaw1, p2, b2, yaw2, margin_m)
+    if not (p1 and b1 and p2 and b2) then return false end
+    local m = margin_m or 0.05
+    local function corners(p, b, yaw)
+        local c, s = math.cos(math.rad(yaw or 0)), math.sin(math.rad(yaw or 0))
+        local ox, oy = p[1] + b.origin[1] * c - b.origin[2] * s, p[2] + b.origin[1] * s + b.origin[2] * c
+        local ex, ey = math.max(0, b.extent[1] - m / 2), math.max(0, b.extent[2] - m / 2)
+        local out = {}
+        for _, k in ipairs({ { 1, 1 }, { 1, -1 }, { -1, -1 }, { -1, 1 } }) do
+            local lx, ly = k[1] * ex, k[2] * ey
+            out[#out + 1] = { ox + lx * c - ly * s, oy + lx * s + ly * c }
+        end
+        return out, { { c, s }, { -s, c } }
+    end
+    local z1lo, z1hi = p1[3] + b1.origin[3] - b1.extent[3], p1[3] + b1.origin[3] + b1.extent[3]
+    local z2lo, z2hi = p2[3] + b2.origin[3] - b2.extent[3], p2[3] + b2.origin[3] + b2.extent[3]
+    if z1hi - m <= z2lo or z2hi - m <= z1lo then return false end
+    local c1, a1 = corners(p1, b1, yaw1)
+    local c2, a2 = corners(p2, b2, yaw2)
+    for _, ax in ipairs({ a1[1], a1[2], a2[1], a2[2] }) do
+        local lo1, hi1, lo2, hi2 = math.huge, -math.huge, math.huge, -math.huge
+        for _, q in ipairs(c1) do local d = q[1] * ax[1] + q[2] * ax[2]; lo1, hi1 = math.min(lo1, d), math.max(hi1, d) end
+        for _, q in ipairs(c2) do local d = q[1] * ax[1] + q[2] * ax[2]; lo2, hi2 = math.min(lo2, d), math.max(hi2, d) end
+        if hi1 <= lo2 or hi2 <= lo1 then return false end
+    end
+    return true
+end
+-- How a piece put ON a floor's top (a station on a foundation: no mount) really sits on that floor: its foot against
+-- the floor's top, its footprint against the floor's edges, and the pieces its box overlaps. Live 2026-11-20 L3: the
+-- Spinning Wheel put on '#1' with no side went onto the open S edge, its foot 0.76 m below the floor's top, standing
+-- where the S wall goes; the reply said only "NOT square ... 0.81 m lower", the wall then came up "Blocked" naming
+-- nothing, and the game called the wheel unsheltered. rows: {id, name, position, yaw, box} near it; skip: ids.
+-- -> {gap_m (foot - floor top; < 0 = below), outside_m (past the floor's edge, 0 = over it), edge (compass),
+--     on_edge_line, off_floor, overlaps = {rows}, words} | nil
+M.cfg.build.seat_tol_m = 0.15 -- a foot this far from the floor's top, or this far past its edge, is off it
+M.cfg.build.wall_half_m = 0.15 -- half a wall's thickness: a footprint this close to an edge line stands where its wall goes
+function M.seat_report(anchor, built, bbox, rows, skip)
+    local ab = anchor and anchor.box
+    if not (ab and anchor.position and built and built.position) or M.thin_axis(ab) then return nil end
+    local tol = M.cfg.build.seat_tol_m
+    local top = anchor.position[3] + ab.origin[3] + ab.extent[3]
+    local foot = built.position[3] + (bbox and (bbox.origin[3] - bbox.extent[3]) or 0)
+    local gap = foot - top
+    local c = math.rad(anchor.yaw or 0)
+    local dx, dy = built.position[1] - anchor.position[1], built.position[2] - anchor.position[2]
+    local lx = dx * math.cos(c) + dy * math.sin(c) - ab.origin[1]
+    local ly = -dx * math.sin(c) + dy * math.cos(c) - ab.origin[2]
+    local ox, oy = math.abs(lx) - ab.extent[1], math.abs(ly) - ab.extent[2]
+    local out_m = math.max(ox, oy, 0)
+    -- the edge it is nearest (or past): that local axis, turned back into the world for its compass word
+    local vx, vy = 0, 0
+    if ox >= oy then vx = lx >= 0 and 1 or -1 else vy = ly >= 0 and 1 or -1 end
+    local edge = compass(vx * math.cos(c) - vy * math.sin(c), vx * math.sin(c) + vy * math.cos(c))
+    -- its footprint's reach toward that edge (its box turned into the floor's frame)
+    local r = 0
+    if bbox then
+        local rel = math.rad((built.yaw or 0) - (anchor.yaw or 0))
+        local ex, ey = bbox.extent[1], bbox.extent[2]
+        r = (ox >= oy) and (math.abs(ex * math.cos(rel)) + math.abs(ey * math.sin(rel)))
+            or (math.abs(ex * math.sin(rel)) + math.abs(ey * math.cos(rel)))
+    end
+    local reach = math.max(ox, oy) + r -- > 0: past the edge line
+    local on_line = reach >= -M.cfg.build.wall_half_m
+    local off = math.abs(gap) > tol or out_m > tol
+    local over = {}
+    for _, q in ipairs(rows or {}) do
+        if q.id ~= built.id and q.id ~= anchor.id and not (skip and skip[q.id]) and not q.ghosted and q.box and q.position
+            and M.boxes_overlap(built.position, bbox or { origin = { 0, 0, 0.5 }, extent = { 0.3, 0.3, 0.5 } }, built.yaw, q.position, q.box, q.yaw, 0.05) then
+            over[#over + 1] = q
+            if #over >= 3 then break end
+        end
+    end
+    local parts = {}
+    local name = tostring(anchor.name or "floor") .. " (" .. tostring(anchor.id) .. ")"
+    if math.abs(gap) > tol then
+        parts[#parts + 1] = string.format("its foot is %.2f m %s the top of %s", math.abs(gap), gap < 0 and "below" or "above", name)
+    end
+    if out_m > tol then
+        parts[#parts + 1] = string.format("it stands %.2f m out past that floor's %s edge", out_m, edge)
+    elseif on_line then
+        parts[#parts + 1] = string.format("its footprint reaches the floor's %s edge line, where a wall on that edge stands, so a wall there would be blocked by it", edge)
+    end
+    local words
+    if #parts > 0 then
+        words = "Where it sits: " .. table.concat(parts, "; ") .. "."
+        if off then words = words .. " So it is off the floor it was meant for (" .. name .. "), not on its top." end
+    end
+    if #over > 0 then
+        local o = {}
+        for _, q in ipairs(over) do o[#o + 1] = tostring(q.name or "a piece") .. " (" .. tostring(q.id) .. ")" end
+        words = (words and (words .. " ") or "") .. "It overlaps " .. table.concat(o, " and ") .. "."
+    end
+    return { gap_m = r1(gap), outside_m = r1(out_m), edge = edge, on_edge_line = on_line or nil, off_floor = off or nil,
+             overlaps = (#over > 0) and over or nil, words = words }
 end
 -- Place an attach from where I stand? -> true | false, why. Within stay_m of the aim point, on the anchor's floor (a wall:
 -- its top face must be in view), not in the new piece's way, and the camera's ray reaching the aim point.
@@ -1682,16 +1827,29 @@ local function start_build(api, args, ctx)
             local id = tostring(e.piece or "")
             if type(e.at) == "table" and #e.at >= 3 and (id:find("Foundation", 1, true) or id:find("_Floor_", 1, true)) then floors[#floors + 1] = e.at end
         end
+        -- the game's side check for each covered spot, from the piece's own shelter rays (a live one in the world)
+        local cm = api.module("crafting")
+        local srule = W.shelter_rule_for(api, piece)
+        local sides = (srule and cm and type(cm.shelter_eval) == "function" and type(cm.W.shelter_cast) == "function")
+            and function(p)
+                local r = { shelter_rays = srule.shelter_rays, dist_cm = srule.dist_cm, thick_cm = srule.thick_cm, need = srule.need }
+                return cm.shelter_eval(r, p, 0, function(a, b) return cm.W.shelter_cast(api, a, b, nil, srule.any_actor) == true end)
+            end or nil
         local plan = M.shelter_plan({ ground_at = function(x, y, z) return W.ground_at(api, x, y, z) end,
-                                      covered = function(p) return W.covered_at(api, p) end,
+                                      covered = function(p) return W.covered_at(api, p) end, sides = sides,
                                       mine_floors = floors, reach_m = cfg.shelter_reach_m, standoff_m = standoff, here = here }, center)
+        if plan and plan.sides and api.log then
+            api.log(string.format("build: shelter plan %s at (%.1f, %.1f, %.1f): sides %d/%d = %d%% (needs %d%%), open [%s]",
+                tostring(piece.name), plan.center[1], plan.center[2], plan.center[3], plan.sides.side_hits or 0, plan.sides.side_n or 0,
+                plan.sides.side_pct or 0, plan.sides.need_pct or 0, table.concat(plan.sides.open or {}, ",")))
+        end
         if not plan then
             local house
             local okb, bases = pcall(function() return dm and dm.bases(L, here) end)
             for _, b in ipairs(okb and bases or {}) do if b.covered and not house then house = b end end
             local said = piece.shelter_text ~= "" and (" (the game says \"" .. piece.shelter_text .. "\")") or ""
             return api.fail("blocked", { piece = piece.id, why = "no_shelter", shelter_text = piece.shelter_text, my_house = house,
-                detail = "The " .. piece.name .. " needs a roof over it" .. said .. ", and there is open sky over every spot "
+                detail = "The " .. piece.name .. " needs a roof over it and enough building pieces round it" .. said .. ", and there is open sky over every spot "
                     .. "within 3 m of where it would go and no covered floor of mine within " .. math.floor(cfg.shelter_reach_m) .. " m"
                     .. (house and string.format("; my house %d m %s at (%.0f, %.0f) has a roof", house.distance_m or 0, house.direction or "",
                         house.centre[1], house.centre[2]) or "; I have no roofed building of my own to put it in")
@@ -1896,10 +2054,24 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
                     house.distance_m, house.pieces or 0, house.centre[1], house.centre[2], compass(-hx, -hy) or "away")
             end
         end
-        if job.shelter then
+    end
+    -- a shelter-only piece (the Spinning Wheel), however it was placed: the game's two checks on the placed station,
+    -- from its own BuildingShelter component (crafting.lua W.shelter). Live 2026-11-20 L3: "It has a roof over it"
+    -- while the game said "needs more surrounding shelter".
+    local shelter_facts, shelter_line
+    if s and s.position and job.piece.needs_shelter then
+        local cm = api.module("crafting")
+        local actor = api.actor_of and api.actor_of({ id = s.id, class = s.class })
+        local oks, sh = pcall(function() return actor and cm and cm.W.shelter(api, actor, s.position) end)
+        if oks and sh then
+            shelter_facts = sh
+            local sw = " Shelter: " .. tostring(cm.shelter_words(sh, job.piece.name))
+                .. (job.shelter and job.shelter.on_mine and " (in my own building)" or "") .. "."
+            line, shelter_line = line .. sw, sw
+        elseif job.shelter then
             local okc, cov = pcall(W.covered_at, api, s.position)
-            line = line .. (okc and cov and (" It has a roof over it" .. (job.shelter.on_mine and ", in my own building" or "") .. " (it needs shelter).")
-                or " I couldn't confirm a roof over it after all.")
+            line = line .. (okc and cov and (" It has a roof over it" .. (job.shelter.on_mine and ", in my own building" or "")
+                .. " (it needs shelter); I couldn't read the game's side check for it.") or " I couldn't confirm a roof over it after all.")
         end
     end
     local ground -- a floor put on the ground: how the ground lies round it
@@ -1922,7 +2094,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         end
     end
     -- attached: how it really sits against the anchor, measured from the census (not from the preview)
-    local att
+    local att, seat
     if job.on then
         local a, side = job.on.anchor, job.on.side
         local _, _, mount = M.flush_spot(a, side, job.on.box)
@@ -1969,6 +2141,27 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             local hint = M.roof_hint(a.box, job.on.box, edges, true, (W.piece_profile(api, job.data) or {}).profile)
             if hint then line, fit = line .. hint, (fit or "") .. hint end
         end
+        -- a piece put on a floor's top (a station: no mount): is it ON that floor, and what does it stand in
+        if s and s.position and not mount and not inside and a.box and not M.thin_axis(a.box) then
+            local U = sense_U(api)
+            local rows = {}
+            local okl, list = pcall(W.built_pieces, api, s.position, 6)
+            for _, e in ipairs(okl and type(list) == "table" and list or {}) do
+                local box = e.actor and U and box_of(U, U.try(function() return e.actor.BuildingPieceLocalBounds end))
+                if not box and e.data then box = (W.piece_profile(api, e.data) or {}).box end
+                if box then rows[#rows + 1] = { id = e.id, name = e.name, position = e.position, yaw = e.yaw, box = box, ghosted = e.ghosted } end
+            end
+            local okr, rep = pcall(M.seat_report, a, s, job.on.box, rows, { [s.id] = true, [a.id] = true })
+            if okr and rep then
+                seat = rep
+                if rep.words then line, fit = line .. " " .. rep.words, (fit or "") .. " " .. rep.words end
+                if api.log then
+                    api.log(string.format("build: seat %s on %s: foot %+.2f m from its top, %.2f m past its %s edge%s, overlaps %d",
+                        tostring(s.id), tostring(a.id), rep.gap_m or 0, rep.outside_m or 0, tostring(rep.edge),
+                        rep.on_edge_line and " (on the edge line)" or "", #(rep.overlaps or {})))
+                end
+            end
+        end
     end
     local off_aim
     if job.press_off_m and job.spot and job.spot.position and job.preview and type(job.preview.position) == "table" then
@@ -1994,8 +2187,16 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
         facing_off_deg = att and att.facing_off_deg, snap_moved_m = att and att.snap_moved_m,
         rejected_previews_before_placing = #rej > 0 and rej or nil,
         placed_after_s = job.place_aim_s, placed_trail = job.place_trail,
-        fit = fit or (s and ("It stands at " .. where .. "." .. (floor_words and (" " .. floor_words) or "")
-            .. (ground and (" " .. ground.words) or ""))) or nil,
+        fit = (function()
+            local f = (fit or (s and ("It stands at " .. where .. "." .. (floor_words and (" " .. floor_words) or "")
+                .. (ground and (" " .. ground.words) or ""))) or "") .. (shelter_line or "")
+            return f ~= "" and f or nil
+        end)(),
+        seat = seat and { foot_vs_floor_top_m = seat.gap_m, past_edge_m = seat.outside_m, edge = seat.edge, on_edge_line = seat.on_edge_line,
+                          off_floor = seat.off_floor, overlaps = seat.overlaps and (function()
+                              local o = {}; for _, q in ipairs(seat.overlaps) do o[#o + 1] = q.id end; return o end)() or nil } or nil,
+        shelter = shelter_facts and { roof = shelter_facts.roof, side_pct = shelter_facts.side_pct, need_pct = shelter_facts.need_pct,
+                                      open = shelter_facts.open, sheltered = shelter_facts.sheltered } or nil,
         ground_fall_m = ground and ground.fall_m or nil,
         stayed = job.stayed or nil }, RESULT_MT) }
 end

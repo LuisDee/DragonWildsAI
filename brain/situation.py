@@ -974,8 +974,12 @@ def bases_line(state: dict) -> str | None:
         where = (f"{b['distance_m']:.0f} m {b.get('direction') or ''}".strip() if num(b.get("distance_m")) is not None
                  else "at ({:.0f}, {:.0f})".format(*b.get("centre", [0, 0])[:2]))
         st = ", ".join(str(x) for x in (b.get("stations") or [])[:5])
-        parts.append(f"{where}, {'roofed' if b.get('covered') else 'no roof'}, {b.get('pieces')} piece{'' if b.get('pieces') == 1 else 's'}" +(f" ({st})" if st else ""))
-    return ("Your bases (what you built): " + " | ".join(parts))[:LINE_CHARS] if parts else None
+        # roofed is not sheltered: a shelter-only station's two game checks (deconstruct.lua base_shelter, 2026-11-20 L3)
+        sh = "; ".join(str(x) for x in (b.get("shelter") or [])[:2] if x)
+        parts.append(f"{where}, {'roofed' if b.get('covered') else 'no roof'}, {b.get('pieces')} piece{'' if b.get('pieces') == 1 else 's'}" +(f" ({st})" if st else "")
+                     + (f" [shelter: {sh}]" if sh else ""))
+    cap = 3 * LINE_CHARS if any(isinstance(b, dict) and b.get("shelter") for b in bases[:4]) else LINE_CHARS
+    return ("Your bases (what you built): " + " | ".join(parts))[:cap] if parts else None
 
 
 def asked_line(state: dict) -> str | None:

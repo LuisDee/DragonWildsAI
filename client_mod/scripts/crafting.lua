@@ -888,37 +888,240 @@ function W.unlocked(api)
     return set, n
 end
 
--- A station's shelter rule (UBuildingShelterComponent "BuildingShelter" on BP_Station_Spinning_Wheel_C, dump
--- 26161880): InteractionRequirements 0 InteractInShelterOnly / 1 InteractExternallyOnly / 2 InteractAnywhere, and the
--- game's own words. Over it: a trace from 2.2 m to 10 m above the station (anything there = a roof, maybe a tree).
--- -> {rule = "shelter_only" | "outside_only", says = text, covered = true | false | nil} | nil (no rule)
+-- A station's shelter rule: UBuildingShelterComponent "BuildingShelter" on BP_Station_Spinning_Wheel_C (dump 26670300,
+-- Dominion/Public/BuildingShelterComponent.h). InteractionRequirements 0 InteractInShelterOnly / 1 InteractExternallyOnly
+-- / 2 InteractAnywhere, and the game's own words (RequiresRoofText / RequiresShelterText). The component keeps NO result
+-- (no cached score, unlike the player's CharacterShelterComponent.CachedValidityScore); the game decides in
+-- CanInteract_Sync(FText), which is not called here (an FText argument = a hand-built struct). It makes two checks
+-- (shelter_1120.md): a ROOF (RoofRays) and a SURROUND: ShelterRays swept SweepRayThickness thick out to
+-- SweepRayDistance, passing when the share of rays that hit reaches ValidityPercentage (default 0.38), building pieces
+-- only unless bIncludeNonBuildingPartActors. Live 2026-11-20 L3: a roofed wheel on an open edge; the game said "needs
+-- more surrounding shelter" while the old single upward trace (anything over it, a tree too) said "covered". So both
+-- checks run here from the component's own rays, length, thickness and threshold (property reads); the one number of
+-- ours is where the rays start (SHELTER_UP_M over the station's foot: the component has no origin of its own).
+-- -> {rule, says, roof_says, roof = "yes"|"partly"|"no"|nil, roof_hits, roof_n, side_hits, side_n, side_pct, need_pct,
+--     open = {compass}, sides_ok, covered = bool|nil, sheltered = bool|nil, from = "game rays"} | nil (no rule)
 local SHELTER_RULES = { [0] = "shelter_only", [1] = "outside_only" }
-function W.shelter(api, actor, pos)
-    local U = sense_U(api)
-    local c = U and U.try(function() return actor.BuildingShelter end)
-    if not (U and U.valid(c)) then return nil end
-    local req = tonumber(U.try(function() return c.InteractionRequirements end))
-    local rule = req and SHELTER_RULES[req]
-    if not rule then return nil end
-    local says = U.str(U.try(function() return rule == "shelter_only" and c.RequiresShelterText or c.RequiresNoShelterText end))
-    local out = { rule = rule, says = (says and says ~= "" and says ~= "None") and says or nil }
-    local b = api.module("build")
-    if pos and b and b.W and type(b.W.trace) == "function" then
-        local ok, hit = pcall(b.W.trace, api, { X = pos[1] * 100, Y = pos[2] * 100, Z = (pos[3] + 2.2) * 100 },
-            { X = pos[1] * 100, Y = pos[2] * 100, Z = (pos[3] + 10) * 100 })
-        if ok then out.covered = hit == true end
+M.SHELTER_UP_M = 1.0 -- where the rays start over the station's foot (ours: the component exposes no origin)
+M.SHELTER_KEEP_S = 8 -- one station's verdict is reused this long (a check is up to 4 lines per ray)
+local COMPASS8 = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
+local function compass(dx, dy) -- north = -Y, east = +X (DISCOVERIES "Map compass"; build.lua compass)
+    local ang = (math.deg(math.atan(dx, -dy)) + 360) % 360
+    return COMPASS8[math.floor(((ang + 22.5) % 360) / 45) + 1]
+end
+-- The two checks from the component's data. rule = {roof_rays = {{x, y, z}}, shelter_rays, dist_cm, thick_cm, need};
+-- o = the station's foot (m); yaw = its yaw (deg: the rays are taken as the station's own, turned with it);
+-- cast(a, b) (m) -> true when the line meets a building piece (not the station itself). Pure (tests).
+function M.shelter_eval(rule, o, yaw, cast)
+    local c, s = math.cos(math.rad(yaw or 0)), math.sin(math.rad(yaw or 0))
+    local dist = (tonumber(rule.dist_cm) or 0) / 100
+    local function seg(v) -- a ray as an end offset in metres, turned with the station
+        local len = math.sqrt(v[1] ^ 2 + v[2] ^ 2 + v[3] ^ 2)
+        if len < 1e-6 then return nil end
+        local e = len < 10 and { v[1] / len * dist, v[2] / len * dist, v[3] / len * dist } -- a direction: out to SweepRayDistance
+            or { v[1] / 100, v[2] / 100, v[3] / 100 } -- else an offset in cm
+        return { e[1] * c - e[2] * s, e[1] * s + e[2] * c, e[3] }
+    end
+    local a = { o[1], o[2], o[3] + M.SHELTER_UP_M }
+    local function to(p, e) return { p[1] + e[1], p[2] + e[2], p[3] + e[3] } end
+    local out = { roof_n = 0, roof_hits = 0 }
+    for _, v in ipairs(rule.roof_rays or {}) do
+        local e = seg(v)
+        if e then
+            out.roof_n = out.roof_n + 1
+            if cast(a, to(a, e)) then out.roof_hits = out.roof_hits + 1 end
+        end
+    end
+    if out.roof_n > 0 then
+        out.roof = out.roof_hits == out.roof_n and "yes" or out.roof_hits == 0 and "no" or "partly"
+    end
+    local half = (tonumber(rule.thick_cm) or 0) / 200
+    local n, hits, open, seen = 0, 0, {}, {}
+    for _, v in ipairs(rule.shelter_rays or {}) do
+        local e = seg(v)
+        if e then
+            n = n + 1
+            -- the game sweeps a thick ray; a line trace is thin: the centre line, then one each side and one above,
+            -- half the game's thickness off (the ray counts when any of them meets a building piece)
+            local h = math.sqrt(e[1] ^ 2 + e[2] ^ 2)
+            local px, py = 0, 0
+            if h > 1e-6 then px, py = -e[2] / h * half, e[1] / h * half end
+            local hit = cast(a, to(a, e))
+            for _, d in ipairs(half > 0 and { { px, py, 0 }, { -px, -py, 0 }, { 0, 0, half } } or {}) do
+                if hit then break end
+                local a2 = to(a, d)
+                hit = cast(a2, to(a2, e))
+            end
+            if hit then hits = hits + 1
+            elseif h > 1e-6 then
+                local w = compass(e[1], e[2])
+                if not seen[w] then seen[w] = true; open[#open + 1] = w end
+            end
+        end
+    end
+    if n > 0 then
+        out.side_n, out.side_hits = n, hits
+        out.side_pct = math.floor(hits / n * 100 + 0.5)
+        out.need_pct = math.floor((tonumber(rule.need) or 0) * 100 + 0.5)
+        out.open = open
+        out.sides_ok = hits / n >= (tonumber(rule.need) or 0) - 1e-9
     end
     return out
 end
+-- The component's own data (Blueprint defaults, property reads) -> rule | nil
+local function vec_list(U, arr)
+    local out = {}
+    if arr == nil then return out end
+    pcall(function()
+        arr:ForEach(function(_, e)
+            local v = U.try(function() return e:get() end)
+            if v == nil then v = e end
+            local ok, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
+            if ok and type(x) == "number" then out[#out + 1] = { x, y, z } end
+        end)
+    end)
+    return out
+end
+function W.shelter_rule(api, c)
+    local U = sense_U(api)
+    if paused() or not (U and U.valid(c)) then return nil end -- no array reads under DW_PAUSE (native crash 21:49:34)
+    local req = tonumber(U.try(function() return c.InteractionRequirements end))
+    local rule = req and SHELTER_RULES[req]
+    if not rule then return nil end
+    local function words(v) local s = U.str(v); return (s and s ~= "" and s ~= "None") and s or nil end
+    local inside = rule == "shelter_only"
+    return { rule = rule,
+             says = words(U.try(function() return inside and c.RequiresShelterText or c.RequiresNoShelterText end)),
+             roof_says = words(U.try(function() return inside and c.RequiresRoofText or c.RequiresNoRoofText end)),
+             roof_rays = vec_list(U, U.try(function() return c.RoofRays end)),
+             shelter_rays = vec_list(U, U.try(function() return c.ShelterRays end)),
+             dist_cm = tonumber(U.try(function() return c.SweepRayDistance end)),
+             thick_cm = tonumber(U.try(function() return c.SweepRayThickness end)),
+             need = tonumber(U.try(function() return c.ValidityPercentage end)),
+             any_actor = U.try(function() return c.bIncludeNonBuildingPartActors end) == true }
+end
+-- One line from a to b (m) through the build trace (KismetSystemLibrary:LineTraceSingle): true when it meets a
+-- building piece: a hit actor with a BuildingPieceID (props: stations, crates, doors) or a CellBuildingProxy (the
+-- instance-only pieces: foundations, walls, roofs; build.lua built_pieces, deconstruct.lua crosshair). The station
+-- itself, trees, rocks and the ground are passed through (up to 4 times) unless the component counts any actor.
+function W.shelter_cast(api, a, b, self_id, any_actor)
+    local U = sense_U(api)
+    local bm = api.module("build")
+    if not (U and bm and bm.W and type(bm.W.trace) == "function") then return nil end
+    local from = { a[1], a[2], a[3] }
+    local L = math.sqrt((b[1] - a[1]) ^ 2 + (b[2] - a[2]) ^ 2 + (b[3] - a[3]) ^ 2)
+    if L < 1e-6 then return false end
+    local d = { (b[1] - a[1]) / L, (b[2] - a[2]) / L, (b[3] - a[3]) / L }
+    for _ = 1, 5 do
+        local ok, hit, out = pcall(bm.W.trace, api, { X = from[1] * 100, Y = from[2] * 100, Z = from[3] * 100 },
+            { X = b[1] * 100, Y = b[2] * 100, Z = b[3] * 100 })
+        if not (ok and hit and type(out) == "table") then return false end
+        local okp, ix, iy, iz = pcall(function() return out.ImpactPoint.X, out.ImpactPoint.Y, out.ImpactPoint.Z end)
+        if not (okp and type(ix) == "number") then return false end
+        local comp = U.try(function() return out.Component:Get() end)
+        if not U.valid(comp) then comp = U.try(function() return out.Component end) end
+        local owner = U.valid(comp) and U.try(function() return comp:GetOwner() end) or nil
+        local who = U.valid(owner) and U.short(owner) or nil
+        if who ~= nil and who ~= self_id then
+            local pid = tonumber((U.try(function() return owner.BuildingPieceID end)))
+            if (pid and pid > 0) or tostring(who):find("CellBuildingProxy", 1, true) then return true end
+            if any_actor then return true end
+        end
+        -- through it: on from 5 cm past the hit
+        from = { ix / 100 + d[1] * 0.05, iy / 100 + d[2] * 0.05, iz / 100 + d[3] * 0.05 }
+        if (from[1] - a[1]) * d[1] + (from[2] - a[2]) * d[2] + (from[3] - a[3]) * d[3] >= L then return false end
+    end
+    return false
+end
+function W.shelter(api, actor, pos)
+    local U = sense_U(api)
+    if paused() then return nil end
+    local c = U and U.try(function() return actor.BuildingShelter end)
+    if not (U and U.valid(c)) then return nil end
+    local id = U.short(actor)
+    local st = state()
+    st.shelter_seen = st.shelter_seen or {}
+    local now = api.now and api.now() or os.clock()
+    local kept = id and st.shelter_seen[id]
+    if kept and now - kept.t >= 0 and now - kept.t < M.SHELTER_KEEP_S and pos and kept.pos and dist2d(kept.pos, pos) < 0.05
+        and math.abs((kept.pos[3] or 0) - (pos[3] or 0)) < 0.05 then return kept.out end
+    local rule = W.shelter_rule(api, c)
+    if not rule then return nil end
+    local out = { rule = rule.rule, says = rule.says, roof_says = rule.roof_says }
+    if pos then
+        local yaw = tonumber((U.try(function() return actor:K2_GetActorRotation().Yaw end))) or 0
+        local function cast(a, b) return W.shelter_cast(api, a, b, id, rule.any_actor) == true end
+        if #rule.roof_rays > 0 or #rule.shelter_rays > 0 then
+            local ok, ev = pcall(M.shelter_eval, rule, pos, yaw, cast)
+            if ok and ev then
+                for k, v in pairs(ev) do out[k] = v end
+                out.from = "game rays"
+            end
+        end
+        if not out.roof then -- no roof rays read: the old upward line (anything over it counts, a tree too)
+            local b = api.module("build")
+            if b and b.W and type(b.W.trace) == "function" then
+                local ok, hit = pcall(b.W.trace, api, { X = pos[1] * 100, Y = pos[2] * 100, Z = (pos[3] + 2.2) * 100 },
+                    { X = pos[1] * 100, Y = pos[2] * 100, Z = (pos[3] + 10) * 100 })
+                if ok then out.roof = hit == true and "yes" or "no"; out.roof_from = "one upward trace, anything counts" end
+            end
+        end
+        if out.roof then out.covered = out.roof == "yes" end
+        if out.roof == "no" or out.sides_ok == false then out.sheltered = false
+        elseif out.roof == "yes" and out.sides_ok then out.sheltered = true end
+        if api.log then
+            api.log(string.format("crafting: shelter %s at (%.1f, %.1f, %.1f) yaw %.0f: roof %s %s/%s, sides %s/%s = %s%% (needs %s%%), open [%s]; %d roof + %d side rays, %s cm out, %s cm thick, %s",
+                tostring(id), pos[1], pos[2], pos[3], yaw, tostring(out.roof), tostring(out.roof_hits), tostring(out.roof_n),
+                tostring(out.side_hits), tostring(out.side_n), tostring(out.side_pct), tostring(out.need_pct),
+                table.concat(out.open or {}, ","), #rule.roof_rays, #rule.shelter_rays, tostring(rule.dist_cm), tostring(rule.thick_cm), rule.rule))
+        end
+    end
+    if id then st.shelter_seen[id] = { t = now, pos = pos, out = out } end
+    return out
+end
+-- The two checks as facts for the model: "roof: yes (3 of 3 roof rays meet a building piece); sides: 4 of 12 rays
+-- (33 %) meet a building piece within 20 m, it needs 38 %; open toward S, SW".
+function M.shelter_facts(sh)
+    if not sh then return nil end
+    local parts = {}
+    if sh.roof then
+        parts[#parts + 1] = "roof: " .. sh.roof .. ((sh.roof_n and sh.roof_n > 0)
+            and string.format(" (%d of %d roof rays meet a building piece)", sh.roof_hits or 0, sh.roof_n)
+            or (sh.roof_from and (" (" .. sh.roof_from .. ")") or ""))
+    end
+    if sh.side_n then
+        parts[#parts + 1] = string.format("sides: %d of %d rays (%d %%) meet a building piece, it needs %d %%",
+                sh.side_hits, sh.side_n, sh.side_pct, sh.need_pct)
+            .. ((#(sh.open or {}) > 0) and ("; open toward " .. table.concat(sh.open, ", ")) or "")
+    end
+    return #parts > 0 and table.concat(parts, "; ") or nil
+end
+-- The game's text is a tail after the station's name (live 19:0xZ: " needs more surrounding shelter.")
+local function said(t, name)
+    local s = t and t:match("^%s*(.-)%s*$")
+    if s and s:match("^%l") then s = tostring(name) .. " " .. s end
+    return s
+end
+-- Why a shelter-only station would refuse him now (station_takes), or nil when it passes or can't be told.
+function M.shelter_refusal(sh)
+    if not (sh and sh.rule == "shelter_only") then return nil end
+    if sh.roof == "no" and sh.sides_ok == false then return "it only works sheltered and fails both checks: " .. M.shelter_facts(sh) end
+    if sh.roof == "no" then return "it only works sheltered and has no roof over it: " .. M.shelter_facts(sh) end
+    if sh.sides_ok == false then return "it only works sheltered and has too few building pieces round it: " .. M.shelter_facts(sh) end
+    return nil
+end
 function M.shelter_words(sh, name)
     if not sh then return nil end
-    -- the game's text is a tail after the station's name (live 19:0xZ: " needs more surrounding shelter.")
-    local says = sh.says and sh.says:match("^%s*(.-)%s*$")
-    if says and says:match("^%l") then says = tostring(name) .. " " .. says end
-    local quote = says and (" (the game says: \"" .. says .. "\")") or ""
+    local says = said(sh.sheltered == false and sh.roof == "no" and sh.sides_ok ~= false and sh.roof_says or sh.says, name)
+    local quote = (says and sh.sheltered ~= true) and (" (the game's words for it: \"" .. says .. "\")") or ""
     if sh.rule == "shelter_only" then
-        return "the " .. tostring(name) .. " only works in a shelter, walls and a roof round it" .. quote
-            .. (sh.covered == false and ", and there is open sky over this one" or sh.covered and ", and something is over this one" or "")
+        local facts = M.shelter_facts(sh)
+        local verdict = sh.sheltered == true and "this one passes both"
+            or sh.sheltered == false and ("this one fails " .. ((sh.roof == "no" and sh.sides_ok == false) and "both"
+                or sh.roof == "no" and "the roof check" or "the side check"))
+            or nil
+        return "the " .. tostring(name) .. " only works sheltered: a roof over it AND enough building pieces round it" .. quote
+            .. (facts and ("; " .. facts) or "") .. (verdict and ("; " .. verdict) or "")
     end
     return "the " .. tostring(name) .. " only works outside, not under a roof" .. quote
 end
@@ -1756,7 +1959,8 @@ local function station_takes(api, row, a)
     local theirs = foreign_inputs(api, row, s.resources.rows)
     if theirs then return false, "it holds " .. theirs .. " that someone else left" end
     local sh = W.shelter(api, actor, row.position)
-    if sh and sh.rule == "shelter_only" and sh.covered == false then return false, "it only works in a shelter and has open sky over it" end
+    local no = M.shelter_refusal(sh)
+    if no then return false, no end
     local want, have, used = {}, {}, 0
     for _, c in ipairs(a.inputs or {}) do want[c.item] = true end
     local foreign = {}
