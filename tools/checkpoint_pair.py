@@ -282,19 +282,8 @@ class Pairs:
         if self.client_running() is not False:
             raise Refused(f"the client did not stop: {name}'s save is not written while a client may hold it")
         self.ps("stop_server.ps1", "-Hold")
-        try:
-            parked = self.park(name, stamp)
-            restored = self.store.restore(pair["world"], others_ok, own_pid=self.own_pid)
-        except Refused as exc:
-            undo = getattr(exc, "undo", None)
-            if undo:  # the world was touched: put it back as it was before this restore
-                try:
-                    self.store.restore(undo, own_pid=self.own_pid, undo=False)
-                except Refused as exc2:
-                    raise Refused(f"{exc}; putting {undo} back failed too ({exc2}): the server is left DOWN on a "
-                                  f"torn world; restore {undo} by hand, then start_server.ps1") from exc
-            self.ps("start_server.ps1")
-            raise
+        parked = self.park(name, stamp)
+        restored = self._restore_down(pair["world"], others_ok)
         try:
             live = self.save_dir / f"{name}.json"
             _write(live, raw)
@@ -305,6 +294,37 @@ class Pairs:
             self.ps("start_server.ps1")
         return {"name": name, "guid": guid, "world": pair["world"], "restored": restored, "parked": parked,
                 "deaths_forgotten": deaths, "s": round(self.clock() - t0, 1), "written_at": round(t0, 3)}
+
+    def _restore_down(self, label: str, others_ok: str = "") -> dict:
+        """Restore world `label` with the client and the server already stopped (-Hold). On a refusal the server is
+        started again (a touched world put back from its undo first) and the refusal raised; on success the server is
+        still down: the caller starts it."""
+        try:
+            return self.store.restore(label, others_ok, own_pid=self.own_pid)
+        except Refused as exc:
+            undo = getattr(exc, "undo", None)
+            if undo:  # the world was touched: put it back as it was before this restore
+                try:
+                    self.store.restore(undo, own_pid=self.own_pid, undo=False)
+                except Refused as exc2:
+                    raise Refused(f"{exc}; putting {undo} back failed too ({exc2}): the server is left DOWN on a "
+                                  f"torn world; restore {undo} by hand, then start_server.ps1") from exc
+            self.ps("start_server.ps1")
+            raise
+
+    def reset_world(self, label: str, others_ok: str = "") -> dict:
+        """Put the window's named world back between two trials of one window (CLAUDE.md section 2 rule 9: no trial
+        meets what an earlier one left), the sequence prepare uses without a character: stop the client (-Hold) and
+        the server (-Hold), restore `label`, start the server. The window's switch then boots the next character
+        (client_boot -Release clears the client's hold). No character file is written. -> {label, s, restored}."""
+        t0 = self.clock()
+        self.ps("stop_client.ps1", "-Hold")
+        if self.client_running() is not False:
+            raise Refused("the client did not stop: the world is not restored under a client that may write to it")
+        self.ps("stop_server.ps1", "-Hold")
+        restored = self._restore_down(label, others_ok)
+        self.ps("start_server.ps1")
+        return {"label": label, "s": round(self.clock() - t0, 1), "restored": restored}
 
     def file_check(self, pair: dict, written_at: float) -> dict:
         """After the switch: is SaveCharacters/<name>.json still the checkpoint's bytes? The client writes a save

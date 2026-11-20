@@ -259,6 +259,22 @@ class Store:
         return {"ok": not (missing or changed or extra), "label": label, "files": len(man["files"]),
                 "missing": missing, "changed": changed, "extra": extra}
 
+    def last_restored(self) -> dict | None:
+        """The label the last restore put back, read from the undo it kept first (undo-<utc>, manifest
+        before_restore_of): {label, at} or None (no restore with an undo on record). tools/job_run.py restores this
+        world between the trials of a window when --world names none."""
+        best = None
+        for d in self.root.glob(UNDO + "*") if self.root.is_dir() else []:
+            try:
+                man = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            label, at = man.get("before_restore_of"), man.get("taken_at")
+            if isinstance(label, str) and LABEL_RE.fullmatch(label) and isinstance(at, str):
+                if best is None or at > best["at"]:
+                    best = {"label": label, "at": at}
+        return best
+
     # ------------------------------------------------------------------------------------------------- guards
     def blockers(self, lock: bool, own_pid: int | None = None) -> list[str]:
         """Why a copy must not run now ([] = it may). Read only: nothing is stopped, started or claimed.

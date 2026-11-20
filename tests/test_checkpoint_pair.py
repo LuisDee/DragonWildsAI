@@ -207,6 +207,14 @@ def test_a_broken_pair_is_refused_never_taken_for_a_plain_fork(rig, damage, matc
 
 
 # ------------------------------------------------------------------ prepare: one trial from the pair
+def keep_world(rig, label="base"):
+    """A named world kept the way the window recipe has it (server stopped with -Hold), then the server back up."""
+    rig.ps("stop_server.ps1", "-Hold")
+    rig.store.keep(label, note="a window's named world")
+    rig.ps("start_server.ps1")
+    rig.calls.clear()
+
+
 def played(rig):
     """The pair kept, then a trial played on: the world and his save moved on, and he died once in it."""
     kept(rig)
@@ -397,6 +405,14 @@ class Window:
             rig.now += 1  # each restore keeps its own undo label
             return real_prepare(pair, others_ok, stamp)
         monkeypatch.setattr(rig.p, "prepare", prepare)
+        self.resets = 0
+        real_reset = rig.p.reset_world
+
+        def reset_world(label, others_ok=""):
+            self.resets += 1
+            rig.now += 1  # each restore keeps its own undo label
+            return real_reset(label, others_ok)
+        monkeypatch.setattr(rig.p, "reset_world", reset_world)
         monkeypatch.setattr(rig.p, "keep", lambda label, name, **k: self.kept.append((label, name)) or
                             {"kept": True, "label": label})
 
@@ -471,9 +487,10 @@ def test_job_run_window_stops_when_the_server_lists_another_guid(rig, monkeypatc
 def test_job_run_window_from_the_jobs_start_forks_and_keeps_a_pair(rig, monkeypatch):
     (rig.tmp / "checkpoints").mkdir(exist_ok=True)
     (rig.tmp / "checkpoints" / "ClaudeDev.json").write_text(save_text(name="ClaudeDev", guid="E71C"))
+    keep_world(rig, "base")
     w = Window(rig, monkeypatch)
-    assert w.run("--from", "ClaudeDev", "-k", "2", "--save-as", "job_n1_mid2") == 0
-    assert [n for _, n in w.forked] == w.ensured and len(w.forked) == 2 and w.preps == 0
+    assert w.run("--from", "ClaudeDev", "-k", "2", "--save-as", "job_n1_mid2", "--world", "base") == 0
+    assert [n for _, n in w.forked] == w.ensured and len(w.forked) == 2 and w.preps == 0 and w.resets == 1
     assert w.kept == [("job_n1_mid2", w.forked[0][1])]               # the first good trial's fork, as a pair
 
 
