@@ -393,3 +393,19 @@ def test_a_snapshot_without_a_kept_ledger_cuts_it_back_to_its_time(tmp_path):
 
 def test_a_hand_built_store_touches_no_ledger():
     assert ws.Store().ledgers == ()
+
+
+def test_last_restored_is_read_from_the_newest_undo(tmp_path):
+    # tools/job_run.py restores this label between the trials of a window when --world names none
+    r = Rig(tmp_path)
+    assert r.s.last_restored() is None
+    r.s.keep("base")
+    r.s.keep("other")
+    r.s.restore("base")
+    assert r.s.last_restored() == {"label": "base", "at": "2026-11-18T11:06:40Z"}
+    r.now += 60
+    r.s.restore("other")
+    assert r.s.last_restored() == {"label": "other", "at": "2026-11-18T11:07:40Z"}
+    (r.root / "undo-broken").mkdir()
+    (r.root / "undo-broken" / "manifest.json").write_text("{not json")
+    assert r.s.last_restored()["label"] == "other"

@@ -741,6 +741,7 @@ def test_the_window_skips_a_fork_that_starts_starved(tmp_path, monkeypatch):
     monkeypatch.setattr(j, "load_jobs", lambda: {"jobs": {"L9": {"start": "cp"}}})
     monkeypatch.setattr(j, "start_ref", lambda job, step, override, spec=None: ("cp", "the job's start"))
     monkeypatch.setattr(j, "STOP_FILE", tmp_path / "none.stop")
+    monkeypatch.setattr(j, "window_world", lambda a, pair, store: ("base", None))  # never the live snapshot folder
     monkeypatch.setattr(quest_clone, "source_of", lambda ref: fit_save(tmp_path / "cp.json"))
     monkeypatch.setattr(quest_clone, "place_of", lambda ref: [0.0, 0.0, 0.0])
     monkeypatch.setattr(quest_clone, "fork", lambda ref, name: forked.append(name))
@@ -1375,3 +1376,109 @@ def test_i4_on_n2_is_unchanged(doc):
                                               "deadline": 200})
     assert rec["until"] == "resumed" and "i4_gate" not in rec and "gate" not in rec["interruption"]["moment"]
     assert "job_done" not in rec["verdict"]["bars"] and rec["verdict"]["pass"]
+
+
+# ------------------------------------------------------------------ the window's named world between trials
+# CLAUDE.md section 2 rule 9. Live 2026-11-20: an L3 window restored `base` once, before trial 1; trials
+# 20261120-195941 and -201452 worked on BuildingPiece_591-597 that trial 1 built (voided). The window drive below is
+# tests/test_checkpoint_pair.py's (a fake Saved/, a fake server and client whose scripts are recorded, never run).
+@pytest.fixture
+def world_window(tmp_path, monkeypatch):
+    from tests.test_checkpoint_pair import Rig, Window, keep_world, save_text
+    rig = Rig(tmp_path)
+    rig.at = []
+    (rig.tmp / "checkpoints").mkdir(exist_ok=True)
+    (rig.tmp / "checkpoints" / "ClaudeDev.json").write_text(save_text(name="ClaudeDev", guid="E71C"))
+    keep_world(rig, "base")  # rig's world as it stands: b"world-at-start"
+    w = Window(rig, monkeypatch)
+    w.started_on = []
+    run_job = j.run_job
+
+    def leaves_things(io, job, opts):  # each trial meets a world, then leaves what it built in it
+        w.started_on.append(rig.world_bytes())
+        rig.write_world(b"pieces-trial-%d-built" % len(w.started_on))
+        return run_job(io, job, opts)
+    monkeypatch.setattr(j, "run_job", leaves_things)
+    return rig, w
+
+
+def _window_row(rig):
+    return json.loads((rig.tmp / "job_windows.jsonl").read_text().splitlines()[-1])
+
+
+def test_k3_restores_the_named_world_before_trials_2_and_3(world_window):
+    rig, w = world_window
+    assert w.run("--from", "ClaudeDev", "-k", "3", "--world", "base") == 0
+    assert w.resets == 2 and w.preps == 0 and len(w.forked) == 3
+    assert w.started_on == [b"world-at-start"] * 3  # no trial meets what the one before left
+    # the checkpoint path's sequence: client and server down with their holds, restore, server up; the switch boots
+    assert rig.calls == [("stop_client.ps1", "-Hold"), ("stop_server.ps1", "-Hold"), ("start_server.ps1",)] * 2
+    assert rig.server and not rig.hold.exists()
+    row = _window_row(rig)
+    assert row["world"] == "base" and "world_restore" not in row["trials"][0]
+    assert [t["world_restore"]["label"] for t in row["trials"][1:]] == ["base", "base"]
+    assert all(isinstance(t["world_restore"]["s"], float) for t in row["trials"][1:])
+
+
+def test_k3_defaults_to_the_label_the_last_restore_put_back(world_window, capsys):
+    rig, w = world_window
+    rig.ps("stop_server.ps1", "-Hold")  # the window recipe: stop -Hold, restore base --confirm, start
+    rig.store.restore("base")
+    rig.ps("start_server.ps1")
+    rig.calls.clear()
+    assert rig.store.last_restored()["label"] == "base"
+    assert w.run("--from", "ClaudeDev", "-k", "3") == 0
+    assert w.resets == 2 and "world base (from the last restore" in capsys.readouterr().out
+
+
+def test_k1_never_restores(world_window):
+    rig, w = world_window
+    assert w.run("--from", "ClaudeDev", "-k", "1", "--world", "base") == 0
+    assert w.resets == 0 and rig.calls == [] and "world" not in _window_row(rig)
+
+
+def test_k_over_1_without_a_known_world_refuses_before_the_lock(world_window, capsys):
+    rig, w = world_window
+    assert rig.store.last_restored() is None
+    assert w.run("--from", "ClaudeDev", "-k", "3") == 2
+    assert "no world to restore between trials" in capsys.readouterr().out
+    assert w.run("--from", "ClaudeDev", "-k", "3", "--world", "nosuch") == 2
+    assert "no snapshot 'nosuch'" in capsys.readouterr().out
+    assert w.ensured == [] and w.forked == [] and rig.calls == []
+
+
+def test_a_checkpoints_world_as_the_last_restore_is_not_taken_for_the_windows(world_window, capsys):
+    rig, w = world_window
+    rig.ps("stop_server.ps1", "-Hold")
+    rig.store.keep("ck-job_x")
+    rig.now += 1
+    rig.store.restore("ck-job_x")
+    rig.ps("start_server.ps1")
+    assert w.run("--from", "ClaudeDev", "-k", "2") == 2
+    assert "a checkpoint's world" in capsys.readouterr().out and w.ensured == []
+
+
+def test_a_failed_restore_runs_no_further_trial(world_window, monkeypatch):
+    rig, w = world_window
+    from tools import checkpoint_pair as cp
+
+    def refused(label, others_ok=""):
+        raise cp.Refused("the client did not stop")
+    monkeypatch.setattr(rig.p, "reset_world", refused)
+    # the real lock window (quest_run.clone_window) records the error and goes back to ClaudeDev; this fake raises
+    with pytest.raises(RuntimeError, match="world base not restored before trial 2: the client did not stop"):
+        w.run("--from", "ClaudeDev", "-k", "3", "--world", "base")
+    assert len(w.started_on) == 1 and len(w.forked) == 1
+
+
+def test_a_checkpoint_pair_window_is_unchanged(tmp_path, monkeypatch):
+    from tests.test_checkpoint_pair import NAME, Rig, Window, keep_world, played
+    rig = Rig(tmp_path)
+    rig.at = []
+    keep_world(rig, "base")
+    played(rig)
+    w = Window(rig, monkeypatch)
+    assert w.run("--from", "job_n1_mid", "-k", "2", "--interrupt", "I1") == 0
+    assert w.preps == 2 and w.resets == 0 and w.forked == [] and w.ensured == [NAME, NAME]
+    row = _window_row(rig)
+    assert "world" not in row and not any("world_restore" in t for t in row["trials"])

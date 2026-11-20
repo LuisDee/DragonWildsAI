@@ -30,6 +30,10 @@ A checkpoint with a chest of his own (N1's interrupt_from and I4's from, both jo
         says so. A fork finds the base crates "ClaudeDev's, not mine" and asks which to use (2026-11-18 runs 052749,
         053829, 080852-N1-I5): a mid checkpoint meets that question in every trial. A run that ends without his own
         chest says why (`not_saved: he never made a chest of his own: ...`).
+With -k > 1 every trial after the first starts from the window's named world again (CLAUDE.md section 2 rule 9; live
+2026-11-20 L3 trials 2 and 3 worked on the pieces trial 1 built): --world LABEL, else the label the last restore put
+back (world_snapshot's undo record), restored as a pair's world is (stop client and server -Hold, restore, start; the
+switch boots the next fork). k > 1 with no known label refuses; a pair restores its own world per trial as before.
 A probe (--until first_step, mid or own_chest) is recorded with probe: true and is never a trial (not_counted, failure_ledger).
 --save-as keeps a checkpoint PAIR (tools/checkpoint_pair.py): his save and the world, both written after the trial
 ended (the client and server are stopped for the world copy, up to 5.5 min of waiting first). A trial --from a pair
@@ -3000,6 +3004,39 @@ def char_guid(path: Path) -> str | None:
     return str(g).upper() if g else None
 
 
+def window_world(a, pair: dict | None, store) -> tuple[str | None, str | None]:
+    """(the named world restored before every trial after the first, why the window must not run). CLAUDE.md section 2
+    rule 9: a trial that meets what an earlier one left is void (live 2026-11-20: L3 trials 20261120-195941 and
+    -201452 worked on BuildingPiece_591-597 that trial 1 built). The label is --world, else the one the last
+    restore put back (world_snapshot's undo record: the window recipe restores it just before). One trial, or a
+    checkpoint pair (its world is restored per trial already), needs none. k > 1 without a known label refuses."""
+    if a.k <= 1 or pair:
+        return None, None
+    from tools import checkpoint_pair as cpair
+    from tools import world_snapshot as ws
+    label, said = getattr(a, "world_label", None), "--world"
+    if not label:
+        last = store.last_restored()
+        if not last:
+            return None, (f"-k {a.k} with no world to restore between trials: no restore is on record; pass --world "
+                          "LABEL (the world this window started from)")
+        label, said = last["label"], f"the last restore ({last['at']})"
+        if label.startswith(cpair.PREFIX):
+            return None, (f"-k {a.k}: the last restore put back {label}, a checkpoint's world, not this window's; "
+                          "pass --world LABEL")
+    try:
+        man = store.manifest(label)
+    except ws.Refused as exc:
+        return None, f"--world: {exc}" if said == "--world" else f"{said} names {label}: {exc}"
+    seen = store.others_since(man.get("taken_at"))
+    if seen["others"] and not (getattr(a, "others_ok", "") or ""):
+        names = ", ".join(sorted({n for _, n in seen["others"]}))
+        return None, (f"{names} joined the server after {label} was kept: restoring it between trials rolls their "
+                      "character back too; Luis's call (--others-ok with his words)")
+    print(f"world {label} (from {said}) is restored before each trial after the first")
+    return label, None
+
+
 def cmd_window(a, step: str | None) -> int:
     from tools import quest_run as q
     from tools import quest_clone
@@ -3069,6 +3106,10 @@ def cmd_window(a, step: str | None) -> int:
     if pair:
         print(f"{ref} is a checkpoint pair: each trial restores world {pair['world']} and plays {pair['char_name']} "
               f"(guid {pair['char_guid']}) as that checkpoint saved him")
+    world, why = window_world(a, pair, pairs.store)
+    if why:
+        print(f"not running: {why}")
+        return 2
     print(f"{a.job}{' / ' + rung if rung else ''}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
           + (f"the interruption goes in at {trigger}; " if step else "") +
           f"each up to {a.max_haiku} Haiku calls (controller) plus the Planner (Sonnet), capped at ${a.usd} a trial on "
@@ -3081,6 +3122,8 @@ def cmd_window(a, step: str | None) -> int:
            "source": str(src), "k": a.k, "place": place, "holder": a.holder, "trials": []}
     if pair:
         out["pair"] = {k: pair[k] for k in ("world", "char_name", "char_guid", "char_saved_at")}
+    if world:
+        out["world"] = world
     used = []
     old = os.environ.get("DW_GATE_DIRECTOR")
     os.environ["DW_GATE_DIRECTOR"] = "1" if a.holder == "board" else "0"  # chat_ladder.start_brain reads it
@@ -3090,10 +3133,20 @@ def cmd_window(a, step: str | None) -> int:
                 if STOP_FILE.exists():
                     out["trials"].append({"character": name, "skipped": f"{STOP_FILE.name} present"})
                     break
-                left = a.window_s - a.reserve_s - (time.time() - t0) - q.SWITCH_S - (cpair.PAIR_S if pair else 0)
+                reset = bool(world) and i > 0  # the window's named world back before every trial after the first
+                left = (a.window_s - a.reserve_s - (time.time() - t0) - q.SWITCH_S
+                        - (cpair.PAIR_S if pair or reset else 0))
                 if left < 120:
                     out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left"})
                     break
+                restore = None
+                if reset:
+                    try:
+                        got_w = pairs.reset_world(world, others_ok)
+                    except cpair.Refused as exc:  # the next trial would meet the last one's leftovers: none runs
+                        raise RuntimeError(f"world {world} not restored before trial {i + 1}: {exc}") from None
+                    restore = {"label": got_w["label"], "s": got_w["s"]}
+                    print(f"[{time.time() - t0:6.1f}s] world {world} restored before trial {i + 1} in {restore['s']} s")
                 try:
                     got = cpair.start_character(ref, name, pair, pairs, quest_clone.fork, others_ok)
                 except SystemExit as exc:
@@ -3151,8 +3204,11 @@ def cmd_window(a, step: str | None) -> int:
                                         "own_guids": [made.get("guid"), src_guid, dev_guid],
                                         "self_guid": made.get("guid"),
                                         "ladder_made": ladder.get("made")})
+                if restore:
+                    rec["world_restore"] = restore
                 if "error" in rec:  # no trial ran: the harness's (void), with its reason
-                    out["trials"].append({"character": name, "error": rec["error"], "void": "harness"})
+                    out["trials"].append({"character": name, "error": rec["error"], "void": "harness",
+                                          **({"world_restore": restore} if restore else {})})
                     print(f"{name}: {rec['error']}")
                     if sender_fault(rec["error"]):
                         print("every trial on this server run would meet the same: restart the dev server "
@@ -3162,9 +3218,10 @@ def cmd_window(a, step: str | None) -> int:
                 if rec.get("ended") == WORLD_SHORT:  # the ask was never sent: recorded, not counted, no pass/fail
                     write(rec)
                     out["trials"].append({"character": name, "run": rec["run"], "skipped": rec["not_counted"],
-                                          "world": rec["world"]["needs"]})
+                                          "world": rec["world"]["needs"],
+                                          **({"world_restore": restore} if restore else {})})
                     print(f"{name}: {rec['not_counted']}")
-                    if a.regrow_days > 0 and not got["paired"]:  # the clock on: picked roots may stand again
+                    if a.regrow_days > 0 and not got["paired"] and not world:  # the clock on: picked roots may stand again
                         out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
                                                                       vitals=q.vitals_of(cli))
                     continue
@@ -3177,6 +3234,8 @@ def cmd_window(a, step: str | None) -> int:
                        "misses": rec["misses"]["n"], "at_s": round(t_end - t0, 1)}
                 if step:
                     row["resumed_after_s"] = (rec.get("resume") or {}).get("after_s")
+                if restore:
+                    row["world_restore"] = restore
                 out["trials"].append(row)
                 print(json.dumps(scores_of(rec), default=str)[:600] if job.get("held_out") else
                       json.dumps(row, default=str))
@@ -3207,8 +3266,8 @@ def cmd_window(a, step: str | None) -> int:
                         out["trials"][-1]["not_saved"] = why_save
                     print(f"{name}: {'saved as ' + a.save_as if good else 'not saved'}: {why_save}")
                 # on the fork that has played, never on the one about to; not when the next trial restores the world
-                # anyway (a pair), nor after a pair keep (it stopped the client)
-                if a.regrow_days > 0 and not got["paired"] and not keep_tried:
+                # anyway (a pair, or a window with a named world), nor after a pair keep (it stopped the client)
+                if a.regrow_days > 0 and not got["paired"] and not world and not keep_tried:
                     out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
                                                                   vitals=q.vitals_of(cli))
     finally:
@@ -3308,6 +3367,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--reserve-s", type=float, default=240.0)
         p.add_argument("--regrow-days", type=int, default=3)
         p.add_argument("--keep-forks", action="store_true")
+        p.add_argument("--world", dest="world_label", metavar="LABEL", default=None,
+                       help="with -k > 1: the named world (tools/world_snapshot) the window started from, restored "
+                            "before every trial after the first (default: the label the last restore put back)")
         p.add_argument("--others-ok", default="", metavar="WORDS", help="a checkpoint pair's world is restored "
                        "although another player joined since it was kept (world_snapshot's rule): Luis's words")
         p.add_argument("--dirty-ok", metavar="REASON")
