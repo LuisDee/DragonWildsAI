@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -64,18 +64,25 @@ MOCK_SKILLS = ("go_to", "follow", "stop", "attack", "gather", "craft", "give", "
                "cast", "sleep", "wake", "interact")
 
 
+class SkillArgsError(ValueError):
+    """A step's args do not fit the skill's schema; the message names the arg and why (it goes back to the model)."""
+
+
 class SkillRegistry:
     """Skills the Planner may use (CLAUDE.md principle 3: only verified skills).
 
-    Each name must be a tool in ``interface.TOOLS``; its args schema and
-    description come from there.
+    A skill's args schema and description come from the body's manifest entry when ``specs`` has one (the schema the
+    Controller is offered; ``validator`` is the check the Controller's calls go through), else from ``interface.TOOLS``.
     """
 
-    def __init__(self, names: Iterable[str] = MOCK_SKILLS, specs: dict[str, dict] | None = None) -> None:
-        # specs: capability-manifest entries for tools the brain has no typed model for (e.g. the client's
-        # move_item, equip): validated against the body's JSON schema, described with its own words.
+    def __init__(self, names: Iterable[str] = MOCK_SKILLS, specs: dict[str, dict] | None = None,
+                 validator: Callable[[str, dict], dict] | None = None) -> None:
+        # specs: capability-manifest entries, for tools the brain has no typed model for (the client's move_item,
+        # equip) and for those whose manifest replaces the brain's stub model (capabilities.MANIFEST_ARGS: craft).
+        # Validated against the body's JSON schema, described with its own words.
         self._names = list(dict.fromkeys(names))
         self._specs = dict(specs or {})
+        self._validator = validator
         unknown = [n for n in self._names if n not in TOOLS and n not in self._specs]
         if unknown:
             raise ValueError(f"not tools in interface.TOOLS or the body manifest: {unknown}")
@@ -87,16 +94,38 @@ class SkillRegistry:
         return list(self._names)
 
     def validate(self, name: str, args: dict) -> dict:
-        if name not in TOOLS and name in self._specs:
-            import jsonschema  # only bodies with a manifest need it
-            jsonschema.validate(args, self._specs[name].get("args") or {"type": "object"})
-            return dict(args)
+        if name in self._specs:
+            return self._validate_spec(name, args)
         return TOOLS[name][0].model_validate(args).model_dump()
+
+    def _validate_spec(self, name: str, args: dict) -> dict:
+        """The body's schema as is: every arg it declares is kept; an arg it does not declare is refused with the list
+        it does take, never dropped in silence (study craft_hold_gap 2026-11-20: the brain's stub CraftArgs stripped
+        the Planner's recipe and station, and it said it "can't pick a recipe through the craft skill")."""
+        import jsonschema  # only bodies with a manifest need it
+        schema = self._specs[name].get("args") or {"type": "object"}
+        if not isinstance(args, dict):
+            raise SkillArgsError(f"{name}: args must be an object, got {type(args).__name__}")
+        props = schema.get("properties") if isinstance(schema, dict) else None
+        if isinstance(props, dict) and props and schema.get("additionalProperties", False) is not True:
+            extra = sorted(k for k in args if k not in props)
+            if extra:
+                raise SkillArgsError(f"{name}: unknown arg {', '.join(map(repr, extra))}; {name} takes: "
+                                     f"{', '.join(props)}")
+        try:
+            if self._validator is not None:
+                return self._validator(name, args)
+            jsonschema.validate(args, schema)
+        except jsonschema.ValidationError as exc:
+            raise SkillArgsError(f"{name}: {exc.message}") from exc
+        except ValueError as exc:  # capabilities.ManifestError: already "<tool>: <why>"
+            raise SkillArgsError(str(exc)) from exc
+        return dict(args)
 
     def describe(self) -> list[dict]:
         out = []
         for name in self._names:
-            if name not in TOOLS:
+            if name in self._specs:
                 spec = self._specs[name]
                 schema = spec.get("args") or {}
                 out.append({"name": name, "description": spec.get("description", ""),

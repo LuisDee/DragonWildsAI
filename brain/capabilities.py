@@ -50,6 +50,13 @@ LEGACY_ARGS: dict[tuple[str, str], Callable[[dict], dict]] = {
 # tool guidance moved out of the persona into the descriptions (Anthropic: descriptions matter most), so: 640/300.
 DESC_CHARS, ARG_CHARS = 640, 300
 
+# Skills in interface.TOOLS whose Planner schema is the body's manifest entry, not the brain's typed stub. Study
+# craft_hold_gap 2026-11-20 (copper L2, 6 runs): the Planner saw craft as {item, count} and its recipe/station were
+# stripped, while the Controller had item, input, recipe, station, fuel; 10 of 19 craft misses were Planner steps
+# failing ambiguous_target or unknown_recipe with the inputs carried. go_to, attack, gather and cast have the same
+# stub gap and stay on it until each is tried on its own (one change per window).
+MANIFEST_ARGS = frozenset({"craft"})
+
 
 def _cap(text: str, n: int) -> str:
     if len(text) <= n:
@@ -92,8 +99,14 @@ class Capabilities:
         return [s for s in PLANNER_SKILLS if s in self.tools]
 
     def registry(self) -> SkillRegistry:
-        specs = {n: self.manifest[n] for n in self.skills() if n not in TOOLS}
-        return SkillRegistry(self.skills(), specs)
+        """The Planner's skills. A skill with the body's schema is shown it as the Controller is (function_schema: the
+        same description and args) and checked with the same validate its calls go through."""
+        specs = {}
+        for n in self.skills():
+            if n in self.manifest and (n not in TOOLS or n in MANIFEST_ARGS):
+                fn = self.function_schema(n)["function"]
+                specs[n] = {**self.manifest[n], "description": fn["description"], "args": fn["parameters"]}
+        return SkillRegistry(self.skills(), specs, validator=self.validate if specs else None)
 
     def has(self, tool: str) -> bool:
         return tool in self.tools or tool in self.manifest

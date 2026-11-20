@@ -87,6 +87,8 @@ def parse_steps(skills: SkillRegistry, specs: list) -> tuple[list[Task], list[st
             tasks.append(Task(skill=spec.skill, args=skills.validate(spec.skill, spec.args)))
         except ValidationError as exc:
             errors.append(f"task {i} ({spec.skill}): {exc.errors(include_url=False)}")
+        except ValueError as exc:  # a body-schema skill (SkillArgsError): the arg and why
+            errors.append(f"task {i} ({spec.skill}): {exc}")
     return tasks, errors
 
 
