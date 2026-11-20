@@ -176,6 +176,21 @@ AT_ASK_CLOSED_NOTE = ("You closed this request (request_done) before your planne
                       "this turn, runs these steps as planned (no new plan is made); otherwise the plan is let go.")
 AT_ASK_CLOSED_Q_NOTE = ("You closed this request (request_done) before your planner's answer arrived: it plans no steps "
                         "and asks the player the question here. Your close stands; nothing was parked or said.")
+# The model's own claim is never state (research 2026-11-17-long-jobs-planner-actor.md, decision 6: code checks the end
+# condition on fresh state; a turn with no call never closes a job). When the end condition his Planner wrote for the
+# ask does not hold, his request_done leaves the ask open and says so, and a plan landing after his close opens the ask
+# again; nothing is started for him (live L3 20261120-174206: closed as "ready when you are" 22 s before the plan
+# landed with "Apprentice Robe equipped and Apprentice Leggings equipped", not met; shown "your close stands", he made
+# no call and the job ended quiet). Facts only.
+REQUEST_NOT_MET_NOTE = ("not closed: the end condition your planner wrote for this request is not met now "
+                        "(game_reads.done_when), so the request is still open")
+AT_ASK_REOPENED_NOTE = ("You closed this request (request_done) before your planner's plan for it arrived. The end "
+                        "condition it wrote is not met now (done_when), so the request is open again. Nothing was "
+                        "started or parked. start_goal with goal exactly the request's words, in this turn, runs these "
+                        "steps as planned (no new plan is made); otherwise the plan is let go.")
+AT_ASK_REOPENED_Q_NOTE = ("You closed this request (request_done) before your planner's answer arrived: it plans no steps "
+                          "and asks the player the question here. The end condition it wrote is not met now "
+                          "(done_when), so the request is open again. Nothing was parked or said.")
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
 ASK_STEP_DETAIL_CHARS = 240  # a step's result words kept with the open ask on disk (brain/ask_store.py)
 GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
@@ -1564,6 +1579,8 @@ class Agent:
         words = str((call.arguments or {}).get(oa.ARG[call.name]) or "").strip() or None
         reads = self._done_reads(self._open_request, words) if call.name == oa.DONE else None
         job = self._at_ask_job(self._open_request) if call.name == oa.DONE else None  # DW_PLAN_AT_ASK=1
+        if call.name == oa.DONE and (reads or {}).get("done_when") and self._done_when.get("holds") is False:
+            return self._not_closed(words, reads, job)  # DW_PLAN_AT_ASK=1: its end condition is not met
         if call.name == oa.PARK and self._at_ask_for(self._open_request) is not None:
             self._drop_at_ask("parked by him")  # his park ends the plan being made for it
         ask, self._open_request = self._open_request, None
@@ -1584,6 +1601,20 @@ class Agent:
         self.log.log("request_done_claimed", request=what, player=who, evidence=words, game_reads=reads,
                      **({"planners_job": job} if job else {}))
         return {"ok": True, "note": "request closed as finished", "game_reads": reads,
+                **({"your_planners_job": job} if job else {})}
+
+    def _not_closed(self, words: str | None, reads: dict, job: dict | None) -> dict:
+        """DW_PLAN_AT_ASK=1: request_done on an ask whose end condition (done_when) is not met now. An outcome report,
+        not a veto: the ask simply stays open (the open-ask and left-open turns go on), his claim and the reads are
+        logged, and the result says so with the reads (REQUEST_NOT_MET_NOTE). A planner's job on it goes on as before."""
+        who, what = self._open_request
+        self.log.log("request_done_claimed", request=what, player=who, evidence=words, game_reads=reads,
+                     stays_open=True, **({"planners_job": job} if job else {}))
+        self.log.log("request_reopened", request=what, player=who, where="request_done",
+                     reads=reads["done_when"]["now"])
+        if job:
+            job = {k: v for k, v in job.items() if k != "note"}  # its note speaks of a close that did not happen
+        return {"ok": False, "reason": "end_condition_not_met", "note": REQUEST_NOT_MET_NOTE, "game_reads": reads,
                 **({"your_planners_job": job} if job else {})}
 
     # ------------------------------------------------ the goal machinery owns the ask (DW_ASK_OWNER=1, _take_up_ask)
@@ -2096,16 +2127,27 @@ class Agent:
         (_plan_at_ask_tick), else they are let go."""
         ask = p.ask
         dw = self._done_when_now(ask, "plan_arrived", now)
+        # its end condition not met now: his close is not standing, the ask is open again (nothing is started for him;
+        # a newer open ask is never replaced)
+        reopen = dw is not None and self._done_when.get("holds") is False and self._open_request is None
+        if reopen:
+            self._open_request, self._parked = ask, None
+            self._save_ask()
+            self.log.log("request_reopened", request=ask[1], player=ask[0], where="plan_arrived", reads=dw["now"])
+        about = (AT_ASK_REOPENED_NOTE if plan.tasks else AT_ASK_REOPENED_Q_NOTE) if reopen else \
+            AT_ASK_CLOSED_NOTE if plan.tasks else AT_ASK_CLOSED_Q_NOTE
         e = {"type": "plan_arrived", "for_closed_request": True, "goal": ask[1],
+             **({"request_open_again": "its end condition is not met now"} if reopen else {}),
              **({"steps": steps} if steps else {}), **({"question": plan.ask_help} if plan.ask_help else {}),
              **({"done_when": dw} if dw is not None else {}),
              **({"game_moved_since": why} if why else {}),
-             "about": AT_ASK_CLOSED_NOTE if plan.tasks else AT_ASK_CLOSED_Q_NOTE, **p.req}
+             "about": about, **p.req}
         self._situations.append(e)
         if plan.tasks:
             self._at_ask_held = (p, e)
-        self._log_at_ask(p, landed="shown, not started: he closed the request" if plan.tasks
-                         else "shown, not parked: he closed the request")
+        self._log_at_ask(p, landed=("shown, not started: he closed the request" if plan.tasks
+                                    else "shown, not parked: he closed the request")
+                         + ("; open again: its end condition is not met" if reopen else ""))
         self.flush_situations()
         if self._at_ask_held is not None:  # the turn that showed it ran now: his start_goal on it, or let go
             self._held_tick()
@@ -2158,6 +2200,7 @@ class Agent:
                 holds, reads = r.passed, r.detail
             except Exception as exc:  # a predicate that cannot be checked: unknown, never done
                 holds, reads = None, f"unknown: {type(exc).__name__}: {exc}"[:200]
+        dw["holds"] = holds  # the last read (request_done and a plan landing after a close go by it)
         self.log.log("done_when_checked", request=ask[1], where=where, holds=holds, reads=reads,
                      done_when=dw["text"])
         return {"end_condition": dw["text"], "written": "by your planner at the request",

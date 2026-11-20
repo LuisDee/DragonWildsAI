@@ -184,14 +184,16 @@ def _closes_while_planned(rig, slow, then):
 
 
 def test_a_plan_landing_after_his_request_done_starts_nothing_and_is_shown_once(tmp_path, on):
-    """Audit 2026-11-20: code sided with the Planner over his close. Now the close stands: one turn shows the plan."""
+    """Audit 2026-11-20: code sided with the Planner over his close. Now the close stands (its end condition met: an
+    unmet one opens the ask again, tests/test_ask_end_not_met.py): one turn shows the plan."""
     rig = Rig(tmp_path)
-    slow = SlowPlanner(FakeLLM.plan(LOGS, done_when={"moved": {"min_m": 1}}))
+    _wearing(rig, T2_BODY)
+    slow = SlowPlanner(FakeLLM.plan(LOGS, done_when=PL2))
     rig.planner_llm.push(slow)
     seen = _closes_while_planned(rig, slow, FakeLLM.say("I'll leave it then"))
     assert rig.agent.step() is None  # nothing started
     assert "for_closed_request" in seen["shown"] and A.AT_ASK_CLOSED_NOTE in seen["shown"]
-    assert "gather" in seen["shown"] and "done_when" in seen["shown"] and "move at least 1 m" in seen["shown"]
+    assert "gather" in seen["shown"] and "done_when" in seen["shown"] and "power_level >= 2" in seen["shown"]
     row, = _rows(rig, "plan_at_ask")
     assert row["landed"] == "shown, not started: he closed the request"
     let_go, = _rows(rig, "plan_at_ask_let_go")
