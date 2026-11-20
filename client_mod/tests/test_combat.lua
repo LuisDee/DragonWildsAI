@@ -1518,6 +1518,32 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 10g2. a box cloud (PoisonEmitterBox, the L3 poison deaths of
+-- 2026-11-20): sized by its own extent (circle round the half-diagonal), one zone per cloud (named by its owner actor:
+-- the component's own name is "PoisonEmitterBox" for every cloud)
+reset_world()
+do
+    local real_find = FindAllOf
+    local function cloud(n, x, ext)
+        local owner = obj({ loc = { X = x, Y = 0, Z = 0 } }, "BP_DEDA_PoisonBreath_PoisonCloud_C /Game/L.L:PersistentLevel.BP_DEDA_PoisonBreath_PoisonCloud_C_" .. n)
+        function owner:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
+        local c = obj({ NetworkedExtent = ext, BoxExtent = { X = 32, Y = 32, Z = 32 } },
+            "PoisonEmitterBox /Game/L.L:PersistentLevel.BP_DEDA_PoisonBreath_PoisonCloud_C_" .. n .. ".PoisonEmitterBox")
+        function c:GetOwner() return owner end
+        return c
+    end
+    local clouds = { cloud(1, 800, { X = 300, Y = 400, Z = 150 }), cloud(2, -900, { X = 0, Y = 0, Z = 0 }) }
+    FindAllOf = function(cls) if cls == "PoisonEmitterBox" then return clouds end return real_find(cls) end
+    local zones = Cm.hazard_census({ t = T }, { pos = pawn:K2_GetActorLocation() }, { poison_cloud_box = true })
+    local by = {}
+    for _, z in ipairs(zones) do by[z.id] = z end
+    local z1, z2 = by["poison_cloud_box:BP_DEDA_PoisonBreath_PoisonCloud_C_1"], by["poison_cloud_box:BP_DEDA_PoisonBreath_PoisonCloud_C_2"]
+    check("hazard box: one zone per cloud, named by its owner", #zones == 2 and z1 ~= nil and z2 ~= nil, #zones)
+    check("hazard box: r from NetworkedExtent (half-diagonal 500 cm)", z1 and math.abs(z1.r_cm - 500) < 0.5 and math.abs(z1.x - 8) < 0.01, z1 and z1.r_cm)
+    check("hazard box: an unreplicated extent falls back to BoxExtent", z2 and math.abs(z2.r_cm - math.sqrt(2) * 32) < 0.5, z2 and z2.r_cm)
+    FindAllOf = real_find
+end
+
 -- ================================================================ 10h. ambient hazards + cures outside fights (always-on service, off by default)
 reset_world()
 do

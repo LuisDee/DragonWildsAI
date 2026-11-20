@@ -1135,8 +1135,9 @@ function M.hazard_census(F, me, names)
         if names[hp.name] then
             for _, o in ipairs(U.find_all(hp.class, { skip_defaults = true }) or {}) do
                 if U.valid(o) then
-                    local id = U.short(o) or ("?" .. #zones)
                     local owner = hp.component_is_hazard and U.try(function() return o:GetOwner() end) or o
+                    -- a component's own name is its class's ("PoisonEmitterBox" for every cloud): the owner names it
+                    local id = (hp.component_is_hazard and U.valid(owner) and U.short(owner)) or U.short(o) or ("?" .. #zones)
                     local pos = owner and U.loc(owner)
                     if hp.target then
                         local tl = U.prop(o, hp.target)
@@ -1155,8 +1156,13 @@ function M.hazard_census(F, me, names)
                         local until_s = hp.persistent and (seen.t + M.cfg.hazard_persist_s) or (seen.t + seen.ttl + 0.3)
                         if until_s > F.t then
                             local zid = hp.name .. ":" .. id
+                            local r_cm = first_num(o, hp.radius)
+                            if not r_cm and hp.extent then -- a box (PoisonEmitterBox): ground_hazards.size, same reads
+                                local GHm = mod("ground_hazards")
+                                r_cm = GHm and GHm.size(o, hp, U.prop) or nil
+                            end
                             zones[#zones + 1] = { id = zid, kind = "circle", x = pos.X / 100, y = pos.Y / 100, z = pos.Z / 100,
-                                                  r_cm = first_num(o, hp.radius) or hp.radius_default, until_s = until_s }
+                                                  r_cm = r_cm or hp.radius_default, until_s = until_s }
                             land[zid] = { land_s = math.max(0, (seen.t + seen.ttl) - F.t), hazard = hp.name }
                         end
                     end

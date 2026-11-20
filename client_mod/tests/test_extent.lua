@@ -122,5 +122,25 @@ row = nil
 for _, x in ipairs((c and c.interactables) or {}) do if tostring(x.id):find("WaterVolume", 1, true) then row = x end end
 check("census: in the water it is 0 m off", row and row.distance == 0, row and row.distance)
 
+-- ---------------------------------------------------------------- a standing poison cloud (a box) on the hazards list
+-- (L3 deaths 2026-11-20: a PoisonEmitterBox owned by BP_DEDA_PoisonBreath_PoisonCloud_C): distance to its edge,
+-- compass from him, size from its own extent, what it does
+W.me = { X = 0, Y = 0, Z = 0 }
+local cl_owner = uobj("BP_DEDA_PoisonBreath_PoisonCloud_C /Game/L.L:PersistentLevel.BP_DEDA_PoisonBreath_PoisonCloud_C_9")
+local cl = uobj("PoisonEmitterBox /Game/L.L:PersistentLevel.BP_DEDA_PoisonBreath_PoisonCloud_C_9.PoisonEmitterBox", {
+    NetworkedExtent = { X = 300, Y = 400, Z = 150 }, GetOwner = function() return cl_owner end,
+    K2_GetComponentLocation = function() return { X = -900, Y = -1200, Z = 0 } end })
+local base_find = FindAllOf
+FindAllOf = function(cls) if cls == "PoisonEmitterBox" then return { cl } end return base_find(cls) end
+c = S.census(nil, { radius_m = 50 })
+local hz = ((c and c.hazards) or {})[1]
+check("census: a poison cloud is a hazards row in words", hz and hz.kind == "ground_hazard" and hz.name == "poison cloud"
+    and hz.id == "BP_DEDA_PoisonBreath_PoisonCloud_C_9" and tostring(hz.effect):find("poison", 1, true), hz and hz.kind)
+check("census: the cloud's distance is to its edge (15 m to the middle, r 5 m), NW of him", hz and hz.distance == 10 and hz.direction == "NW",
+    hz and (tostring(hz.distance) .. " " .. tostring(hz.direction)))
+c = S.census(nil, { radius_m = 50, kinds = { creatures = true } })
+check("census: a census that does not want hazards does not list it", c and (c.hazards == nil or #c.hazards == 0))
+FindAllOf = base_find
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

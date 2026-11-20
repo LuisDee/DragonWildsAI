@@ -651,8 +651,40 @@ def vitals_policy(state: dict) -> str | None:
         every = p.get("reflex_every_s")
         how = (". Below a line your body uses food/drink from your hotbar by itself, one per kind every "
                f"~{every if isinstance(every, (int, float)) else 6:g} s (from the bag only under {floor}%)")
-    return (f"Reflex policy: drink below {p.get('drink_below_pct')}%, eat below {p.get('eat_below_pct')}%, "
-            f"eat to heal {'below ' + str(heal) + '% HP' if heal else 'off'} (always below {floor}%){how}")
+    # the safety floor is for water and food only (client inventory.lua: HP is healed only when heal_below_pct is set);
+    # the old "eat to heal off (always below 10%)" read as an HP floor that does not exist (L3 deaths 2026-11-20: he
+    # died of poison with 4 healing redberries on the hotbar)
+    heal_words = (f"eat food that heals when HP is below {heal}%" if heal else
+                  "eat to heal OFF: HP is never healed by itself, however low it gets")
+    return (f"Reflex policy: drink below {p.get('drink_below_pct')}% water, eat below {p.get('eat_below_pct')}% food "
+            f"(water and food always below {floor}%), {heal_words}{how}")
+
+
+# What a status effect does, in words, from the game's own numbers (wiki "Poison"; vitals.jsonl damage rows of
+# 2026-11-01 and 2026-11-20: 4 HP a second from the moment the meter filled, ~25 s, until it drained to 0).
+# Perception only: what to do about it is the model's call.
+STATUS_WORDS = {
+    "poison": ("it fills while you are in poison (a poison cloud, a poisonous hit) and drains by itself; once it has "
+               "reached its top you lose about 4 HP a second (3-4 by source) until it is back at 0, ~25 s and up to "
+               "~100 HP, so a filled meter keeps hurting on the way down. Food that heals puts HP back meanwhile; an "
+               "antipoison potion cures it"),
+}
+STATUS_LINE_CHARS = 520
+
+
+def status_line(state: dict) -> str | None:
+    """'Status effects: Poison 58/100 (what it does ...; you have 92 of 100 HP)' from the body's harmful statuses
+    (combat state_extras status_effects: {name: "value/max"}). A status with no known effect is shown bare."""
+    st = state.get("status_effects") if isinstance(state.get("status_effects"), dict) else None
+    if not st:
+        return None
+    hp, mx = _num(state.get("health")), _num(state.get("max_health"))
+    have = f"; you have {hp:.0f} of {mx:.0f} HP" if hp is not None and mx and hp > 1 else ""
+    parts = []
+    for name, val in list(st.items())[:4]:
+        words = STATUS_WORDS.get(str(name).lower())
+        parts.append(f"{name} {val}" + (f" ({words}{have})" if words else ""))
+    return ("Status effects: " + "; ".join(parts))[:STATUS_LINE_CHARS]
 
 
 HOUSE_LINE_CHARS = 960
@@ -777,12 +809,29 @@ def vault_words(r: dict) -> list[str]:
     return bits
 
 
+HAZARD_LINE_CHARS = 480
+
+
+def ground_hazard_words(r: dict) -> str:
+    """'poison cloud (12 m NW, about 8 m across, poisons you while you stand in it (...); your walks route round it)'
+    from a census ground_hazard row (distance = to its edge, 0 and inside = he stands in it)."""
+    d, across = _num(r.get("distance")), _num(r.get("across_m"))
+    where = ("you are IN it" if r.get("inside") else
+             " ".join(b for b in (f"{d:.0f} m" if d is not None else "", str(r.get("direction") or "")) if b))
+    bits = [where, f"about {across:.0f} m across" if across else "", str(r.get("effect") or ""),
+            "your walks route round it"]
+    return f"{r['name']} ({', '.join(b for b in bits if b)})"
+
+
 def hazards(state: dict) -> list[str]:
     """Traps in range (a census hazards row: kind trap, name, parts, active_parts): 'Fire Trap (8 m, id .., 1 of 2
     parts active)'. Nothing to do to them: perceived, so a route or a fight can take them into account."""
     out = []
     rows = [r for r in state.get("hazards") or [] if isinstance(r, dict) and r.get("name")]
     for r in sorted(rows, key=lambda r: _num(r.get("distance")) if _num(r.get("distance")) is not None else 1e9):
+        if r.get("kind") == "ground_hazard":  # a standing poison cloud (client ground_hazards.lua): where, what it does
+            out.append(ground_hazard_words(r))
+            continue
         d, n, on = _num(r.get("distance")), _num(r.get("parts")), _num(r.get("active_parts"))
         bits = [f"{d:.0f} m" if d is not None else "", f"id {r['id']}" if r.get("id") else "",
                 f"{on:g} of {n:g} parts active" if n is not None and on is not None else ""]
@@ -940,6 +989,7 @@ COVERED_KEYS = frozenset({
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
     "containers_remembered", "my_bases", "burn_odds", "further_off", "nearby_m", "in_vault", "vault", "hazards",
+    "status_effects",
 })
 
 
@@ -1269,6 +1319,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append(where)
     # words first; the [n%] are for decisions (persona: never read numbers out)
     lines.append("You: " + (", ".join(me) or "ok"))
+    lines.append(status_line(state))  # poisoned etc., with what it does (was a bare "Poison 58/100" among the extras)
     from . import needs  # lazy: needs imports helpers from this module
     lines.extend(needs.lines(state))  # pressing needs -> the options the game offers (brain/needs.py)
     lines.extend(needs.activity_lines(state))  # current activity: spells/actions for it + rate vs best
@@ -1318,7 +1369,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     # a vault's doors, levers and chests say their state, and their ids are long: room for six of them
     vault_rows = any(vault_words(r) for r in state.get("interactables") or [] if isinstance(r, dict))
     lines.append(_line("Usable", [g.label() for g in usable], USABLE_VAULT_LINE_CHARS if vault_rows else LINE_CHARS))
-    lines.append(_line("Hazards", hazards(state)))
+    lines.append(_line("Hazards", hazards(state), HAZARD_LINE_CHARS))  # a cloud's row says where and what it does
     if far:  # chain 20261116-184351: essence rocks 41 m off, behind 20 rows of logs and stones, were in no line
         lines.append(("Further off, also in sight (nearer things filled the lists above): "
                       + "; ".join(g.label() for g in _group(far)[:FAR_SHOWN]))[:FAR_LINE_CHARS])

@@ -558,6 +558,9 @@ function M.get_state()
             data.nearby_items, data.interactables, data.players_online = bk.nearby_items, bk.interactables, cr.data.players_online
             -- in a vault or not (the game's own flag) and which one holds him (sense.vault_here); absent when unread
             data.in_vault, data.vault = cr.data.in_vault, cr.data.vault
+            -- hazards in range: a vault's traps and standing poison clouds (sense.describe_trap / ground_hazards_into);
+            -- the brain's Hazards line (situation.hazards) names them with distance, direction and what they do
+            if type(cr.data.hazards) == "table" and #cr.data.hazards > 0 then data.hazards = cr.data.hazards end
             -- the kinds of things within NEARBY_M that the lists above have no row of (the caps cut them: sense.digest_cut)
             if type(cr.data.beyond) == "table" and #cr.data.beyond > 0 then data.further_off = cr.data.beyond end
             -- every other player on the game map at any distance (compass), and what lies around those in sight
@@ -961,7 +964,8 @@ local CATS = {
     { key = "items", kind = "item", verb = "pickup", actions = { "interact" } },
     { key = "resources" }, -- gatherable (interact = collect) or destructible (chop/mine/hit)
     { key = "interactables", verb = "interact", actions = { "interact" } },
-    -- a vault's traps (sense.describe_trap: name, active_parts of parts): perceived, nothing to do to them
+    -- a vault's traps (sense.describe_trap: name, active_parts of parts) and standing poison clouds (kind
+    -- "ground_hazard": sense.ground_hazards_into): perceived, nothing to do to them
     { key = "hazards", kind = "trap" },
 }
 M.CATS = CATS

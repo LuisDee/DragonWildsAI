@@ -24,7 +24,7 @@ from .jsonl_log import JsonlLogger
 from .llm import LLMClient
 from .llm_json import DecisionError, extract_json, json_decision
 from .situation import _creature_note as creature_note
-from .situation import asked_line, bases_line, quest_rows, vault_fields
+from .situation import asked_line, bases_line, hazards, quest_rows, vault_fields
 from .spells import state_lines as state_spell_lines
 from .state_store import SkillRegistry, Task, TaskTree
 
@@ -215,6 +215,10 @@ def _trim_state(state: dict) -> dict:
     if isinstance(state.get("nearby_entities"), list):
         out["nearby_entities"] = creature_rows(state)
     out.update(vault_fields(state))  # in a vault and which (its registry box, else the flag); nothing when not read in one
+    # traps and standing poison clouds in the Controller's words (where, how big, what they do): a plan picks gather
+    # spots and routes too (L3 2026-11-20: 4 of 8 deaths were poison clouds beside his flax spot)
+    if hz := hazards(state):
+        out["hazards"] = hz
     out.update(gear_fields(state))
     # his spells with their recharge: castable now and how long it recharges after each cast, or the seconds left.
     # L2-V1 2026-11-19: plans queued four 300 s Bark to Bones casts in a row and a replan put one back with 82 s left

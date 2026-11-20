@@ -111,6 +111,27 @@ def test_traps_under_hazards():
     assert "Hazards" not in text(state()) and "Hazards" not in text(state(hazards=[]))
 
 
+# a standing poison cloud as the client census lists it (sense.ground_hazards_into; L3 deaths 2026-11-20)
+CLOUD = {"id": "BP_DEDA_PoisonBreath_PoisonCloud_C_9", "kind": "ground_hazard", "hazard": "poison_cloud_box",
+         "name": "poison cloud", "effect": "poisons you while you stand in it (damage over time, about 4 HP a second)",
+         "position": [396.1, 1681.4, -41.8], "distance": 12.0, "center_m": 17.0, "direction": "NW", "across_m": 8,
+         "owner_class": "BP_DEDA_PoisonBreath_PoisonCloud_C", "category": "hazards"}
+
+
+def test_poison_cloud_under_hazards_with_distance_direction_and_effect():
+    t = text(state(hazards=[CLOUD, TRAP]))
+    assert ("Hazards: Fire Trap (8 m, id BP_FireTrap_C_4, 1 of 2 parts active); poison cloud (12 m NW, about 8 m across, "
+            "poisons you while you stand in it (damage over time, about 4 HP a second), your walks route round it)") in t
+    inside = text(state(hazards=[dict(CLOUD, distance=0, inside=True)]))
+    assert "poison cloud (you are IN it, about 8 m across" in inside
+
+
+def test_the_planner_sees_the_hazards_line_too():
+    out = _trim_state(state(hazards=[CLOUD]))
+    assert out["hazards"] and out["hazards"][0].startswith("poison cloud (12 m NW")
+    assert "hazards" not in _trim_state(state())
+
+
 # ---------------------------------------------------------------- look, Planner, Director
 
 def test_look_keeps_vault_fields_and_drops_an_unread_or_false_flag():
