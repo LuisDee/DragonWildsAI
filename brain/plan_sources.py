@@ -364,6 +364,61 @@ def _build_sources(data: dict, found: dict, *, state=None, spells=None, knowledg
     return names
 
 
+# ------------------------------------------------------------------------------ a gather step's tool
+# L3 study 2026-11-20: the armour route read "gather Rune Essence x14" with no pickaxe carried and an essence rock 47 m
+# off; nothing in the plan said that mining it takes a pickaxe, and the job stalled. The client puts on each gather step
+# ``tool`` = {needs, min_tier, tier_read, carried, ok?, makes?, no_tool_source?} from the data gather refuses wrong_tool with
+# (gather_profiles ``tool``/``min_tier``, gather.best_tool over his inventory). Here it becomes one line, and when he
+# lacks the tool, the lowest-tier one a recipe makes gets the lines a missing input gets (``missing_facts``); the others
+# are named. No step is added and nothing is chosen for him.
+
+TOOL_SOURCES = 1  # tools given full lines per tool kind (the rest named)
+
+
+def _tool_line(t: dict) -> str:
+    tier = t.get("min_tier") or 1
+    need = (f"needs a {t.get('needs')} of tier {tier} or more" if t.get("tier_read") is not False else
+            f"needs a {t.get('needs')}, tier {tier}+ in gather data (this kind's own gate not read yet; it may ask more)")
+    line = f"{need}; carried: {t.get('carried') or 'none'}"
+    if t.get("no_tool_source"):
+        line += f"; the same item without a tool: {str(t['no_tool_source']).replace('_', ' ')}"
+    return line
+
+
+def _gather_tools(data: dict, *, state=None, spells=None, knowledge=None, places=None) -> list[str]:
+    """Each gather step's client ``tool`` dict -> ``tool`` (a line) and, lacking it, ``tool_sources`` ({name: lines})
+    and ``tool_also`` (the other tools of the kind a recipe makes), once per tool kind (a later step of the same kind:
+    ``tool_sources`` "as for <resource>"). The resources whose tool he lacks."""
+    seen: dict[tuple, str] = {}
+    lacking: list[str] = []
+    for st in data.get("steps") or []:
+        t = st.get("tool") if isinstance(st, dict) and st.get("do") == "gather" else None
+        if not isinstance(t, dict) or not t.get("needs"):
+            continue
+        st["tool"] = _clip(_tool_line(t))
+        if t.get("ok"):
+            continue
+        res = str(st.get("resource") or st.get("name") or "?")
+        lacking.append(res)
+        makes = [m for m in t.get("makes") or [] if isinstance(m, dict) and isinstance(m.get("item"), str)]
+        key = (t.get("needs"), t.get("min_tier"))
+        if key in seen:
+            st["tool_sources"] = f"as for {seen[key]}"
+            continue
+        seen[key] = res
+        try:
+            got = missing_facts(makes[:TOOL_SOURCES], state=state, spells=spells, knowledge=knowledge, places=places)
+        except Exception:  # data is best effort: the line stands without it
+            got = {}
+        if got:
+            st["tool_sources"] = got
+        rest = [m for m in makes if str(m.get("name") or m["item"]) not in got]
+        if rest:
+            st["tool_also"] = ", ".join(f"{m.get('name') or m['item']}" + (f" (tier {m['tier']})" if m.get("tier") else "")
+                                        for m in rest)
+    return lacking
+
+
 def _to_obtain(data: dict, n: dict, lines: list[str]) -> None:
     """A thing whose plan path is a trader he can't pay, while the game has other ways to it: the thing is to be
     obtained (its sources, the trader one of them), not the trader's currency first. The trader's recipe stays listed
@@ -506,17 +561,22 @@ def enrich(data: dict, *, state=None, spells=None, knowledge=None, places=None, 
     builds = [st.get("name") for st in data.get("steps") or [] if isinstance(st, dict) and st.get("do") == "find_station"
               and isinstance(st.get("build"), dict) and "wiki" in st["build"]]
     try:
+        tools = _gather_tools(data, state=state, spells=spells, knowledge=knowledge, places=places)
+    except Exception:  # data is best effort: the plan stands without it
+        tools = []
+    try:
         cards = add_cards(data)
     except Exception:  # the plan stands without them
         cards = []
-    _log(log, found, converted, builds, cards, via, build_src)
+    _log(log, found, converted, builds, cards, via, build_src, tools)
     return data
 
 
-def _log(log, found, converted, builds, cards, via, build_src=None) -> None:
-    if log is not None and (found or builds or cards or build_src):
+def _log(log, found, converted, builds, cards, via, build_src=None, tools=None) -> None:
+    if log is not None and (found or builds or cards or build_src or tools):
         log.log("plan_sources", sources=sorted(found), trader_to_obtain=converted, wiki_builds=builds,
                 **({"build_sources": sorted(build_src)} if build_src else {}),
+                **({"gather_tool_lacking": tools} if tools else {}),
                 **({"cards": cards} if cards else {}), **({"via": via} if via else {}))
 
 

@@ -1417,5 +1417,50 @@ do -- a failed craft names the recipe he is closest to, each other recipe's shor
     api.log = log0
 end
 
+do -- a gather step names the tool gathering it takes (gather_profiles tool/min_tier) and his best one now (gather.best_tool)
+   -- (L3 study 2026-11-20: "gather rune_essence x14", no pickaxe, an essence rock 47 m off; nothing said a pickaxe)
+    local G = assert(loadfile(root .. "/client_mod/scripts/gather.lua"))()
+    local WD = assert(loadfile(root .. "/client_mod/scripts/weapons_data.lua"))()
+    local mod0 = api.module
+    api.module = function(n)
+        if n == "gather" then return G elseif n == "combat" then return { weapons = function() return WD end } end
+        return mod0(n)
+    end
+    local legs = U({ "RECIPE_Armour_T1_Legs_Lightness", "RECIPE_Pickaxe_Stone" })
+    reset({ stations = { TABLE() }, unlocked = legs, have = { ITEM_Resources_Coarse_Animal_Fur = 6 } })
+    local r = C.HANDLERS.craft_plan(nil, { recipe = "RECIPE_Armour_T1_Legs_Lightness" }, { api = api })
+    local g = has_step((r.data or {}).steps or {}, "gather", "resource", "rune_essence") or {}
+    local t = g.tool or {}
+    check("gather tool: rune essence needs a pickaxe tier 1, carried none", t.needs == "pickaxe" and t.min_tier == 1
+          and t.tier_read == true and t.carried == "none" and not t.ok,tostring(t.needs) .. " " .. tostring(t.min_tier) .. " " .. tostring(t.carried))
+    local m1 = (t.makes or {})[1] or {}
+    check("gather tool: lacking it, the pickaxes a recipe makes, lowest tier first", m1.item == "ITEM_Pickaxe_Stone" and m1.tier == 1
+          and #t.makes <= C.cfg.tool_makes_max, m1.item)
+    reset({ stations = { TABLE() }, unlocked = legs, have = { ITEM_Resources_Coarse_Animal_Fur = 6, ITEM_Pickaxe_Bronze = 1 } })
+    r = C.HANDLERS.craft_plan(nil, { recipe = "RECIPE_Armour_T1_Legs_Lightness" }, { api = api })
+    t = (has_step((r.data or {}).steps or {}, "gather", "resource", "rune_essence") or {}).tool or {}
+    check("gather tool: a good-enough pickaxe carried says so", t.ok == true and t.carried == "Bronze Pickaxe (tier 3)" and t.makes == nil,
+          tostring(t.carried))
+    -- a tool-free resource (flax: a pickup) has no tool field
+    reset({ stations = { TABLE() }, unlocked = U({ "RECIPE_Process_Thread_Linen_From_Flax" }) })
+    r = C.HANDLERS.craft_plan(nil, { item = "Coarse Thread", count = 2 }, { api = api })
+    local gf = has_step((r.data or {}).steps or {}, "gather", "item", "ITEM_Resources_Flax")
+    check("gather tool: flax needs none, no field", gf and gf.tool == nil, gf and tostring(gf.tool))
+    -- oak needs a tier 3 logging axe; a stone axe is below it
+    reset({ have = { ITEM_Logging_Axe_Stone = 1 } })
+    local fn = C.W.gather_tool(api)
+    local oak = fn("oak") or {}
+    check("gather tool: oak, stone axe below tier 3", oak.needs == "logging axe" and oak.min_tier == 3
+          and oak.carried == "Stone Logging Axe (tier 1, below 3)" and not oak.ok, tostring(oak.carried))
+    local ash = fn("ash") or {}
+    check("gather tool: ash names its tool-free source", ash.ok and ash.no_tool_source == nil, tostring(ash.carried))
+    reset({})
+    ash = C.W.gather_tool(api)("ash") or {}
+    check("gather tool: ash without an axe names sticks", ash.carried == "none" and ash.no_tool_source == "sticks", tostring(ash.no_tool_source))
+    check("gather tool: a rock kind whose gate was never read says so", (C.W.gather_tool(api)("copper") or {}).tier_read == false)
+    api.module = mod0
+    check("gather tool: no gather module, no field", C.W.gather_tool(api)("rune_essence") == nil)
+end
+
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)
