@@ -1466,7 +1466,10 @@ class Agent:
 
     def _close_ask(self, call, extra: list[str]) -> dict:
         """request_done / park_request: the open ask ends here. The claim or the reason is recorded, never judged; a
-        park reason is said (the player hears it, as the tool says)."""
+        park reason is said (the player hears it, as the tool says). request_done's result carries what the game
+        reads now about the ask (_done_reads), read before the job tree closes; the close stands either way."""
+        words = str((call.arguments or {}).get(oa.ARG[call.name]) or "").strip() or None
+        reads = self._done_reads(self._open_request, words) if call.name == oa.DONE else None
         ask, self._open_request = self._open_request, None
         if call.name == oa.PARK:
             self._park(ask, (call.arguments or {}).get(oa.ARG[oa.PARK]))
@@ -1476,15 +1479,14 @@ class Agent:
                 self.jobs.close()
         self._drop_ask_facts(call.name)
         self._save_ask()  # done: the file goes; parked: kept as parked, with the reason
-        words = str((call.arguments or {}).get(oa.ARG[call.name]) or "").strip() or None
         who, what = ask or (None, None)
         if call.name == oa.PARK:
             self.log.log("request_parked", request=what, player=who, reason=words)
             if words:
                 extra.append(words)
-        else:
-            self.log.log("request_done_claimed", request=what, player=who, evidence=words)
-        return {"ok": True, "note": "request parked" if call.name == oa.PARK else "request closed as finished"}
+            return {"ok": True, "note": "request parked"}
+        self.log.log("request_done_claimed", request=what, player=who, evidence=words, game_reads=reads)
+        return {"ok": True, "note": "request closed as finished", "game_reads": reads}
 
     # ------------------------------------------------ the goal machinery owns the ask (DW_ASK_OWNER=1, _take_up_ask)
 
@@ -1672,6 +1674,62 @@ class Agent:
                            "reason": "the plan ran to its end, and the game does not read the request as done",
                            "state": state, "steps": len(tree.tasks), "told": False}
 
+    def _ask_tree(self, ask: tuple | None, state: dict | None) -> dict | None:
+        """The job tree of ``ask`` read from ``state`` (DW_JOB_TREE keeper), when it has one with roots; else None."""
+        if self.jobs is None or not self.jobs.active(ask) or not oa.readable(state):
+            return None
+        try:
+            tree = self.jobs.tree(state)
+        except Exception:  # no tree: the job tree says nothing
+            return None
+        return tree if (tree or {}).get("roots") else None
+
+    def _done_reads(self, ask: tuple | None, evidence: str | None) -> dict:
+        """What the game reads now about the ask he closes with request_done, as facts beside his claim (the close
+        stands; nothing here judges it): the job tree's root from the state when the tree has a target; his power
+        level from worn armour (gear_plan.worn_armour) and the game's own reading; and each place the ask's words or
+        his evidence name that the map data gives a power level (Places.named: a vault or region by name, the bare
+        word "vault" as the nearest vault), a vault with its enemies' level (gear_plan.vault_need). L3 2026-11-20:
+        "gear up for the vault" closed as "all set" on a Bronze Shield he already wore, PL 1 against a PL 2 vault."""
+        try:
+            state = self._fresh_state(reuse=True)
+        except Exception as exc:  # perception never breaks the turn
+            return {"unavailable": f"{type(exc).__name__}: {exc}"[:200]}
+        if not oa.readable(state):
+            return {"unavailable": str(state.get("unavailable") or "no state read")[:200]}
+        out: dict = {}
+        if tree := self._ask_tree(ask, state):
+            out["job"] = {"target": job_tree.target_lines(tree),
+                          "done": all(r.get("status") == "done" for r in tree["roots"])}
+        try:
+            from .gear_plan import worn_armour
+            mine = worn_armour(state)
+            pl: dict = {"from_worn_armour": mine["pl"], "worn_armour": mine["pieces"]}
+        except Exception as exc:  # item data missing: the game's reading alone
+            pl = {"from_worn_armour": f"unavailable ({type(exc).__name__})"}
+        game = state.get("power_level")
+        if isinstance(game, (int, float)) and not isinstance(game, bool):
+            pl["game_reads"] = int(game) if float(game).is_integer() else game
+        out["your_power_level"] = pl
+        places = getattr(self.controller, "places", None)
+        text = " ".join(x for x in ((ask or (None, None))[1], evidence) if x)
+        try:
+            named = places.named(text, state.get("position")) if places is not None and text else []
+        except Exception as exc:  # map data missing: no place facts
+            named, out["places"] = [], f"unavailable ({type(exc).__name__})"
+        rows = []
+        for p in named:
+            if p["kind"] == "vault":
+                try:
+                    from .gear_plan import vault_need
+                    p["enemies_pl"] = vault_need(p["name"])["pl"]
+                except Exception:  # a vault the bestiary holds no enemy rows for: its own level stands
+                    pass
+            rows.append(p)
+        if rows:
+            out["places"] = rows
+        return out
+
     def _done_by_plan(self, ask: tuple, state: dict | None) -> dict | None:
         """After a hand-over goal on this ask ended done: {blocked, root_not_done, changed}; None when there was none.
         Not blocked only when (a) the job tree's root reads not done from the game state (DW_JOB_TREE keeper, when
@@ -1679,15 +1737,8 @@ class Agent:
         d = self._last_done
         if not d or not oa.same_ask(d["ask"], ask):
             return None
-        root_not_done = None
-        if self.jobs is not None and self.jobs.active(ask) and oa.readable(state):
-            try:
-                tree = self.jobs.tree(state)
-            except Exception:  # no tree: the job tree says nothing
-                tree = None
-            roots = (tree or {}).get("roots") or []
-            if roots:
-                root_not_done = any(r.get("status") != "done" for r in roots)
+        tree = self._ask_tree(ask, state)
+        root_not_done = any(r.get("status") != "done" for r in tree["roots"]) if tree else None
         changed = False
         if oa.readable(d["state"]) and oa.readable(state):
             try:

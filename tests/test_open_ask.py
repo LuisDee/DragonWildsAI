@@ -244,3 +244,85 @@ def test_a_body_run_on_the_open_ask_hands_his_words_on(tmp_path, monkeypatch):
     assert handed["request"] == ASK[1]
     situ, = [s for s in rig.agent._situations if s.get("type") == A.CHAIN_BUDGET]
     assert (situ["request"], situ["from"]) == (ASK[1], ASK[0])
+
+
+# ------------------------------------------------------------------ request_done tells back what the game reads
+# L3 2026-11-20 (brain-live-20261120-015346 line 45, and 003659/004124/004502): "claude, gear up for the vault"; he
+# equipped the Bronze Shield he already wore and closed it "all set". The close stands; its result now carries the
+# game's reads of the ask beside his claim (agent._done_reads), and the request_done_claimed row logs them.
+
+L3_GEAR = {"Head": "ITEM_Armour_T2_Head_Leather", "Body": "ITEM_Armour_T1_Body_Adventurers",
+           "Legs": "ITEM_Armour_T1_Legs_Adventurers", "held_left": "ITEM_Shield_Bronze",
+           "held_right": "ITEM_Sword_Bronze"}
+L3_HERE = [151.03, 1911.95, -31.63]
+
+
+def _as_l3(rig):
+    """The mock body read as the L3 one: its worn gear, the game's power level 0, the Temple Woods spot."""
+    orig = rig.game.get_state
+
+    def get_state():
+        r = orig()
+        r["data"].update(gear=dict(L3_GEAR), power_level=0.0, position=list(L3_HERE))
+        return r
+    rig.game.get_state = get_state
+
+
+def test_request_done_result_carries_his_power_level_and_the_vault_the_ask_names(tmp_path):
+    import pytest
+
+    from brain.places import Places, newest_file
+    if newest_file() is None:
+        pytest.skip("no data/places_<build>.json")
+    rig = Rig(tmp_path)
+    _as_l3(rig)
+    rig.controller.places = Places()
+    vault = "claude, gear up for the vault"
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+                            FakeLLM.say("all set", FakeLLM.call("request_done", evidence="Bronze Shield equipped")))
+    rig.agent._command(CommandReceived(player="Luis", text=vault))
+    assert rig.agent._open_request is None  # the close stands: nothing reopens it
+    claimed, = _rows(rig, "request_done_claimed")
+    reads = claimed["game_reads"]
+    assert reads["your_power_level"] == {"from_worn_armour": 1, "game_reads": 0, "worn_armour": [
+        "Leather Cowl PL 2", "Adventurer's Tunic PL 1", "Adventurer's Leggings PL 1"]}
+    place, = reads["places"]
+    assert {k: place[k] for k in ("name", "kind", "power_level", "enemies_pl", "said")} == {
+        "name": "Crasorak Kara", "kind": "vault", "power_level": 2, "enemies_pl": 2, "said": "vault (the nearest)"}
+    assert "job" not in reads  # no item named: no tree
+    # facts only: no verdict or advice in code's words
+    text = json.dumps(reads).lower()
+    assert not any(w in text for w in ("should", "not done", "reopen", "enough", "too low", "need"))
+    # his close is still his stop (the chain gives no turn after request_done alone): the result is in the log only
+    assert len(rig.controller_llm.calls) == 3
+
+
+def test_request_done_result_carries_the_job_trees_root_read_before_the_tree_closes(tmp_path, monkeypatch):
+    from brain import job_tree as jt
+    from brain.llm import ToolCall
+    from test_job_tree import LINE, data
+    monkeypatch.setenv("DW_JOB_TREE", "1")
+    monkeypatch.setattr(jt.GameData, "default", classmethod(lambda cls, knowledge=None, places=None: data()))
+    rig = Rig(tmp_path)
+    ask = ("Luis", LINE)
+    rig.agent._open_request = ask
+    rig.agent.jobs.open(ask)
+    res = rig.agent._close_ask(ToolCall(name="request_done", arguments={"evidence": "ore is in the chest"}), [])
+    assert res["ok"] is True and res["note"] == "request closed as finished"
+    job = res["game_reads"]["job"]
+    assert job["done"] is False and job["target"][0].startswith("Copper Ore: you carry 0 of 30 [")
+    assert "places" not in res["game_reads"]  # no Places attached to this controller
+    assert rig.agent._open_request is None and not rig.agent.jobs.active(ask)  # closed all the same
+    assert _rows(rig, "request_done_claimed")[0]["game_reads"]["job"] == job
+
+
+def test_park_request_result_has_no_game_reads_and_an_unreadable_state_says_so(tmp_path):
+    from brain.llm import ToolCall
+    rig = Rig(tmp_path)
+    rig.agent._open_request = ASK
+    res = rig.agent._close_ask(ToolCall(name="park_request", arguments={"reason": "no trees"}), [])
+    assert res == {"ok": True, "note": "request parked"}
+    rig.agent._open_request = ASK
+    rig.agent._fresh_state = lambda reuse=False, after_action=False: {"unavailable": "get_state failed: timeout"}
+    res = rig.agent._close_ask(ToolCall(name="request_done", arguments={"evidence": "2 logs"}), [])
+    assert res["game_reads"] == {"unavailable": "get_state failed: timeout"} and rig.agent._open_request is None
