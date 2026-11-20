@@ -662,9 +662,18 @@ def test_suggested_two_minutes_ago_and_told_no_stays_silent(tmp_path):
     r.at(45).step()
     n_ctx, n_said = len(r.model.contexts), len(r.body.said)
     r.body.state = _vitals_state(18, phase="night", sleep_allowed=True)  # same band; the sleep window opened
-    r.at(160).step()  # 2 min after the suggestion: no review yet
-    assert len(r.model.contexts) == n_ctx and len(r.body.said) == n_said
     r.model.body_reply = lambda ctx: FakeLLM.say("")  # the model respects his "no"
+    r.at(160).step()  # 2 min after the suggestion: no review of the sleep window yet...
+    # ...but his line is the open ask (only request_done, park_request or his next line end one) and he has stood on it
+    # since: one idle review carrying it (broker.REVIEW_IDLE_ASK_S), alone, with what he said before
+    assert len(r.model.contexts) == n_ctx + 1 and len(r.body.said) == n_said
+    ev = r.model.contexts[-1]["body_event"]
+    assert [c["what"] for c in ev["changes"]] == ["idle"], ev["changes"]
+    assert ev["changes"][0]["open_ask"]["words"] == "claude no, not now, keep going"
+    assert ev["previous_review"]["you_said"] == "Guys, my endurance is at 20%, can we rest?"
+    n_ctx = len(r.model.contexts)
+    r.at(200).step()  # once per idle stretch
+    assert len(r.model.contexts) == n_ctx
     r.at(230).step()  # past the 3 min gap: the pending change is reviewed, with the history
     ev = r.model.contexts[-1]["body_event"]
     assert ev["previous_review"]["you_said"] == "Guys, my endurance is at 20%, can we rest?"
@@ -1458,14 +1467,20 @@ def test_back_in_the_world_after_a_drop_is_reviewed_at_once_with_the_request_sti
     assert ev["type"] == "situation_review" and back and back[0]["now"] == "back in the game world", ev
     assert 35 <= back[0]["away_s"] <= 45 and "companion_down" in back[0]["was"], back
     assert [c[0] for c in r.body.calls] == ["gather", "gather"]  # the model's choice, here the fake's
-    # a single failed read (a timeout) is no drop: nothing to review
+    # a single failed read (a timeout) is no drop: no "body" change. He has stood since 85 s with the request still
+    # open (not closed, not parked): that stretch is one idle review carrying the ask (broker.REVIEW_IDLE_ASK_S)
     r.body.get_state = lambda: fail("timeout", detail="no reply in 5 s")
+    r.model.body_reply = lambda ctx: FakeLLM.say("")
+    seen = len(r.model.contexts)
     r.at(300).step()
     r.body.get_state = live
-    seen = len(r.model.contexts)
-    r.at(301).step()
-    r.at(312).step()
-    assert len(r.model.contexts) == seen
+    for t in (301, 312, 340):
+        r.at(t).step()
+    new = [c["body_event"] for c in r.model.contexts[seen:]]
+    assert len(new) == 1 and new[0]["type"] == "situation_review", new
+    assert not any(ch["what"] == "body" for ch in new[0]["changes"]), new
+    idle = [ch for ch in new[0]["changes"] if ch["what"] == "idle"]
+    assert len(idle) == 1 and idle[0]["open_ask"]["words"] == "claude go and see Zanik and do her quest", new
 
 
 def test_a_goal_waiting_to_start_is_named_to_the_run_that_comes_before_it(tmp_path):
