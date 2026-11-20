@@ -891,6 +891,7 @@ class Agent:
         failed_any, handed, open_checked = False, False, False  # OPEN_JOB_NOTE: an open failure, a long-job tool, the check
         last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
         open_ask, open_asked, open_prev = False, False, False  # the open-ask turn: now, once in this chain, the last one
+        reads_turn, reads_given = False, None  # the done-reads turn: now, and the game_reads it showed (once a chain)
         # every call this request ran and how it went, for a hand-on's fresh run (a handed-on request carries its own on)
         work: list[dict] = [*(body_ctx.get("done_so_far") or []), *(body_ctx.get("last_results") or [])]             if isinstance(body_ctx, dict) and body_ctx.get("type") == CHAIN_BUDGET else []
         while True:
@@ -927,11 +928,19 @@ class Agent:
                 fd = t["failure"][2] if isinstance(t["failure"][2], dict) else {}
                 unreported.append({"turn": turn, "tool": t["failure"][0], "reason": t["failure"][1],
                                    "detail": str(fd.get("detail") or "")[:200] or None})
+            reads_turn = False
             if t.get("closed") and not t["ran"] and not t["failure"]:
-                break  # he closed the open ask (request_done / park_request) and ran nothing else: his stop
+                reads = t.get("closed_reads")
+                if t["closed"] != oa.DONE or not reads or reads_given is not None:
+                    break  # he closed the open ask (request_done / park_request) and ran nothing else: his stop
+                # request_done's result carries what the game reads about the ask (game_reads): ONE more turn puts it
+                # in front of him, as any tool result goes back in a tool loop. An outcome report, never a veto: the
+                # close stands, the turn has no note, and what he does in it is his. L3 2026-11-20: the reads were
+                # only logged, his "all set" on a PL 1 kit for a PL 2 vault was his last word
+                reads_turn, reads_given = True, reads
             open_prev, open_ask = open_ask, False
             fail_check = False
-            if parked or last_turn:  # caps spend: the model heard why and had its one turn to say it
+            if (parked or last_turn) and not reads_turn:  # caps spend: the model heard why and had its one turn to say it
                 self.log.log("chain_stopped", turns=turn, why="parked" if parked else "deadline", parked=parked)
                 if not (t["ran"] or t["failure"] or d.goal or d.skill):  # he stopped there with the ask open
                     self._left_open(run_asked, run_for, "parked step" if parked else "deadline", open_prev)
@@ -981,7 +990,7 @@ class Agent:
             if stop_for:
                 self.log.log("stop_for_check", request=goal_asked[1])
             stop_checked = stop_checked or stop_check or promise_check or unheard or stop_for  # never doubled
-            more = more or stop_check or stop_for
+            more = more or stop_check or stop_for or reads_turn
             stop_line, prev_line = prev_line, this_line
             # not in a board run: the board reports its own step failures (test_recovery_decision_dispatch)
             if not more and unreported and not fail_checked and not t["failure"] and self._directed is None                     and not self._player_spoke():
@@ -1020,7 +1029,7 @@ class Agent:
             late = self.clock() >= deadline
             if late and t["ran"] and not spoke and turn < MAX_TURNS:
                 last_turn = True  # a long action (a 295 s go_to) used the time up: never cut off its report
-            elif spoke or ((turn >= MAX_TURNS or late) and not open_ask):  # (the open-ask turn: _no_open_ask_turn)
+            elif spoke or ((turn >= MAX_TURNS or late) and not (open_ask or reads_turn)):  # (open-ask turn: _no_open_ask_turn)
                 self.log.log("chain_stopped", turns=turn,
                              why="the player spoke" if spoke else "deadline" if late else "budget")
                 if self._directed is not None and spoke:
@@ -1059,7 +1068,8 @@ class Agent:
                                                                             or open_check or stop_check or stop_for
                                                                             or unheard) else None)
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
-                                              note=oa.NOTE_PREFIX + json.dumps(shown, ensure_ascii=False, default=str)
+                                              note=None if reads_turn else  # the done-reads turn: the result alone
+                                              oa.NOTE_PREFIX + json.dumps(shown, ensure_ascii=False, default=str)
                                               if open_ask else PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
                                               UNREPORTED_NOTE.format(player=self.controller.player, items="; ".join(
                                                   f"{f['tool']} {f['reason']}" + (f" ({f['detail']})" if f["detail"] else "")
@@ -1079,6 +1089,9 @@ class Agent:
                 if open_ask:
                     self.log.log("open_ask_turn", request=run_asked[1], player=run_asked[0], shown=shown,
                                  turn=turn, outcome="error")
+                if reads_turn:
+                    self.log.log("done_reads_turn", request=(run_asked or (None, None))[1], game_reads=reads_given,
+                                 turn=turn, outcome="error")
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
                 if t["failure"]:
                     self.controller.report_failure(*t["failure"])
@@ -1089,6 +1102,10 @@ class Agent:
                 self.log.log("open_ask_turn", request=run_asked[1], player=run_asked[0], shown=shown, turn=turn,
                              outcome=_ask_outcome(d), actions=[c.name for c in d.actions], speech=d.speech,
                              run_for=run_for)
+            if reads_turn:  # what he did with request_done's game_reads in front of him (tools.unseen reads it)
+                self.log.log("done_reads_turn", request=(run_asked or (None, None))[1],
+                             player=(run_asked or (None, None))[0], game_reads=reads_given, turn=turn,
+                             outcome=_ask_outcome(d), actions=[c.name for c in d.actions], speech=d.speech)
             self.log.log("chain_turn", turn=turn, actions=[c.name for c in d.actions], speech=d.speech)
             # A model-selected goal/skill is recovery work even without primitive actions.
             # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
@@ -1185,10 +1202,11 @@ class Agent:
         if [id(c) for c in acts] != [id(c) for c in d.actions]:
             self.log.log("consume_interleaved", order=[(c.arguments or {}).get("item") for c in acts if c.name == "consume"])
         closed = None  # request_done / park_request closed the open ask this turn
+        closed_reads = None  # request_done's game_reads (the done-reads turn shows them)
         for call in ([] if failure else acts):
             if call.name in oa.ASK_TOOLS:
-                results[call.id or call.name] = self._close_ask(call, extra)
-                closed = call.name
+                res = results[call.id or call.name] = self._close_ask(call, extra)
+                closed, closed_reads = call.name, res.get("game_reads")
                 continue
             if call.name in ("remember", "forget_skill"):
                 res = self._remember(call.arguments, state, event.player) if call.name == "remember" \
@@ -1253,7 +1271,7 @@ class Agent:
         if ran and self._handover is not None and self.active_goal:
             self._handover["his_calls"] += len(ran)  # his own body calls while his planner's job runs (double work)
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
-                "spoken": spoken, "ran": ran, "body": body, "closed": closed}
+                "spoken": spoken, "ran": ran, "body": body, "closed": closed, "closed_reads": closed_reads}
 
     # ---------------------------------------------------------------- the open ask (brain/open_ask.py)
 

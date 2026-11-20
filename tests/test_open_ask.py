@@ -77,13 +77,14 @@ def test_a_silent_stop_runs_one_more_turn_that_shows_the_ask_and_what_changed(tm
 def test_request_done_closes_the_ask_and_records_his_evidence(tmp_path):
     rig = Rig(tmp_path)
     _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=2)), FakeLLM.say(""),
-         FakeLLM.say("", FakeLLM.call("request_done", evidence="2 logs in my bag")))
+         FakeLLM.say("", FakeLLM.call("request_done", evidence="2 logs in my bag")), FakeLLM.say(""))
     assert rig.agent._open_request is None
     claimed, = _rows(rig, "request_done_claimed")
     assert claimed["request"] == ASK[1] and claimed["player"] == "Luis" and claimed["evidence"] == "2 logs in my bag"
     assert _rows(rig, "open_ask_turn")[0]["outcome"] == "done_claim"
     assert not _rows(rig, "request_closed") and not _rows(rig, "request_parked")
-    assert len(rig.controller_llm.calls) == 3  # his close is his stop: no further turn
+    # one turn shows request_done's result (its game_reads); his silence there ends the chain, the ask stays closed
+    assert len(rig.controller_llm.calls) == 4 and _rows(rig, "done_reads_turn")[0]["outcome"] == "silent"
     assert rig.companion_said() == []  # code says nothing for him; the claim is recorded, not judged
 
 
@@ -279,7 +280,8 @@ def test_request_done_result_carries_his_power_level_and_the_vault_the_ask_names
     rig.controller.places = Places()
     vault = "claude, gear up for the vault"
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
-                            FakeLLM.say("all set", FakeLLM.call("request_done", evidence="Bronze Shield equipped")))
+                            FakeLLM.say("all set", FakeLLM.call("request_done", evidence="Bronze Shield equipped")),
+                            FakeLLM.say(""))
     rig.agent._command(CommandReceived(player="Luis", text=vault))
     assert rig.agent._open_request is None  # the close stands: nothing reopens it
     claimed, = _rows(rig, "request_done_claimed")
@@ -293,8 +295,50 @@ def test_request_done_result_carries_his_power_level_and_the_vault_the_ask_names
     # facts only: no verdict or advice in code's words
     text = json.dumps(reads).lower()
     assert not any(w in text for w in ("should", "not done", "reopen", "enough", "too low", "need"))
-    # his close is still his stop (the chain gives no turn after request_done alone): the result is in the log only
-    assert len(rig.controller_llm.calls) == 3
+    # the done-reads turn showed him that result (4th call); his silence there ends it
+    assert len(rig.controller_llm.calls) == 4
+
+
+def _tool_results(call) -> list[dict]:
+    return [json.loads(m["content"]) for m in call["messages"] if m.get("role") == "tool"
+            and str(m.get("content") or "").startswith("{")]
+
+
+def test_after_request_done_one_turn_shows_its_game_reads_with_no_note(tmp_path):
+    rig = Rig(tmp_path)
+    _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+         FakeLLM.say("", FakeLLM.call("request_done", evidence="a log in my bag")),
+         FakeLLM.say("one log, as asked"))
+    calls = rig.controller_llm.calls
+    assert len(calls) == 4
+    shown = [r for r in _tool_results(calls[3]) if "game_reads" in r]
+    assert shown and shown[0]["note"] == "request closed as finished" and shown[0]["game_reads"]["your_power_level"]
+    last = str(calls[3]["messages"][-1].get("content") or "")  # the result alone: no code note after it
+    assert not last.startswith(oa.NOTE_PREFIX) and "request_done" not in _tools(calls[3])
+    row, = _rows(rig, "done_reads_turn")
+    assert row["request"] == ASK[1] and row["outcome"] == "say" and row["speech"] == "one log, as asked"
+    assert row["game_reads"] == _rows(rig, "request_done_claimed")[0]["game_reads"]
+    assert rig.agent._open_request is None and rig.companion_said() == ["one log, as asked"]  # the close stands
+
+
+def test_the_done_reads_turn_runs_once_and_what_he_does_in_it_is_his(tmp_path):
+    rig = Rig(tmp_path)
+    _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+         FakeLLM.say("", FakeLLM.call("request_done", evidence="a log in my bag")),
+         FakeLLM.say("one more, then", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""))
+    assert len(rig.calls("gather")) == 2 and len(rig.controller_llm.calls) == 5  # his act, then its report turn
+    row, = _rows(rig, "done_reads_turn")  # never a second one
+    assert row["outcome"] == "world" and row["actions"] == ["gather"]
+    assert rig.agent._open_request is None and len(_rows(rig, "request_done_claimed")) == 1
+
+
+def test_with_empty_game_reads_the_chain_ends_at_request_done_as_before(tmp_path):
+    rig = Rig(tmp_path)
+    rig.agent._done_reads = lambda ask, evidence: {}
+    _ask(rig, FakeLLM.say("", FakeLLM.call("gather", resource="log", count=1)), FakeLLM.say(""),
+         FakeLLM.say("", FakeLLM.call("request_done", evidence="a log in my bag")))
+    assert len(rig.controller_llm.calls) == 3 and not _rows(rig, "done_reads_turn")
+    assert rig.agent._open_request is None and _rows(rig, "request_done_claimed")[0]["game_reads"] == {}
 
 
 def test_request_done_result_carries_the_job_trees_root_read_before_the_tree_closes(tmp_path, monkeypatch):
