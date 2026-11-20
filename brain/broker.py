@@ -76,7 +76,7 @@ REVIEW_NEAR_M = 15.0
 # L3 20261120-185446 he stopped ("resting up before more ash", half health, no food) on "gear up for the vault" with the
 # trial player out of sight, and no turn came again (the idle change wanted a player within REVIEW_NEAR_M). The ask is
 # shown as a fact; he decides to resume, keep resting, park or close it. Once per idle stretch (note_busy renews it).
-REVIEW_IDLE_ASK_S = REVIEW_IDLE_S
+REVIEW_IDLE_ASK_S = 20.0  # idle with an open ask: a player picks a stopped job back up well inside the 40 s the grader counts as idle (tools/quest_run.QUIET_S; live 20261120-185446-L3 ended quiet 40 s after his stop to rest)
 REVIEW_BAG_FULL = 0.9
 FIGHT_QUIET_S = 30.0  # an attack this recent = in combat: no review
 BODY_AWAY_S = 5.0  # no state for this long (out of the game world: a drop, a relaunch), then state again = a change
