@@ -449,5 +449,40 @@ do
     check("bases: the campfire alone is not roofed", b[1].covered == false)
 end
 
+-- my bases: a shelter-only station of mine in a near base carries the game's two checks (roofed is not sheltered)
+do
+    local L = { pieces = {
+        { piece = "DA_T1_Foundation_Large", name = "Square Foundation", at = { 10, 0, 0 } },
+        { piece = "DA_T1_Roof_Large_Diagonal", name = "30° Roof", at = { 10, 0, 3 } },
+        { piece = "BUILDPIECE_ProcessingStation_Spinning_Wheel", name = "Spinning Wheel", at = { 10, 1, 0 } },
+    } }
+    local wheel_actor = { name = "wheel actor" }
+    local theirs_actor = { name = "their wheel" }
+    local fb = { W = { built_pieces = function() return {
+        { id = "BP_Station_Spinning_Wheel_C_1", piece = "BUILDPIECE_ProcessingStation_Spinning_Wheel", name = "Spinning Wheel", position = { 10, 1, 0 }, actor = wheel_actor },
+        { id = "BP_Station_Spinning_Wheel_C_2", piece = "BUILDPIECE_ProcessingStation_Spinning_Wheel", name = "Spinning Wheel", position = { 14, 4, 0 }, actor = theirs_actor },
+        { id = "BuildingPiece_5", piece = "DA_T1_Foundation_Large", name = "Square Foundation", position = { 10, 0, 0 } },
+    } end } }
+    local asked = {}
+    local fc = { W = { shelter = function(_, a)
+        asked[#asked + 1] = a
+        return { rule = "shelter_only", roof = "yes", roof_hits = 1, roof_n = 1, side_hits = 4, side_n = 16, side_pct = 25, need_pct = 38,
+                 open = { "S" }, sides_ok = false, sheltered = false }
+    end }, shelter_facts = function(sh) return "roof: " .. sh.roof .. "; sides: " .. sh.side_pct .. " %, it needs " .. sh.need_pct .. " %; open toward S" end }
+    local fapi = { module = function(n) if n == "build" then return fb elseif n == "crafting" then return fc end end, now = function() return 5 end }
+    rawget(_G, "DWDecon").base_shelter = nil
+    local b = D.bases(L, { 0, 0, 0 })
+    D.base_shelter(fapi, L, b)
+    check("base shelter: my wheel's two checks on its base", b[1].shelter and b[1].shelter[1]:find("Spinning Wheel: roof: yes", 1, true)
+          and b[1].shelter[1]:find("25 %", 1, true) and b[1].shelter[1]:find("fails the side check", 1, true), b[1].shelter and b[1].shelter[1])
+    check("base shelter: only mine (the ledger), not another player's wheel near it", #asked == 1 and asked[1] == wheel_actor, #asked)
+    D.base_shelter(fapi, L, b)
+    check("base shelter: kept a few seconds", #asked == 1)
+    local far = D.bases(L, { 200, 0, 0 })
+    rawget(_G, "DWDecon").base_shelter = nil
+    D.base_shelter(fapi, L, far)
+    check("base shelter: a far base (190 m) is not traced", far[1].shelter == nil and #asked == 1)
+end
+
 print(string.format("deconstruct: %d passed, %d failed", pass, failn))
 if failn > 0 then os.exit(1) end

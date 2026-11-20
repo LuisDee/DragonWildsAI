@@ -787,6 +787,46 @@ function M.bases(L, here)
     while #out > M.cfg.bases.max do table.remove(out) end
     return out
 end
+-- Shelter-only stations of mine in the nearer bases: the game's two checks on each (crafting.lua W.shelter: roof, and
+-- the share of side rays meeting building pieces against the component's threshold), so "roofed" is not read as
+-- "sheltered" (live 2026-11-20 L3: a roofed 3-wall shell, the wheel refused, "needs more surrounding shelter").
+-- Fills b.shelter = {"Spinning Wheel: roof: yes (...); sides: 4 of 16 rays (25 %) ..., it needs 38 %; open toward S;
+-- fails the side check"}. Read again every keep_s.
+M.cfg.bases.shelter_m, M.cfg.bases.shelter_keep_s = 60, 10
+function M.base_shelter(api, L, bases)
+    local b2, cm = B(api), api.module("crafting")
+    if not (b2 and cm and cm.W and type(cm.W.shelter) == "function" and type(cm.shelter_facts) == "function") then return end
+    local m = mem()
+    local t = api.now and api.now() or os.clock()
+    m.base_shelter = m.base_shelter or {}
+    for _, b in ipairs(bases or {}) do
+        if b.distance_m and b.distance_m <= M.cfg.bases.shelter_m and b.centre then
+            local key = string.format("%.0f,%.0f", b.centre[1], b.centre[2])
+            local kept = m.base_shelter[key]
+            if kept and t - kept.t < M.cfg.bases.shelter_keep_s then
+                b.shelter = kept.v
+            else
+                local out = {}
+                local ok, list = pcall(b2.W.built_pieces, api, b.centre, M.cfg.bases.link_m + 6)
+                for _, e in ipairs(ok and type(list) == "table" and list or {}) do
+                    if e.actor and e.position and ledger_find(L, e) then
+                        local oks, sh = pcall(cm.W.shelter, api, e.actor, e.position)
+                        if oks and sh and sh.rule == "shelter_only" then
+                            local verdict = sh.sheltered == true and "passes both" or sh.sheltered == false
+                                and ((sh.roof == "no" and sh.sides_ok == false) and "fails both" or sh.roof == "no" and "fails the roof check"
+                                    or "fails the side check") or nil
+                            out[#out + 1] = tostring(e.name or e.id) .. ": " .. tostring(cm.shelter_facts(sh) or "not readable")
+                                .. (verdict and ("; " .. verdict) or "")
+                            if #out >= 3 then break end
+                        end
+                    end
+                end
+                b.shelter = (#out > 0) and out or nil
+                m.base_shelter[key] = { t = t, v = b.shelter }
+            end
+        end
+    end
+end
 -- Room to pick something up: over the game's carry weight (move.encumbrance: the PlayerEncumbranceComponent), or no
 -- free bag slot while I carry none of it to stack onto. -> {over, full, weight, max_weight}
 function M.room(api, item)
@@ -839,7 +879,10 @@ function M.state_extras(api, data)
         if type(s) == "table" and s.position and s.piece then s.mine = ledger_find(L, s) ~= nil end
     end
     local okb, bases = pcall(M.bases, L, api.my_position())
-    if okb and #bases > 0 then return { my_bases = bases } end
+    if okb and #bases > 0 then
+        pcall(M.base_shelter, api, L, bases)
+        return { my_bases = bases }
+    end
     return nil
 end
 

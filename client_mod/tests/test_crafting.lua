@@ -590,6 +590,30 @@ do -- a nearer station whose slots hold someone else's things is passed over for
     check("free station: says why", tostring((r.data or {}).why_this_station):find("Coarse Animal Fur", 1, true) ~= nil,
           tostring((r.data or {}).why_this_station))
 end
+do -- a nearer station that fails the game's shelter check is passed over, the reason with both checks' numbers
+   -- (2026-11-20 L3: a roofed wheel on an open edge, "needs more surrounding shelter")
+    _G.DWCraftLoads = {}
+    local near = FURNACE()
+    local far = station("Furnace", "furnace_2", { 20, 3, 0 })
+    reset({ stations = { near, far }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    local w0 = C.W.shelter
+    C.W.shelter = function(_, _, pos)
+        if pos and pos[1] < 10 then
+            return { rule = "shelter_only", roof = "yes", roof_hits = 1, roof_n = 1, side_hits = 4, side_n = 16, side_pct = 25,
+                     need_pct = 38, open = { "S" }, sides_ok = false, covered = true, sheltered = false }
+        end
+        return { rule = "shelter_only", roof = "yes", roof_hits = 1, roof_n = 1, side_hits = 9, side_n = 16, side_pct = 56,
+                 need_pct = 38, open = {}, sides_ok = true, covered = true, sheltered = true }
+    end
+    local r = run({ recipe = "RECIPE_Process_IronBar" })
+    C.W.shelter = w0
+    check("shelter pass-over: ok at the sheltered one", r.ok and r.data.station_id == "furnace_2",
+          tostring(r.reason) .. " " .. tostring((r.data or {}).station_id))
+    local why = tostring((r.data or {}).why_this_station)
+    check("shelter pass-over: says which check failed, its % vs needed, the open side", why:find("too few building pieces", 1, true)
+          and why:find("25 %", 1, true) and why:find("needs 38 %", 1, true) and why:find("open toward S", 1, true), why)
+end
 do -- ...and the same when he names the KIND of station, not one station (fresh chains 20261116-085113 / 091005:
    -- craft {station "Campfire"} took the nearest campfire, which held an earlier character's Dirty Water, and
    -- answered station_busy with a free campfire in range)
@@ -1460,6 +1484,138 @@ do -- a gather step names the tool gathering it takes (gather_profiles tool/min_
     check("gather tool: a rock kind whose gate was never read says so", (C.W.gather_tool(api)("copper") or {}).tier_read == false)
     api.module = mod0
     check("gather tool: no gather module, no field", C.W.gather_tool(api)("rune_essence") == nil)
+end
+
+-- ------------------------------------------------------------------ shelter: the game's two checks (2026-11-20 L3)
+do
+    -- a 3 m room round a station at (0, 0, 0): boxes {x0, x1, y0, y1, z0, z1}; north = -Y
+    local N_WALL = { -1.5, 1.5, -1.6, -1.4, 0, 3 }
+    local S_WALL = { -1.5, 1.5, 1.4, 1.6, 0, 3 }
+    local E_WALL = { 1.4, 1.6, -1.5, 1.5, 0, 3 }
+    local W_WALL = { -1.6, -1.4, -1.5, 1.5, 0, 3 }
+    local ROOF = { -1.6, 1.6, -1.6, 1.6, 3, 3.2 }
+    local SHORT_N = { -0.5, 0.5, -1.6, -1.4, 0, 3 } -- a 1 m wall piece on the N side
+    local function seg_box(a, b, bx) -- slab test: does the segment a->b cross the box?
+        local t0, t1 = 0, 1
+        for i = 1, 3 do
+            local lo, hi, d = bx[2 * i - 1], bx[2 * i], b[i] - a[i]
+            if math.abs(d) < 1e-9 then
+                if a[i] < lo or a[i] > hi then return false end
+            else
+                local u, v = (lo - a[i]) / d, (hi - a[i]) / d
+                if u > v then u, v = v, u end
+                t0, t1 = math.max(t0, u), math.min(t1, v)
+                if t0 > t1 then return false end
+            end
+        end
+        return true
+    end
+    local function world(boxes) return function(a, b) for _, bx in ipairs(boxes) do if seg_box(a, b, bx) then return true end end return false end end
+    local rays = {}
+    for i = 0, 15 do local ang = math.rad(i * 22.5); rays[#rays + 1] = { math.cos(ang), math.sin(ang), 0 } end
+    local rule = { roof_rays = { { 0, 0, 1 } }, shelter_rays = rays, dist_cm = 2000, thick_cm = 200, need = 0.38 }
+    local function has(t, w) for _, x in ipairs(t or {}) do if x == w then return true end end return false end
+
+    local three = C.shelter_eval(rule, { 0, 0, 0 }, 0, world({ N_WALL, E_WALL, W_WALL, ROOF }))
+    check("shelter eval: roof + walls N, E, W -> roof yes, sides pass", three.roof == "yes" and three.sides_ok == true, three.side_pct)
+    check("shelter eval: the open side is named by compass (S), never a walled one", has(three.open, "S") and not has(three.open, "N")
+          and not has(three.open, "E") and not has(three.open, "W"), table.concat(three.open or {}, ","))
+    check("shelter eval: the threshold is the component's (38 %)", three.need_pct == 38 and three.side_n == 16)
+    local one = C.shelter_eval(rule, { 0, 0, 0 }, 0, world({ SHORT_N, ROOF }))
+    check("shelter eval: roofed, one short wall -> sides fail (the L3 'needs more surrounding shelter')", one.roof == "yes" and one.sides_ok == false
+          and has(one.open, "S") and has(one.open, "E") and has(one.open, "W"), one.side_pct)
+    local open = C.shelter_eval(rule, { 0, 0, 0 }, 0, world({ N_WALL, E_WALL, W_WALL, S_WALL }))
+    check("shelter eval: four walls, no roof -> roof no", open.roof == "no" and open.sides_ok == true and #open.open == 0)
+    -- the rays turn with the station: a ray set covering only its own +X half, the station turned 180 -> faces W
+    local half = { roof_rays = {}, shelter_rays = { { 1, 0, 0 }, { 1, 1, 0 }, { 1, -1, 0 } }, dist_cm = 2000, thick_cm = 0, need = 0.38 }
+    local turned = C.shelter_eval(half, { 0, 0, 0 }, 180, world({ W_WALL }))
+    check("shelter eval: rays are the station's own, turned with its yaw", turned.side_hits == 3 and turned.roof == nil, turned.side_hits)
+    -- a ray given as an offset in cm (not a unit vector) is used as is: 5 m, so a wall 10 m off is out of reach
+    local far = C.shelter_eval({ shelter_rays = { { 500, 0, 0 } }, dist_cm = 2000, need = 0.38 }, { 0, 0, 0 }, 0, world({ { 9.9, 10.1, -1, 1, 0, 3 } }))
+    check("shelter eval: a ray as a cm offset keeps its own length", far.side_hits == 0 and has(far.open, "E"))
+
+    -- words: both checks as facts, the failing one named, the game's own text quoted
+    local sh = { rule = "shelter_only", says = " needs more surrounding shelter.", roof_says = " needs a roof.",
+                 roof = "yes", roof_hits = 1, roof_n = 1, side_hits = 4, side_n = 16, side_pct = 25, need_pct = 38,
+                 open = { "S", "SE", "SW" }, sides_ok = false, covered = true, sheltered = false }
+    local w = C.shelter_words(sh, "Spinning Wheel")
+    check("shelter words: roof yes, side % vs needed %, open sides", w:find("roof: yes", 1, true) and w:find("4 of 16 rays (25 %)", 1, true)
+          and w:find("it needs 38 %", 1, true) and w:find("open toward S, SE, SW", 1, true), w)
+    check("shelter words: names the failing check and the game's text", w:find("fails the side check", 1, true)
+          and w:find("Spinning Wheel needs more surrounding shelter.", 1, true) and not w:find("walls and a roof round it", 1, true), w)
+    local r = C.shelter_refusal(sh)
+    check("shelter refusal: a roofed wheel failing the sides is refused with the numbers", r and r:find("too few building pieces", 1, true)
+          and r:find("25 %", 1, true), r)
+    check("shelter refusal: a passing one is not refused", C.shelter_refusal({ rule = "shelter_only", roof = "yes", sides_ok = true }) == nil)
+    check("shelter refusal: unknown sides (no rays read) refuse only on no roof", C.shelter_refusal({ rule = "shelter_only", roof = "yes" }) == nil
+          and C.shelter_refusal({ rule = "shelter_only", roof = "no" }) ~= nil)
+    local ok_words = C.shelter_words({ rule = "shelter_only", says = " needs more surrounding shelter.", roof = "yes", roof_hits = 1, roof_n = 1,
+                                       side_hits = 10, side_n = 16, side_pct = 63, need_pct = 38, open = { "S" }, sides_ok = true, sheltered = true }, "Spinning Wheel")
+    check("shelter words: a passing one says so and quotes no failure", ok_words:find("passes both", 1, true) and not ok_words:find("game's words", 1, true), ok_words)
+
+    -- the engine layer: the component's own data by property reads, one line per ray through build's trace;
+    -- the station itself and a tree are passed through, a CellBuildingProxy (instance-only pieces) counts
+    local function obj(t) t.__valid = true; return t end
+    local FU = { try = function(f, ...) local ok, v = pcall(f, ...); if ok then return v end end,
+                 valid = function(o) return type(o) == "table" and o.__valid == true end,
+                 short = function(o) return o and o.__name end,
+                 str = function(v) return type(v) == "table" and v.text or v end }
+    local function arr(list) return { ForEach = function(_, fn) for i, v in ipairs(list) do fn(i, { get = function() return v end }) end end } end
+    local function vec(t) return { X = t[1], Y = t[2], Z = t[3] } end
+    local vrays = {}
+    for _, v in ipairs(rays) do vrays[#vrays + 1] = vec(v) end
+    local comp = obj({ __name = "BuildingShelter", InteractionRequirements = 0, RequiresShelterText = { text = " needs more surrounding shelter." },
+                       RequiresRoofText = { text = " needs a roof." }, RoofRays = arr({ vec({ 0, 0, 1 }) }), ShelterRays = arr(vrays),
+                       SweepRayDistance = 2000, SweepRayThickness = 200, ValidityPercentage = 0.38, bIncludeNonBuildingPartActors = false })
+    local wheel = obj({ __name = "BP_Station_Spinning_Wheel_C_7", BuildingShelter = comp, K2_GetActorRotation = function() return { Yaw = 0 } end })
+    local proxy = obj({ __name = "CellBuildingProxy_3" })
+    local tree = obj({ __name = "BP_Tree_Oak_C_1" })
+    local boxes = { SHORT_N, ROOF }
+    local traces, logs = 0, {}
+    local function hit_out(owner, at) return { ImpactPoint = vec({ at[1] * 100, at[2] * 100, at[3] * 100 }), Component = obj({ GetOwner = function() return owner end }) } end
+    local BW = { trace = function(_, a, b)
+        traces = traces + 1
+        local p, q = { a.X / 100, a.Y / 100, a.Z / 100 }, { b.X / 100, b.Y / 100, b.Z / 100 }
+        -- the station's own body round its foot: a line starting inside it meets it first
+        if math.abs(p[1]) < 0.3 and math.abs(p[2]) < 0.3 and p[3] < 1.3 and not (math.abs(q[1]) < 0.3 and math.abs(q[2]) < 0.3 and q[3] < 1.3) then
+            local d = math.sqrt((q[1] - p[1]) ^ 2 + (q[2] - p[2]) ^ 2 + (q[3] - p[3]) ^ 2)
+            if d > 0.31 then
+                local k = 0.3 / d
+                return true, hit_out(wheel, { p[1] + (q[1] - p[1]) * k, p[2] + (q[2] - p[2]) * k, p[3] + (q[3] - p[3]) * k })
+            end
+        end
+        if world(boxes)(p, q) then return true, hit_out(proxy, q) end
+        return false, {}
+    end }
+    local fapi = { module = function(n) if n == "sense" then return { U = FU } elseif n == "build" then return { W = BW } end end,
+                   now = function() return 100 end, log = function(s) logs[#logs + 1] = s end }
+    C.state().shelter_seen = nil
+    local got = C.W.shelter(fapi, wheel, { 0, 0, 0 })
+    check("shelter W: the component's rays read, both checks run (roof yes, sides fail with one wall)", got and got.roof == "yes"
+          and got.sides_ok == false and got.side_n == 16 and got.need_pct == 38 and got.sheltered == false and got.covered == true,
+          got and (tostring(got.roof) .. " " .. tostring(got.side_pct)))
+    check("shelter W: a log line shows it ran, with the numbers", logs[1] and logs[1]:find("crafting: shelter BP_Station_Spinning_Wheel_C_7", 1, true)
+          and logs[1]:find("roof yes 1/1", 1, true) and logs[1]:find("needs 38%", 1, true), logs[1])
+    local n0 = traces
+    C.W.shelter(fapi, wheel, { 0, 0, 0 })
+    check("shelter W: one station's verdict is kept a few seconds (no second ray set)", traces == n0)
+    -- a tree in the way is passed through: the wall behind it still counts; with only trees round it, nothing does
+    local hits_tree = C.W.shelter_cast(fapi, { 0, 0, 1 }, { 0, -20, 1 }, "BP_Station_Spinning_Wheel_C_7", false)
+    check("shelter cast: the station itself is passed, the wall behind counts", hits_tree == true)
+    local BW2 = { trace = function(_, a, b)
+        if a.Y > -400 then return true, hit_out(tree, { a.X / 100, -4.5, a.Z / 100 }) end
+        return false, {}
+    end }
+    local fapi2 = { module = function(n) if n == "sense" then return { U = FU } elseif n == "build" then return { W = BW2 } end end, now = function() return 0 end }
+    check("shelter cast: a tree is no building piece", C.W.shelter_cast(fapi2, { 0, 0, 1 }, { 0, -20, 1 }, "x", false) == false)
+    check("shelter cast: ... unless the component counts any actor", C.W.shelter_cast(fapi2, { 0, 0, 1 }, { 0, -20, 1 }, "x", true) == true)
+    -- no rays readable (a rule only): the old upward line, marked as such, and no side verdict
+    local bare = obj({ __name = "BuildingShelter", InteractionRequirements = 0, RequiresShelterText = { text = " needs more surrounding shelter." } })
+    local wheel2 = obj({ __name = "BP_Station_Spinning_Wheel_C_8", BuildingShelter = bare, K2_GetActorRotation = function() return { Yaw = 0 } end })
+    local got2 = C.W.shelter(fapi, wheel2, { 0, 0, 0 })
+    check("shelter W: no rays read -> the upward line, said so, sides unknown", got2 and got2.roof == "yes" and got2.side_n == nil
+          and got2.sheltered == nil and (C.shelter_facts(got2) or ""):find("anything counts", 1, true), C.shelter_facts(got2))
+    C.state().shelter_seen = nil
 end
 
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))

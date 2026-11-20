@@ -1272,5 +1272,91 @@ do
     local p2 = Bd.shelter_plan(env({}), { 11, 1, 0 })
     check("shelter: asked under a roof that isn't mine -> there, not on_mine", p2 and p2.center[1] == 11 and not p2.on_mine, p2 and p2.center[1])
 end
+-- the game's side check ranks the covered spots: the first that passes it, else the first with its numbers
+do
+    local function env(sides)
+        return { ground_at = function() return 0 end,
+                 covered = function(p) return p[1] >= 10 and p[1] <= 14 and math.abs(p[2]) <= 2 end,
+                 mine_floors = {}, reach_m = 25, standoff_m = 1.5, here = { 0, 0, 0 }, sides = sides, sides_max = 10 }
+    end
+    -- walls only round x >= 12.5: the nearest covered spot (11) fails the sides, a further one passes
+    local plan = Bd.shelter_plan(env(function(p) return { side_pct = p[1] >= 12.5 and 50 or 20, need_pct = 38, sides_ok = p[1] >= 12.5,
+                                                           open = p[1] >= 12.5 and {} or { "W" } } end), { 11, 0, 0 })
+    check("shelter plan: a covered spot that fails the side check gives way to one that passes", plan and plan.center[1] >= 12.5
+          and plan.sides and plan.sides.sides_ok, plan and plan.center[1])
+    local none = Bd.shelter_plan(env(function() return { side_pct = 10, need_pct = 38, sides_ok = false, open = { "S", "W" } } end), { 11, 0, 0 })
+    check("shelter plan: none passes -> the nearest covered, with its side numbers", none and none.center[1] == 11 and none.sides
+          and none.sides.side_pct == 10, none and none.center[1])
+    local nos = Bd.shelter_plan(env(nil), { 11, 0, 0 })
+    check("shelter plan: no rays to read -> as before, no side numbers", nos and nos.center[1] == 11 and nos.sides == nil)
+end
+-- where a station put on a floor's top really sits (live 2026-11-20 L3: the wheel on '#1' with no side went onto the
+-- open S edge, its foot 0.76 m below the floor's top, standing where the S wall goes)
+do
+    local found = { id = "BuildingPiece_592", name = "Square Foundation", position = { 515.40, 1736.36, -41.45 }, yaw = 0,
+                    box = { origin = { 0, 0, -1.5 }, extent = { 1.5, 1.5, 1.5 } } } -- its location is its top
+    local wbox = { origin = { 0, 0, 0.5 }, extent = { 0.45, 0.35, 0.5 } } -- a wheel: its box on its foot
+    local wheel = { id = "BP_Station_Spinning_Wheel_C_1", position = { 514.14, 1737.89, -42.21 }, yaw = 0 }
+    local r = Bd.seat_report(found, wheel, wbox, {}, {})
+    check("seat: the L3 wheel's foot is 0.76 m below the floor's top", r and math.abs(r.gap_m + 0.8) < 0.06 and r.off_floor, r and r.gap_m)
+    check("seat: ... on the S edge, said as off the floor it was meant for", r and r.edge == "S" and r.on_edge_line
+          and r.words:find("below the top of Square Foundation (BuildingPiece_592)", 1, true)
+          and r.words:find("S edge", 1, true) and r.words:find("off the floor it was meant for", 1, true), r and r.words)
+    local ok = Bd.seat_report(found, { id = "w2", position = { 515.40, 1736.36, -41.45 }, yaw = 0 }, wbox, {}, {})
+    check("seat: a wheel in the middle of the top says nothing", ok and ok.words == nil and not ok.off_floor and not ok.on_edge_line, ok and ok.words)
+    local past = Bd.seat_report(found, { id = "w3", position = { 515.40, 1738.20, -41.45 }, yaw = 0 }, wbox, {}, {})
+    check("seat: past the edge by 0.34 m", past and math.abs(past.outside_m - 0.3) < 0.06 and past.edge == "S" and past.off_floor
+          and past.words:find("out past that floor's S edge", 1, true), past and past.words)
+    -- what its box overlaps: a wall on the S edge line (3 m long, thin) with the wheel in it
+    local wall = { id = "BuildingPiece_600", name = "Wall", position = { 515.40, 1737.86, -41.45 }, yaw = 0,
+                   box = { origin = { 0, 0, 1.5 }, extent = { 1.5, 0.1, 1.5 } } }
+    local over = Bd.seat_report(found, { id = "w4", position = { 514.14, 1737.70, -41.45 }, yaw = 0 }, wbox, { wall }, {})
+    check("seat: names the piece its box overlaps", over and over.overlaps and over.overlaps[1].id == "BuildingPiece_600"
+          and over.words:find("It overlaps Wall (BuildingPiece_600)", 1, true), over and over.words)
+    check("seat: boxes side by side do not overlap", not Bd.boxes_overlap({ 0, 0, 0 }, wbox, 0, { 2, 0, 0 }, wbox, 0, 0.05)
+          and Bd.boxes_overlap({ 0, 0, 0 }, wbox, 0, { 0.5, 0, 0 }, wbox, 45, 0.05))
+    check("seat: a wall on top of the wheel's box (higher than it) does not overlap",
+          not Bd.boxes_overlap({ 0, 0, 0 }, wbox, 0, { 0, 0, 1.2 }, wbox, 0, 0.05))
+    -- the later S wall's red preview names the wheel standing in its spot (0.76 m below the wall's base)
+    local wall_box = { origin = { 0, 0, 1.5 }, extent = { 1.5, 0.1, 1.5 } }
+    local inn = Bd.standing_in({ { id = wheel.id, name = "Spinning Wheel", position = wheel.position } }, { 515.40, 1737.86, -41.45 }, wall_box, 0, {}, 0.6)
+    check("in the way: a station 0.76 m below the wall's base is named", #inn == 1 and inn[1].id == wheel.id, #inn)
+    local deep = Bd.standing_in({ { id = "x", position = { 515.40, 1737.86, -43.0 } } }, { 515.40, 1737.86, -41.45 }, wall_box, 0, {}, 0.6)
+    check("in the way: a piece 1.5 m below is not", #deep == 0)
+end
+-- the build reply for a station put on a floor's top: where it really sits and the game's two shelter checks, in the
+-- line and in the batch's fit (live 2026-11-20 L3 batch: "NOT square on the S edge ... 0.81 m lower" and nothing else)
+do
+    local found = { id = "BuildingPiece_592", name = "Square Foundation", position = { 515.40, 1736.36, -41.45 }, yaw = 0,
+                    box = { origin = { 0, 0, -1.5 }, extent = { 1.5, 1.5, 1.5 } } }
+    local wbox = { origin = { 0, 0, 0.5 }, extent = { 0.45, 0.35, 0.5 } }
+    local wheel = { id = "BP_Station_Spinning_Wheel_C_1", position = { 514.14, 1737.89, -42.21 }, yaw = 0 }
+    local saved = { bp = Bd.W.built_pieces, st = Bd.W.structures, pp = Bd.W.piece_profile }
+    Bd.W.built_pieces = function() return {} end
+    Bd.W.structures = function() return {} end
+    Bd.W.piece_profile = function() return {} end
+    local logs = {}
+    local sh = { rule = "shelter_only", roof = "yes", roof_hits = 1, roof_n = 1, side_hits = 4, side_n = 16, side_pct = 25, need_pct = 38,
+                 open = { "S" }, sides_ok = false, covered = true, sheltered = false }
+    local CM = { W = { shelter = function() return sh end },
+                 shelter_words = function(x) return "the Spinning Wheel only works sheltered; sides: " .. x.side_pct .. " %, it needs " .. x.need_pct .. " %; open toward S" end }
+    local fapi = setmetatable({ my_position = function() return { 510, 1737, -41 } end, null = NULL or {}, object = function(t) return t end,
+                                module = function(n) if n == "crafting" then return CM end end, actor_of = function() return {} end,
+                                log = function(s) logs[#logs + 1] = s end, now = function() return 0 end }, { __index = api })
+    local job = { structure = wheel, piece = { id = "BUILDPIECE_Spinning_Wheel", name = "Spinning Wheel", cost = {}, needs_shelter = true },
+                  on = { anchor = found, side = "S", box = wbox }, spot = { position = wheel.position } }
+    local ok, res = pcall(Bd._success, fapi, job, {}, true, "census", 0)
+    Bd.W.built_pieces, Bd.W.structures, Bd.W.piece_profile = saved.bp, saved.st, saved.pp
+    local d = ok and res and res.data or {}
+    check("reply: runs", ok, not ok and res or nil)
+    check("reply: says the wheel's foot sits below the floor's top, on its S edge line", tostring(d.built):find("below the top of Square Foundation", 1, true)
+          and tostring(d.fit):find("S edge", 1, true), tostring(d.fit))
+    check("reply: the game's shelter checks in the line and the batch fit", tostring(d.built):find("Shelter: ", 1, true)
+          and tostring(d.fit):find("25 %", 1, true) and d.shelter and d.shelter.side_pct == 25 and d.shelter.sheltered == false, tostring(d.fit))
+    check("reply: seat facts as fields", d.seat and d.seat.off_floor == true and d.seat.edge == "S", d.seat and d.seat.edge)
+    local seen
+    for _, l in ipairs(logs) do if l:find("build: seat BP_Station_Spinning_Wheel_C_1 on BuildingPiece_592", 1, true) then seen = true end end
+    check("reply: a log line shows the seat check ran", seen, logs[1])
+end
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)
