@@ -1220,3 +1220,158 @@ def test_world_check_counts_foliage_and_lists_every_row(doc):
     j.run_job(io, flax_job(doc), {"interruptions": doc["interruptions"]})
     a = io.census_args[0]
     assert a["foliage"] is True and a["max"] >= 1500
+
+
+# ------------------------------------------------------------------ I4 inside a long job (2026-11-20)
+BONE_PICK, STONE_PICK = "ITEM_Pickaxe_Bone", "ITEM_Pickaxe_Stone"
+V1_LABEL = "a pickaxe of tier 2 or better"
+
+
+def _inv(item, where="bag", guid=None, count=1):
+    r = {"item": item, "count": count, "where": where, "durability": 1000, "max_durability": 1000}
+    if guid:
+        r["guid"] = guid
+    return r
+
+
+def _v1(doc):
+    return j.rung_job(j.job_of("L2", doc), "V1")
+
+
+def test_i4_goes_into_l2_v1_l3_l1_and_l2_by_their_own_end(doc):
+    spec = doc["interruptions"]["I4"]
+    assert j.i4_mode(_v1(doc), spec)[0] == "job_end"
+    for jid in ("L1", "L2", "L3"):
+        assert j.i4_mode(j.job_of(jid, doc), spec)[0] == "job_end", jid
+    assert j.i4_mode(j.job_of("N2", doc), spec)[0] == "vehicle"  # N2 as before: unheld_wants, no end bar
+
+
+def test_i4_refused_where_it_cannot_apply_with_the_reason(doc):
+    spec = doc["interruptions"]["I4"]
+    mode, why = j.i4_mode(j.job_of("N1", doc), spec)
+    assert mode is None and "vehicle is N2" in why and "stack" in why  # every unit merges into a stack he holds
+    for jid in ("H1", "K"):
+        mode, why = j.i4_mode(j.job_of(jid, doc), spec)
+        assert mode is None and "long_jobs" in why, jid
+    mode, why = j.i4_mode(j.rung_job(j.job_of("L2", doc), "V2"), spec)
+    assert mode is None and "L2 / V2" in why and "venture_gear" in why and "new slot" in why
+
+
+def test_end_owed_is_the_v1_pickaxe_until_he_holds_one_he_made(doc):
+    v1 = _v1(doc)
+    start = j.snapshot({"position": [0, 0, 0], "inventory_items": [_inv(STONE_PICK, "hotbar", "1" * 32)]})
+    assert j.end_owed(v1, start, None) is None  # no read yet: the trigger time alone
+    assert j.end_owed(v1, start, start) == [V1_LABEL]
+    made = j.snapshot({"position": [0, 0, 0], "inventory_items": [_inv(STONE_PICK, "hotbar", "1" * 32),
+                                                                   _inv(BONE_PICK, "hotbar", "3" * 32)]})
+    made["crafted"] = {BONE_PICK: 1}
+    assert j.end_owed(v1, start, made) == []
+    # L2 itself: the copper he carries none of
+    assert j.end_owed(j.job_of("L2", doc), start, start) == ["ITEM_Resources_CopperOre"]
+
+
+def v1_script(finish=True):
+    """L2 / V1 from ClaudeDev: bones 3-25 s; the bag filled at the trigger (at:30, no call open); his craft 35-37 s
+    meets it (inventory_full: the bite); a store 40-44 s frees a slot; the pickaxe craft 50-60 s (ok when finish)."""
+    rows = model(T0 + 1) + [call(T0 + 3, "g1", "gather", {"resource": "bones", "count": 4}),
+                            result(T0 + 25, "g1", "gather", data={"detail": "Got 4 bones."}),
+                            call(T0 + 35, "c1", "craft", {"item": "Bone Pickaxe"}),
+                            result(T0 + 37, "c1", "craft", ok=False, reason="inventory_full",
+                                   data={"detail": "My bag is full, so I couldn't make the Bone Pickaxe."}),
+                            call(T0 + 40, "s1", "store", {"item": "Coarse Net", "container": CRATE}),
+                            result(T0 + 44, "s1", "store", data={"detail": "Stored 1 Coarse Net."}),
+                            call(T0 + 50, "c2", "craft", {"item": "Bone Pickaxe"}),
+                            (result(T0 + 60, "c2", "craft", data={"item": BONE_PICK, "crafts": 1}) if finish else
+                             result(T0 + 60, "c2", "craft", ok=False, reason="not_enough_resources"))]
+    return sorted(rows, key=lambda r: r["ts"])
+
+
+def v1_state(finish=True):
+    def f(t):
+        rows = [_inv(STONE_PICK, "hotbar", "1" * 32)]
+        if finish and t >= T0 + 60:
+            rows.append(_inv(BONE_PICK, "hotbar", "3" * 32))
+        return {"position": [0, 0, 0], "inventory_items": rows,
+                "bag": {"used": 32 if T0 + 30 <= t < T0 + 44 else 31, "capacity": 32}}
+    return f
+
+
+def test_i4_on_l2_v1_gate_opens_at_the_trigger_and_the_pass_reads_the_end(doc):
+    io = FakeIO(script=v1_script(), states=v1_state(), room=[10, 0])
+    rec = j.run_job(io, _v1(doc), {"step": "I4", "interruptions": doc["interruptions"], "trigger": "at:30",
+                                   "deadline": 300})
+    intr = rec["interruption"]
+    assert 30.0 <= intr["t_put"] < 31.0 and intr["full_read"]  # at the trigger, not before
+    assert intr["moment"]["gate"] == "job_end" and intr["moment"]["owed"] == [V1_LABEL]
+    assert io.fixtures and io.fixtures[0][0] == "grant" and io.fixtures[0][1]["item"] == "ITEM_FishingNet_CoarseNet"
+    assert intr["bite"]["t"] == 37.0 and intr["bite"]["how"] == "inventory_full"
+    assert 44.0 <= intr["t_clear"] <= 50.0
+    assert rec["until"] == "done" and rec["i4_gate"] == "job_end" and rec["ended"] == "job done"
+    r = rec["resume"]
+    assert r["resumed"] and r["call"]["tool"] == "craft" and r["call"]["t"] == 50.0 and not r["new_line"]
+    v = rec["verdict"]
+    assert v["bars"]["job_done"] and v["pass"] and not rec.get("not_counted"), (v, rec.get("not_counted"))
+    assert j.item_key(rec) == "L2 / V1 / I4"
+
+
+def test_i4_on_l2_v1_resumed_but_not_finished_fails_on_the_end(doc):
+    io = FakeIO(script=v1_script(finish=False), states=v1_state(finish=False), room=[10, 0])
+    rec = j.run_job(io, _v1(doc), {"step": "I4", "interruptions": doc["interruptions"], "trigger": "at:30",
+                                   "deadline": 120})
+    v = rec["verdict"]
+    assert rec["resume"]["resumed"] and v["bars"]["resumed"] and v["bars"]["interrupted"]
+    assert v["bars"]["job_done"] is False and not v["pass"]
+
+
+def test_i4_on_a_long_job_held_back_when_the_end_owes_no_new_slot(doc):
+    # the end owes only what takes a new slot: the pickaxe made, a helmet still owed
+    both = {**_v1(doc), "end": {"made_carried": _v1(doc)["end"]["made_carried"],
+                                "worn_made_in_run": {"Head": ["ITEM_Armour_T2_Head_Leather"]}}}
+    made = j.snapshot(v1_state()(T0 + 61))
+    made["crafted"] = {BONE_PICK: 1}
+    assert j.end_owed(both, j.snapshot(v1_state()(T0)), made) == ["worn_made_in_run"]
+    # the pickaxe made and carried before the trigger: the gate stays shut, nothing granted, the step says nothing
+    script = model(T0 + 1) + [call(T0 + 3, "c", "craft", {"item": "Bone Pickaxe"}),
+                              result(T0 + 8, "c", "craft", data={"item": BONE_PICK, "crafts": 1})]
+    io = FakeIO(script=script, states=lambda t: {"position": [0, 0, 0], "inventory_items": [
+        _inv(STONE_PICK, "hotbar", "1" * 32)] + ([_inv(BONE_PICK, "hotbar", "3" * 32)] if t >= T0 + 8 else [])},
+                room=[10, 0])
+    rec = j.run_job(io, _v1(doc), {"step": "I4", "interruptions": doc["interruptions"], "trigger": "at:30",
+                                   "deadline": 60})
+    assert not io.fixtures and rec["not_counted"]
+
+
+def test_cli_i4_on_l2_v1_reaches_the_window_and_runs_to_the_end(monkeypatch, capsys):
+    seen = []
+
+    def stop_here(a):  # past every check of the step: record what the window would run, open nothing
+        seen.append((a.job, a.rung, a.step, a.until, a.trigger))
+        return True
+
+    def never(*a, **k):
+        raise AssertionError("a window opened from a test")
+    monkeypatch.setattr(q, "refuse_dirty", stop_here)
+    monkeypatch.setattr(q, "clone_window", never)
+    assert j.main(["trial", "--confirm", "--job", "L2", "--rung", "V1", "--interrupt", "I4", "--trigger", "at:240",
+                   "-k", "1"]) == 7
+    assert j.main(["trial", "--confirm", "--job", "L3", "--interrupt", "I4", "--trigger", "at:240"]) == 7
+    assert seen == [("L2", "V1", "I4", "done", "at:240"), ("L3", None, "I4", "done", "at:240")]
+    # refused with the reason: a job it cannot bite on, a rung whose end names no new-slot item, a --until short of
+    # the end, and another step on a rung
+    assert j.main(["trial", "--confirm", "--job", "N1", "--interrupt", "I4"]) == 2
+    assert "vehicle is N2" in capsys.readouterr().out
+    assert j.main(["trial", "--confirm", "--job", "L2", "--rung", "V2", "--interrupt", "I4"]) == 2
+    assert "names no item that takes a new slot" in capsys.readouterr().out
+    assert j.main(["trial", "--confirm", "--job", "L3", "--interrupt", "I4", "--until", "resumed"]) == 2
+    assert "--until done" in capsys.readouterr().out
+    assert j.main(["trial", "--confirm", "--job", "L2", "--rung", "V1", "--interrupt", "I3"]) == 2
+    assert len(seen) == 2
+
+
+def test_i4_on_n2_is_unchanged(doc):
+    from tests.test_job_run_i4_i5 import AskIO, n2_crate, n2_script, n2_state
+    io = AskIO(script=n2_script(), states=n2_state, chests=n2_crate, room=[14, 0, 0, 0, 0, 0, 0, 0])
+    rec = j.run_job(io, j.job_of("N2", doc), {"step": "I4", "interruptions": doc["interruptions"], "confirm_s": 5,
+                                              "deadline": 200})
+    assert rec["until"] == "resumed" and "i4_gate" not in rec and "gate" not in rec["interruption"]["moment"]
+    assert "job_done" not in rec["verdict"]["bars"] and rec["verdict"]["pass"]

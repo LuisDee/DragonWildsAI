@@ -1899,6 +1899,52 @@ def unheld_wants(job: dict, snap: dict | None) -> list[str]:
     return [k for k, n in asked_carried(job, snap).items() if n == 0] if snap and not snap.get("unread") else []
 
 
+# the end predicates whose item lands in a new slot when he makes it (an instance: tools, armour, gear): I4's gate on a
+# long job is one of these not yet held (end_owed). in_own_chest counts by unheld_wants (a kind he carries none of).
+SLOT_ENDS = ("made_carried", "worn_made_in_run", "gear_target")
+
+
+def i4_mode(job: dict, spec: dict) -> tuple[str | None, str]:
+    """Where I4 may go in, from data/jobs.json interruptions.I4: ("vehicle", why) on its vehicle (spec job: N2, the
+    gate unheld_wants as before), ("job_end", why) on a long job of spec long_jobs whose end names an item that takes
+    a new slot (the gate end_owed; the pass also reads the job's end), else (None, the reason it cannot apply)."""
+    jid = job.get("id")
+    if not spec.get("job") or spec["job"] == jid:
+        return "vehicle", f"{jid} is I4's vehicle"
+    longs = spec.get("long_jobs") or []
+    if jid not in longs:
+        return None, (f"I4's vehicle is {spec['job']} (data/jobs.json interruptions.I4.job) and its long jobs are "
+                      f"{', '.join(longs) or 'none'} (long_jobs), not {jid}: "
+                      + (spec.get("job_note") or "the step says nothing on another job"))
+    end = job.get("end") or {}
+    slot = [k for k in SLOT_ENDS if k in end] + (["in_own_chest"] if _chest_wants(job) else [])
+    if not slot:
+        what = f"{jid}" + (f" / {job['rung']}" if job.get("rung") else "")
+        return None, (f"{what}'s end ({', '.join(end) or 'none'}) names no item that takes a new slot "
+                      f"({', '.join(SLOT_ENDS)} or a chest want): a full bag has nothing of the job's end to meet")
+    return "job_end", f"long job: the gate is its end ({', '.join(slot)})"
+
+
+def end_owed(job: dict, start: dict | None, snap: dict | None) -> list[str] | None:
+    """I4's gate on a long job, from the job's own end: what the end still needs that takes a new slot (a chest want he
+    carries none of: unheld_wants; an end item of SLOT_ENDS the read does not show held, unread counted as owed since
+    it is not shown held). None before any read (the trigger time alone decides); [] when nothing owed needs a slot."""
+    if not snap or snap.get("unread") or not start or start.get("unread"):
+        return None
+    owed = list(unheld_wants(job, snap))
+    for name in SLOT_ENDS:
+        spec = (job.get("end") or {}).get(name)
+        if spec is None:
+            continue
+        try:
+            good, _ = PREDICATES[name](spec, start, snap)
+        except Exception:  # a mid-run read short of a field the end read carries: not shown held
+            good = None
+        if good is not True:
+            owed.append((spec.get("label") if isinstance(spec, dict) and spec.get("label") else name))
+    return owed
+
+
 def _store_result(rows: list[dict], t0: float, c: dict, tol: float = 0.25) -> dict | None:
     """The result row of a timeline call, by its end (seconds into the run, to the timeline's 0.1 s)."""
     end = t0 + float(c["t"]) + float(c["dur_s"])
@@ -2039,6 +2085,8 @@ def verdict(rec: dict) -> dict:
                 "no_new_line": not r.get("new_line"),
                 "in_time": r.get("after_s") is not None and (lim is None or r["after_s"] <= float(lim)),
                 "counted": not rec.get("not_counted")}
+        if rec.get("i4_gate") == "job_end":  # I4 inside a long job: he also finished it, by the game's end read
+            bars["job_done"] = rec.get("done") is True
         ms = [{"t": m.get("t"), "tool": m.get("tool"), "reason": m.get("kind")} for m in (rec.get("misses") or {}).get("list") or []]
         return {"pass": all(bars.values()), "bars": bars, "misses": ms, "truth": "not judged"}
     v = q.verdict(rec)
@@ -2481,7 +2529,9 @@ def run_job(io, job: dict, opts: dict) -> dict:
     from tools import chat_ladder as cl
     step = opts.get("step")
     spec = (opts.get("interruptions") or {}).get(step) or {}
-    until = opts.get("until") or ("resumed" if step else "done")
+    # I4 inside a long job: the gate is the job's own end (end_owed) and the pass reads the end too (verdict job_done)
+    long_i4 = step == "I4" and i4_mode(job, spec)[0] == "job_end"
+    until = opts.get("until") or ("done" if long_i4 else "resumed" if step else "done")
     bar = bar_s(job) if job.get("bar") else None
     lo_hi = mid_range(until)
     # the open ask on disk (brain/ask_store.py) is per world guid: cleared here, with no brain running, so this trial
@@ -2595,13 +2645,17 @@ def run_job(io, job: dict, opts: dict) -> dict:
             # needs_new_slot (I4): only while he carries none of an asked kind, so his next unit needs a new slot; a
             # unit that merges into a stack he holds never meets a full bag (N1: stacks of 99)
             unheld = unheld_wants(job, cur)
-            if due and spec.get("needs_new_slot") and not unheld:
+            owed = end_owed(job, start, cur) if long_i4 else None
+            if due and spec.get("needs_new_slot") and (owed == [] if long_i4 else not unheld):
                 gate_blocked, due = True, False
             if due:
                 open_c = [c for c in tl["calls"] if c.get("dur_s") is None]
                 moment = {"trigger": trigger, "at_s": round(rel, 1), "first_work_s": work_t, "first_step_s": first_t,
                           "first_deposit_s": dep_t, "progress": share, "carried": asked_carried(job, cur) or None,
                           "unheld": unheld,
+                          # a long job's gate (I4): what its end still owes that takes a new slot (None: no read yet,
+                          # the trigger time alone)
+                          **({"gate": "job_end", "owed": owed} if long_i4 else {}),
                           # the call open at this moment (I5: the body runs it on with no brain to log its result)
                           "open_call": ({k: open_c[-1].get(k) for k in ("tool", "args", "t")} if open_c else None)}
                 intr = apply_interruption(io, step, spec, t0)
@@ -2730,13 +2784,17 @@ def run_job(io, job: dict, opts: dict) -> dict:
     if step:
         rec["resumed"] = bool(res.get("resumed"))
         never = f"never put in: {trigger} was not due when the run ended ({why})" + (
-            "; when it was due he carried some of every asked kind, so no unit needed a new slot (needs_new_slot)"
+            ("; when it was due the job's end owed nothing that takes a new slot (needs_new_slot, gate job_end)"
+             if long_i4 else
+             "; when it was due he carried some of every asked kind, so no unit needed a new slot (needs_new_slot)")
             if gate_blocked else "")
         rec.update(interruption=intr or {"step": step, "took": False, "how": never},
                    resume=res, resume_within_s=spec.get("resume_within_s"),
                    says_after_put=[s for s in tl["says"] if intr and intr.get("t_put") is not None and s["t"] >= intr["t_put"]])
         rec["ask_store"] = ask_cleared
         rec["job_done_s"] = t_done
+        if long_i4:  # the step's pass reads the job's own end too (verdict bar job_done)
+            rec["i4_gate"] = "job_end"
     if step == "I5" and intr:  # beside the verdict, never a bar: did the new brain bring the ask back from disk
         t_new = t0 + float(intr.get("t_started") if intr.get("t_started") is not None else intr.get("t_put") or 0)
         ar = [r for r in rows if r.get("kind") == "ask_restored" and float(r.get("ts") or 0) >= t_new]
@@ -2956,15 +3014,27 @@ def cmd_window(a, step: str | None) -> int:
     doc = load_jobs()
     job = job_of(a.job, doc)
     spec = (doc.get("interruptions") or {}).get(step) or {}
-    if step and spec.get("job") and spec["job"] != a.job:  # the step bites only on its vehicle (I4: N1 cannot)
+    rung = getattr(a, "rung", None)
+    if rung:  # a rung of the job's ladder: the job's line, the rung's end and start (from)
+        job = rung_job(job, rung)
+    if step == "I4":  # its vehicle (N2), or a long job whose end names an item that takes a new slot (i4_mode)
+        mode, mode_why = i4_mode(job, spec)
+        if mode is None:
+            print(mode_why)
+            return 2
+        if mode == "job_end":  # the pass reads the job's end: the trial runs to it
+            if getattr(a, "until_default", False):
+                a.until = "done"
+            elif a.until != "done":
+                print(f"I4 on {a.job}{' / ' + rung if rung else ''} is judged on the job's own end too: --until done "
+                      f"(the default there), not {a.until}")
+                return 2
+    elif step and spec.get("job") and spec["job"] != a.job:  # the step bites only on its vehicle
         print(f"{step}'s vehicle is {spec['job']} (data/jobs.json interruptions.{step}.job), not {a.job}: "
               + (spec.get("job_note") or "the step says nothing on another job"))
         return 2
     if q.refuse_dirty(a):
         return 7
-    rung = getattr(a, "rung", None)
-    if rung:  # a rung of the job's ladder: the job's line, the rung's end and start (from)
-        job = rung_job(job, rung)
     ref, ref_why = start_ref(job, step, a.checkpoint, spec)
     ladder = read_ladder(ref) if rung else {}  # what he made in the earlier rungs, from the checkpoint's record
     if rung:
@@ -3258,9 +3328,13 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd in ("trial", "interrupt") and a.trigger and not trigger_ok(a.trigger):
         print(f"unknown --trigger {a.trigger!r} (first_step, first_deposit, progress:F, share:F, at:SECONDS, a|b)")
         return 2
-    if a.cmd == "trial" and a.rung and (a.step or (a.until and a.until != "done")):
-        print("a rung is a whole trial to its own end: no --interrupt and no --until with --rung")
+    if a.cmd == "trial" and a.rung and ((a.step and a.step != "I4") or (a.until and a.until != "done")):
+        # a rung is a whole trial to its own end; I4 alone may go into one (2026-11-20: I4 on L2 / V1, judged on
+        # the rung's end too, so --until done)
+        print("a rung is a whole trial to its own end: no --interrupt but I4, and no --until but done, with --rung")
         return 2
+    if a.cmd in ("trial", "interrupt"):
+        a.until_default = a.until is None  # I4 on a long job runs to the job's end when --until is not given
     if a.cmd == "trial":
         a.until = a.until or ("resumed" if a.step else "done")
         return cmd_window(a, a.step)
