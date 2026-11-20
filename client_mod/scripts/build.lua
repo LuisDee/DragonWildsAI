@@ -415,6 +415,10 @@ M.cfg.build = {
     -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
     -- NeedsSnapping press itself and Client_ShowValidityNotification names why. true = also require the hook.
     hook_required = false,
+    -- a settled green preview off its spot, free placement (M.asked_area): it may sit at most this far above or below
+    -- the ground of the spot I aimed at, the same 1.5 m that the refusal below calls "its preview never reached the
+    -- spot ... on whatever my view hit" (live window 2: a preview on the roof above me, 4.7 m up)
+    area_z_m = 1.5,
 }
 M.HOOK_PATHS = {
     validity = "/Script/Dominion.BuildModeComponent:OnValidityStateChange",
@@ -451,7 +455,7 @@ M.REJECT_WORDS = {
 }
 -- The success reply in the order the model reads it (dkjson __jsonorder; the bridge encodes data as is): what was
 -- placed and where first, the rejected preview spots last and labelled as such.
-M.RESULT_ORDER = { "built", "placed", "name", "piece", "structure", "position", "distance_m", "direction", "facing",
+M.RESULT_ORDER = { "built", "placed", "name", "piece", "structure", "position", "distance_m", "direction", "facing", "off_aim_m",
                    "attached_to", "side", "flush", "gap_m", "offset_m", "level_m", "facing_off_deg", "snap_moved_m",
                    "spent", "xp", "evidence", "rejected_previews_before_placing", "rotation_verified" }
 local RESULT_MT = { __jsontype = "object", __jsonorder = M.RESULT_ORDER }
@@ -463,6 +467,51 @@ local function compass(dx, dy)
 end
 M._compass = compass
 local function r1(x) return math.floor(x * 10 + 0.5) / 10 end
+
+-- Free placement: is the game's green preview, settled off the spot I aimed at, still inside what was asked? The spot
+-- search (P.spots) tries spots up to max(around_m) from the centre and presses one with its preview up to match_m off
+-- it, so it already accepts a preview anywhere within max(around_m) + match_m of the centre ("near": 3.0 + 1.5 m, an
+-- exact "at": 1.0 + 1.5 m). Copper 2026-11-20 (141136 595.6): green, settled, 1.7 m off its one spot (the ring spots
+-- were all where he stood), refused as "didn't land where I aimed". Also never within the spot search's own
+-- clear_players_m of another player, nor more than area_z_m above / below the spot's ground.
+-- Returns true, or nil, why (the refusal says it) and, outside the area, how far and the area's radius.
+function M.asked_area(job, at, spot, players, clear_m)
+    local cfg = M.cfg.build
+    if not (job.center and at and spot) then return nil, "outside_area" end
+    local most = 0
+    for _, a in ipairs(job.around_m or {}) do most = math.max(most, a) end
+    local r = cfg.match_m + most
+    local d = math.sqrt((at[1] - job.center[1]) ^ 2 + (at[2] - job.center[2]) ^ 2)
+    if d > r then return nil, "outside_area", d, r end
+    if math.abs((at[3] or 0) - (spot[3] or 0)) > cfg.area_z_m then return nil, "height" end
+    local clear = clear_m or 2.5 -- placement.lua P.cfg.clear_players_m
+    for _, p in ipairs(players or {}) do
+        local pp = p.position
+        if pp and math.sqrt((pp[1] - at[1]) ^ 2 + (pp[2] - at[2]) ^ 2) < clear then return nil, "player" end
+    end
+    return true
+end
+
+-- Where the game showed the preview green although I didn't press, in words he can act on (copper 2026-11-20: the
+-- verdict never reached him, only "didn't land where I aimed" / "kept sliding"). at = where it sat, ref = the spot it
+-- is measured from, ref_words = what that spot is, held = why I didn't press it, extra = {off, area} for outside_area.
+M.HELD_WORDS = {
+    outside_area = "it was further from where it was asked than I place things (%.1f m; I go up to %.1f m)",
+    height = "it sat on something %.1f m %s the ground there (whatever my view hit)",
+    player = "someone stands right there",
+    not_settled = "it was still moving",
+    not_flush = "it wouldn't sit flush there",
+}
+function M.green_words(at, ref, ref_words, held, extra)
+    if not (at and ref) then return nil end
+    local off = math.sqrt((at[1] - ref[1]) ^ 2 + (at[2] - ref[2]) ^ 2)
+    local w = M.HELD_WORDS[held]
+    if held == "outside_area" and extra then w = string.format(w, extra[1], extra[2])
+    elseif held == "outside_area" then w = "it was further from where it was asked than I place things"
+    elseif held == "height" then local up = (at[3] or 0) - (ref[3] or 0); w = string.format(w, math.abs(up), up > 0 and "above" or "below") end
+    return string.format("The game showed it green at [%.1f, %.1f, %.1f], %.1f m %s of %s, but I didn't press%s.",
+        at[1], at[2], at[3] or 0, off, compass(at[1] - ref[1], at[2] - ref[2]), ref_words, w and (": " .. w) or "")
+end
 
 -- ---------- world reads/writes (every one replaceable in tests)
 local function IN(api) local m = api.module("input"); return m and type(m.gate) == "function" and m or nil end
@@ -1921,6 +1970,13 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             if hint then line, fit = line .. hint, (fit or "") .. hint end
         end
     end
+    local off_aim
+    if job.press_off_m and job.spot and job.spot.position and job.preview and type(job.preview.position) == "table" then
+        local a, p = job.spot.position, job.preview.position
+        off_aim = job.press_off_m
+        line = line .. string.format(" The game showed it green %.1f m %s of the spot I aimed at, inside the area asked for, so I placed it where it showed.",
+            off_aim, compass(p[1] - a[1], p[2] - a[2]))
+    end
     local rej = {}
     for _, r in ipairs(job.rejects or {}) do
         rej[#rej + 1] = { spot = r.spot, why = r.why, preview_at = r.preview_at, off_m = r.off_m, trail = r.trail, aim_s = r.aim_s }
@@ -1931,7 +1987,7 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     end
     return { ok = true, data = setmetatable({ built = line, placed = true, name = job.piece.name, piece = job.piece.id,
         structure = s and s.id or api.null, position = at, distance_m = dist, direction = dir, facing = facing,
-        spent = api.object(spent), xp = xp_gain or api.null, evidence = evidence,
+        spent = api.object(spent), xp = xp_gain or api.null, evidence = evidence, off_aim_m = off_aim,
         rotation_verified = (att and math.abs(att.facing_off_deg) <= 2) or false, -- attached: the census yaw checked it
         attached_to = job.on and job.on.anchor.id or nil, side = job.on and job.on.side or nil,
         flush = att and att.flush, gap_m = att and att.gap_m, offset_m = att and att.offset_m, level_m = att and att.level_m,
@@ -2466,8 +2522,9 @@ local function step(api, job, t)
                 end
             end
         else
+            job.around_m = job.exact and { 1.0 } or { 1.5, 3.0 } -- M.asked_area measures from these too
             spots, skipped = P.spots(env, job.center, { footprint_m = job.footprint, standoff_m = math.max(0.8, job.footprint / 2 + 0.3),
-                                                        around_m = job.exact and { 1.0 } or { 1.5, 3.0 }, around_n = 8,
+                                                        around_m = job.around_m, around_n = 8,
                                                         shelter = job.shelter ~= nil })
             if job.exact and spots[1] and not spots[1].exact then table.insert(spots, 1, { position = job.center, exact = true }) end
             if #spots == 0 then spots = { { position = job.center, exact = true } } end
@@ -2492,7 +2549,15 @@ local function step(api, job, t)
         job.checker = P.checker(env, spots, { match_m = function(sp) return sp.match_m or cfg.match_m end, checks = checks,
                                               budget_s = cfg.budget_s, compare = "2d",
                                               wait_s = exact and cfg.aim_wait_s or nil,
-                                              settle_s = exact and 0 or cfg.settle_s })
+                                              settle_s = exact and 0 or cfg.settle_s,
+                                              -- free placement: a settled green inside the asked area is the game's yes
+                                              -- (M.asked_area); an attached piece must sit flush, so never there
+                                              accept_off = (not job.on) and function(vis, sp)
+                                                  local ok, why, d, area = M.asked_area(job, vis.position, sp.position, env.players(), P.cfg.clear_players_m)
+                                                  if not ok and d then job.area_off = job.area_off or {}; job.area_off[sp.position] = { r1(d), r1(area) } end
+                                                  return ok, why
+                                              end or nil,
+                                              settle_m = cfg.settle_m })
         job.phase = "check"
         return nil
     elseif job.phase == "check" then
@@ -2504,6 +2569,18 @@ local function step(api, job, t)
         if r.give_up then
             local P = pl()
             local common = P.common_reason(r.rejects)
+            -- "kept sliding" only when it slid: the camera re-aim and the read right after a correction are labelled
+            -- settling too (copper 112747 445.2: a roof's 12 reads identical and green, told "kept sliding"). A cursor
+            -- that stood still (settle_m) over its last 3 reads is named by its colour instead
+            local rd = job.on and job.on.reads
+            if common == "settling" and rd and #rd >= 3 then
+                local still = true
+                for k = #rd - 1, #rd - 2, -1 do
+                    local a, b = rd[k].cursor, rd[#rd].cursor
+                    if not (a and b and math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2) <= cfg.settle_m) then still = false end
+                end
+                if still then common = (rd[#rd].colour == 2 and "preview_off_target") or (rd[#rd].colour == 1 and "preview_red") or "preview_none" end
+            end
             local texts = W.texts(api)
             local code
             for s, name in pairs(M.STATES) do if name == common then code = s end end
@@ -2525,10 +2602,14 @@ local function step(api, job, t)
                 d.attach_to, d.side = a.id, job.on.side
                 d.ghost_off_m = best and math.floor(best * 100 + 0.5) / 100 or nil
                 d.preview_reads = job.on.reads -- where I aimed, where the cursor and the ghost landed (newest last)
+                local gr -- the newest green read: where the game would have taken it, not flush
+                for k = #(rd or {}), 1, -1 do if rd[k].colour == 2 and rd[k].ghost then gr = rd[k]; break end end
+                local gw = gr and job.on.target and M.green_words(gr.ghost, job.on.target, "the flush spot", "not_flush")
+                d.green_at = gw and gr.ghost or nil
                 d.detail = "I couldn't get the " .. job.piece.name .. " to sit flush on the " .. job.on.side
                     .. (job.on.side == "top" and " of the " or " side of the ") .. tostring(a.name) .. " (" .. a.id .. "): " .. tostring(words)
                     .. (best and string.format("; the closest its preview came was %.2f m from the flush spot", best) or "")
-                    .. ". Nothing was placed."
+                    .. (gw and (". " .. gw) or ".") .. " Nothing was placed."
                 if common == "preview_red" and job.on.target then
                     local skip = { [a.id] = true }
                     local mount = job.on.mount or {}
@@ -2572,7 +2653,7 @@ local function step(api, job, t)
                 end
                 -- the preview never got there (live window 2: it sat on the roof above me, 3 m off and 4.7 m up)
                 local lr = r.rejects and r.rejects[#r.rejects]
-                if lr and lr.preview_at and lr.spot and ((lr.off_m or 0) > cfg.match_m or math.abs(lr.preview_at[3] - lr.spot[3]) > 1.5) then
+                if lr and lr.preview_at and lr.spot and ((lr.off_m or 0) > cfg.match_m or math.abs(lr.preview_at[3] - lr.spot[3]) > cfg.area_z_m) then
                     local up = lr.preview_at[3] - lr.spot[3]
                     d.detail = d.detail .. string.format(". Its preview never reached the spot: it stayed %.1f m off%s", lr.off_m or 0,
                         math.abs(up) > 1.5 and string.format(" and %.1f m %s it (on whatever my view hit)", math.abs(up), up > 0 and "above" or "below") or "")
@@ -2587,6 +2668,12 @@ local function step(api, job, t)
                     d.detail = d.detail .. (#names > 0 and (". Where it would go stands " .. table.concat(names, " and ") .. ".")
                         or ". Nothing built stands where it would go.")
                 end
+            end
+            if not job.on then -- the game's own green, refused: where, how far, why (single and multi-piece replies alike)
+                local g
+                for k = #(r.rejects or {}), 1, -1 do local x = r.rejects[k]; if x.valid == true and x.preview_at and x.spot then g = x; break end end
+                local gw = g and M.green_words(g.preview_at, g.spot, "the spot I aimed at", g.held, g.held == "outside_area" and job.area_off and job.area_off[g.spot] or nil)
+                if gw then d.green_at, d.detail = g.preview_at, d.detail .. (d.detail:sub(-1) == "." and " " or ". ") .. gw end
             end
             -- the cause from the game itself: one press on the red preview, as a player clicks to see the message
             -- (BuildInteractionComponent:Client_ShowValidityNotification, the refused hook)
@@ -2607,6 +2694,7 @@ local function step(api, job, t)
         end
         if r.press then
             job.spot, job.preview = r.spot, r.preview
+            job.press_off_m = r.off_m -- green off the spot, inside the asked area (M.asked_area)
             job.rejects = r.rejects
             job.place_trail, job.place_aim_s = r.trail, r.aim_s
             job.refused0 = (W.hook("refused") or {}).seq or 0

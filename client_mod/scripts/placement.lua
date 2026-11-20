@@ -136,6 +136,11 @@ end
 -- opts: match_m (number or fn(spot) -> m), checks, wait_s, budget_s, compare = "3d" | "2d",
 --   on_unreadable = "skip" (default: no readable preview = no press; build) | "press_once" (spells' old rule),
 --   on_reject(rej, checker) (may add/filter checker.spots; spells' ground spots / flatness learning)
+--   accept_off(vis, spot) -> true | nil, why: the game's own yes off the spot. When every check of a spot is spent and
+--     the preview is green, fresh and settled but beyond match_m, this decides whether that green is still what was
+--     asked for (build: inside the area its spot search covers). true = press it where the game shows it (the press
+--     carries off_m); else the reject carries held = why. "Settled": this read and the one before it (same spot, any
+--     re-aim) both green, within settle_m of each other (default 0 = the same position).
 function P.checker(env, spots, opts)
     opts = opts or {}
     local c = { spots = spots or {}, i = 0, rejects = {}, unreadable = 0, next = true, checks = 0 }
@@ -155,6 +160,7 @@ function P.checker(env, spots, opts)
             end
             env.aim(sp.position)
             self.t_read, self.checks, self.t_aim, self.last_d, self.last_move, self.trail = t + wait_s, 0, t, nil, nil, {}
+            self.pv = nil
             return nil
         end
         if t < self.t_read then return nil end
@@ -166,6 +172,9 @@ function P.checker(env, spots, opts)
             self.trail[#self.trail + 1] = { math.floor((t - self.t_aim) * 100 + 0.5) / 100, math.floor(q[1] * 100 + 0.5) / 100,
                                             math.floor(q[2] * 100 + 0.5) / 100, vis.valid }
         end
+        -- the read before this one at this spot (accept_off's "settled")
+        local pv = self.pv
+        self.pv = vis and vis.position and { vis.position[1], vis.position[2], valid = vis.valid } or nil
         local settle_s = opts.settle_s or P.cfg.settle_s
         if settle_s > 0 and vis and vis.position and sp.position and not sp.here
             and not (vis.valid == true and d2(vis.position, sp.position) <= match_m(sp)) then
@@ -209,7 +218,20 @@ function P.checker(env, spots, opts)
         end
         self.checks = self.checks + 1
         if self.checks < checks then env.aim(sp.position); self.t_read = t + wait_s; return nil end
-        local rej = { spot = sp.position, valid = vis.valid, why = (vis.valid == true and not match) and "preview_off_target" or vis.why,
+        local held
+        if vis.valid == true and not match and vis.fresh ~= false and opts.accept_off then
+            if not (pv and pv.valid == true and vis.position and d2(pv, vis.position) <= (opts.settle_m or 0)) then
+                held = "not_settled"
+            else
+                local ok, why = opts.accept_off(vis, sp)
+                if ok then
+                    return { press = true, spot = sp, preview = vis, rejects = self.rejects, trail = self.trail,
+                             off_m = math.floor(near * 10 + 0.5) / 10, aim_s = math.floor((t - (self.t_aim or t)) * 100 + 0.5) / 100 }
+                end
+                held = why or "refused"
+            end
+        end
+        local rej = { spot = sp.position, valid = vis.valid, why = (vis.valid == true and not match) and "preview_off_target" or vis.why, held = held,
                       preview_at = vis.position, spread_m = sp.spread_m, off_m = near and math.floor(near * 10 + 0.5) / 10 or nil,
                       trail = self.trail, aim_s = math.floor((t - (self.t_aim or t)) * 100 + 0.5) / 100 }
         self.rejects[#self.rejects + 1] = rej

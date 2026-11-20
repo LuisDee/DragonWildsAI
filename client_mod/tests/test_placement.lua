@@ -160,5 +160,33 @@ do
         r and r.press and r.preview.position[1] < 5.25, r and r.preview and r.preview.position[1])
 end
 
+-- accept_off (copper 2026-11-20, 141136 595.6): a settled green 1.7 m off the spot is the game's yes when the caller
+-- says it lies inside what was asked; outside it, or still moving, it is refused and the reject says why
+do
+    local function off_env(dx, moving)
+        return env({ read = function(ev)
+            local j = moving and (ev.aim_n or 0) * 0.5 or 0
+            return { valid = true, position = { ev.aimed[1] + dx + j, ev.aimed[2], 0 }, fresh = true }
+        end })
+    end
+    local seen
+    local e1 = off_env(1.7)
+    local r1 = run(P.checker(e1, { { position = { 5, 0, 0 } } }, { match_m = 1.5, checks = 3,
+        accept_off = function(vis, sp) seen = { vis.position[1], sp.position[1] }; return true end }))
+    check("accept_off: settled green 1.7 m off, inside the area -> pressed where the game shows it, off_m 1.7",
+        r1 and r1.press and r1.off_m == 1.7 and r1.preview.position[1] == 6.7 and seen and seen[2] == 5, r1 and (r1.why or r1.off_m))
+    local r2 = run(P.checker(off_env(1.7), { { position = { 5, 0, 0 } } }, { match_m = 1.5, checks = 3,
+        accept_off = function() return nil, "outside_area" end }))
+    check("accept_off: refused -> no press, the reject keeps valid=true, where it sat and held=outside_area",
+        r2 and r2.give_up and r2.rejects[1].valid == true and r2.rejects[1].held == "outside_area" and r2.rejects[1].preview_at[1] == 6.7, r2 and r2.why)
+    local asked = false
+    local r3 = run(P.checker(off_env(1.7, true), { { position = { 5, 0, 0 } } }, { match_m = 1.5, checks = 3,
+        accept_off = function() asked = true; return true end }))
+    check("accept_off: a green that moves between reads is not settled -> no press, held=not_settled, never asked",
+        r3 and r3.give_up and r3.rejects[1].held == "not_settled" and not asked, r3 and r3.why)
+    local r4 = run(P.checker(off_env(1.7), { { position = { 5, 0, 0 } } }, { match_m = 1.5, checks = 3 }))
+    check("accept_off absent (spells): unchanged, off target is never pressed", r4 and r4.give_up and r4.rejects[1].held == nil)
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

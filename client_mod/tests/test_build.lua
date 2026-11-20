@@ -417,6 +417,38 @@ check("Overlapping at the first spot -> another spot, the rejected spot listed a
     r and r.ok and r.data.rejected_previews_before_placing and r.data.rejected_previews_before_placing[1].why == "Overlapping"
     and r.data.tried == nil, r and r.reason)
 
+-- 8a. copper 2026-11-20 (141136 595.6): the game's green preview settled 1.7 m off the spot (match_m 1.5) and was
+-- refused as "didn't land where I aimed". Inside the area the spot search covers (near: 3 + 1.5 m) it is pressed and
+-- the reply says where the game showed it; outside it, nothing is pressed and the refusal says where it was green
+do
+    local function offset_mpc(dx, dy)
+        local m0 = Wb.mpc
+        Wb.mpc = function(...)
+            local m = m0(...)
+            if m and m.position then m.position = { m.position[1] + dx, m.position[2] + dy, m.position[3] or 0 } end
+            return m
+        end
+    end
+    reset_game()
+    offset_mpc(1.7, 0)
+    r = build({ piece = "campfire", near = "bench_1" })
+    check("green 1.7 m off, inside the asked area: one press, ok, off_aim_m 1.7, the line says the game showed it there",
+        r and r.ok and count(G.presses, "place") == 1 and r.data.off_aim_m == 1.7
+        and tostring(r.data.built):find("The game showed it green 1.7 m E of the spot I aimed at, inside the area asked for", 1, true),
+        r and (tostring(r.reason) .. " " .. tostring(r.data and (r.data.built or r.data.detail))))
+    reset_game()
+    offset_mpc(0, 8)
+    r = build({ piece = "campfire", near = "bench_1" })
+    local dg = r and r.data or {}
+    check("green 8 m off (outside near's 4.5 m): no press, blocked, the detail says where it was green, how far and why",
+        r and not r.ok and count(G.presses, "place") == 0 and dg.green_at
+        and tostring(dg.detail):find("The game showed it green at [", 1, true) and tostring(dg.detail):find("m S of the spot I aimed at, but I didn't press", 1, true)
+        and tostring(dg.detail):find("I go up to 4.5 m", 1, true), r and (tostring(r.reason) .. " " .. tostring(dg.detail)))
+    -- a multi-piece reply carries it too (it is in the piece's detail)
+    local br = Bd.batch_result(api, { items = { { piece = "campfire" } }, results = { { ok = false, reason = "blocked", data = dg } } }, nil, 9)
+    check("green refusal reaches the multi-piece reply", br and tostring(br.data.detail):find("The game showed it green at [", 1, true), br and br.data.detail)
+end
+
 -- 8b. co-play 2026-11-01 (the crate): no validity hook, two red previews, then green -> placed. The reply leads with
 -- what was placed and where, finds the NEW piece in the census (not the one already standing there), and labels
 -- the red previews as rejected attempts (no "valid": false rows that read as a failed build).
@@ -715,6 +747,20 @@ do
     check("attach, biased cursor: the aim is nudged by the miss until the cursor sits on the flush spot, then pressed",
         r and r.ok and da.flush == true and count(G.presses, "place") == 1 and G.aimed and math.abs(G.aimed[1] - 13.6) < 1e-6
         and math.abs(G.aimed[2] + 0.2) < 1e-6, r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)) .. " aimed " .. (G.aimed and table.concat(G.aimed, ",") or "-"))
+    -- copper 2026-11-20 (112747 445.2): a roof's cursor stood green 2.79 m from the flush spot for all 12 reads and he
+    -- was told "kept sliding and never settled". Not pressed (it must sit flush), and the reply says where it was green
+    attach_game({ no_preview = true, built_at = { 13, 0, 0 } })
+    Wb.mpc = function() if G.aimed then return { index = 2, position = { 15.79, 0, 0 } } end end
+    -- an odd number of checks: the read after each aim correction is labelled settling, so every spot's last read is
+    local cc = Bd.cfg.build.cursor_checks
+    Bd.cfg.build.cursor_checks = 13
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    Bd.cfg.build.cursor_checks = cc
+    da = r and r.data or {}
+    check("attach, cursor stuck green 2.8 m off: no press, never 'kept sliding', says where the game showed it green",
+        r and not r.ok and count(G.presses, "place") == 0 and not tostring(da.detail):find("kept sliding", 1, true)
+        and tostring(da.detail):find("The game showed it green at [15.8, 0.0, 0.0], 2.8 m E of the flush spot, but I didn't press: it wouldn't sit flush there.", 1, true)
+        and da.green_at and da.why == "preview_off_target", r and (tostring(r.reason) .. " " .. tostring(da.why) .. " " .. tostring(da.detail)))
     -- a wall on the E edge: turned 90 (6 presses of 15) so it runs along the edge (live 15:26Z: unturned it stood
     -- across it), aimed at the edge midpoint, measured square from the census
     attach_game({ no_preview = true, box = WB, built_at = { 11.5, 0, 0 } })
