@@ -387,7 +387,19 @@ def _map_names(rows: list, places, about: str | None) -> bool | None:
 # drank water (3 turns), then "No new request from Tester, so I'll stay quiet" with the quest's next part open, and he
 # stood until the run's end. Replayed on that turn: 8/8 stop with "Continue with the next step, or stop.", 0/8 with the
 # player's words in the same sentence (3/8 with them only put in front of it). The model still decides to stop.
-CONTINUE_FOR = "{player} asked {request!r}: continue with the next step of that, or stop if it is done."
+CONTINUE_FOR = "{player} asked {request!r}{end}: continue with the next step of that, or stop if it is done."
+
+
+def end_clause(fact: dict | None) -> str:
+    """DW_PLAN_AT_ASK=1: the ask's end condition its Planner wrote, with its truth now and the job's step now, as a
+    clause beside the ask's words in a turn line (agent._ask_end; "" when the ask has none). Facts only. Live L3
+    20261120-171336 ("gear up for the vault"): the end condition "Reinforced Body equipped and Reinforced Platelegs
+    equipped" was written at 0.5 min, but these lines showed only the words; with no job running he asked the silent
+    player "what vault gear do you want?" and "not sure which vault or what gear yet"."""
+    if not fact:
+        return ""
+    step = f"; your job's step now: {fact['step_now']}" if fact.get("step_now") else ""
+    return f" (its end condition, written {fact['written']}: {fact['end_condition']}; now: {fact['now']}{step})"
 
 
 class Controller:
@@ -406,6 +418,9 @@ class Controller:
         # (state, where) -> the open ask's compact job tree or None (agent._job_view, DW_JOB_TREE=1): a follow-up turn
         # of a run on the ask gets it again when it changed (status is read from the game each turn)
         self.job_view: Callable[[dict | None, str | None], dict | None] | None = None
+        # (request, where, state) -> the ask's end condition with its truth now, or None (agent._ask_end,
+        # DW_PLAN_AT_ASK=1): shown beside the ask's words in the turn line (end_clause)
+        self.request_end: Callable[[tuple, str, dict | None], dict | None] | None = None
         self._logged: tuple[int, dict | None] = (0, None)  # the last prompt row's message count and last message
         self.knowledge = knowledge  # brain.knowledge.Knowledge | None: the lookup tool is offered only with one
         self.game = game
@@ -958,7 +973,9 @@ class Controller:
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
             "tell the player in one short plain line what's wrong and what you need." if failed else
-            "Your tools ran (results above). " + (CONTINUE_FOR.format(player=request[0] or self.player, request=request[1]) if request
+            "Your tools ran (results above). " + (CONTINUE_FOR.format(player=request[0] or self.player, request=request[1],
+                                                                      end=self._end_clause(request, state))
+                                                  if request
                                                  else "Continue with the next step, or stop.") + " Say something only if the "
             "player needs to hear it (an answer he asked for, a result he can't see, a problem); otherwise "
             "reply with no text at all. A line saying you'll do something comes with its tool call in this same "
@@ -986,6 +1003,16 @@ class Controller:
         self._collect([c for c in self.acts(resp) if c.name not in self.read_tools], d2, state or {})
         d2.interrupts = any(a.name not in self.non_interrupting() for a in d2.actions)
         return d2
+
+    def _end_clause(self, request: tuple, state: dict | None) -> str:
+        """The ask's end condition clause for the continue line (end_clause); "" without one or on any error."""
+        if self.request_end is None:
+            return ""
+        try:
+            return end_clause(self.request_end(request, "continue_line", state))
+        except Exception as exc:  # context is best effort
+            self.log.log("request_end_error", where="continue_line", error=repr(exc)[:200])
+            return ""
 
     def _talk_only_check(self, msgs: list[dict], d: Decision, speech: str) -> tuple[LLMResponse, list[dict], str]:
         """A follow-up turn that only talked (its line not yet said): the model gets one more call to add
