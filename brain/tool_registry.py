@@ -56,9 +56,20 @@ class ReadContext:
     body: Callable[[str, dict], dict] | None = None
     body_tools: set[str] = field(default_factory=set)
     manifest: dict = field(default_factory=dict)
+    places: Any = None  # brain.places.Places (read-only map and vault data), None when it is not loaded
 
 
 # ------------------------------------------------------------------------------ brain-answered reads (handlers)
+
+
+VAULT_ROWS = 3  # lookup of the bare kind word: this many nearest vaults (each with its gear_for_vault)
+
+
+def _names_item(query: str, r: dict) -> bool:
+    """``r`` is the game's own item card and every word of its name is in ``query`` ("vault shard")."""
+    from .knowledge import _terms
+    title = _terms(str(r.get("title") or "")) if r.get("authoritative") and r.get("kind") == "item" else set()
+    return bool(title) and title <= _terms(query)
 
 
 def _lookup(ctx: ReadContext, args: dict) -> Any:
@@ -72,6 +83,20 @@ def _lookup(ctx: ReadContext, args: dict) -> Any:
     # for_vault). L3 2026-11-19: the card said "power level 2" and nothing tied it to his gear; he chased PL 3 bronze
     state = ctx.snap.get("state") or {}
     rows = ((res or {}).get("data") or {}).get("results") if isinstance(res, dict) else None
+    query = str(args.get("query") or "")
+    if isinstance(rows, list) and ctx.places is not None and not any(
+            isinstance(r, dict) and (r.get("kind") == "vault" or _names_item(query, r)) for r in rows):
+        # the bare kind word ("vault", "vaults") names no vault: the nearest few from the map's vault data, first
+        # (L3 2026-11-20: lookup "vault" gave Vault Core, Vault Shard and a wiki page; the Planner never learnt of
+        # Crasorak Kara 227 m off and asked the player "which vault"). A query naming an item ("vault shard") is not
+        try:
+            kinds = ctx.places.kind_words(query, state.get("position"))
+            near = [{"source": "data/bestiary.json (wiki vault pages + the game's door reads)", "authoritative": False,
+                     "kind": "vault", "title": v["name"], "text": ctx.places.vault_label(v, state.get("position"))}
+                    for vs in kinds.values() for v in vs[:VAULT_ROWS]]
+        except Exception:  # map data missing: the index's answer stands
+            near = []
+        rows[:0] = near
     if state and isinstance(rows, list):
         from . import gear_plan
         done: set[str] = set()
@@ -79,10 +104,7 @@ def _lookup(ctx: ReadContext, args: dict) -> Any:
             if not isinstance(r, dict) or r.get("kind") != "vault" or not r.get("title") or r["title"] in done:
                 continue
             done.add(r["title"])
-            try:
-                facts = gear_plan.for_vault(state, r["title"], stash=state.get("containers_remembered") or None)
-            except Exception as exc:  # a gap in the data: the card stands, and says why it has no gear facts
-                facts = {"unavailable": f"{type(exc).__name__}: {exc}"[:200]}
+            facts = gear_plan.vault_facts(state, r["title"])
             # a copy (the index's own row is never changed), the facts right after the title: the planner_research
             # log row keeps a result's first 2000 characters, and the card's text runs longer
             head = {k: r[k] for k in ("source", "authoritative", "kind", "title") if k in r}
@@ -436,7 +458,7 @@ class Research:
     """Read-only research over an immutable snapshot (safe on a worker thread): the registry's read view."""
 
     def __init__(self, snap: dict, knowledge=None, proxy: BodyProxy | None = None, body_tools: set[str] = frozenset(),
-                 manifest: dict | None = None, only: tuple[str, ...] = DIRECTOR_READS):
+                 manifest: dict | None = None, only: tuple[str, ...] = DIRECTOR_READS, places: Any = None):
         self.snap = snap
         self.knowledge = knowledge
         self.proxy = proxy
@@ -445,7 +467,7 @@ class Research:
         self.only = only
         self.lookups: list[dict] = []
         self.ctx = ReadContext(snap, knowledge, proxy.request if proxy is not None else None, self.body_tools,
-                               self.manifest)
+                               self.manifest, places)
 
     def tools(self) -> list[dict]:
         return read_view(self.ctx, self.only)
@@ -461,12 +483,14 @@ class Research:
 # The Planner's research (brain/planner.py). Copper job 2026-11-17: the Planner had no tools and planned "explore near
 # home" for an ore that grows only in far regions and needs a Bone pickaxe (both in the knowledge index).
 def planner_research(knowledge=None, proxy: BodyProxy | None = None, body_tools=(), manifest: dict | None = None,
-                     facts: Callable[[], dict] | None = None) -> Callable[[dict], Research]:
+                     facts: Callable[[], dict] | None = None,
+                     places: Callable[[], Any] | None = None) -> Callable[[dict], Research]:
     """state -> Research over PLANNER_READS, built in the Planner's own call (a worker thread under DW_ASYNC_PLAN):
-    a copy of the state, the facts read fresh, recall only when there are facts to recall."""
+    a copy of the state, the facts read fresh, recall only when there are facts to recall. ``places``: the
+    Controller's map data (read when the call is made; lookup of the bare word "vault" answers from it)."""
     def make(state: dict) -> Research:
         known = (facts() if facts is not None else None) or {}
         only = tuple(n for n in PLANNER_READS if n != "recall" or known)
         return Research({"state": copy.deepcopy(state), "facts": known}, knowledge, proxy, set(body_tools), manifest,
-                        only=only)
+                        only=only, places=places() if places is not None else None)
     return make

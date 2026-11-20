@@ -515,6 +515,15 @@ def for_vault(state: dict, vault: str, stash: dict | None = None) -> dict:
     return out
 
 
+def vault_facts(state: dict, vault: str) -> dict:
+    """for_vault over his remembered containers, or {"unavailable": why} for a gap in the data: the one wording the
+    lookup card (tool_registry._lookup) and the Planner's input (planner._where) both carry."""
+    try:
+        return for_vault(state, vault, stash=state.get("containers_remembered") or None)
+    except Exception as exc:  # a gap in the data: the card stands, and says why it has no gear facts
+        return {"unavailable": f"{type(exc).__name__}: {exc}"[:200]}
+
+
 def describe(state: dict, stash: dict | None = None) -> list[str]:
     try:
         return lines(plan(state, stash=stash))

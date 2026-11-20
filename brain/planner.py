@@ -197,11 +197,26 @@ def _trim_state(state: dict) -> dict:
     return out
 
 
-def _where(state: dict) -> dict:
-    """What the Controller's situation says about places, in its own words: where he stood when asked ("here") and
-    his own bases. Live 2026-11-16 (rung 2): the plan gathered 60 m away and built "near me" on a 3 m slope; the
-    Planner saw neither line."""
-    lines = {"asked": asked_line(state), "your_bases": bases_line(state)}
+def _where(state: dict, goal: str = "", places: Any = None) -> dict:
+    """What the Controller's situation says about places, in its own words: where he stood when asked ("here"), his
+    own bases, and the map names in the goal (the Controller's map_names: places.mentioned). Live 2026-11-16 (rung 2):
+    the plan gathered 60 m away and built "near me" on a 3 m slope; the Planner saw neither line. For each vault the
+    goal names, or the nearest one when it says only "the vault" (places.named), the gear facts lookup gives it
+    (gear_plan.vault_facts). L3 2026-11-20: the Controller had "nearest: Crasorak Kara (PL 2, 227 m)", the Planner
+    had nothing; it asked the player "which vault?" and parked."""
+    lines: dict[str, Any] = {"asked": asked_line(state), "your_bases": bases_line(state)}
+    asked = state.get("asked_at") if isinstance(state.get("asked_at"), dict) else {}
+    text = " ".join(dict.fromkeys(x for x in (goal, asked.get("request")) if isinstance(x, str) and x))
+    if places is not None and text and not state.get("unavailable"):
+        here = state.get("position")
+        try:
+            lines["map_names"] = places.mentioned(text, here)
+            vaults = [p["name"] for p in places.named(text, here) if p.get("kind") == "vault"]
+        except Exception as exc:  # map data missing: say so, never a lost plan
+            lines["map_names"], vaults = f"unavailable ({type(exc).__name__})", []
+        if vaults:
+            from .gear_plan import vault_facts
+            lines["gear_for_vault"] = [vault_facts(state, v) for v in vaults]
     return {k: v for k, v in lines.items() if v}
 
 
@@ -211,8 +226,10 @@ def _done_row(t: Task) -> dict:
 
 class Planner:
     def __init__(self, llm: LLMClient, skills: SkillRegistry, logger: JsonlLogger, max_repairs: int = 1,
-                 research: Callable[[dict], Any] | None = None, max_research: int = MAX_RESEARCH_CALLS):
+                 research: Callable[[dict], Any] | None = None, max_research: int = MAX_RESEARCH_CALLS,
+                 places: Any = None):
         self.llm = llm
+        self.places = places  # brain.places.Places: the Controller's map data (LiveSession sets it), None without
         self.skills = skills
         self.log = logger
         self.max_repairs = max_repairs
@@ -239,7 +256,8 @@ class Planner:
             return None
 
     def plan(self, goal: str, state: dict, notes: dict, may_decline: bool = False) -> PlanResult:
-        user = {"goal": goal, **_where(state), "notes": notes, "state": _trim_state(state)}
+        user = {"goal": goal, **_where(state, goal, getattr(self, "places", None)), "notes": notes,
+                "state": _trim_state(state)}
         research = self._research(state)
         tools = research.tools() if research is not None else None
         return self._ask([self._system(tools, may_decline), {"role": "user", "content": json.dumps(user)}], "plan",
@@ -249,7 +267,7 @@ class Planner:
                may_decline: bool = False) -> PlanResult:
         user = {
             "goal": tree.goal,
-            **_where(state),
+            **_where(state, tree.goal, getattr(self, "places", None)),
             # each step with what the body said happened (2026-11-16: the replan got "blocked" and nothing of "the
             # preview kept sliding ... 0.05 m from the flush spot", nor where the gather had left him)
             "completed": [_done_row(t) for t in tree.tasks if t.done],

@@ -1068,8 +1068,8 @@ class Controller:
         if tool == "lookup" and self.knowledge is not None:
             try:  # the registry's handler (the Planner and the Director call the same one)
                 snap = {"state": getattr(self, "_state_for_reads", None) or {}}  # perceived node gates (node_gates)
-                return tool_registry.DECLARED["lookup"].handler(tool_registry.ReadContext(snap=snap, knowledge=self.knowledge),
-                                                                args)
+                ctx = tool_registry.ReadContext(snap=snap, knowledge=self.knowledge, places=getattr(self, "places", None))
+                return tool_registry.DECLARED["lookup"].handler(ctx, args)
             except Exception as exc:  # knowledge is best effort; never break the turn on it
                 return {"ok": False, "reason": Reason.BODY_ERROR, "data": {"error": repr(exc)[:200]}}
         return {"ok": False, "reason": Reason.NOT_IMPLEMENTED, "data": {"tool": tool}}

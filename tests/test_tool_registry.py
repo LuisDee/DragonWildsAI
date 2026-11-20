@@ -240,6 +240,62 @@ def test_a_lookup_of_a_vault_carries_its_pl_and_the_armour_he_can_reach_at_it():
     assert "gear_for_vault" not in bare["data"]["results"][0]
 
 
+class _VaultWordKnow:
+    """The index's answer to "vault" on L3 (2026-11-20): items and a wiki page, no row of kind vault."""
+    rows = [{"source": "game data", "authoritative": True, "kind": "item", "title": "Vault Core", "text": "..."},
+            {"source": "game data", "authoritative": True, "kind": "item", "title": "Vault Shard", "text": "..."},
+            {"source": "wiki", "authoritative": False, "kind": "page", "title": "Dragonkin Vault", "text": "..."}]
+
+    def lookup(self, query, kind=None, gates=None):
+        return {"ok": True, "data": {"query": query, "results": [dict(r) for r in self.rows]}}
+
+    def kinds(self):
+        return ["item", "page"]
+
+
+L3_STATE = {"position": [148.48, 1912.74, -31.85],
+            "gear": {"Head": "ITEM_Armour_T2_Head_Leather", "Body": "ITEM_Armour_T1_Body_Adventurers",
+                     "Legs": "ITEM_Armour_T1_Legs_Adventurers"},
+            "inventory": {"ITEM_Resources_AnimalHideScraps": 7}, "power_level": 0.0}
+
+
+def test_lookup_of_the_bare_word_vault_gives_the_nearest_vaults_from_the_map_data():
+    """L3 2026-11-20: the Planner's lookup("vault") gave Vault Core, Vault Shard, a wiki page; gear_for_vault (attached
+    to a row of kind vault) never came back and it asked the player "which vault"."""
+    from brain.places import Places
+    from brain.tool_registry import ReadContext, _lookup
+    vaults = {n: {"kind": "vault", "name": n, "area": "Temple Woods", "power_level": str(pl),
+                  "map_centre": {"position": pos, "accuracy_m": 50}}
+              for n, pl, pos in (("Far Kara", 5, [1000.0, 0.0]), ("Aa Kara", 3, [-40.0, 50.0]),
+                                 ("Bb Kara", 2, [100.0, 100.0]), ("Cc Kara", 4, [300.0, 0.0]))}
+    places = Places({}, vaults=vaults)
+    st = {"position": [-40.0, 30.0, 0.0]}
+    rows = _lookup(ReadContext(snap={"state": st}, knowledge=_VaultWordKnow(), places=places),
+                   {"query": "the vaults"})["data"]["results"]
+    assert [r["title"] for r in rows[:4]] == ["Aa Kara", "Bb Kara", "Cc Kara", "Vault Core"]  # nearest 3, then the index
+    assert rows[0]["kind"] == "vault" and rows[0]["text"] == "Aa Kara (a vault in Temple Woods, PL 3, 20 m (approximate))"
+    assert "gear_for_vault" in rows[0]  # facts, or why the data has none
+    # a query naming an item, or one whose answer has a vault already, gets no rows added; no map data, none either
+    for q, know, pl in (("vault shard", _VaultWordKnow(), places), ("vault", _VaultWordKnow(), None)):
+        out = _lookup(ReadContext(snap={"state": st}, knowledge=know, places=pl), {"query": q})["data"]["results"]
+        assert [r["title"] for r in out] == ["Vault Core", "Vault Shard", "Dragonkin Vault"]
+    out = _lookup(ReadContext(snap={"state": st}, knowledge=_VaultWordKnow(), places=places), {"query": "bronze bar"})
+    assert not any(r["kind"] == "vault" for r in out["data"]["results"])
+
+
+def test_lookup_vault_on_the_l3_spot_answers_crasorak_kara_with_its_gear_facts():
+    from brain.places import Places, newest_file
+    from brain.tool_registry import planner_research
+    if newest_file() is None:
+        pytest.skip("no data/places_<build>.json")
+    research = planner_research(_VaultWordKnow(), places=lambda: Places())(dict(L3_STATE))
+    rows = research.run("lookup", {"query": "vault"})["data"]["results"]
+    assert [r["title"] for r in rows[:3]] == ["Crasorak Kara", "Thishepen Kara", "Takla Kara"]
+    g = rows[0]["gear_for_vault"]
+    assert g["enemies_pl"] == 2 and "this vault's PL 2" in g["armour"] and "PL 2, 226 m" in rows[0]["text"]
+    assert len(json.dumps(rows[:3])) < 6000  # three vault rows with their facts
+
+
 if __name__ == "__main__" and "--write" in sys.argv:
     import tempfile
     with tempfile.TemporaryDirectory() as d:
