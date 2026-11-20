@@ -1,5 +1,7 @@
 {
   "_note": "Known dev-world spots by case need (measured on dev 2026-10-26 with a logged teleport + the body's look; a harness fact, never companion knowledge).",
   "standing_trees": {"at": [100.0, 1892.0, -31.0], "facing": "two Ash Trees ~8 m north-east at [105.7, 1898.3] and [108.4, 1894.8]",
-                     "lodestone_m": 49.4, "why": "Axtral Projection T0: standing trees in front, >= 40 m from a lodestone"}
+                     "lodestone_m": 49.4, "why": "Axtral Projection T0: standing trees in front, >= 40 m from a lodestone"},
+  "roofed_base": {"at": [174.6, 1919.4, -30.9], "facing": "his roofed house (12 pieces, the base world): door on the S edge of Square Foundation BuildingPiece_124 at about [174.2, 1915.3], BuildingPiece_123 west of it",
+                  "why": "outside the roofed house's door, the spot tools/farm_gate.py HOUSE places him on (used live); tools/shelter_probe.py reads shelter-only stations from here"}
 }

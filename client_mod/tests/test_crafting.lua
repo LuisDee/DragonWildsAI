@@ -1616,6 +1616,80 @@ do
     check("shelter W: no rays read -> the upward line, said so, sides unknown", got2 and got2.roof == "yes" and got2.side_n == nil
           and got2.sheltered == nil and (C.shelter_facts(got2) or ""):find("anything counts", 1, true), C.shelter_facts(got2))
     C.state().shelter_seen = nil
+
+    -- shelter_read (tools/shelter_probe.py): read-only, census stations + FindAllOf components (GetOwner) in range,
+    -- the raw component values and both checks per station; one station's error is its row's, never the reply's
+    wheel.position = { 0, 0, 0 }
+    local loom = obj({ __name = "BP_Station_Loom_C_2", BuildingShelter = comp, position = { 5, 0, 0 }, K2_GetActorRotation = function() return { Yaw = 90 } end })
+    local far = obj({ __name = "BP_Station_Loom_C_9", BuildingShelter = comp, position = { 200, 0, 0 } })
+    local bench = obj({ __name = "BP_Station_Workbench_C_1", position = { 3, 0, 0 } }) -- no shelter component
+    local function owned(o) return obj({ __name = "BuildingShelter", GetOwner = function() return o end }) end
+    local finds = 0
+    local SU = setmetatable({ find_all = function(cls) finds = finds + 1; assert(cls == "BuildingShelterComponent")
+                                  return { owned(wheel), owned(loom), owned(far) } end,
+                              loc = function(a) local p = a.position; return { X = p[1] * 100, Y = p[2] * 100, Z = p[3] * 100 } end,
+                              to_wire = function(at) return { at.X / 100, at.Y / 100, at.Z / 100 } end,
+                              class_word = function(a) return (a.__name:gsub("_%d+$", "")) end }, { __index = FU })
+    local census = { { id = wheel.__name, class = "BP_Station_Spinning_Wheel_C", position = { 0, 0, 0 }, actor = wheel },
+                     { id = bench.__name, class = REAL.stations[(function() for k, v in pairs(REAL.stations) do if v.classes[1] and k ~= "Spinning Wheel" then return k end end end)()].classes[1],
+                       position = { 3, 0, 0 }, actor = bench } }
+    local slogs = {}
+    local sapi = { module = function(n) if n == "sense" then return { U = SU } elseif n == "build" then return { W = BW } end end,
+                   now = function() return 500 end, log = function(s) slogs[#slogs + 1] = s end, null = NULL,
+                   fail = function(reason, d) return { ok = false, reason = reason, data = d or {} } end,
+                   my_position = function() return { 0, 0, 0 } end,
+                   census_things = function(radius)
+                       local out = {}
+                       for _, s in ipairs(census) do
+                           local d = d2({ 0, 0 }, s.position)
+                           if d <= radius then out[#out + 1] = { id = s.id, class = s.class, category = "interactables", kind = "processing_station",
+                                                                 name = s.id, position = s.position, distance = d } end
+                       end
+                       return out
+                   end,
+                   actor_of = function(t) for _, s in ipairs(census) do if s.id == t.id then return s.actor end end end }
+    local rr = C.HANDLERS.shelter_read(nil, { radius = 30 }, { api = sapi })
+    local rws = (rr.data or {}).stations or {}
+    local function row(id) for _, x in ipairs(rws) do if x.id == id then return x end end end
+    local rw, rl = row(wheel.__name) or {}, row(loom.__name) or {}
+    check("shelter_read: ok, the wheel from census and FindAllOf, the loom from FindAllOf only, the far one left out",
+          rr.ok and rw.source == "both" and rl.source == "find_all" and row(far.__name) == nil and finds == 1, rr.reason)
+    check("shelter_read: the raw component values", rw.raw and rw.raw.SweepRayDistance == 2000 and rw.raw.SweepRayThickness == 200
+          and rw.raw.ValidityPercentage == 0.38 and #rw.raw.ShelterRays == 16 and #rw.raw.RoofRays == 1
+          and rw.raw.bIncludeNonBuildingPartActors == false and rw.raw.RequiresRoofText == " needs a roof."
+          and rw.raw.InteractionRequirements == 0 and rw.rule == "shelter_only", rw.raw and tostring(rw.raw.SweepRayDistance))
+    check("shelter_read: both checks per station (roof, side % vs needed, open sides) and the facts line",
+          rw.shelter and rw.shelter.roof == "yes" and rw.shelter.sides_ok == false and rw.shelter.need_pct == 38
+          and #rw.shelter.open > 0 and (rw.facts or ""):find("it needs 38 %", 1, true), rw.facts)
+    check("shelter_read: the loom's own position and yaw", rl.yaw == 90 and rl.position and rl.position[1] == 5 and rl.distance == 5)
+    local rb = row(bench.__name) or {}
+    check("shelter_read: a census station without the component says so, no read", rb.component == false and rb.shelter == nil and rb.raw == nil)
+    check("shelter_read: a log line shows it ran", (slogs[#slogs] or ""):find("crafting: shelter_read 30 m: 3 stations (2 census, 3 components), 2 with a shelter rule", 1, true), slogs[#slogs])
+    -- a fresh read each call (never the kept verdict): the traces run again
+    local t0 = traces
+    C.HANDLERS.shelter_read(nil, { radius = 30, find_all = false }, { api = sapi })
+    check("shelter_read: each call reads afresh", traces > t0)
+    local r3 = C.HANDLERS.shelter_read(nil, { radius = 30, find_all = false }, { api = sapi })
+    check("shelter_read: find_all = false -> census only, no FindAllOf", finds == 1 and r3.data.components_n == NULL
+          and #r3.data.stations == 2)
+    -- one station's read failing is a row field, the reply still ok
+    local ws = C.W.shelter
+    C.W.shelter = function(_, a) if a == wheel then error("boom") end return ws(sapi, a, a.position) end
+    local r4 = C.HANDLERS.shelter_read(nil, { radius = 30 }, { api = sapi })
+    C.W.shelter = ws
+    local rw4 = nil
+    for _, x in ipairs(r4.data.stations) do if x.id == wheel.__name then rw4 = x end end
+    local rl4 = nil
+    for _, x in ipairs(r4.data.stations) do if x.id == loom.__name then rl4 = x end end
+    check("shelter_read: an error in one station's read is its row's, the others still read", r4.ok and rw4 and (rw4.error or ""):find("boom", 1, true)
+          and rw4.raw and rl4 and rl4.shelter, rw4 and rw4.error)
+    check("shelter_read: manifest is a read-only probe, never for the model", C.MANIFEST.shelter_read.llm == false
+          and C.MANIFEST.shelter_read.moves == false)
+    _G.DW_PAUSE = true
+    local rp = C.HANDLERS.shelter_read(nil, {}, { api = sapi })
+    _G.DW_PAUSE = nil
+    check("shelter_read: nothing read under DW_PAUSE", rp.ok == false and rp.reason == "companion_down")
+    C.state().shelter_seen = nil
 end
 
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))

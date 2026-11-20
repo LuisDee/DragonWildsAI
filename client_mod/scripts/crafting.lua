@@ -2887,6 +2887,109 @@ function M.state_extras(api, data)
     return st.extras
 end
 
+-- ------------------------------------------------------------------ shelter_read (harness probe, read-only)
+-- tools/shelter_probe.py: the shelter read (W.shelter_rule + W.shelter) on every station within radius that carries a
+-- BuildingShelterComponent, with the component's raw values, so the new engine calls (component property reads,
+-- FindAllOf("BuildingShelterComponent"), GetOwner, the build line trace) are tried offline before a window
+-- (CLAUDE.md section 4). Stations come from the census (M.stations) and, unless find_all = false, from
+-- FindAllOf("BuildingShelterComponent") -> GetOwner within radius (build.lua shelter_rule_for's path). Nothing is
+-- built, moved or pressed; each station's read is its own pcall (an error is a row field, never a lost reply).
+M.SHELTER_READ_MAX = 24
+local function shelter_raw(U, c)
+    local function v(f) local ok, x = pcall(f); if ok then return x end end
+    local function words(x) local s = x ~= nil and U.str(x) or nil; return (s and s ~= "" and s ~= "None") and s or nil end
+    local function rays(name) local list = vec_list(U, v(function() return c[name] end)); return list end
+    return { InteractionRequirements = tonumber(v(function() return c.InteractionRequirements end)),
+             RoofRays = rays("RoofRays"), ShelterRays = rays("ShelterRays"),
+             SweepRayDistance = tonumber(v(function() return c.SweepRayDistance end)),
+             SweepRayThickness = tonumber(v(function() return c.SweepRayThickness end)),
+             ValidityPercentage = tonumber(v(function() return c.ValidityPercentage end)),
+             bIncludeNonBuildingPartActors = v(function() return c.bIncludeNonBuildingPartActors end) == true,
+             RequiresRoofText = words(v(function() return c.RequiresRoofText end)),
+             RequiresShelterText = words(v(function() return c.RequiresShelterText end)) }
+end
+local function shelter_read_tool(api, args)
+    local U = sense_U(api)
+    if not U then return api.fail("state_unavailable", { detail = "no sense module to read stations with" }) end
+    local radius = math.max(1, math.min(120, tonumber(args.radius) or 30))
+    local here = api.my_position and api.my_position() or nil
+    local rows, by_id, errors = {}, {}, {}
+    local function row_for(actor, src, pos, name, class, dist)
+        local id = U.short(actor)
+        if not id then return end
+        local r = by_id[id]
+        if r then
+            if not r.sources[src] then r.sources[src] = true; r.source = "both" end
+            return
+        end
+        if #rows >= M.SHELTER_READ_MAX then return end
+        r = { id = id, name = name, class = class, position = pos, distance = dist and r1(dist) or nil, source = src,
+              sources = { [src] = true } }
+        by_id[id] = r
+        rows[#rows + 1] = r
+        local okc, c = pcall(function() return actor.BuildingShelter end)
+        if not (okc and U.valid(c)) then r.component = false; return end
+        r.component = true
+        local okr, raw = pcall(shelter_raw, U, c)
+        if okr then
+            r.requirement = raw.InteractionRequirements
+            r.rule = SHELTER_RULES[raw.InteractionRequirements or -1] or "anywhere"
+            r.raw = raw
+        else
+            r.error = "raw read: " .. tostring(raw)
+        end
+        r.yaw = r1(tonumber((U.try(function() return actor:K2_GetActorRotation().Yaw end))))
+        if not pos then return end
+        local st = state()
+        if st.shelter_seen then st.shelter_seen[id] = nil end -- a fresh read, never the kept verdict
+        local oks, sh = pcall(W.shelter, api, actor, pos)
+        if not oks then r.error = (r.error and (r.error .. "; ") or "") .. "shelter: " .. tostring(sh); return end
+        if sh then
+            r.shelter = { roof = sh.roof, roof_hits = sh.roof_hits, roof_n = sh.roof_n, side_hits = sh.side_hits,
+                          side_n = sh.side_n, side_pct = sh.side_pct, need_pct = sh.need_pct, open = sh.open or {},
+                          sides_ok = sh.sides_ok, covered = sh.covered, sheltered = sh.sheltered, from = sh.from,
+                          roof_from = sh.roof_from, says = sh.says, roof_says = sh.roof_says }
+            r.facts = M.shelter_facts(sh)
+        end
+    end
+    local census_n, comps_n = 0, nil
+    local okc, cerr = pcall(function()
+        for _, s in ipairs(M.stations(api, radius)) do
+            census_n = census_n + 1
+            local actor = api.actor_of({ id = s.id, class = s.class })
+            if actor then row_for(actor, "census", s.position, s.name, s.class, s.distance) end
+        end
+    end)
+    if not okc then errors[#errors + 1] = "census: " .. tostring(cerr) end
+    if args.find_all ~= false and type(U.find_all) == "function" then
+        local okf, ferr = pcall(function()
+            local comps = U.find_all("BuildingShelterComponent", { skip_defaults = true }) or {}
+            comps_n = #comps
+            for _, c in ipairs(comps) do
+                local owner = U.try(function() return c:GetOwner() end)
+                if U.valid(owner) then
+                    local at = U.loc and U.try(function() return U.loc(owner) end)
+                    local pos = at and (U.to_wire and U.to_wire(at) or { at.X / 100, at.Y / 100, at.Z / 100 }) or nil
+                    local dist = (pos and here) and math.sqrt((pos[1] - here[1]) ^ 2 + (pos[2] - here[2]) ^ 2 + (pos[3] - here[3]) ^ 2) or nil
+                    if dist and dist <= radius then
+                        row_for(owner, "find_all", pos, nil, U.class_word and U.try(function() return U.class_word(owner) end) or nil, dist)
+                    end
+                end
+            end
+        end)
+        if not okf then errors[#errors + 1] = "find_all: " .. tostring(ferr) end
+    end
+    for _, r in ipairs(rows) do r.sources = nil end
+    table.sort(rows, function(a, b) return (a.distance or 1e9) < (b.distance or 1e9) end)
+    if api.log then
+        api.log(string.format("crafting: shelter_read %g m: %d stations (%d census, %s components), %d with a shelter rule%s",
+            radius, #rows, census_n, tostring(comps_n), (function() local n = 0; for _, r in ipairs(rows) do if r.rule == "shelter_only" or r.rule == "outside_only" then n = n + 1 end end return n end)(),
+            #errors > 0 and ("; errors: " .. table.concat(errors, "; ")) or ""))
+    end
+    return { ok = true, data = { radius = radius, here = here, stations = rows, census_n = census_n,
+                                 components_n = comps_n or api.null, errors = #errors > 0 and errors or nil } }
+end
+
 -- ------------------------------------------------------------------ handlers
 local function guard(fn)
     return function(log, args, ctx)
@@ -2906,13 +3009,14 @@ M.HANDLERS = {
     recipes = guard(recipes_tool),
     craft_plan = guard(plan_tool),
     stations = guard(stations_tool),
+    shelter_read = guard(shelter_read_tool),
 }
 
 local FIND = { { "sense", "census" }, { "inventory", "list" } }
 M.NEEDS = {
     craft = { { "sense", "census" }, { "inventory", "list" }, { "inventory", "interact_target" }, { "inventory", "press_interact" },
               { "move", "go_to" }, { "move", "status" } },
-    recipes = FIND, craft_plan = FIND, stations = FIND,
+    recipes = FIND, craft_plan = FIND, stations = FIND, shelter_read = FIND,
 }
 
 -- ------------------------------------------------------------------ manifest (client_mod/scripts/manifest.lua shape)
@@ -2963,6 +3067,13 @@ M.MANIFEST = {
             .. "state (running, contents, fuel, output).",
         args = { type = "object", properties = obj({
             radius = { type = "number", minimum = 5, maximum = 120, default = 60, description = "Metres." } }) },
+        reasons = { "state_unavailable" } },
+    shelter_read = { kind = "probe", llm = false, moves = false, timeout_s = 30,
+        description = "Shelter checks of stations near you with the BuildingShelter component's raw values (debug, "
+            .. "tools/shelter_probe.py). Read only.",
+        args = { type = "object", properties = obj({
+            radius = { type = "number", minimum = 1, maximum = 120, default = 30, description = "Metres." },
+            find_all = { type = "boolean", default = true, description = "Also FindAllOf the components (GetOwner)." } }) },
         reasons = { "state_unavailable" } },
 }
 
