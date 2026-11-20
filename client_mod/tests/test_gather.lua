@@ -185,6 +185,13 @@ fake_move.why_words = REAL_MOVE.why_words
 local function step_move(dt)
     if MV.mode ~= "go_to" then return end
     local me = Wd.pawn.pos
+    -- move ends the walk at once, stopped camera_taken (live 2026-11-20 18:50:28Z: "another skill took the camera; its
+    -- own walk ends here"), for the first Wd.cam_taken walks (true = every walk)
+    if Wd.cam_taken == true or (type(Wd.cam_taken) == "number" and Wd.cam_taken > 0) then
+        if type(Wd.cam_taken) == "number" then Wd.cam_taken = Wd.cam_taken - 1 end
+        MV.mode, MV.result = "idle", { status = "stopped", reason = "camera_taken", detail = "the skill I walk for took the camera to aim" }
+        return
+    end
     if Wd.blocked then
         if T - MV.t0 > 1.0 then MV.mode, MV.result = "idle", { status = "failed", reason = "stuck" } end
         return
@@ -551,6 +558,32 @@ do
     local res = run_job({ resource = "oak", count = 2 }, 120)
     check("unreachable -> path_blocked", res.ok == false and res.reason == "path_blocked" and res.data.why == "unreachable", tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
     check("unreachable detail", res.data and tostring(res.data.detail):find("can't get to"), res.data and res.data.detail)
+end
+
+-- ================================================================ 4a. a walk that ends for a cause that is not the way (camera_taken)
+-- Live 2026-11-20 18:50:28-54Z: after a reflex fight every gather:flax walk ended "stopped camera_taken" at once; each
+-- target was marked "unreachable: camera_taken" and the job ended path_blocked, "I can't get to the flax: I can't find a
+-- way there", with the flax 2.3 m away. Now: the target is not called unreachable, the walk starts again, and if it
+-- keeps ending so the job ends with the true cause.
+do
+    reset({})
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 4 do add_foliage_tree("Oak", { X = 800 * i, Y = 500, Z = 0 }) end
+    Wd.cam_taken = true
+    local res = run_job({ resource = "oak", count = 2 }, 120)
+    local unreach = 0
+    for _, why2 in pairs((G._state().bad_why) or {}) do if tostring(why2):find("unreachable", 1, true) then unreach = unreach + 1 end end
+    check("camera_taken: never path_blocked; the job ends body_error camera_taken", res.ok == false and res.reason == "body_error" and res.data.why == "camera_taken",
+        tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
+    check("camera_taken: the words say the camera, not the way", res.data and tostring(res.data.detail):find("camera", 1, true)
+        and not tostring(res.data.detail):find("find a way", 1, true), res.data and res.data.detail)
+    check("camera_taken: no target marked unreachable", unreach == 0, unreach)
+    reset({})
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 4 do add_foliage_tree("Oak", { X = 800 * i, Y = 500, Z = 0 }) end
+    Wd.cam_taken = 2 -- the first two walks end so, then the camera is his again
+    local res2 = run_job({ resource = "oak", count = 2 }, 300)
+    check("camera_taken twice, then walks: the job goes on and gets the logs", res2.ok == true, tostring(res2.reason) .. " " .. tostring(res2.data and res2.data.detail))
 end
 
 

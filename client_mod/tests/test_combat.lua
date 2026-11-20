@@ -2212,6 +2212,56 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 19c. the lock-on is let go when the fight ends, by the game's own state
+-- Live 2026-11-20 18:50:16Z: a reflex fight killed a Giant Rat; the lock-on was assumed to let go by itself on the
+-- death, but the camera kept turning under every walk afterwards (the loot walk and every gather:flax walk for 40 s
+-- ended "camera_taken"). The fake game here keeps the lock on after its target dies (as if it moved to another
+-- creature) and shows it as the input mode, as the game does.
+reset_world()
+do
+    local function lines_with(s) local n = 0; for _, l in ipairs(Cm._state().log_lines or {}) do if l:find(s, 1, true) then n = n + 1 end end; return n end
+    local real_inj = eis.InjectInputVectorForAction
+    world.lock, world.stale_mode = false, false
+    local function show() pc.CurrentInputMode = obj({}, "DominionInputMode /Game/Inputs/" .. ((world.lock or world.stale_mode) and "DIM_Gameplay_LockOnTargeting" or "DIM_Gameplay")) end
+    local last_lock_frame = -9
+    eis.InjectInputVectorForAction = function(self, action, v)
+        real_inj(self, action, v)
+        if action:GetFullName():find("IA_ToggleLockOnTargeting", 1, true) then
+            if last_lock_frame ~= frame_n - 1 then world.lock = not world.lock end -- InputTriggerPressed: the rising frame
+            last_lock_frame = frame_n
+            show()
+        end
+    end
+    show()
+    Cm.guard_start(nil)
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_lk", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    check("lock left on: fight starts", Cm._start_fight(nil, gob, { mode = "attack", force = true }).ok)
+    run_until(function() return Cm._state().fight == nil end, 20)
+    local res = Cm._state().last and Cm._state().last.result
+    check("lock left on: the fight is won", res and res.ok and gob.hp <= 0, res and res.reason)
+    check("lock left on: the lock-on key pressed to lock and again to let go at the end (target dead)",
+        (world.injected.IA_ToggleLockOnTargeting or 0) == 2 and world.lock == false, tostring(world.injected.IA_ToggleLockOnTargeting) .. " lock=" .. tostring(world.lock))
+    check("lock left on: says it let go at the fight's end", lines_with("lock-on still on at the fight's end") == 1)
+    run_until(function() return false end, 1.5)
+    check("lock left on: the guard reads it released", lines_with("lock-on released") == 1 and (world.injected.IA_ToggleLockOnTargeting or 0) == 2)
+    -- between fights (a lock left by a hot-reloaded fight): the guard lets it go, once
+    world.lock = true; show()
+    run_until(function() return false end, 3)
+    check("lock between fights: one press lets it go, and it says so", world.lock == false and (world.injected.IA_ToggleLockOnTargeting or 0) == 3
+        and lines_with("lock-on left on between fights") == 1 and lines_with("lock-on released") == 2, tostring(world.injected.IA_ToggleLockOnTargeting))
+    -- a mode that never changes (if it ever lied): 2 presses at most (an even count leaves the lock as it was), then it stops
+    world.stale_mode = true; show()
+    local n0 = world.injected.IA_ToggleLockOnTargeting or 0
+    run_until(function() return false end, 6)
+    check("lock mode that never clears: 2 presses, then it leaves it and says so", (world.injected.IA_ToggleLockOnTargeting or 0) == n0 + 2 and world.lock == false
+        and lines_with("leaving it") == 1, tostring((world.injected.IA_ToggleLockOnTargeting or 0) - n0))
+    Cm.guard_stop(nil)
+    eis.InjectInputVectorForAction = real_inj
+    pc.CurrentInputMode, world.lock, world.stale_mode = nil, nil, nil
+    A.reset(nil)
+end
+
 -- ================================================================ 20. a non-gameplay input mode (live 23:39: an Oculus build menu left open)
 reset_world()
 do

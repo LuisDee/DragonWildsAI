@@ -3283,12 +3283,39 @@ do
     pawn.loc = { X = 0, Y = 0, Z = 0 }
     local r = M.go_to(log, { 40, 0, 0 }, { tolerance_m = 1, nav = false, local_plan = false, owner_token = owner.token })
     run(10)
+    check("camera: an aim claim is the owner's only", A.claim_aim(owner.token, "placing the wall") and not A.claim_aim(owner.token + 99, "x")
+        and A.aiming(owner.token) == "placing the wall" and A.aiming(owner.token + 99) == nil)
     rot = { Pitch = -40, Yaw = 45, Roll = 0 }
     run(3)
     local s = M.status()
-    check("camera: the aiming skill's own walk ends (stopped, camera_taken)", r.ok and s.result and s.result.status == "stopped" and s.result.reason == "camera_taken",
+    check("camera: the aiming skill's own walk ends (stopped, camera_taken) when it claims the aim", r.ok and s.result and s.result.status == "stopped" and s.result.reason == "camera_taken"
+        and tostring(s.result.detail):find("placing the wall", 1, true),
         tostring(r.ok) .. " " .. tostring(s.mode) .. " " .. tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
     A.release(log, owner.token, "test")
+    check("camera: the claim goes with the owner's release", A.aiming(owner.token) == nil)
+    -- Live 2026-11-20 18:50:17-54Z: after a reflex fight (Giant Rat) something kept turning the camera (the game's
+    -- lock-on left on), and every gather:flax walk ended camera_taken at once because its owner merely HELD the pawn;
+    -- gather reported "I can't find a way there" with the flax 2.3 m away. Now: an owner that claims no aim keeps its
+    -- walk; move yields the camera and walks on to the goal.
+    local gown = A.request(log, { name = "gather:flax", level = "task", uses_move = true, adopt = false })
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    rot = { Pitch = 0, Yaw = 0, Roll = 0 }
+    local l0 = #logs
+    local rg = M.go_to(log, { 12, 0, 0 }, { tolerance_m = 1, nav = false, local_plan = false, owner_token = gown.token })
+    local lk = 0
+    frame_hook = function() lk = lk + 1; if lk > 6 then rot = { Pitch = -10, Yaw = 170 + (lk % 7), Roll = 0 } end end -- turned under him every frame
+    run(160)
+    frame_hook = nil
+    local sg = M.status()
+    local said, ended = false, false
+    for i = l0 + 1, #logs do
+        if logs[i]:find("walking on without turning it for a moment (the skill I walk for claims no aim)", 1, true) then said = true end
+        if logs[i]:find("its own walk ends here", 1, true) then ended = true end
+    end
+    check("camera: a camera turned under the owner's walk (no aim claim) does not end it: it arrives", rg.ok and sg.result and sg.result.status == "arrived" and not ended,
+        tostring(sg.mode) .. " " .. tostring(sg.result and sg.result.status) .. " " .. tostring(sg.result and sg.result.reason) .. " x=" .. tostring(pawn.loc.X))
+    check("camera: ... and says it walks on (the owner claims no aim)", said)
+    A.release(log, gown.token, "test")
     pc.SetControlRotation = function() end; pc.GetControlRotation = nil
 end
 

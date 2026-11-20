@@ -38,6 +38,7 @@
 --   A.release(log, token, why) -> {ok, resumed = name|nil}
 --   A.renew(token)  A.holds(token)  A.owner()  A.is_suspended(token)  A.status()  A.reset(log)
 --   A.cancel(log, token, why)   -- drop a SUSPENDED entry (its owner gave up)
+--   A.claim_aim(token, why)  A.drop_aim(token)  A.aiming(token) -> why|nil   -- the owner aims the camera itself
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 
 local A = {}
@@ -155,6 +156,7 @@ end
 
 local function suspend_rec(log, s, rec, by)
     rec.state = "suspended"
+    rec.aiming = nil -- (an aim claim is the running owner's; a resumed owner claims again when it aims again)
     rec.suspended_at = now()
     rec.suspended_by = by
     if rec.uses_move ~= false then
@@ -237,7 +239,7 @@ end
 local function brief(rec)
     if not rec then return nil end
     return { name = rec.name, level = A.LEVEL_NAMES[rec.level] or rec.level, token = rec.token, since = rec.since,
-             state = rec.state, implicit = rec.implicit, suspended_by = rec.suspended_by }
+             state = rec.state, implicit = rec.implicit, suspended_by = rec.suspended_by, aiming = rec.aiming }
 end
 A.brief = brief
 
@@ -363,6 +365,31 @@ function A.holds(token)
     local s = S()
     housekeep(nil, s)
     return s.owner ~= nil and s.owner.token == token
+end
+
+-- Aim claims: the owner says it is aiming the camera ITSELF (build placing a piece, a skill lining up a press), so
+-- a walk it runs meanwhile ends at move's next camera write ("aiming means standing still"). Without a claim, a
+-- camera turned under a walk is another writer's (the game's lock-on after a fight, a reflex, a hot-reloaded loop)
+-- and the walk goes on without turning it (move.lua cam_write). Live 2026-11-20 18:50:17-18:50:54Z: after a
+-- reflex fight with a Giant Rat every gather:flax walk ended "camera_taken" at once, because merely holding the
+-- pawn counted as aiming, and the brain was told "I can't find a way there" 4 times with the flax 2.3 m away.
+-- Set and cleared by the aiming skill; gone with the owner's release or suspension (nothing to forget).
+function A.claim_aim(token, why)
+    local s = S()
+    if not (token and s.owner and s.owner.token == token) then return false end
+    s.owner.aiming = tostring(why or "aiming")
+    return true
+end
+function A.drop_aim(token)
+    local s = S()
+    if not (token and s.owner and s.owner.token == token) then return false end
+    s.owner.aiming = nil
+    return true
+end
+function A.aiming(token)
+    local s = S()
+    housekeep(nil, s)
+    return (token ~= nil and s.owner ~= nil and s.owner.token == token and s.owner.aiming) or nil
 end
 
 function A.is_suspended(token)

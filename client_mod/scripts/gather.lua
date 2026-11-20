@@ -34,7 +34,8 @@
 -- Failure reasons (brain/interface.py Reason) with data.why (specific) and data.detail (a sentence):
 --   wrong_tool (no_tool | tool_tier_too_low), nothing_in_range (no_resource_nearby), inventory_full,
 --   path_blocked (unreachable | swing_no_effect), interrupted, companion_down, timeout,
---   unknown_target (unknown_resource), invalid_args, body_error (inputs_not_reaching_game)
+--   unknown_target (unknown_resource), invalid_args, body_error (inputs_not_reaching_game | camera_taken: walks
+--   kept ending for a cause that is not the way, M.NOT_PATH)
 -- Events: client_io/events/gather.jsonl {"type":"gather_progress", task_id, resource, item, have, want}
 --   and {"type":"gather_status", task_id, phase, detail} (one per phase change, at most every 2 s).
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
@@ -75,6 +76,7 @@ M.cfg = {
     progress_cm = 1000, progress_retries = 2,
     near_enough_cm = 90,        -- a failed approach that ended this close beyond reach still swings
     bad_ttl_s = 600, bad_streak = 3,
+    not_path_tries = 3,         -- walks ended for a cause that is not the way (M.NOT_PATH) before the job ends with it
     equip_wait_s = 4, equip_repress_s = 1.5,
     collected_ttl_s = 10,       -- a drop the bag already counted is skipped this long (its client copy lingers ~5 s)
     collect_wait_s = 2.0, collect_presses = 3, collect_press_gap_s = 0.7, collect_tol_m = 0.8, collect_max_s = 12,
@@ -91,6 +93,8 @@ M.cfg = {
     leftover_m = 25,            -- pieces of OUR felled trees within this are finished first
     stumps = false,             -- chopping a stump stops the tree regrowing (wiki): only when asked
 }
+-- move's walk-end reasons that are not about the way there (the target is not unreachable for them)
+M.NOT_PATH = { camera_taken = true }
 
 -- ------------------------------------------------------------------ state (hot-reload safe)
 local function C()
@@ -618,7 +622,7 @@ local function refresh_count(J, force)
             J.spot_gain[#J.spot_gain + 1] = { at = { X = J.me.X, Y = J.me.Y, Z = J.me.Z }, n = gained - (J.gained or 0) }
         end
         J.gained, J.have = gained, have
-        J.bad_streak = 0
+        J.bad_streak, J.not_path_n = 0, nil
         pcall(W.emit, { type = "gather_progress", task_id = J.task_id, resource = J.key, item = J.item, have = math.max(gained, 0), want = J.want })
     end
     J.have = have
@@ -1446,6 +1450,21 @@ approach_failed = function(J, T, st, res)
     local why = res.why or res.reason
     if (why == nil or why == "timeout") and pv and pv.why then why = pv.why end
     why = tostring(why or "stuck")
+    -- a walk ended for a cause that is not the way there (move "camera_taken": the camera was taken to aim) says
+    -- nothing about the target: it is not marked unreachable, the walk starts again, and if it keeps ending so the job
+    -- ends with that true cause. Live 2026-11-20 18:50:28-54Z: 4 flax jobs ended path_blocked, "I can't find a way
+    -- there", with the flax 2.3 m away and every walk stopped camera_taken after a reflex fight.
+    if M.NOT_PATH[why] then
+        J.not_path_n = (J.not_path_n or 0) + 1
+        say(J.log, string.format("approach to %s ended %s (%d of %d): not the way there; walking again", tostring(T.key), why, J.not_path_n, M.cfg.not_path_tries))
+        if J.not_path_n >= M.cfg.not_path_tries then
+            local words = mcall("move", "why_words", why, "it", false)
+            return fail(J, "body_error", why, string.format("I couldn't walk to the %s: %s. I stopped after %d tries.",
+                tostring(J.key), type(words) == "string" and words or why, J.not_path_n), { move = why })
+        end
+        J.moving = false
+        return
+    end
     mark_bad(J, T, "unreachable: " .. why)
     J.T = nil
     if J.bad_streak >= M.cfg.bad_streak then

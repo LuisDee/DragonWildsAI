@@ -2289,6 +2289,7 @@ local function step(api, job, t)
                 return api.fail("too_far", { piece = job.piece.id, distance = d, detail = "I can't get to a spot to build the " .. job.piece.name .. " from." })
             end
             local goal = job.stand_at or stand_point(here or job.center, job.center, job.standoff + 0.5)
+            do local A = arbiter(api); if A and A.drop_aim and job.token then A.drop_aim(job.token) end end -- walking, not aiming
             local mr = api.call("move", "go_to", goal, { tolerance_m = job.stand_list and cfg.stand_arrive_m or 0.8, timeout_s = job.stand_list and cfg.stand_walk_s or 60, allow_unstuck = false, owner_token = job.token })
             if not mr.ok then return mr end
             job.moving, job.approaches = true, (job.approaches or 0) + 1
@@ -2397,6 +2398,9 @@ local function step(api, job, t)
                 -- a go_to still running steers the camera every frame over this aim (live 17:44Z): a player stands
                 -- still to place, so it ends first
                 if (api.move_status() or {}).mode == "go_to" then api.call("move", "stop") end
+                -- and says so (arbiter aim claim): a walk of his started while he aims ends at move's next camera
+                -- write, while a camera turned by anything else no longer ends his walks
+                do local A = arbiter(api); if A and A.claim_aim and job.token then A.claim_aim(job.token, "placing the " .. tostring(job.piece and job.piece.name or "piece")) end end
                 job.aim_raw = p
                 local c = job.on and job.on.mode == "cursor" and job.on.corr
                 if c then p = { p[1] + c[1], p[2] + c[2], p[3] + (c[3] or 0) } end

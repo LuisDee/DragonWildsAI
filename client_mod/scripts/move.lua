@@ -1061,14 +1061,22 @@ local function cam_write(st, pc, rot, t)
     c.w = { Yaw = rot.Yaw, Pitch = rot.Pitch }
     return true
 end
--- a go_to that is the aiming skill's own child walk (its explicit arbiter owner still holds the pawn): aiming means
--- standing still, so the walk ends (stopped, camera_taken) instead of yielding
+-- a go_to that is the aiming skill's own child walk: its explicit arbiter owner holds the pawn AND claims it is
+-- aiming (arbiter.claim_aim). Aiming means standing still, so that walk ends (stopped, camera_taken). Holding the
+-- pawn alone is no aim: live 2026-11-20 18:50:17-54Z, after a reflex fight (Giant Rat) the camera kept turning under
+-- every walk (the game's lock-on left on), and every gather:flax walk ended here at once and was reported as "I
+-- can't find a way there". Without a claim the walk yields and goes on, as for any other writer.
+-- -> the claim's words (the walk ends) | nil, holds (true: the owner holds the pawn but claims no aim)
 local function camera_taken_by_owner(st)
-    if st.mode ~= "go_to" or not st.owner_token or st.owner_implicit then return false end
+    if st.mode ~= "go_to" or not st.owner_token or st.owner_implicit then return nil, false end
     local a = move_arbiter and move_arbiter()
     local ok, holds = pcall(function() return a and a.holds and a.holds(st.owner_token) end)
-    return ok and holds == true
+    if not (ok and holds == true) then return nil, false end
+    local oka, why = pcall(function() return a.aiming and a.aiming(st.owner_token) end)
+    if oka and type(why) == "string" and why ~= "" then return why, true end
+    return nil, true
 end
+M._camera_taken_by_owner = camera_taken_by_owner
 
 -- A built door's frame: where its piece was placed and its yaw (GlobalBuildingManager.BuildingPieces[pid].ClientVisible,
 -- the record build.lua's census reads). The leaf swings and the actor's origin is its hinge post; the record stays put.
@@ -4774,10 +4782,12 @@ local function steer_input(f)
     end
     if not bound() then return true end
     if cam_write(st, pc, { Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 }, t) == "taken" then
-        if f.log then f.log(string.format("move: another skill took the camera; %s", camera_taken_by_owner(st) and
-            "its own walk ends here (aiming means standing still)" or "walking on without turning it for a moment")) end
-        if camera_taken_by_owner(st) then
-            return stop(st, { status = "stopped", reason = "camera_taken", detail = "the skill I walk for took the camera to aim" }, f.log)
+        local aim, holds = camera_taken_by_owner(st)
+        if f.log then f.log(string.format("move: another skill took the camera; %s", aim and
+            ("its own walk ends here (aiming means standing still: " .. aim .. ")") or
+            ("walking on without turning it for a moment" .. (holds and " (the skill I walk for claims no aim)" or "")))) end
+        if aim then
+            return stop(st, { status = "stopped", reason = "camera_taken", detail = "the skill I walk for took the camera to aim (" .. aim .. ")" }, f.log)
         end
     end
     if st.hold_gap then
@@ -5893,6 +5903,8 @@ local WHY = {
     too_long = function() return "it's taking far too long to get there" end,
     timeout = function() return "it's taking far too long to get there" end,
     unreachable = function() return "I can't find a way there" end,
+    -- not the way: a walk stopped because the camera was taken to aim (move cam_write; never a path verdict)
+    camera_taken = function() return "my walk kept stopping because my camera was being turned to aim at something else, not because of the way there" end,
     no_safe_point = function() return "there's nowhere safe to stand nearby" end,
     too_slow = function() return "I can't get out of the way in time" end,
     paused = function() return "the world is still loading" end,

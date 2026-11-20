@@ -99,6 +99,7 @@ M.cfg = {
     magic_aim_s = 0.25,      -- staff/wand: settle the aim this long before each cast        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
     disengage_s = 25,        -- give the heal this long before re-assessing
     lock_on = true,
+    lock_retry_s = 1.0,      -- between fights, a lock-on left on is let go: its key again after this (2 presses at most)
     -- a step-in has to close the gap: step_in_stall_s of it without step_in_gain_m nearer = something is between us
     -- (a ledge, a rock), so the follow (it plans round and jumps) takes over for step_in_off_s; engage_far_s out of
     -- reach in a row = back to approach, whose blocked rule ends it with the reason. Rung 5 Ratcatcher 20261116-065655:
@@ -146,6 +147,16 @@ M.orders = { stance = "defensive", avoid = {}, force = false,
 -- enters it; live skill_routes bug 2026-10-26: "stuck in DIM_Gameplay_LockOnTargeting"). Inputs work there.
 function M.is_gameplay_mode(mode)
     return type(mode) == "string" and (mode == "DIM_Gameplay" or mode:sub(1, 13) == "DIM_Gameplay_")
+end
+-- The game's lock-on is ON while the PC's input mode is this one (DISCOVERIES 2026-10-26; the locked target itself
+-- cannot be read: FLockOnTarget has no reflected fields). -> true | false | nil (unreadable). One property read, the
+-- same pc.CurrentInputMode the fight frame reads every tick.
+M.LOCK_MODE = "DIM_Gameplay_LockOnTargeting"
+function M.lock_mode_on(pc)
+    if not pc then return nil end
+    local m = U.short(U.try(function() return pc.CurrentInputMode end))
+    if type(m) ~= "string" or m == "" then return nil end
+    return m == M.LOCK_MODE
 end
 
 -- ------------------------------------------------------------------ data files (one memo loader)
@@ -1869,12 +1880,20 @@ local function finish(F, res)
     local c = C()
     if F.handle then pcall(CancelDelayedAction, F.handle) end
     F.handle = nil
-    -- a lock-on on a target that is still alive is toggled off again (one frame, as a key press);
-    -- a dead target releases it by itself (LockOnTargetingComponent:HandleOnCurrentTargetDied)
-    if F.locked and not F.dead_seen and U.alive(F.target) then
+    -- the lock-on is let go at the fight's end (one frame of its toggle, as a key press), by the game's own state:
+    -- the input mode reads lock-on. A dead target was taken to release it by itself (HandleOnCurrentTargetDied), but
+    -- live 2026-11-20 18:50:16Z (a Giant Rat killed) the camera kept turning under every walk afterwards: the loot
+    -- walk and every gather:flax walk for 40 s ended camera_taken. Unreadable mode: the old rule (a live target only).
+    -- The guard checks it took (lock_watch).
+    local lk = M.lock_mode_on(F.pc)
+    if lk == true or (lk == nil and F.locked and not F.dead_seen and U.alive(F.target)) then
         local pawn = F.pc and U.try(function() return F.pc.Pawn end)
         local acts = U.valid(pawn) and actions(pawn)
-        if acts and acts.lock then inject(acts.lock) end
+        if acts and acts.lock and inject(acts.lock) then
+            c.unlock = { t = F.t, n = 1 }
+            if lk then say(F.log, string.format("lock-on still on at the fight's end (%s, the %s %s): pressed the lock-on key to let go",
+                M.LOCK_MODE, tostring(F.target_name or "target"), F.dead_seen and "dead" or "alive")) end
+        end
     end
     if F.drove_move then mcall("move", "stop", F.log) end
     if F.zones_set or F.escape then mcall("move", "set_avoid_zones", F.log, {}) end -- the hazards were this fight's
@@ -4542,6 +4561,34 @@ function M.ambient_tick(log, pawn, pc)
     if A.token and not A.escape and not A.cure_pending then M.ambient_release(A, "nothing to do") end
 end
 
+-- Between fights the lock-on is never his (only a fight locks on): the input mode reading lock-on means it was left
+-- on (a fight's end whose one-frame toggle did not take, or a lock that moved to another creature when its target
+-- died). It turns the camera every frame, so every walk after it fought the game for the camera (live 2026-11-20
+-- 18:50:17-54Z). Let go: the lock-on key, at most 2 presses (an even count: if the mode ever lied, the lock is left
+-- as it was), lock_retry_s apart; then nothing until the mode reads something else. Logged each way.
+function M.lock_watch(log, pc, pawn, t)
+    local c = C()
+    local lk = M.lock_mode_on(pc)
+    local u = c.unlock
+    if lk ~= true then
+        if u and lk == false and not u.done then say(log, string.format("lock-on released (input mode no longer %s; %d press%s of its key)", M.LOCK_MODE, u.n or 0, (u.n or 0) == 1 and "" or "es")) end
+        if lk == false then c.unlock = nil end
+        return
+    end
+    if u and (u.done or t - (u.t or t) < (M.cfg.lock_retry_s or 1.0)) then return end
+    if u and (u.n or 0) >= 2 then
+        u.done = true
+        say(log, string.format("lock-on still on after %d presses of its key (%s); leaving it", u.n, M.LOCK_MODE))
+        return
+    end
+    local acts = U.valid(pawn) and actions(pawn)
+    if not (acts and acts.lock) then return end
+    if inject(acts.lock) then
+        c.unlock = { t = t, n = (u and u.n or 0) + 1 }
+        say(log, string.format("lock-on left on between fights (%s): pressed the lock-on key to let go (press %d)", M.LOCK_MODE, c.unlock.n))
+    end
+end
+
 local function guard_tick(log)
     if _G.DW_PAUSE then return end
     local c = C()
@@ -4554,6 +4601,7 @@ local function guard_tick(log)
     trim_map(c.attackers, t, 60); trim_map(c.ally_attackers, t, 60); trim_map(c.telegraphs, t, 30)
     if c.fled_from then trim_map(c.fled_from, t, cfg.refled_s or 30) end
     if c.fight then c.guard_hp = nil; return end
+    pcall(M.lock_watch, log, pc, pawn, t)
     -- an AI hit reaches this client as an HP drop plus the attacker's impact event, with no damage multicast
     -- (the fight frame attributes it the same way): so between fights too, whoever just hit him is
     -- "attacked_me" at once, whatever its archetype or stance
