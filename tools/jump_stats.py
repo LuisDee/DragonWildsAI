@@ -7,6 +7,7 @@
   .venv\\Scripts\\python.exe -m tools.jump_stats course                       # jump-up spots for a model-free course
   .venv\\Scripts\\python.exe -m tools.jump_stats attacks                      # attacks that ended path_blocked (brain logs)
   .venv\\Scripts\\python.exe -m tools.jump_stats verdicts --since <iso>       # the per-jump line, once move.lua writes it
+  .venv\\Scripts\\python.exe -m tools.jump_stats walks --since <iso> --until <iso>  # stuck rate of walks vs the baseline
 
 Sources
   logs/client/client.log            the mover's own lines (ISO second stamps):
@@ -592,6 +593,142 @@ def cmd_attacks(a) -> None:
         print(f"  {t} lp_fail={why}")
 
 
+# ------------------------------------------------------------------ walks: how often a walk gets stuck
+# Goal 2026-11-17 section 2: "the stuck rate of walks no worse than the baseline" (14 Nov to 61412a5). A walk is one
+# move from its first "go_to" progress line (written every 2 s while it runs) to its one terminal line, which
+# move.lua finish() writes as "move: <status> <reason>" right after the "trip:" sentence. "stopped" carries no reason
+# unless the mover itself stopped (camera_taken): a caller ended it, and the caller's reason is not in this log.
+GOTO_RX = re.compile(r"^move: go_to d=(\d+)cm")
+STUCK_N_RX = re.compile(r"^move: stuck n=(\d+)")
+END_RX = re.compile(r"^move: (arrived|stopped|failed) ?(\w*)\s*$")
+UNREACH_RX = re.compile(r"^move: unreachable: (\w+).*?lp_fail=([^\s(]+)")
+BOOT_MARK = "DWClient loaded"
+# failed reasons the brain reads as blocked (attack: path_blocked); "timeout" counts only with a stuck line in the
+# walk, because progress_view then answers "blocked" (move.lua stall_why: stuck_n > 0 is a wall)
+STUCK_FAIL_REASONS = {"stuck", "unreachable", "no_progress", "blocked"}
+STOPPED_STUCK_S = 5        # a caller's stop within this many seconds of a stuck line: stopped while stuck
+
+
+@dataclass
+class Walk:
+    t0: float
+    d0_cm: int                     # distance to the goal at the first go_to line
+    t1: float | None = None
+    stuck_lines: int = 0
+    last_stuck: float | None = None
+    status: str = ""
+    reason: str = ""
+    lp_fail: str = ""
+
+    @property
+    def stuck(self) -> bool:
+        return self.stuck_lines > 0
+
+    @property
+    def ended_stuck(self) -> bool:
+        if self.status != "failed":
+            return False
+        return self.reason in STUCK_FAIL_REASONS or (self.reason == "timeout" and self.stuck)
+
+    @property
+    def stopped_while_stuck(self) -> bool:
+        return (self.status == "stopped" and not self.reason and self.last_stuck is not None
+                and self.t1 is not None and self.t1 - self.last_stuck <= STOPPED_STUCK_S)
+
+
+def parse_walks(lines, since: str = DEFAULT_SINCE, until: str = "9") -> tuple[list[Walk], int]:
+    """Finished walks that began in [since, until], and the count of walks cut off (client restart, window end)."""
+    walks: list[Walk] = []
+    cur: Walk | None = None
+    cut = 0
+    for raw in lines:
+        m = TS_RX.match(raw.rstrip("\n"))
+        if not m:
+            continue
+        stamp, text = m.group(1), m.group(2)
+        if stamp < since:
+            continue
+        if text.startswith(BOOT_MARK):
+            cut += cur is not None
+            cur = None
+            continue
+        if not text.startswith("move: "):
+            continue
+        ts = epoch(stamp)
+        g = GOTO_RX.match(text)
+        if g:
+            if cur is None:
+                if stamp > until:
+                    break
+                cur = Walk(t0=ts, d0_cm=int(g.group(1)))
+            continue
+        if cur is None:
+            continue
+        if STUCK_N_RX.match(text):
+            cur.stuck_lines += 1
+            cur.last_stuck = ts
+            continue
+        u = UNREACH_RX.match(text)
+        if u:
+            cur.lp_fail = u.group(2)
+            continue
+        e = END_RX.match(text)
+        if e:
+            cur.t1, cur.status, cur.reason = ts, e.group(1), e.group(2)
+            walks.append(cur)
+            cur = None
+    cut += cur is not None
+    return walks, cut
+
+
+def walk_rows(walks: list[Walk]) -> dict:
+    n = len(walks)
+    return {"walks": n, "with a stuck line": sum(w.stuck for w in walks),
+            "ended stuck (failed stuck/unreachable, or timeout after a stuck line)": sum(w.ended_stuck for w in walks),
+            "stopped by its caller within 5 s of a stuck line": sum(w.stopped_while_stuck for w in walks),
+            "either of the two above": sum(w.ended_stuck or w.stopped_while_stuck for w in walks)}
+
+
+def ci(k: int, n: int) -> str:
+    from tools.ab import wilson
+    if not n:
+        return f"{k} of 0"
+    lo, hi = wilson(k, n)
+    return f"{k} of {n} = {100 * k / n:.1f} % ({100 * lo:.1f} to {100 * hi:.1f})"
+
+
+def walks_report(base: list[Walk], now: list[Walk], base_label: str, now_label: str, min_m: float = 5.0) -> list[str]:
+    """Both periods side by side with Wilson 95 % intervals and Fisher's p; all walks, then walks of min_m or more."""
+    from tools.ab import fisher, wilson
+    out = []
+    for title, keep in (("all walks", lambda w: True), (f"walks of {min_m:g} m or more", lambda w: w.d0_cm >= min_m * 100)):
+        b, c = walk_rows([w for w in base if keep(w)]), walk_rows([w for w in now if keep(w)])
+        out += ["", f"{title}", f"| measure | {base_label} | {now_label} | Fisher p | today vs baseline |", "|---|---|---|---|---|"]
+        out.append(f"| walks | {b['walks']} | {c['walks']} | | |")
+        for k in list(b)[1:]:
+            nb, nc = b["walks"], c["walks"]
+            lo_c = wilson(c[k], nc)[0] if nc else 0.0
+            hi_b = wilson(b[k], nb)[1] if nb else 1.0
+            lo_b = wilson(b[k], nb)[0] if nb else 0.0
+            hi_c = wilson(c[k], nc)[1] if nc else 1.0
+            verdict = "worse" if lo_c > hi_b else ("better" if hi_c < lo_b else "overlap")
+            p = fisher(c[k], nc, b[k], nb) if nb and nc else float("nan")
+            out.append(f"| {k} | {ci(b[k], nb)} | {ci(c[k], nc)} | {p:.3g} | {verdict} |")
+    return out
+
+
+def cmd_walks(a) -> None:
+    now_since = a.since if a.since != DEFAULT_SINCE else COMMIT_61412A5
+    first = min(a.base_since, now_since)
+    with open(CLIENT_LOG, encoding="utf-8", errors="replace") as fh:
+        walks, cut = parse_walks(fh, first, max(a.base_until, a.until))
+    base = [w for w in walks if a.base_since <= iso(w.t0) <= a.base_until]
+    now = [w for w in walks if now_since <= iso(w.t0) <= a.until]
+    print(f"walks cut off unfinished (client restart): {cut}")
+    print("\n".join(walks_report(base, now, f"baseline {a.base_since[:16]} to {a.base_until[:16]}",
+                                 f"{now_since[:16]} to {a.until[:16] if a.until != '9' else 'now'}")))
+
+
 VERDICT_RX = re.compile(r"^move: jump verdict=(\w+) (.*)$")
 KV_RX = re.compile(r"(\w+)=(\([^)]*\)|\S+)")
 
@@ -660,14 +797,16 @@ def cmd_verdicts(a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("report", "windows", "places", "course", "attacks", "verdicts"))
+    ap.add_argument("cmd", choices=("report", "windows", "places", "course", "attacks", "verdicts", "walks"))
     ap.add_argument("--since", default=DEFAULT_SINCE)
     ap.add_argument("--until", default="9")
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--radius", type=float, default=5.0)
+    ap.add_argument("--base-since", default=DEFAULT_SINCE, help="walks: the baseline's start (goal 2026-11-17 section 2)")
+    ap.add_argument("--base-until", default=COMMIT_61412A5, help="walks: the baseline's end")
     a = ap.parse_args()
     {"report": cmd_report, "windows": cmd_windows, "places": cmd_places, "course": cmd_course,
-     "attacks": cmd_attacks, "verdicts": cmd_verdicts}[a.cmd](a)
+     "attacks": cmd_attacks, "verdicts": cmd_verdicts, "walks": cmd_walks}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -138,3 +138,50 @@ def test_attacks_scan_counts_path_blocked_after_a_landing(tmp_path):
         '{"ts": 1794924042.899, "kind": "tool_result", "tool": "gather", "result": {"ok": true}}\n', encoding="utf-8")
     r = J.scan_attacks([str(f)], 0)
     assert r["attacks"] == 2 and len(r["path_blocked"]) == 1 and r["after_missed_landing"] == ["2026-11-17T14:00:02Z"]
+
+
+# walks: real lines (2026-11-20 00:20Z a walk held at a wall that failed unreachable; 16:06Z short walks by the pond)
+WALKS = """\
+2026-11-20T00:20:37Z move: go_to d=31649cm src=nav lwp=16/nil trail=nil/0 spr=true spd=359 traces=4186
+2026-11-20T00:20:38Z move: stuck n=1 moved=8cm d=31652 src=nav me=(8419,187293,-3115) aim=(8320,187392,-3210) goal=(37179,174074,-4239) lwp=16/nil trail=nil/0
+2026-11-20T00:20:39Z move: go_to d=31652cm src=nav lwp=16/nil trail=nil/0 spr=false spd=0 traces=4232
+2026-11-20T00:20:41Z move: unreachable: no_route dz=-11.2m d=316.9m lp_fail=verify_exhausted blocked by walls (height gap was -7.3m at start)
+2026-11-20T00:20:41Z move: trip: Walked 96 m in 46 s (2.1 m/s) from [50.67,1890.24,-35.05] to [83.45,1872.19,-31.15]; 317 m left (closest 304 m).
+2026-11-20T00:20:41Z move: failed unreachable
+2026-11-20T16:06:30Z move: go_to d=139cm src=straight lwp=nil/nil trail=nil/0 spr=false spd=0 traces=1
+2026-11-20T16:06:30Z move: trip: Moved 0 m in 0 s (0.7 m/s) from [154.27,1915.09,-31.59] to [154.32,1914.96,-31.55]; 1 m left (closest 1 m).
+2026-11-20T16:06:30Z move: stopped
+2026-11-20T16:06:46Z move: go_to d=900cm src=straight lwp=nil/nil trail=nil/0 spr=false spd=0 traces=0
+2026-11-20T16:06:47Z move: stuck n=1 moved=0cm d=900 src=straight me=(1,1,1) aim=(2,2,2) goal=(3,3,3) lwp=nil/nil trail=nil/0
+2026-11-20T16:06:50Z move: stopped
+2026-11-20T16:06:51Z move: go_to d=106cm src=straight lwp=nil/nil trail=nil/0 spr=false spd=0 traces=0
+2026-11-20T16:06:51Z move: arrived
+2026-11-20T16:07:00Z move: go_to d=700cm src=nav lwp=nil/nil trail=nil/0 spr=false spd=0 traces=0
+2026-11-20T16:07:01Z move: stuck n=1 moved=0cm d=700 src=nav me=(1,1,1) aim=(2,2,2) goal=(3,3,3) lwp=nil/nil trail=nil/0
+2026-11-20T16:07:20Z move: failed timeout
+2026-11-20T16:08:00Z move: go_to d=800cm src=nav lwp=nil/nil trail=nil/0 spr=false spd=0 traces=0
+2026-11-20T16:08:05Z DWClient loaded (json=dkjson, runner=queue)
+2026-11-20T16:09:00Z move: go_to d=800cm src=nav lwp=nil/nil trail=nil/0 spr=false spd=0 traces=0
+"""
+
+
+def test_walks_split_on_terminal_lines_and_drop_cut_ones():
+    walks, cut = J.parse_walks(WALKS.splitlines(True))
+    assert cut == 2                                     # one cut by the client restart, one still running at the end
+    assert [(w.status, w.reason) for w in walks] == [("failed", "unreachable"), ("stopped", ""), ("stopped", ""),
+                                                      ("arrived", ""), ("failed", "timeout")]
+    held, short, stopped, arrived, timeout = walks
+    assert held.d0_cm == 31649 and held.stuck_lines == 1 and held.lp_fail == "verify_exhausted" and held.ended_stuck
+    assert not short.stuck and not short.ended_stuck and not short.stopped_while_stuck
+    assert stopped.stuck and stopped.stopped_while_stuck and not stopped.ended_stuck  # a caller's stop 3 s after a stuck line
+    assert not arrived.stuck
+    assert timeout.ended_stuck and not timeout.stopped_while_stuck  # a timeout after a stuck line reads as blocked
+
+
+def test_walks_window_and_report():
+    walks, _ = J.parse_walks(WALKS.splitlines(True), since="2026-11-20T16:00:00Z", until="2026-11-20T16:06:59Z")
+    assert len(walks) == 3                              # walks that began after "until" are not opened
+    rows = J.walk_rows(walks)
+    assert rows["walks"] == 3 and rows["with a stuck line"] == 1
+    out = "\n".join(J.walks_report(walks, walks, "a", "b"))
+    assert "1 of 3 = 33.3 %" in out and "overlap" in out and "walks of 5 m or more" in out
