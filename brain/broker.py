@@ -72,6 +72,11 @@ REVIEW_SAMPLE_S = 10.0  # the Agent reads get_state this often when idle (no mod
 REVIEW_QUIET_AFTER_CMD_S = 20.0  # just talked to: the conversation already covers it
 REVIEW_IDLE_S = 300.0  # no command or action this long with a player close by = an idle stretch
 REVIEW_NEAR_M = 15.0
+# ...or this long with an open ask standing (its end condition, if any, not met), with or without a player near: live
+# L3 20261120-185446 he stopped ("resting up before more ash", half health, no food) on "gear up for the vault" with the
+# trial player out of sight, and no turn came again (the idle change wanted a player within REVIEW_NEAR_M). The ask is
+# shown as a fact; he decides to resume, keep resting, park or close it. Once per idle stretch (note_busy renews it).
+REVIEW_IDLE_ASK_S = REVIEW_IDLE_S
 REVIEW_BAG_FULL = 0.9
 FIGHT_QUIET_S = 30.0  # an attack this recent = in combat: no review
 BODY_AWAY_S = 5.0  # no state for this long (out of the game world: a drop, a relaunch), then state again = a change
@@ -329,6 +334,7 @@ class EventBroker:
         self._last_busy: float | None = None  # last command / brain action (None: since the first observation)
         self._first_seen: float | None = None
         self._idle_reported = False
+        self._idle_ask_read_at: float | None = None  # the open-ask provider is read at most every REVIEW_SAMPLE_S
         self._attacked_at: float | None = None
         self._track: deque[tuple[float, list[float]]] = deque(maxlen=8)  # (t, position) observations
         self._still_since: float | None = None
@@ -837,13 +843,18 @@ class EventBroker:
         """A command arrived or the brain ran an action: not idle, and the conversation covers it."""
         self._last_busy = self.clock()
         self._idle_reported = False
+        self._idle_ask_read_at = None
+        self._pending = [c for c in self._pending if c.get("what") != "idle"]  # he acts again: that stretch is over
 
     def note_attacked(self) -> None:
         self._attacked_at = self.clock()
 
-    def review_due(self, busy: bool = False) -> dict | None:
+    def review_due(self, busy: bool = False, open_ask=None) -> dict | None:
         """A situation_review event when something meaningful changed and now is a fine moment, else None.
-        Never a rule about what to do: the model gets the changes, the facts and its previous review."""
+        Never a rule about what to do: the model gets the changes, the facts and its previous review.
+        ``open_ask``: the Agent's open ask as a fact (a dict, or a callable returning one; None = no ask open or its
+        end condition met), read only once the idle threshold is reached. An idle stretch with an ask standing is a
+        change whether or not a player is near (REVIEW_IDLE_ASK_S)."""
         now, st = self.clock(), self._seen or {}
         if not st:
             return None
@@ -853,10 +864,20 @@ class EventBroker:
             return None
         near = [p for p in st.get("players") or [] if isinstance(p, dict)
                 and (_num(p.get("distance")) or 1e9) <= REVIEW_NEAR_M]
-        if near and not self._idle_reported and now - last_busy >= REVIEW_IDLE_S:
-            self._idle_reported = True
-            self._change({"what": "idle", "for_s": round(now - last_busy),
-                          "near": [str(p.get("name")) for p in near]})
+        idle_s = now - last_busy
+        if not self._idle_reported and idle_s >= min(REVIEW_IDLE_S, REVIEW_IDLE_ASK_S):
+            ask = None
+            if open_ask is not None and idle_s >= REVIEW_IDLE_ASK_S and (
+                    self._idle_ask_read_at is None or now - self._idle_ask_read_at >= REVIEW_SAMPLE_S):
+                self._idle_ask_read_at = now  # (the provider reads the end condition: not on every pump)
+                try:
+                    ask = open_ask() if callable(open_ask) else open_ask
+                except Exception as exc:  # perception never breaks the loop
+                    self._log("idle_open_ask_unread", error=f"{type(exc).__name__}: {exc}"[:200])
+            if ask or (near and idle_s >= REVIEW_IDLE_S):
+                self._idle_reported = True
+                self._change({"what": "idle", "for_s": round(idle_s), **({"open_ask": ask} if ask else {}),
+                              "near": [str(p.get("name")) for p in near]})
         self._pending = [c for c in (self._still_true(c) for c in self._pending) if c]
         if not self._pending:
             return None

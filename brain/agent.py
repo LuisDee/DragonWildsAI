@@ -490,10 +490,26 @@ class Agent:
                     or self.broker.running is not None  # a job left running when the player spoke
                     or (self.director is not None and
                         getattr(self.director, "owns_transition", self.director.running)))
-        ev = self.broker.review_due(busy=busy)
+        ev = self.broker.review_due(busy=busy, open_ask=self._idle_ask)
         if ev:
             self._situations.append(ev)
             self.flush_situations()
+
+    def _idle_ask(self) -> dict | None:
+        """The open ask as a fact for an idle review (broker.review_due, REVIEW_IDLE_ASK_S): his words, who asked, how
+        long ago, and the end condition its Planner wrote with its truth now (_done_when_now at "idle_review"). None:
+        no ask open, or its end condition reads met. Facts only: he decides to resume, keep resting, park or close."""
+        ask = self._open_request
+        if not ask:
+            return None
+        seen = self._ask_seen.get(ask)
+        out = {"words": ask[1], "asked_by": ask[0] or self.controller.player,
+               **({"asked_s_ago": round(self.clock() - seen[0])} if seen else {})}
+        if (dw := self._done_when_now(ask, "idle_review")) is not None:
+            if (self._done_when or {}).get("holds") is True:
+                return None
+            out["done_when"] = dw
+        return out
 
     def handle_event(self, event: Event) -> None:
         self.log.log("event", event=event.model_dump())
