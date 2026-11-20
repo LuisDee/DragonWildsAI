@@ -591,3 +591,32 @@ def test_a_vault_without_a_door_read_is_approximate_or_unplaced():
     line = next(s for s in p.mentioned("the vault", HERE) if s.startswith('"vault"'))
     assert ("Aa Kara (a vault in Temple Woods, PL 3, 20 m (approximate)), Bb Kara (a vault in Sand Reach, PL 7, "
             "position not known)") in line
+
+
+def test_named_gives_the_places_said_with_their_power_level_as_data():
+    """request_done's game_reads (agent._done_reads): a vault or region said by name, the bare kind word as the
+    nearest vault, nothing for words that name no place; the nearest needs to know where he is."""
+    vaults = {"Aa Kara": {"kind": "vault", "name": "Aa Kara", "aliases": ["Sand vault"], "area": "Temple Woods",
+                          "power_level": "3", "map_centre": {"position": [-40.0, 50.0], "accuracy_m": 50}},
+              "Bb Kara": {"kind": "vault", "name": "Bb Kara", "area": "Sand Reach", "power_level": "7"}}
+    p = Places(DATA, vaults=vaults)
+    assert p.named("claude, gear up for the vault", HERE) == [
+        {"name": "Aa Kara", "kind": "vault", "power_level": 3, "said": "vault (the nearest)", "distance_m": 20}]
+    assert p.named("gear up for the Sand vault", HERE) == [
+        {"name": "Aa Kara", "kind": "vault", "power_level": 3, "said": "Sand vault", "distance_m": 20}]
+    assert p.named("ready for Bb Kara?", HERE) == [{"name": "Bb Kara", "kind": "vault", "power_level": 7,
+                                                   "said": "Bb Kara"}]  # no position: no distance
+    assert p.named("we're heading to Far Dunes", HERE) == [{"name": "Far Dunes", "kind": "region", "power_level": 6,
+                                                            "said": "Far Dunes"}]
+    assert p.named("chop me two logs", HERE) == [] and p.named("gear up for the vault") == []
+
+
+@pytest.mark.skipif(newest_file() is None, reason="no data/places_<build>.json")
+def test_named_reads_the_vault_of_the_l3_ask_from_game_data():
+    """brain-live-20261120-015346 line 45: "claude, gear up for the vault" at the Temple Woods spot."""
+    p = Places()
+    row, = p.named("claude, gear up for the vault", L3_HERE)
+    assert (row["name"], row["kind"], row["power_level"], row["said"]) == ("Crasorak Kara", "vault", 2,
+                                                                           "vault (the nearest)")
+    assert p.named("Bronze Shield equipped, Bronze Sword in hand, Adventurer's Tunic, Leggings, Leather Cowl, "
+                   "Community Cape worn.", L3_HERE) == []  # his evidence names no place

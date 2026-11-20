@@ -511,13 +511,9 @@ class Places:
                 out.append(label)
         return out[:k]
 
-    def mentioned(self, text: str, here=None, k: int = 2) -> list[str]:
-        """Map names said in ``text`` (every word of the name is in it): regions, provinces and landmarks of two or
-        more words ("Statue", "Cow" are too common to mean the map's one). The longest name wins over a name inside
-        it. For the model: "the Astral Anima Vent" is a place go_to can take, not something to look for first."""
-        q = _terms(text or "")
-        if not q:
-            return []
+    def _said(self, q: set[str]) -> tuple[list[tuple[str, str]], dict[str, str]]:
+        """The map names whose every word is in ``q`` ([(name, kind)]; a name inside a longer one said is not its own)
+        and {a vault's name or alias: the vault's name}. Landmarks of one word ("Statue", "Cow") are too common."""
         names = [(n, "landmark") for n in self.landmarks if len(_terms(n)) >= 2]
         names += [(r["name"], "region") for r in self.regions] + [(p["name"], "province") for p in self.provinces]
         alias_of: dict[str, str] = {}  # a vault's name or alias said in full ("the Temple Woods vault") names it
@@ -528,6 +524,48 @@ class Places:
                     alias_of[n] = v["name"]
         hits = [(n, kind) for n, kind in names if _terms(n) and _terms(n) <= q]
         hits = [(n, kind) for n, kind in hits if not any(_terms(n) < _terms(m) for m, _ in hits)]
+        return hits, alias_of
+
+    def named(self, text: str, here=None, k: int = 2) -> list[dict]:
+        """The places said in ``text`` that the data gives a power level, as data: [{name, kind, power_level, said,
+        distance_m?}]. A vault or region by its full name or alias (the longest name first); the data's own kind word
+        of the vaults ("vault", from the bestiary rows) with no vault named: the vault nearest ``here``, as mentioned()
+        lists it first in his situation."""
+        q = _terms(text or "")
+        if not q:
+            return []
+        hits, alias_of = self._said(q)
+        here_p = _pos(here)
+        out: list[dict] = []
+
+        def add(name: str, kind: str, pl, said: str, pos=None) -> None:
+            if pl is None or len(out) >= k or any(r["name"] == name for r in out):
+                return
+            r = {"name": name, "kind": kind, "power_level": pl, "said": said}
+            if here_p and pos and (d := _d(here_p, pos)) is not None:
+                r["distance_m"] = d
+            out.append(r)
+        for n, kind in sorted(hits, key=lambda h: -len(_terms(h[0]))):
+            if kind == "vault":
+                v = self.vaults[alias_of[n]]
+                add(v["name"], v["kind"], v["power_level"], n, v["position"])
+            elif kind == "region":
+                add(n, "region", next(r for r in self.regions if r["name"] == n).get("power"), n)
+        if here_p and not any(kind == "vault" for _, kind in hits):
+            near = sorted((v for v in self.vaults.values() if v["position"] and _terms(v["kind"]) & q),
+                          key=lambda v: _d(here_p, v["position"]) or 0)
+            for v in near[:1]:
+                add(v["name"], v["kind"], v["power_level"], f"{v['kind']} (the nearest)", v["position"])
+        return out
+
+    def mentioned(self, text: str, here=None, k: int = 2) -> list[str]:
+        """Map names said in ``text`` (every word of the name is in it): regions, provinces and landmarks of two or
+        more words ("Statue", "Cow" are too common to mean the map's one). The longest name wins over a name inside
+        it. For the model: "the Astral Anima Vent" is a place go_to can take, not something to look for first."""
+        q = _terms(text or "")
+        if not q:
+            return []
+        hits, alias_of = self._said(q)
         out: list[str] = []
         said_vaults: set[str] = set()
         for n, kind in sorted(hits, key=lambda h: -len(_terms(h[0])))[:k]:

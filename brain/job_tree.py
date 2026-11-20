@@ -790,12 +790,16 @@ def _for(n: dict, parent: dict | None) -> str:
     return f" (for {parent['name']} {parent['have']}/{parent['need']})" if parent and parent["kind"] == "item" else ""
 
 
+def target_lines(tree: dict | None) -> list[str]:
+    """Each root as the game state reads it: 'Copper Ore: you carry 12 of 30 [blocked]'."""
+    return [f"{r['name']}: you carry {r['have']} of {r['need']} [{r['status']}]" for r in (tree or {}).get("roots") or []]
+
+
 def compact(tree: dict, now: float | None = None) -> dict:
     """The Controller's view: the target, the nodes nothing blocks now (ready, then open), the blocked steps with what
     blocks each (nearest the target first), and the failures kept on any node. Data only."""
     roots = tree.get("roots") or []
-    out: dict[str, Any] = {"about": ABOUT, "target": [f"{r['name']}: you carry {r['have']} of {r['need']} [{r['status']}]"
-                                                      for r in roots]}
+    out: dict[str, Any] = {"about": ABOUT, "target": target_lines(tree)}
     acts = ("craft", "gather", "drop", "spell", "trade", "station")
     seen, ready, open_, blocked, fails = set(), [], [], [], []
     for root in roots:
