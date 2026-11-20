@@ -14,7 +14,11 @@ Prior art: PUBG Ally's knowledge-lookup tool ("tool results are the only ground 
   title-coverage re-rank so the thing *named* wins over pages that merely mention it. Game results
   always come before wiki results.
 * The index is cached in ``data/wiki/knowledge.sqlite`` (gitignored with the mirror) and rebuilt when
-  any source file changes; with no mirror it is game-only and in memory.
+  any source file changes; with no mirror it is game-only and in memory. That file belongs to the data
+  dir the mirror sits in (``data/`` for ``data/wiki``); any other data (a test's, a worktree's with
+  ``DW_WIKI_DIR`` at the main mirror) gets its own file in the temp dir (``_default_db``), so it can
+  never overwrite the live brain's index with its own signature (incident 2026-11-20: the live start
+  hung >90 s rebuilding after worktree tests had rebuilt it for their data).
 """
 from __future__ import annotations
 
@@ -23,10 +27,12 @@ from __future__ import annotations
 # https://github.com/mindcraft-bots/mindcraft/blob/main/src/agent/commands/queries.js
 # https://arxiv.org/abs/2305.17144
 
+import hashlib
 import json
 import os
 import re
 import sqlite3
+import tempfile
 import threading
 from functools import lru_cache
 from pathlib import Path
@@ -614,6 +620,24 @@ def skill_pages(root: Path | None = None) -> dict[str, dict]:
 _MISS = object()
 
 
+def _same_dir(a: Path, b: Path) -> bool:
+    return os.path.normcase(str(a.resolve())) == os.path.normcase(str(b.resolve()))
+
+
+def _default_db(data: Path, wiki: Path) -> Path:
+    """The index file for this data + mirror. ``<wiki>/knowledge.sqlite`` only when the data is the mirror's own
+    parent (the repo layout, ``data/`` + ``data/wiki``); other data is keyed by both paths into the temp dir. One
+    file holds one signature, so a Knowledge over other data (a test's, a worktree's checkout of ``data/`` whose
+    mtimes differ) would otherwise rebuild the live index for itself and force the live start to rebuild it back."""
+    if _same_dir(data, wiki.parent):
+        return wiki / "knowledge.sqlite"
+    key = "|".join(os.path.normcase(str(p.resolve())) for p in (data, wiki))
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    out = Path(tempfile.gettempdir()) / "dw-knowledge" / f"knowledge-{digest}.sqlite"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
+
+
 class Knowledge:
     """``lookup(query, kind)`` over game data + wiki. Thread-safe for reads."""
 
@@ -626,7 +650,7 @@ class Knowledge:
         if not _fts_ok():
             raise RuntimeError("this sqlite3 has no FTS5")
         has_wiki = (self.wiki / "manifest.json").exists()
-        self.db_path = Path(db_path) if db_path else (self.wiki / "knowledge.sqlite" if has_wiki else None)
+        self.db_path = Path(db_path) if db_path else (_default_db(self.data, self.wiki) if has_wiki else None)
         sig = self._signature()
         self.db = self._connect()
         if rebuild or self._meta("signature") != sig:

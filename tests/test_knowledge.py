@@ -293,7 +293,7 @@ def test_unrelated_game_items_are_not_returned(know):
 def test_index_is_cached_and_rebuilt_when_a_source_changes(tmp_path):
     data, wiki = make_data(tmp_path / "data"), make_wiki(tmp_path / "wiki")
     k1 = Knowledge(data=data, wiki=wiki)
-    assert (wiki / "knowledge.sqlite").exists()
+    assert k1.db_path.exists()
     sig = k1._meta("signature")
     k1.db.close()
     k2 = Knowledge(data=data, wiki=wiki)
@@ -304,6 +304,33 @@ def test_index_is_cached_and_rebuilt_when_a_source_changes(tmp_path):
     os.utime(f, ns=(time.time_ns(), time.time_ns() + 10**9))
     k3 = Knowledge(data=data, wiki=wiki)
     assert "Lights up tunnels" in k3.lookup("glow", kind="spell")["data"]["results"][0]["text"]
+
+
+def test_other_data_never_rewrites_the_live_index(tmp_path):
+    """Incident 2026-11-20: worktree tests ran Knowledge() with DW_WIKI_DIR at the main mirror; their data/ (other
+    mtimes) gave another signature, so they rebuilt data/wiki/knowledge.sqlite for themselves and the live brain's
+    next start hung rebuilding it back. The mirror's file belongs to the data dir it sits in; other data gets its own."""
+    data = make_data(tmp_path / "data")
+    wiki = make_wiki(tmp_path / "data" / "wiki")  # the repo layout: data/ + data/wiki
+    live = Knowledge(data=data, wiki=wiki)
+    assert live.db_path == wiki / "knowledge.sqlite"
+    sig = live._meta("signature")
+    live.db.close()
+    before = (wiki / "knowledge.sqlite").read_bytes()
+
+    other = make_data(tmp_path / "worktree" / "data")
+    f = other / "spells_999.json"
+    f.write_text(f.read_text(encoding="utf-8").replace("Lights up caves", "Lights up tunnels"), encoding="utf-8")
+    os.utime(f, ns=(time.time_ns(), time.time_ns() + 10**9))
+    k = Knowledge(data=other, wiki=wiki)
+    assert k.db_path != wiki / "knowledge.sqlite" and k._meta("signature") != sig
+    assert "Lights up tunnels" in k.lookup("glow", kind="spell")["data"]["results"][0]["text"]
+    k.db.close()
+
+    assert (wiki / "knowledge.sqlite").read_bytes() == before
+    again = Knowledge(data=data, wiki=wiki)
+    assert again._meta("signature") == sig  # the live start reuses its index, no rebuild
+    again.db.close()
 
 
 def test_stale_format_rebuilds_cached_recipe_cards(tmp_path):
