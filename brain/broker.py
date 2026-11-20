@@ -867,7 +867,9 @@ class EventBroker:
         idle_s = now - last_busy
         if not self._idle_reported and idle_s >= min(REVIEW_IDLE_S, REVIEW_IDLE_ASK_S):
             ask = None
-            if open_ask is not None and idle_s >= REVIEW_IDLE_ASK_S and (
+            # out of the game world (a drop, a relaunch: get_state failing) there is nothing to resume; being back
+            # is its own change (observe: "body")
+            if open_ask is not None and idle_s >= REVIEW_IDLE_ASK_S and self._away is None and (
                     self._idle_ask_read_at is None or now - self._idle_ask_read_at >= REVIEW_SAMPLE_S):
                 self._idle_ask_read_at = now  # (the provider reads the end condition: not on every pump)
                 try:
@@ -887,10 +889,20 @@ class EventBroker:
         # ...and so is being back in the world after a drop: what he was doing was cut off
         worse = worse or any(c.get("what") in ("time_of_day", "body") for c in self._pending)
         last = self._last_review
-        if last and now - last["at"] < REVIEW_MIN_GAP_S and not worse:
+        gap = bool(last and now - last["at"] < REVIEW_MIN_GAP_S)
+        # ...and so is a standing open ask while he is idle (the grader counts 40 s idle: a stop to rest, then nothing),
+        # but on its own: inside the gap it goes out alone and leaves the gap, the bands and the previous review as they
+        # were, so the changes the gap holds (a sleep window two minutes after his "can we rest?" and a player's "no")
+        # still wait it out and come with what he said then (test_suggested_two_minutes_ago_and_told_no_stays_silent)
+        alone = gap and not worse and any(c.get("what") == "idle" and c.get("open_ask") for c in self._pending)
+        if gap and not worse and not alone:
             return None
-        changes, self._pending = self._pending, []
-        self._reviewed_bands = {k: b for k, (b, _) in self._bands.items()}
+        if alone:
+            changes = [c for c in self._pending if c.get("what") == "idle"]
+            self._pending = [c for c in self._pending if c.get("what") != "idle"]
+        else:
+            changes, self._pending = self._pending, []
+            self._reviewed_bands = {k: b for k, (b, _) in self._bands.items()}
         ev = {"type": "situation_review", "changes": changes,
               "stats_pct": {k: round(p) for k, (_, p) in self._bands.items()},
               "time_of_day": st.get("time_of_day"), "bag": st.get("bag"),
@@ -898,8 +910,9 @@ class EventBroker:
         if last:
             ev["previous_review"] = {"ago_s": round(now - last["at"]), "changes": last["changes"],
                                      "you_said": last.get("you_said")}
-        self._last_review = {"at": now, "changes": changes, "you_said": None}
-        self._log("situation_review", changes=changes, worse=worse)
+        if not alone:
+            self._last_review = {"at": now, "changes": changes, "you_said": None}
+        self._log("situation_review", changes=changes, worse=worse, **({"inside_gap": True} if alone else {}))
         return ev
 
     def where_line(self) -> str | None:

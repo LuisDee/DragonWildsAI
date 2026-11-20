@@ -63,7 +63,7 @@ def test_once_per_idle_stretch_renewed_when_he_acts_again():
     clock.t += B.REVIEW_IDLE_ASK_S * 3
     assert b.review_due(open_ask=ASK) is None  # he chose to keep resting: not asked again this stretch
     b.note_busy()  # he acted
-    clock.t += B.REVIEW_IDLE_ASK_S + 1
+    clock.t += B.REVIEW_IDLE_ASK_S + 1  # inside REVIEW_MIN_GAP_S of the last review: an open ask still goes out
     assert _idle(b.review_due(open_ask=ASK))["open_ask"] == ASK
 
 
@@ -100,14 +100,45 @@ def test_the_provider_is_read_only_at_the_threshold_and_not_on_every_pump():
 
 
 def test_a_waiting_idle_change_is_dropped_when_he_acts():
-    """A review a minute ago: the idle change waits out REVIEW_MIN_GAP_S. He acts meanwhile: it is no longer true."""
+    """A review a minute ago: a plain idle change (player near, no ask) waits out REVIEW_MIN_GAP_S; he acts meanwhile:
+    it is no longer true. An open ask does not wait (the grader counts 40 s idle): it goes out inside the gap."""
+    b, clock = _broker()
+    b.observe(_state(dist=4.0))
+    b._last_review = {"at": clock.t + B.REVIEW_IDLE_S - 10, "changes": [], "you_said": None}
+    clock.t += B.REVIEW_IDLE_S + 1
+    assert b.review_due() is None  # pending (rate limit)
+    b.note_busy()
+    clock.t += B.REVIEW_MIN_GAP_S + B.REVIEW_QUIET_AFTER_CMD_S + 1
+    assert b.review_due() is None
+
+
+def test_an_open_ask_goes_out_inside_the_gap():
     b, clock = _broker()
     b._last_review = {"at": clock.t + B.REVIEW_IDLE_ASK_S - 10, "changes": [], "you_said": None}
     clock.t += B.REVIEW_IDLE_ASK_S + 1
-    assert b.review_due(open_ask=ASK) is None  # pending (rate limit)
-    b.note_busy()
-    clock.t += B.REVIEW_MIN_GAP_S + B.REVIEW_QUIET_AFTER_CMD_S + 1
-    assert b.review_due(open_ask=None) is None
+    assert _idle(b.review_due(open_ask=ASK))["open_ask"] == ASK
+
+
+def test_inside_the_gap_the_open_ask_goes_out_alone_and_the_gap_holds_the_rest():
+    b, clock = _broker()
+    last = {"at": clock.t + B.REVIEW_IDLE_ASK_S - 10, "changes": [{"what": "endurance"}], "you_said": "can we rest?"}
+    b._last_review = dict(last)
+    b._change({"what": "sleep_allowed", "to": True})  # not urgent: waits out REVIEW_MIN_GAP_S
+    clock.t += B.REVIEW_IDLE_ASK_S + 1
+    ev = b.review_due(open_ask=ASK)
+    assert [c["what"] for c in ev["changes"]] == ["idle"] and ev["previous_review"]["you_said"] == "can we rest?"
+    assert b._last_review == last  # the gap and the history stand
+    assert b.review_due(open_ask=ASK) is None  # the sleep window still waits
+    clock.t = last["at"] + B.REVIEW_MIN_GAP_S + 1
+    ev = b.review_due(open_ask=ASK)
+    assert [c["what"] for c in ev["changes"]] == ["sleep_allowed"] and ev["previous_review"]["you_said"] == "can we rest?"
+
+
+def test_out_of_the_game_world_no_idle_ask_review():
+    b, clock = _broker()
+    b.note_unavailable("companion_down")
+    clock.t += B.REVIEW_IDLE_ASK_S + 60
+    assert b.review_due(open_ask=ASK) is None
 
 
 def test_near_player_idle_unchanged_and_carries_the_ask_too():
@@ -147,7 +178,7 @@ def test_agent_idle_with_the_open_ask_standing_gets_a_review_carrying_it(tmp_pat
     r = _far_rig(tmp_path)
     r.agent._open_request = ("Zezima", "claude, gear up for the vault")
     r.agent._ask_seen[r.agent._open_request] = (r.clock.t, copy.deepcopy(r.body.state))  # asked at the baseline
-    r.at(200).step()
+    r.at(B.REVIEW_IDLE_ASK_S - 5).step()
     assert r.model.contexts == []
     r.at(B.REVIEW_IDLE_ASK_S + 10).step()
     ev = r.model.contexts[-1]["body_event"]
