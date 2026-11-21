@@ -93,6 +93,59 @@ do
     check("describe: inside = distance 0", din.inside == true and din.distance == 0, din.distance)
     check("log words name the cloud and where", GH.log_words(rows[1]):find("poison cloud BP_DEDA_PoisonBreath_PoisonCloud_C_10 at %[12.0,%-9.0,0.0%] r=5.0m %(extent%)") ~= nil,
         GH.log_words(rows[1]))
+    check("log words: no life read, the rate", GH.log_words(rows[1]):find("life unread, 4 HP/s", 1, true) ~= nil, GH.log_words(rows[1]))
+end
+
+-- A damaging zone across the only way (live 2026-11-21 00:41:24Z): the zone carries what avoidzones.verdict needs.
+-- dps from the profile (measured), until_s a LEASE (not its end), its end only from the owner's own life property.
+do
+    check("data: both poison profiles name a measured rate and life properties", (function()
+        for _, p in ipairs(GH.standing(PROF)) do
+            if not (type(p.dps) == "number" and p.dps > 0 and type(p.life) == "table" and p.life[1]) then return false end
+        end
+        return true end)())
+    -- the owner's own lifetime: BP Duration first, then AActor.InitialLifeSpan; 0 (lives for ever) is no answer
+    local c1, o1 = cloud(30, { 0, 0, 0 }, {})
+    o1.Duration, o1.InitialLifeSpan = 0, 30
+    local c2, o2 = cloud(31, { 300, 0, 0 }, {})
+    o2.Duration = 12
+    local c3 = cloud(32, { 600, 0, 0 }, {})
+    local rows = GH.scan({ profiles = PROF, origin = { X = 0, Y = 0, Z = 0 }, find = function(c) if c == "PoisonEmitterBox" then return { c1, c2, c3 } end return {} end })
+    local by = {}
+    for _, r in ipairs(rows) do by[r.id] = r end
+    local r1, r2, r3 = by["BP_DEDA_PoisonBreath_PoisonCloud_C_30"], by["BP_DEDA_PoisonBreath_PoisonCloud_C_31"], by["BP_DEDA_PoisonBreath_PoisonCloud_C_32"]
+    check("life: Duration 0 -> InitialLifeSpan", r1 and r1.life_s == 30 and r1.life_from == "InitialLifeSpan", r1 and r1.life_s)
+    check("life: the BP's own Duration", r2 and r2.life_s == 12 and r2.life_from == "Duration", r2 and r2.life_s)
+    check("life: none reads -> unknown", r3 and r3.life_s == nil, r3 and r3.life_s)
+    check("life: the row carries the profile's rate", r1 and r1.dps == 4, r1 and r1.dps)
+    check("life: in the log words", GH.log_words(r2):find("lives 12s (Duration), 4 HP/s", 1, true) ~= nil, GH.log_words(r2))
+    -- zones: a lease, seen/first times, ends = first seen + life (never sooner than the real end)
+    local first = { [r1.id] = 90, [r2.id] = 99 }
+    local zs = GH.zones(rows, 110, { seen_s = 100, first = first })
+    local AZ = dofile(here .. "/../scripts/avoidzones.lua")
+    local nz = assert(AZ.normalize(zs, 100))
+    local zb = {}
+    for _, z in ipairs(nz) do zb[z.id] = z end
+    local z1, z2, z3 = zb["poison_cloud_box:" .. r1.id], zb["poison_cloud_box:" .. r2.id], zb["poison_cloud_box:" .. r3.id]
+    check("zones: the scan's until_s is a lease; seen and first carried", z1.lease == true and z1.until_s == 110 and z1.seen_s == 100 and z1.first_s == 90, z1.first_s)
+    check("zones: ends = first seen + its life", z1.ends_s == 120 and z2.ends_s == 111, tostring(z1.ends_s) .. " " .. tostring(z2.ends_s))
+    check("zones: no life -> no end (first seen defaults to this scan)", z3.ends_s == nil and z3.first_s == 100, z3.ends_s)
+    check("zones: dps and words carried", z1.dps == 4 and z1.words == "poison cloud", z1.dps)
+    -- the verdicts (avoidzones.verdict) on these, at t = 100 with 100 HP: 4 HP/s gives 25 s
+    local o = { hp = 100, dps_prior = 4, slack_s = 2 }
+    local v1, v2, v3 = AZ.verdict(z1, 100, o), AZ.verdict(z2, 100, o), AZ.verdict(z3, 100, o)
+    check("verdict: ends in 20 s (+2 slack) < 25 s -> hold", v1.act == "hold" and v1.wait_s == 20 and v1.budget_s == 25, v1.act .. " " .. tostring(v1.wait_s))
+    check("verdict: ends in 11 s -> hold", v2.act == "hold" and v2.wait_s == 11, v2.act)
+    check("verdict: lease only, end unknown -> blocked", v3.act == "blocked" and v3.why == "end_unknown", v3.act .. " " .. v3.why)
+    local v4 = AZ.verdict(z1, 100, { hp = 80, dps_prior = 4, slack_s = 2 })
+    check("verdict: 80 HP covers 20 s: 20 + 2 is not under it -> blocked too_long", v4.act == "blocked" and v4.why == "too_long", v4.act .. " " .. v4.why)
+    check("verdict: health unread -> blocked", AZ.verdict(z1, 100, { dps_prior = 4 }).why == "hp_unread")
+    check("verdict: past its end and still here -> blocked", AZ.verdict(z1, 121, o).why == "ended_late")
+    check("verdict: a harmless zone is crossed", AZ.verdict({ harmless = true, until_s = 999 }, 100, o).act == "cross"
+        and AZ.verdict({ dps = 0, lease = true, until_s = 999 }, 100, o).act == "cross")
+    check("verdict: a fight zone (no lease) ends at until_s; no rate -> the prior", (function()
+        local v = AZ.verdict({ until_s = 102 }, 100, o); return v.act == "hold" and v.rated == false and v.dps == 4 end)())
+    check("verdict: no rate and no prior -> blocked", AZ.verdict({ until_s = 102 }, 100, { hp = 100 }).why == "rate_unknown")
 end
 
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))

@@ -1712,6 +1712,7 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
     local plan_goal = v(far)
     if observe then plan_goal.Z = plan_goal.Z - hh end -- planner nodes and heuristic use floor height
     st.lp_far, st.lp_state, st.lp_why, st.lp_observe = plan_goal, "sampling", why, observe == true
+    st.lp_me = { X = me.X, Y = me.Y, Z = me.Z - hh } -- where he stood (feet) when it was asked: is he in a zone (M._zone_meet)
     st.lp_rejoin = (st.far_k and st.far_k.far == far) and st.far_k or nil -- (steer_local: the route picks up there)
     st.lp_runs = (st.lp_runs or 0) + 1
     st.lp_plans_np = (st.lp_plans_np or 0) + 1
@@ -1762,9 +1763,12 @@ local function lp_work(st, t, log)
             st.lp_stand_s = t - (st.lp_t0 or t)
             local zs, AZm = live_zones(t)
             if AZm and #zs > 0 then
-                -- a cost, not a wall: when no other way exists the plan crosses (the soonest-ending zone)
-                local zc = AZm.on_route(zs, st.lpath[1], st.lpath, 2, nil, M.cfg.avoid_margin_cm)
-                if zc and log then log(string.format("move: no way round avoid zone %s; crossing it (ends in %.1fs)", zc.id, zc.until_s - t)) end
+                -- a cost, not a wall: the best plan still crosses a zone when no other way exists. Crossed only when it
+                -- does no damage; else held outside while it ends soon enough, else the walk ends zone_blocked
+                -- (M._zone_meet). One he already stands in is left along the route (AZ.ahead skips it).
+                local zc = st.lp_me and AZm.ahead(zs, st.lp_me, st.lpath, 1, nil, M.cfg.avoid_margin_cm)
+                    or AZm.ahead(zs, st.lpath[1], st.lpath, 2, nil, M.cfg.avoid_margin_cm)
+                if zc then M._zone_meet(st, t, zc, log) end
             end
             if log then
                 local at = {}
@@ -4389,6 +4393,21 @@ local function zone_replan(f)
         st.lpath = nil
         if lp_begin(st, pawn, me, far_goal(f), "avoid_zone " .. zc.id, log) then st.status = "planning"; return true end
     end
+    -- no plan round it will come (a straight walk: no local planner, the route owns the frame, or the planner is
+    -- cooling down): the zone ahead is met here as a plan's would be (M._zone_meet: cross only a harmless one)
+    if zc and not replan and src ~= "avoid_exit" and (not st.use_lp or st.local_authority or not may_plan(st, t)) then
+        local here = { X = me.X, Y = me.Y, Z = mfeet }
+        local za
+        if st.lpath then za = AZm.ahead(zs, here, st.lpath, st.lwp, mfeet, M.cfg.avoid_margin_cm)
+        else
+            local L = math.min(dist, M.cfg.lp_grid_m * 100)
+            za = AZm.ahead(zs, here, { { X = me.X + dx * L, Y = me.Y + dy * L } }, 1, mfeet, M.cfg.avoid_margin_cm)
+        end
+        if za and st.zone_said ~= za.id then
+            M._zone_meet(st, t, za, log)
+            if st.zone_hold or st.zone_block then return true end
+        end
+    end
 end
 
 -- IDLE HOSTILES on the way: Aggressive creatures (LoadedData.Archetype 0) in sight that are not in combat yet
@@ -5311,6 +5330,14 @@ local function tick(st, gen, log)
         st.win_t, st.win_pos = t, v(me)
         return
     end
+    -- a damaging zone across the only way: stand outside it until it ends (M._zone_hold_tick), or end the walk
+    if st.zone_hold and M._zone_hold_tick(f) then
+        st.status = "holding"
+        if st.prog_t then st.prog_t = st.prog_t + dt end
+        st.win_t, st.win_pos = t, v(me)
+        return
+    end
+    if st.zone_block then return stop(st, st.zone_block, log) end
     if st.door and door_step(f) then return end
     f.path = st.path
     trail_entry(f)
@@ -5910,6 +5937,10 @@ local WHY = {
     -- not the way: a walk stopped because the camera was taken to aim (move cam_write; never a path verdict)
     camera_taken = function() return "my walk kept stopping because my camera was being turned to aim at something else, not because of the way there" end,
     no_safe_point = function() return "there's nowhere safe to stand nearby" end,
+    -- a damaging zone across the only way that does not clear soon enough (M._zone_meet: what, where, how long)
+    zone_blocked = function()
+        return (rawget(_G, "DW_MOVE") or {}).zone_block_words or "something that hurts is across the only way there and it won't clear soon"
+    end,
     too_slow = function() return "I can't get out of the way in time" end,
     paused = function() return "the world is still loading" end,
     no_shore = function() return "I can't find the water's edge from here" end,
@@ -6021,14 +6052,113 @@ function M._ground_hazards_tick(f)
     local had = A.layers and A.layers.ground and #A.layers.ground > 0
     if #rows == 0 and not had then return end
     _G.DW_GROUND_SEEN = _G.DW_GROUND_SEEN or {}
-    for id, t0 in pairs(_G.DW_GROUND_SEEN) do if t - t0 > 600 then _G.DW_GROUND_SEEN[id] = nil end end
+    _G.DW_GROUND_FIRST = _G.DW_GROUND_FIRST or {} -- when a scan first saw each (its age, for when it ends: GH.zones)
+    for id, t0 in pairs(_G.DW_GROUND_SEEN) do if t - t0 > 600 then _G.DW_GROUND_SEEN[id] = nil; _G.DW_GROUND_FIRST[id] = nil end end
     for _, r in ipairs(rows) do
         if not _G.DW_GROUND_SEEN[r.id] and log then
             log("move: ground hazard: " .. GHm.log_words(r) .. "; routing round it")
         end
         _G.DW_GROUND_SEEN[r.id] = t
+        _G.DW_GROUND_FIRST[r.id] = _G.DW_GROUND_FIRST[r.id] or t
     end
-    M.set_avoid_zones(log, GHm.zones(rows, t + M.cfg.ground_zone_s), "ground")
+    M.set_avoid_zones(log, GHm.zones(rows, t + M.cfg.ground_zone_s, { seen_s = t, first = _G.DW_GROUND_FIRST }), "ground")
+end
+
+-- A DAMAGING ZONE ACROSS THE ONLY WAY (live 2026-11-21 00:41:24Z, trial 20261121-003451-L3: "no way round avoid zone
+-- poison_cloud:...; crossing it (ends in 9.3s)" and he died of poison 5 s later while a flax gather walked him on; the
+-- "ends in" was the ground layer's 10 s lease, not the cloud's end). avoidzones.verdict decides from the zone's data
+-- (hazard_profiles dps, its end when its own life property read) and his HP now (HealthComponent, as life_check):
+--   cross    a zone that does no damage: walked through as before;
+--   hold     it ends within the time its damage would take to kill him (wait + ground_scan_s < HP / dps): stand
+--            outside it until it is gone (M._zone_hold_tick), then go on;
+--   blocked  else: the walk ends failed zone_blocked with what, where and how long in its words (a follow holds and
+--            looks again each scan instead: a follow never ends for a cloud).
+-- No new file-level locals (the 200-local limit): these are M fields.
+function M._dps_prior()
+    local _, prof = M._ground_data()
+    local best
+    for _, hp in ipairs(prof or {}) do if type(hp.dps) == "number" and (not best or hp.dps > best) then best = hp.dps end end
+    return best
+end
+function M._zone_what(z)
+    if z.words then return z.words end
+    local w = tostring(z.id):match("^([^:]+)") or tostring(z.id)
+    return (w:gsub("_", " "))
+end
+function M._zone_meet(st, t, z, log)
+    local hp = nil
+    pcall(function() local h = st.pawn.HealthComponent:GetAuthoritativeHealth(); if type(h) == "number" and h == h then hp = h end end)
+    local AZm = az_module()
+    local vd = AZm.verdict(z, t, { hp = hp, dps_prior = M._dps_prior(), slack_s = M.cfg.ground_scan_s })
+    local what, at = M._zone_what(z), string.format("[%.0f,%.0f]", z.X / 100, z.Y / 100)
+    local seen_for = z.first_s and (t - z.first_s) or nil
+    if vd.act == "cross" then
+        if log and st.zone_said ~= z.id then log(string.format("move: no way round avoid zone %s; crossing it (it does no damage)", z.id)) end
+        st.zone_said = z.id
+        return vd
+    end
+    if vd.act == "blocked" and st.mode == "follow" then -- a follow waits at the edge and looks again each scan
+        vd.act, vd.wait_s, vd.follow = "hold", M.cfg.ground_scan_s, true
+    end
+    if vd.act == "hold" then
+        -- judged again ground_scan_s past its end: the scan that drops a cloud that ended comes up to that late
+        st.zone_hold = { id = z.id, until_s = t + vd.wait_s + M.cfg.ground_scan_s, t0 = t, what = what, follow = vd.follow }
+        local again = st.zone_said == z.id
+        st.zone_said = z.id
+        if log and not (vd.follow and again) then
+            if vd.follow then
+                log(string.format("move: holding: %s in the way at %s, no way round; waiting at its edge (%s)", what, at, vd.why))
+            else
+                log(string.format("move: holding: %s in the way, clears in %.0f s (no way round %s at %s; %.0f HP covers %.1f s of its %g HP/s%s)",
+                    what, vd.wait_s, z.id, at, hp or -1, vd.budget_s or -1, vd.dps or -1, vd.rated and "" or ", the highest profile rate"))
+            end
+        end
+        if not vd.follow then note(st, string.format("I waited for a %s in the way to clear (about %.0f s)", what, vd.wait_s)) end
+        return vd
+    end
+    -- blocked: what, where, how long, in words, and never a crossing
+    local long
+    if vd.why == "end_unknown" then
+        long = "I can't tell when it clears" .. (seen_for and string.format(" (it has been there at least %.0f s)", seen_for) or "")
+    elseif vd.why == "ended_late" then
+        long = "it is still there after it should have cleared"
+    elseif vd.why == "too_long" then
+        long = string.format("it clears in about %.0f s, longer than my %.0f HP would last in it at %g HP a second", vd.wait_s, hp or 0, vd.dps or 0)
+    elseif vd.why == "hp_unread" then
+        long = "I can't read my health to know whether I could wait for it"
+    else
+        long = "I don't know how much it would hurt"
+    end
+    local words = string.format("a %s at %s is across the only way there and I won't walk through it: %s", what, at, long)
+    if log then log(string.format("move: zone_blocked: %s %s at %s blocks the only way (%s%s%s); not crossing it", what, z.id, at, vd.why,
+        vd.wait_s and string.format(", clears in %.0f s", vd.wait_s) or "", seen_for and string.format(", seen %.0f s", seen_for) or "")) end
+    st.zone_block_words = words
+    st.zone_block = { status = "failed", reason = "zone_blocked", why = words, detail = words,
+                      zone = { id = z.id, what = what, at = { math.floor(z.X) / 100, math.floor(z.Y) / 100, z.Z and math.floor(z.Z) / 100 or nil },
+                               r_m = math.floor(z.r) / 100, clears_in_s = vd.wait_s, seen_for_s = seen_for, dps = vd.dps, why = vd.why } }
+    return vd
+end
+-- One frame of a hold: true while he stands (the caller pauses the progress clocks). Over when the zone is gone (no
+-- scan sees it: the ground layer drops it), or, past its expected end, judged again (it outlasted it: blocked).
+function M._zone_hold_tick(f)
+    local st, t, log = f.st, f.t, f.log
+    local h = st.zone_hold
+    local z
+    for _, q in ipairs(f.zs or {}) do if q.id == h.id then z = q; break end end
+    local P = st.prog_tr -- the shared watchdog does not count a hold as a stall
+    if P and P.best_t then P.best_t = P.best_t + (f.dt or 0) end
+    if st.timeout_s then st.timeout_s = st.timeout_s + (f.dt or 0) end
+    if not z then
+        st.zone_hold = nil
+        if log then log(string.format("move: hold over: %s %s gone after %.1f s; going on", h.what, h.id, t - h.t0)) end
+        restart_progress(st, t, f.me)
+        return false
+    end
+    if t < h.until_s then return true end
+    st.zone_hold = nil
+    if h.follow then st.lpath = nil end -- a follow plans again (the leader may have moved round it)
+    M._zone_meet(st, t, z, log)
+    return st.zone_hold ~= nil
 end
 
 function M.avoid_status(st)

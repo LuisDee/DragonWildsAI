@@ -14,8 +14,14 @@
 --   { id = "breath1", kind = "circle" | "cone", x, y, z (METRES, like every move API), r_cm,
 --     until_s (same clock as move/combat: GameplayStatics:GetRealTimeSeconds) | ttl_s (relative),
 --     yaw_deg, half_angle_deg (cone: apex at x,y, axis yaw_deg, range r_cm), h_cm (vertical reach
---     above/below z, default 400; z omitted = any height) }
--- Internal zone: same fields in cm (X, Y, Z, r, h, yaw (rad), half (rad), until_s, id, kind).
+--     above/below z, default 400; z omitted = any height),
+--   optional, for a walk that meets one with no way round (AZ.verdict):
+--     dps (HP a second it takes from him, from data: hazard_profiles `dps`), harmless (true: it does no damage, a walk
+--     may cross it), lease (true: until_s is a renewal lease while the thing is seen, not when it ends), ends_s (when
+--     it really ends, same clock, when known), seen_s / first_s (when it was last / first seen), words ("poison
+--     cloud") }
+-- Internal zone: same fields in cm (X, Y, Z, r, h, yaw (rad), half (rad), until_s, id, kind; dps, harmless, lease,
+-- ends_s, seen_s, first_s, words as given).
 local AZ = {}
 
 AZ.cfg = {
@@ -55,7 +61,9 @@ function AZ.normalize(list, now_s)
         end
         if not untl then return nil, "zone " .. k .. ": needs until_s (or ttl_s)" end
         local iz = { id = tostring(z.id or ("zone" .. k)), kind = kind, X = x * 100, Y = y * 100,
-            Z = num(z.z) and z.z * 100 or nil, r = r, h = num(z.h_cm) or AZ.cfg.h_cm, until_s = untl }
+            Z = num(z.z) and z.z * 100 or nil, r = r, h = num(z.h_cm) or AZ.cfg.h_cm, until_s = untl,
+            dps = num(z.dps), harmless = z.harmless == true or nil, lease = z.lease == true or nil, ends_s = num(z.ends_s),
+            seen_s = num(z.seen_s), first_s = num(z.first_s), words = type(z.words) == "string" and z.words or nil }
         if kind == "cone" then
             local yaw, half = num(z.yaw_deg), num(z.half_angle_deg)
             if not (yaw and half and half > 0 and half < 180) then return nil, "zone " .. k .. ": cone needs yaw_deg and 0 < half_angle_deg < 180" end
@@ -135,6 +143,46 @@ function AZ.on_route(zs, from, pts, i0, zf, margin)
         prev = pts[k]
     end
     return nil
+end
+
+-- First zone on the polyline that does NOT already hold `from` (one he stands in is left along the route; the
+-- question for a walk is the next one ahead). "Holds" is his centre inside it, not the capsule margin: a walk that
+-- stopped at a zone's edge (a plan's partial end) has his capsule over the edge, and the zone is still ahead.
+function AZ.ahead(zs, from, pts, i0, zf, margin)
+    local out = {}
+    for _, z in ipairs(zs or {}) do
+        if not AZ.contains(z, from.X, from.Y, from.Z or zf, 0) then out[#out + 1] = z end
+    end
+    if #out == 0 then return nil end
+    return AZ.on_route(out, from, pts, i0, zf, margin)
+end
+
+-- A walk's way crosses zone z and no way round it exists: cross, hold outside until it ends, or give up (blocked).
+-- Pure: every number comes from the zone (its dps, its end) or the caller (his HP, dps_prior, slack_s).
+--   * harmless (or dps 0): "cross" (only a zone that does no damage is ever walked through);
+--   * its end unknown (a lease only, no ends_s): "blocked";
+--   * held only while the wait is short enough that his HP covers the zone's damage over it: (wait + slack_s) x dps
+--     < hp, i.e. the wait is shorter than the time the zone would take to kill him. dps = the zone's own, else
+--     opts.dps_prior (the highest rate any hazard profile names); slack_s = how stale "it ends at" can be (the
+--     caller's scan period). Else "blocked".
+-- opts = { hp = his health now, dps_prior, slack_s }. Returns { act = "cross"|"hold"|"blocked", wait_s, ends_s,
+-- budget_s, dps, rated (dps was the zone's own), why (harmless, end_unknown, ended_late, hp_unread, rate_unknown,
+-- too_long, short) }.
+function AZ.verdict(z, now_s, opts)
+    opts = opts or {}
+    if z.harmless or z.dps == 0 then return { act = "cross", why = "harmless" } end
+    local ends = z.ends_s or ((not z.lease) and z.until_s) or nil
+    if not ends then return { act = "blocked", why = "end_unknown" } end
+    local wait = ends - (now_s or 0)
+    local out = { wait_s = wait, ends_s = ends, dps = z.dps or num(opts.dps_prior), rated = z.dps ~= nil }
+    if wait <= 0 then out.act, out.why = "blocked", "ended_late"; return out end -- still here after its end
+    local hp = num(opts.hp)
+    if not (hp and hp > 0) then out.act, out.why = "blocked", "hp_unread"; return out end
+    if not (out.dps and out.dps > 0) then out.act, out.why = "blocked", "rate_unknown"; return out end
+    out.budget_s = hp / out.dps
+    if wait + (num(opts.slack_s) or 0) < out.budget_s then out.act, out.why = "hold", "short"
+    else out.act, out.why = "blocked", "too_long" end
+    return out
 end
 
 -- Escape candidates: along `rays` directions, the first point outside every zone (grown by margin)

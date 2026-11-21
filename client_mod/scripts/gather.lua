@@ -33,7 +33,8 @@
 --   M.stop(log, why)   M.status()   M.HANDLERS = {gather (async {pending}), gather_status}
 -- Failure reasons (brain/interface.py Reason) with data.why (specific) and data.detail (a sentence):
 --   wrong_tool (no_tool | tool_tier_too_low), nothing_in_range (no_resource_nearby), inventory_full,
---   path_blocked (unreachable | swing_no_effect), interrupted, companion_down, timeout,
+--   path_blocked (unreachable | swing_no_effect), zone_blocked (a damaging zone, e.g. a poison cloud, across the only
+--   way to bad_streak picks in a row: move's words say what, where, how long), interrupted, companion_down, timeout,
 --   unknown_target (unknown_resource), invalid_args, body_error (inputs_not_reaching_game | camera_taken: walks
 --   kept ending for a cause that is not the way, M.NOT_PATH)
 -- Events: client_io/events/gather.jsonl {"type":"gather_progress", task_id, resource, item, have, want}
@@ -1447,6 +1448,20 @@ approach_failed = function(J, T, st, res)
         return
     end
     local pv = st and type(st.progress) == "table" and st.progress or nil
+    -- a damaging zone (a poison cloud) across the only way that does not clear soon (move zone_blocked: move never
+    -- walks him through one, live 2026-11-21 00:41Z he died crossing): this pick is out of reach, another is tried;
+    -- the same for bad_streak picks in a row ends the job zone_blocked with move's words (what, where, how long),
+    -- never path_blocked (the way is there, it is the cloud on it)
+    if res.reason == "zone_blocked" then
+        local words = type(res.why) == "string" and res.why or "something that hurts is across the only way there"
+        mark_bad(J, T, "zone_blocked: " .. words)
+        J.T = nil
+        if J.bad_streak >= M.cfg.bad_streak then
+            return fail(J, "zone_blocked", "zone_blocked", string.format("I can't get to the %s: %s. The last %d I tried were the same.",
+                tostring(J.key), words, J.bad_streak), { move = "zone_blocked", zone = res.zone })
+        end
+        return set_phase(J, "scan", "zone_blocked: another one")
+    end
     local why = res.why or res.reason
     if (why == nil or why == "timeout") and pv and pv.why then why = pv.why end
     why = tostring(why or "stuck")
@@ -2296,8 +2311,8 @@ do
                 target = { type = "string", description = "The id of one log or stump lying here (from what you see) to chop up and collect; ends when it and its pieces are done." },
                 style = { type = "string", description = "One of the tool's actions (see held_actions), e.g. Overhead Chop." } }) },
             preconditions = { "a tool of the right kind in your inventory (axe for trees, pickaxe for rocks)" },
-            reasons = { "nothing_in_range", "wrong_tool", "path_blocked", "inventory_full", "interrupted", "timeout", "unknown_target",
-                        "invalid_args", "not_unlocked" } },
+            reasons = { "nothing_in_range", "wrong_tool", "path_blocked", "zone_blocked", "inventory_full", "interrupted", "timeout",
+                        "unknown_target", "invalid_args", "not_unlocked" } },
     }
 end
 

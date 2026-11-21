@@ -196,6 +196,17 @@ local function step_move(dt)
         if T - MV.t0 > 1.0 then MV.mode, MV.result = "idle", { status = "failed", reason = "stuck" } end
         return
     end
+    -- move meets a damaging zone across the only way that does not clear soon (move M._zone_meet): the walk ends
+    -- failed zone_blocked with what/where/how long, for the first Wd.zone_blocked walks (true = every walk)
+    if Wd.zone_blocked == true or (type(Wd.zone_blocked) == "number" and Wd.zone_blocked > 0) then
+        if T - MV.t0 > 0.5 then
+            if type(Wd.zone_blocked) == "number" then Wd.zone_blocked = Wd.zone_blocked - 1 end
+            Wd.zone_walks = (Wd.zone_walks or 0) + 1
+            local words = "a poison cloud at [4,5] is across the only way there and I won't walk through it: I can't tell when it clears"
+            MV.mode, MV.result = "idle", { status = "failed", reason = "zone_blocked", why = words, detail = words, zone = { id = "poison_cloud:C1" } }
+        end
+        return
+    end
     -- the nav helper never answers (live 2026-11-02 01:45Z): a routed move stands "planning" until its own timeout
     if Wd.route_wait and MV.nav ~= false then
         MV.status = "planning"
@@ -584,6 +595,32 @@ do
     Wd.cam_taken = 2 -- the first two walks end so, then the camera is his again
     local res2 = run_job({ resource = "oak", count = 2 }, 300)
     check("camera_taken twice, then walks: the job goes on and gets the logs", res2.ok == true, tostring(res2.reason) .. " " .. tostring(res2.data and res2.data.detail))
+end
+
+-- ================================================================ 4a2. a damaging zone across the only way (move zone_blocked)
+-- Live 2026-11-21 00:41:24Z (L3): a flax gather's walk crossed a poison cloud move had no way round and he died. Move now
+-- ends such a walk zone_blocked; the pick is out of reach (another is tried), and bad_streak of them in a row end the job
+-- zone_blocked with move's words, never path_blocked.
+do
+    reset({})
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 4 do add_foliage_tree("Oak", { X = 800 * i, Y = 500, Z = 0 }) end
+    Wd.zone_blocked = true
+    local res = run_job({ resource = "oak", count = 2 }, 120)
+    local zb = 0
+    for _, why2 in pairs((G._state().bad_why) or {}) do if tostring(why2):find("zone_blocked: a poison cloud", 1, true) then zb = zb + 1 end end
+    check("zone_blocked: the job ends zone_blocked, never path_blocked", res.ok == false and res.reason == "zone_blocked" and res.data.why == "zone_blocked",
+        tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
+    check("zone_blocked: the words say what, where and how long", res.data and tostring(res.data.detail):find("poison cloud at [4,5]", 1, true)
+        and tostring(res.data.detail):find("can't tell when it clears", 1, true) and not tostring(res.data.detail):find("find a way", 1, true), res.data and res.data.detail)
+    check("zone_blocked: each pick tried once, a new one each time (bad_streak of them)", zb >= G.cfg.bad_streak and Wd.zone_walks == G.cfg.bad_streak,
+        "marked=" .. zb .. " walks=" .. tostring(Wd.zone_walks))
+    reset({})
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 4 do add_foliage_tree("Oak", { X = 800 * i, Y = 500, Z = 0 }) end
+    Wd.zone_blocked = 1 -- the first pick is behind a cloud; the next is not
+    local res2 = run_job({ resource = "oak", count = 2 }, 300)
+    check("zone_blocked once: another pick is tried and the job gets the logs", res2.ok == true, tostring(res2.reason) .. " " .. tostring(res2.data and res2.data.detail))
 end
 
 
