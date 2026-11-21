@@ -11,7 +11,8 @@
     "world_needs: [{resource, match?, at_least, within_m, of ('home' = his my_bases base with the most pieces | 'start' | [x, y]), steps?}]: what the WORLD must hold for the job. Before the brain starts and the line is sent, tools/job_run.world_check counts the standing sources with the body's census (rows whose class, name, item or id holds match, within within_m in 2D, not available = false); short or unread, the line is never sent and the trial is recorded not counted ('world short: flax 14 of 22 within 350 m of home'), a fault of the run. A need holds for whole trials; for a step trial only with steps: true or a list naming the step.",
     "deadline_s: the job's own per-trial deadline (default 1800); job_run --deadline wins.",
     "interrupt_trigger: when an interruption trial puts the interruption in (tools/job_run.trigger_due); --trigger overrides it; default first_step.",
-    "work_tools: the tool calls that count as working the job (first verified step, and 'took the job up again' after an interruption). go_to is left out on purpose: after a death it may be the walk to the grave."
+    "work_tools: the tool calls that count as working the job (first verified step, and 'took the job up again' after an interruption). go_to is left out on purpose: after a death it may be the walk to the grave.",
+    "sequences: job_run trial --sequence L2,L3 runs several jobs' lines as one trial, one after another on the same world and character (no restore, no reset between asks), each ask graded by its own job's end and recorded on its own (item 'L3 / seq L2>L3 #2'); the trial starts at the first job's start (or --from). A job's not_carried_at_start still holds for each ask: a later ask that starts holding one is not counted."
   ],
   "jobs": {
     "L1": {
