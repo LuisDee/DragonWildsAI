@@ -191,6 +191,19 @@ AT_ASK_REOPENED_NOTE = ("You closed this request (request_done) before your plan
 AT_ASK_REOPENED_Q_NOTE = ("You closed this request (request_done) before your planner's answer arrived: it plans no steps "
                           "and asks the player the question here. The end condition it wrote is not met now "
                           "(done_when), so the request is open again. Nothing was parked or said.")
+# A plan that lands for an ask he parked while it was made (park_request) was let go unseen (live L3 20261121-005621:
+# "gear up for the vault" parked 12 s in as "Vault is PL 2 and I'm PL 0, so I'm not going in yet"; the plan landed 18 s
+# later with steps and a done_when, not met, logged "let go: parked by him"). Now it is shown once as facts
+# (_show_parked): his park stands, nothing is started; his start_goal on the ask's words in that turn takes it.
+AT_ASK_PARKED_NOTE = ("You parked this request (park_request) before your planner's plan for it arrived. Your park "
+                      "stands and nothing was started. start_goal with goal exactly the request's words, in this turn, "
+                      "runs these steps as planned (no new plan is made); otherwise the plan is let go.")
+AT_ASK_PARKED_Q_NOTE = ("You parked this request (park_request) before your planner's answer arrived: it plans no steps "
+                        "and asks the player the question here. Your park stands; nothing was said.")
+PARKED_BY_HIM = "parked by him"
+# who parked an ask, in the idle review's parked_ask fact (_idle_parked), by _park's ``by``
+PARKED_BY_WORDS = {"him": "you (park_request)", "planner": "your planner",
+                   "code": "the stall rule (your planner's jobs stopped twice the same way)"}
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
 ASK_STEP_DETAIL_CHARS = 240  # a step's result words kept with the open ask on disk (brain/ask_store.py)
 GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
@@ -501,7 +514,7 @@ class Agent:
         no ask open, or its end condition reads met. Facts only: he decides to resume, keep resting, park or close."""
         ask = self._open_request
         if not ask:
-            return None
+            return self._idle_parked()
         seen = self._ask_seen.get(ask)
         out = {"words": ask[1], "asked_by": ask[0] or self.controller.player,
                **({"asked_s_ago": round(self.clock() - seen[0])} if seen else {})}
@@ -510,6 +523,36 @@ class Agent:
                 return None
             out["done_when"] = dw
         return out
+
+    def _idle_parked(self) -> dict | None:
+        """With no ask open: the ask parked last as a fact for the same idle review, {"parked_ask": ...}: its words, who
+        asked, who parked it how long ago with the reason, the player lines heard since the park, and the end condition
+        with its truth now (_done_when_now at "idle_review_parked"). None: nothing parked, no end condition written for
+        it, its end condition reads met, or the one who asked has spoken since the park (his line answers or releases
+        it; an addressed line is the ask now anyway). Facts only: his park stands; he decides to resume it
+        (start_goal), keep it parked or say something. Live L3 20261121-020517: three of six trials ended quiet 40 s
+        after his park of "claude, gear up for the vault", end condition unmet, the trial player silent: a parked ask
+        was not open, so no idle review came."""
+        p = self._parked
+        if not p or not p.get("ask"):
+            return None
+        ask, at = p["ask"], p.get("at")
+        asker = ask[0] or self.controller.player
+        since = sorted(((who, line, t) for who, (line, t) in self._last_line.items() if at is not None and t > at),
+                       key=lambda x: x[2])
+        if any(sit.same_player(who, asker) for who, _, _ in since):
+            return None  # the one who asked spoke after the park
+        dw = self._done_when_now(ask, "idle_review_parked")
+        if dw is None or (self._done_when or {}).get("holds") is True:
+            return None
+        now, seen = self.clock(), self._ask_seen.get(ask)
+        return {"parked_ask": {
+            "words": ask[1], "asked_by": asker, **({"asked_s_ago": round(now - seen[0])} if seen else {}),
+            "parked_by": PARKED_BY_WORDS.get(p.get("by") or "him", str(p.get("by"))),
+            **({"parked_s_ago": round(now - at)} if at is not None else {}),
+            "park_reason": p.get("reason"),
+            "player_lines_since_park": [{"by": who, "words": line, "s_ago": round(now - t)} for who, line, t in since],
+            "done_when": dw}}
 
     def handle_event(self, event: Event) -> None:
         self.log.log("event", event=event.model_dump())
@@ -1453,7 +1496,7 @@ class Agent:
             blk["done_when"] = end
         return blk
 
-    def _park(self, ask: tuple | None, reason: str | None) -> None:
+    def _park(self, ask: tuple | None, reason: str | None, by: str = "him") -> None:
         """park_request: the ask, its facts and the game item names it names are kept, so a later step of his on one
         of those items opens it again (``_reopen_parked``)."""
         if not ask:
@@ -1465,7 +1508,8 @@ class Agent:
             names = oa.names_in(text, _item_names())
         except Exception:  # item data is best effort: the park stands without it
             names = set()
-        self._parked = {"ask": ask, "facts": list(facts), "names": sorted(names), "reason": reason}
+        self._parked = {"ask": ask, "facts": list(facts), "names": sorted(names), "reason": reason, "by": by,
+                        "at": self.clock()}  # who and when: the idle review's parked_ask fact (_idle_parked)
 
     def _reopen_parked(self, d) -> tuple | None:
         """With no ask open and none being worked on, a call of this turn (a body action, an inline read, or the goal
@@ -1597,8 +1641,9 @@ class Agent:
         job = self._at_ask_job(self._open_request) if call.name == oa.DONE else None  # DW_PLAN_AT_ASK=1
         if call.name == oa.DONE and (reads or {}).get("done_when") and self._done_when.get("holds") is False:
             return self._not_closed(words, reads, job)  # DW_PLAN_AT_ASK=1: its end condition is not met
-        if call.name == oa.PARK and self._at_ask_for(self._open_request) is not None:
-            self._drop_at_ask("parked by him")  # his park ends the plan being made for it
+        if call.name == oa.PARK and (a := self._at_ask_for(self._open_request)) is not None:
+            a.parked = {"reason": words, "at": self.clock()}  # its plan, when it lands, is shown once (_show_parked)
+            self._drop_at_ask(PARKED_BY_HIM)  # his park ends the plan being made for it
         ask, self._open_request = self._open_request, None
         if call.name == oa.PARK:
             self._park(ask, (call.arguments or {}).get(oa.ARG[oa.PARK]))
@@ -1767,7 +1812,7 @@ class Agent:
         decides what to say; code never speaks for him unless the model call fails: broker.fallback_line)."""
         if oa.same_ask(self._open_request, ask):
             self._open_request = None
-        self._park(ask, reason)
+        self._park(ask, reason, by=by)
         self._drop_ask_facts(f"parked by {by}")
         self._save_ask()
         self.log.log("request_parked", request=ask[1], player=ask[0], reason=reason, by=by)
@@ -1997,7 +2042,9 @@ class Agent:
         if p is None:
             return
         p.dropped = why
-        if p.done():
+        if why != PARKED_BY_HIM:
+            p.parked = None  # only his park shows it when it lands
+        if p.done() and p.parked is None:
             self._log_at_ask(p, landed=f"let go: {why}")
         else:
             self._at_ask_gone.append(p)
@@ -2032,7 +2079,10 @@ class Agent:
         a free slot is asked for now, when it is still the open one."""
         for g in [g for g in self._at_ask_gone if g.done()]:
             self._at_ask_gone.remove(g)
-            self._log_at_ask(g, landed=f"let go: {g.dropped}")
+            if g.parked is not None:
+                self._show_parked(g)
+            else:
+                self._log_at_ask(g, landed=f"let go: {g.dropped}")
         if self._at_ask_held is not None:
             self._held_tick()
         p = self._at_ask
@@ -2168,20 +2218,64 @@ class Agent:
         if self._at_ask_held is not None:  # the turn that showed it ran now: his start_goal on it, or let go
             self._held_tick()
 
+    def _show_parked(self, p: plan_async.PendingPlan) -> None:
+        """A plan landed for an ask he parked while it was made: nothing starts and his park stands; ONE situation
+        turn shows it as facts: the steps or the question, done_when with its truth now (done_when_checked where
+        plan_arrived), his park reason and how long ago, and whether the game moved past it. Steps are held for that
+        turn: a start_goal of his on the ask's words takes them (_held_tick), else they are let go. A park that no
+        longer stands (a newer line, the ask open again, another park), a failed call or a decline: let go as before."""
+        ask, park = p.ask, p.parked
+        stands = self._parked is not None and oa.same_ask(self._parked.get("ask"), ask) \
+            and self._open_request is None and not self._newer_line(ask, park["at"])
+        exc = p.future.exception()
+        plan = p.future.result() if exc is None else None
+        if plan is not None:
+            self._at_ask_outcomes[ask] = self._at_ask_outcome(plan)
+        if not stands or plan is None or not (plan.tasks or plan.ask_help):
+            why = "" if stands else "; the park no longer stands"
+            self._log_at_ask(p, landed=f"let go: {PARKED_BY_HIM}{why}")
+            return
+        self._take_done_when(p, plan)
+        if self.pending_goal or self.active_goal:
+            self._log_at_ask(p, landed="not used: a job of his own is queued",
+                             his_job=self.pending_goal or self.active_goal)
+            return
+        now = self._fresh_state(reuse=True)
+        steps = [plan_async.step_label(t) for t in plan.tasks]
+        why = plan_async.stale_reasons(p.basis, now, [], p.died)
+        dw = self._done_when_now(ask, "plan_arrived", now)
+        e = {"type": "plan_arrived", "for_parked_request": True, "goal": ask[1],
+             "your_park": {"reason": park.get("reason"), "s_ago": round(self.clock() - park["at"])},
+             **({"steps": steps} if steps else {}), **({"question": plan.ask_help} if plan.ask_help else {}),
+             **({"done_when": dw} if dw is not None else {}),
+             **({"game_moved_since": why} if why else {}),
+             "about": AT_ASK_PARKED_NOTE if plan.tasks else AT_ASK_PARKED_Q_NOTE, **p.req}
+        self._situations.append(e)
+        if plan.tasks:
+            self._at_ask_held = (p, e)
+        self._log_at_ask(p, landed="shown, not started: he parked the request" if plan.tasks
+                         else "shown: he parked the request", park_reason=park.get("reason"))
+        self.flush_situations()
+        if self._at_ask_held is not None:  # the turn that showed it ran now: his start_goal on it, or let go
+            self._held_tick()
+
     def _held_tick(self) -> None:
         """The plan held for his one turn after he closed its ask: a goal he queued on the ask's words takes it (no
         second Planner call); once the turn that showed it has run (its situation taken) without that, let go."""
         p, e = self._at_ask_held
         goal = (self.pending_goal or "").strip().lower()
         if goal and goal == p.ask[1].strip().lower() and not (self.pending_tasks or self.pending_skill):
+            parked, p.parked = p.parked is not None, None  # taken: a later drop of it is never shown again
             self._at_ask_held, self._adopted = None, p
             self._pending_asked = p.asked
             self.log.log("plan_at_ask_adopted", request=p.ask[1], player=p.ask[0], goal=self.pending_goal,
-                         landed=True, age_s=round(self.clock() - p.started, 2), after_close=True)
+                         landed=True, age_s=round(self.clock() - p.started, 2),
+                         **({"after_park": True} if parked else {"after_close": True}))
         elif not any(x is e for x in self._situations):
             self._at_ask_held = None
             self.log.log("plan_at_ask_let_go", request=p.ask[1], player=p.ask[0],
-                         why="he closed the request and did not start it in the turn that showed it",
+                         why=f"he {'parked' if e.get('for_parked_request') else 'closed'} the request and did not "
+                             "start it in the turn that showed it",
                          his_goal=self.pending_goal)
 
     def _take_done_when(self, p: plan_async.PendingPlan, plan) -> None:
