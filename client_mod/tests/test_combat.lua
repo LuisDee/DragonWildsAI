@@ -3626,5 +3626,119 @@ do
     st.hit_dmg, st.mem = saved_hits, saved_mem
 end
 
+-- True odds (goblin deaths study 2026-11-20, D2 / D8 / D3): a one-hit floor on the time to die, his weapon learned
+-- only from hits that landed, and poison / hazard damage never credited to a creature.
+do
+    reset_world()
+    local st = Cm._state()
+    local saved_hits, saved_mem = st.hit_dmg, st.mem
+    st.hit_dmg, st.mem, st.taken = {}, nil, {}
+    local sword = Cm.weapons().items.ITEM_Sword_Bronze
+    local function rat(hp) local d, src = Cm.enemy_dps("Giant Rat"); return { name = "Giant Rat", hp = hp, max_hp = hp, pl = 2, dps_obs = d, dps_src = src } end
+    -- D2: a Giant Rat (game max hit 26) at 26 HP: "likely win, kills you in 20-95 s"; he died in 2.2 s
+    st.hit_dmg["Bronze Sword"] = 48.3
+    local rate = Cm.fight_rate(sword)
+    local full = Cm.assess({ hp = 100, max_hp = 100, pl = 0, dps = rate }, { rat(50) }, Cm.orders)
+    check("D2 control: the same rat at 100 HP is a likely win, no one-hit floor", full.verdict == "likely_win" and full.one_hit == nil, full.verdict)
+    local low = Cm.assess({ hp = 26, max_hp = 100, pl = 0, dps = rate }, { rat(50) }, Cm.orders)
+    check("D2: at 26 HP (rat max hit 26) the verdict is no likely win", low.verdict ~= "likely_win", low.verdict)
+    check("D2: the one-hit floor names the hit and its source", low.one_hit and low.one_hit.max == 26 and low.one_hit.src == "game attack data" and low.die_lo <= 1,
+        low.one_hit and (tostring(low.one_hit.max) .. " " .. tostring(low.one_hit.src) .. " " .. tostring(low.die_lo)))
+    local w = Cm.die_words(low)
+    check("D2: the time to die says one hit", w == "as little as one hit (Giant Rat hits for up to 26; you have 26 HP)", w)
+    local above = Cm.assess({ hp = 27, max_hp = 100, pl = 0, dps = rate }, { rat(50) }, Cm.orders)
+    check("D2: one HP above its max hit, no floor", above.one_hit == nil and Cm.die_words(above) == Cm.band_words(above.die_lo, above.die_hi), above.one_hit)
+    local odds = Cm.fight_odds({ hp = 26, max_hp = 100, pl = 0 }, rate, {
+        { id = "gr", name = "Giant Rat", hp = 50, max_hp = 50, power_level = 2, distance = 9, hostile = true, archetype = "Aggressive", position = { 9, 0, 0 } } })
+    check("D2: the creatures line's odds row says one hit", odds.gr and odds.gr.verdict ~= "likely_win" and tostring(odds.gr.est_die):find("one hit", 1, true) ~= nil,
+        odds.gr and (tostring(odds.gr.verdict) .. " " .. tostring(odds.gr.est_die)))
+    -- a creature with no game attack data: its biggest hit on him counts (D8's Goblin Warrior hit him for 38)
+    st.taken["goblin warrior"] = { sum = 76, n = 2, max = 38 }
+    local gw = Cm.assess({ hp = 30, max_hp = 100, pl = 0, dps = rate }, { { name = "Goblin Warrior", hp = 140, max_hp = 140, pl = 2, dps_obs = 5 } }, Cm.orders)
+    check("one-hit floor: a learned max hit (38 on 30 HP)", gw.one_hit and gw.one_hit.max == 38 and gw.one_hit.src == "its hits on him" and gw.verdict ~= "likely_win",
+        gw.one_hit and gw.one_hit.src)
+    st.taken = {}
+    -- the group sum is real: the time to die is his HP over the sum of their rates, the kill counts every HP
+    local g = Cm.assess({ hp = 100, max_hp = 100, pl = 0, dps = 10 }, { { name = "A", hp = 50, pl = 1, dps_obs = 2, max_hit = 10 },
+        { name = "B", hp = 30, pl = 1, dps_obs = 3, max_hit = 12 } }, Cm.orders)
+    check("group: time to die = HP / sum of their rates", math.abs(g.their_ttk - 100 / 5) < 1e-6, g.their_ttk)
+    check("group: time to kill counts both", math.abs(g.my_ttk - ((Cm.cfg.odds_t0_s or 0) + 80 * 2 ^ (Cm.cfg.odds_pack_slow or 0) / 10)) < 1e-6, g.my_ttk)
+    local g2 = Cm.assess({ hp = 12, max_hp = 100, pl = 0, dps = 10 }, { { name = "A", hp = 50, pl = 1, dps_obs = 2, max_hit = 10 },
+        { name = "B", hp = 30, pl = 1, dps_obs = 3, max_hit = 12 } }, Cm.orders)
+    check("group: the floor takes the group's biggest hit", g2.one_hit and g2.one_hit.max == 12 and g2.one_hit.name == "B", g2.one_hit and g2.one_hit.name)
+
+    -- D8: the runt's only swing "no effect" (no stamina spent), then its whole 60 HP went at once: the sword was learned
+    -- at 60 a hit (catalog 14) and a Goblin Warrior read "could go either way" for "likely lose"
+    st.hit_dmg = {}
+    local F = { profile = sword, target_name = "Goblin Runt", t0 = 0, engage_t = 1, t = 9, fought_until = 9, hits = 0, kills = 1,
+                dmg = 0, dmg_landed = 0, unlearned = 0, phase_log = {} }
+    Cm.press_verdict(F, { t = 1, stamina = 80, hits = 0 }, false) -- press 1: "no effect"
+    F.pending_press = { t = 1.9, stamina = 80, hits = 0 } -- press 2, never verified: the target died first
+    F.hits, F.dmg = 1, 60
+    local r = Cm.poll_hit(F, 60, true)
+    check("D8: an HP drop after an unverified press is held, not learned", r == "held" and st.hit_dmg["Bronze Sword"] == nil, tostring(r) .. " " .. tostring(st.hit_dmg["Bronze Sword"]))
+    F.pending_press = nil
+    local r2 = Cm.poll_hit(F, 60, true) -- a drop after the "no effect" swing with no press pending
+    check("D8: an HP drop after a 'no effect' swing is never learned", r2 == "unlearned" and st.hit_dmg["Bronze Sword"] == nil and F.dmg_landed == 0, r2)
+    check("D8: his sword's rate stays the catalog's", math.abs(Cm.my_dps(sword) - Cm.dps(sword)) < 1e-6, Cm.my_dps(sword))
+    local m = { history = {} }
+    Cm.record_fight(m, F, { ok = true, data = {} }); Cm.record_fight(m, F, { ok = true, data = {} })
+    check("D8: the fight's dealt is his landed damage only (0)", m.history["goblin runt"][1].dealt == 0, m.history["goblin runt"][1].dealt)
+    st.mem = m
+    check("D8: no learned rate from fights he landed nothing in", Cm.learned_rates().mine["Bronze Sword"] == nil)
+    st.mem = nil
+    local warrior = { name = "Goblin Warrior", hp = 140, max_hp = 140, pl = 2, dps_obs = 38 / 4.2 }
+    local wa = Cm.assess({ hp = 86, max_hp = 100, pl = 0, dps = Cm.fight_rate(sword) }, { warrior }, Cm.orders)
+    check("D8: the warrior at his real rate is a likely lose", wa.verdict == "likely_lose" or wa.verdict == "too_strong", tostring(wa.verdict) .. " kill " .. tostring(wa.kill_lo))
+    -- a verified swing: what was held on it is learned
+    local F2 = { profile = sword, target_name = "Goblin Runt", dmg_landed = 0 }
+    F2.pending_press = { t = 1, stamina = 80, hits = 0 }
+    Cm.poll_hit(F2, 14, true)
+    local r3 = Cm.press_verdict(F2, F2.pending_press, true)
+    check("D8: a drop on a verified swing is learned", r3 == "learned" and st.hit_dmg["Bronze Sword"] == 14 and F2.dmg_landed == 14, tostring(r3) .. " " .. tostring(st.hit_dmg["Bronze Sword"]))
+    F2.pending_press = nil
+    check("D8: and a later drop after that swing too", Cm.poll_hit(F2, 14, true) == "learned" and F2.dmg_landed == 28)
+
+    -- D3: 56 of poison during a runt fight, the runt dealt 0: credited to the runt, it read "much stronger" after
+    st.hit_dmg = {}
+    Cm.hooks_start(nil)
+    st.statuses = { t = os.time(), effects = { Poison = { value = 100, max = 100, harmful = true } } }
+    local F3 = { target_name = "Goblin Runt", t0 = 0, engage_t = 1, t = 15, fought_until = 15, hits = 0, kills = 1, dmg = 30, phase_log = {} }
+    st.fight = F3
+    for _ = 1, 14 do multicast(pawn, pawn, 4) end -- poison ticks: the instigator is himself
+    check("D3: poison ticks are booked as poison, not as the runt's", F3.dmg_taken == 56 and F3.dmg_attacks == 0 and (F3.dmg_other or {}).poison == 56,
+        tostring(F3.dmg_taken) .. " " .. tostring(F3.dmg_attacks) .. " " .. tostring(Cm.other_words(F3.dmg_other)))
+    local runt = new_creature("rD3", "Goblin Runt", { X = 100, Y = 0, Z = 0 }, { arch = 0 })
+    multicast(pawn, runt, 25)
+    check("D3: a runt's own hit is the runt's, its biggest hit kept", F3.dmg_attacks == 25 and F3.dmg_taken == 81 and (F3.max_hit_by or {})["goblin runt"] == 25,
+        tostring(F3.dmg_attacks) .. " " .. tostring((F3.max_hit_by or {})["goblin runt"]))
+    st.fight = nil
+    local m3 = { history = {} }
+    local F3b = { target_name = "Goblin Runt", t0 = 0, engage_t = 1, t = 15, fought_until = 15, hits = 0, kills = 1, dmg = 30, phase_log = {} }
+    for _ = 1, 14 do Cm.book_damage(F3b, 4, nil, Cm.other_damage_kind(nil, true)) end
+    Cm.record_fight(m3, F3b, { ok = true, data = {} }); Cm.record_fight(m3, F3b, { ok = true, data = {} })
+    local h3 = m3.history["goblin runt"][1]
+    check("D3: the fight record keeps poison apart", h3.damage_taken == 0 and (h3.damage_other or {}).poison == 56, tostring(h3.damage_taken))
+    st.mem = m3
+    local lr = Cm.learned_rates().theirs["goblin runt"]
+    check("D3: the runt's learned intake is 0, not 56 of poison", lr and lr.dps == 0, lr and lr.dps)
+    st.mem = nil
+    check("D3: a poison emitter is poison", Cm.other_damage_kind("PoisonEmitterBox", false) == "poison" and Cm.other_damage_kind(nil, false) == "no attacker")
+    check("D3: the other sources in words", Cm.other_words({ poison = 56, PoisonEmitterBox = 8 }) == "poison 56, PoisonEmitterBox 8", Cm.other_words({ poison = 56, PoisonEmitterBox = 8 }))
+    -- the fight record's max_hit feeds the floor in later fights
+    local m4 = { history = {} }
+    Cm.record_fight(m4, F3, { ok = true, data = {} })
+    st.mem = m4
+    check("max_hit: recorded and read back", m4.history["goblin runt"][1].max_hit == 25 and Cm.learned_max_hit("Goblin Runt") == 25, m4.history["goblin runt"][1].max_hit)
+    st.mem = nil
+    -- a creature attack is never booked as poison because he happens to be poisoned
+    local F5 = {}
+    Cm.book_damage(F5, 20, "goblin runt", nil)
+    check("note_damage: a creature hit while poisoned is not poison", (F5.dmg_by or {}).poison == nil and (F5.dmg_by or {}).other == 20)
+    st.statuses = nil
+    st.hit_dmg, st.mem = saved_hits, saved_mem
+    reset_world()
+end
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

@@ -259,6 +259,50 @@ function M.learn_hit(F, amount)
     c.hit_dmg[k] = old and (old * 0.7 + amount * 0.3) or amount
 end
 
+-- An HP drop on his target right after his press with no damage multicast (frame's poll path). A melee drop is his
+-- landed hit only once that press is verified as a swing (stamina spent, M.press_verdict): held on the unverified
+-- press, learned when it was a swing, never when the swing was "no effect" or the fight ended first (D8 2026-11-20).
+-- A ranged/magic drop keeps the shot's timing as its proof (no per-shot stamina verdict). learnable = within 1.2 s
+-- of the press. -> "learned" | "held" | "unlearned" | "counted"
+function M.poll_hit(F, amount, learnable)
+    if not (F and amount and amount > 0) then return nil end
+    if F.rg then
+        F.dmg_landed = (F.dmg_landed or 0) + amount
+        if learnable then M.learn_hit(F, amount); return "learned" end
+        return "counted"
+    end
+    if not learnable then return nil end
+    local pp = F.pending_press
+    if pp then pp.poll_dmg = (pp.poll_dmg or 0) + amount; return "held" end
+    if F.last_press_spent then
+        F.dmg_landed = (F.dmg_landed or 0) + amount
+        M.learn_hit(F, amount)
+        return "learned"
+    end
+    F.unlearned = (F.unlearned or 0) + 1
+    say(F.log, string.format("hit not learned: the %s lost %.0f HP after a swing that spent no stamina (no swing seen)",
+        tostring(F.target_name), amount))
+    return "unlearned"
+end
+
+-- The verdict on one melee press (pp = the pending press, spent = his stamina dropped): what was held on it is
+-- learned when it was a swing, and dropped (said) when not.
+function M.press_verdict(F, pp, spent, why)
+    F.last_press_spent = spent and true or false
+    local held = pp and pp.poll_dmg
+    if not held then return nil end
+    pp.poll_dmg = nil
+    if spent then
+        F.dmg_landed = (F.dmg_landed or 0) + held
+        M.learn_hit(F, held)
+        return "learned"
+    end
+    F.unlearned = (F.unlearned or 0) + 1
+    say(F.log, string.format("hit not learned: the %s lost %.0f HP after %s", tostring(F.target_name), held,
+        why or "a swing that spent no stamina (no swing seen)"))
+    return "unlearned"
+end
+
 -- Affinity of an enemy to a damage type tag: "weak" | "resist" | "immune" | nil.
 -- Sources, strongest first: learned hit outcomes, live affinities, name priors.
 function M.affinity(enemy, tag, learned)
@@ -413,6 +457,68 @@ function M.band_words(lo, hi)
     return string.format("%d-%d s", a, b)
 end
 
+-- The biggest single hit of its he has taken: this session's (taken[name].max, on_damage) and his fight history's
+-- (record_fight max_hit). key = lower-case name. -> number | nil
+function M.learned_max_hit(key, m)
+    if not key then return nil end
+    key = tostring(key):lower()
+    local c = C()
+    local tk = c.taken and c.taken[key]
+    local best = tk and tonumber(tk.max) or nil
+    m = m or c.mem
+    local h = m and type(m.history) == "table" and m.history[key]
+    for _, f in ipairs(type(h) == "table" and h or {}) do
+        local x = tonumber(f.max_hit)
+        if x and x > 0 and (not best or x > best) then best = x end
+    end
+    return (best and best > 0) and best or nil
+end
+
+-- The biggest single hit a creature can deal him: the game's attack data (creature_attacks max) or the biggest of its
+-- hits he has taken, whichever is bigger (a floor on the time to die, M.assess). -> max, source | nil
+function M.enemy_max_hit(name)
+    if not name then return nil end
+    local key = tostring(name):lower()
+    local best, src
+    local ga = (M.data("creature_attacks") or {})[key]
+    if ga and tonumber(ga.max) and ga.max > 0 then best, src = ga.max, "game attack data" end
+    local l = M.learned_max_hit(key)
+    if l and (not best or l > best) then best, src = l, "its hits on him" end
+    return best, src
+end
+
+-- The time to die in words, from one assess result: "as little as one hit (Giant Rat hits for up to 26; you have 26
+-- HP)" under the one-hit floor, else the band ("20-95 s"). -> string | nil
+function M.die_words(a)
+    if not a then return nil end
+    local oh = a.one_hit
+    if oh then
+        return string.format("as little as one hit (%s hits for up to %d; you have %d HP)", tostring(oh.name or "it"),
+            math.floor((oh.max or 0) + 0.5), math.floor((oh.hp or 0) + 0.5))
+    end
+    return M.band_words(a.die_lo, a.die_hi)
+end
+
+-- What hurt him when no creature is named as the attacker: "poison" (the status, or a poison emitter such as
+-- PoisonEmitterBox), another emitter's class word, else "no attacker". -> string
+function M.other_damage_kind(src_class, poisoned)
+    local s = tostring(src_class or "")
+    if s:find("Poison", 1, true) or (poisoned and s == "") then return "poison" end
+    if s ~= "" then return s end
+    return "no attacker"
+end
+
+-- "poison 56, PoisonEmitterBox 8" from a {kind = amount} map (biggest first). -> string | nil
+function M.other_words(t)
+    local rows = {}
+    for k, v in pairs(type(t) == "table" and t or {}) do if tonumber(v) and v > 0 then rows[#rows + 1] = { k = tostring(k), v = v } end end
+    if #rows == 0 then return nil end
+    table.sort(rows, function(a, b) if a.v ~= b.v then return a.v > b.v end return a.k < b.k end)
+    local out = {}
+    for _, r in ipairs(rows) do out[#out + 1] = string.format("%s %d", r.k, math.floor(r.v + 0.5)) end
+    return table.concat(out, ", ")
+end
+
 -- "Goblin Runt x3, Giant Rat" for a list of creature rows (first seen first). -> string | nil
 function M.pack_words(list)
     local names, order = {}, {}
@@ -447,8 +553,12 @@ function M.assess(me, enemies, orders, current, cfg)
     -- the numbers first: always reported (information for the model), whatever decides
     local my_pl = me.pl or 1
     local worst_gap, total_hp, their_dps, boss, unknown = -99, 0, 0, false, nil
+    local top_hit, top_name, top_src -- the biggest single hit among them (e.max_hit, else M.enemy_max_hit)
     for _, e in ipairs(enemies) do
         if e.boss then boss = true end
+        local mh, ms = tonumber(e.max_hit), e.max_hit_src
+        if not mh then mh, ms = M.enemy_max_hit(e.name) end
+        if mh and mh > 0 and (not top_hit or mh > top_hit) then top_hit, top_name, top_src = mh, e.name, ms end
         local gap = (e.pl or 1) - my_pl
         if gap > worst_gap then worst_gap = gap end
         total_hp = total_hp + math.max(e.hp or e.max_hp or 50, 1)
@@ -468,6 +578,14 @@ function M.assess(me, enemies, orders, current, cfg)
     r.kill_lo, r.kill_hi = r.my_ttk * kb[1], r.my_ttk * kb[2]
     r.die_lo, r.die_hi = r.their_ttk * db[1], r.their_ttk * db[2]
     r.unknown = unknown and ("no damage data for " .. unknown) or nil
+    -- the one-hit floor: at or under the biggest hit one of them deals, one hit can kill him, whatever the mean rate
+    -- says (D2 2026-11-20: a Giant Rat read "likely win, kills you in 20-95 s" at 26 HP; its max hit is 26 and he
+    -- died 2.2 s after the reflex engaged)
+    if top_hit and (me.hp or 0) > 0 and me.hp <= top_hit then
+        r.one_hit = { max = top_hit, name = tostring(top_name or "it"), src = top_src, hp = me.hp }
+        r.die_lo = math.min(r.die_lo, cfg.odds_one_hit_s or 1)
+        r.die_hi = math.max(r.die_hi, r.die_lo)
+    end
     local ratio = r.their_ttk / math.max(r.my_ttk, 0.1)
     local u_ratio = ratio / (ratio + 1)                         -- 0.5 when even
     local u_hp = math.sqrt(math.max(0, math.min(1, (hp_frac - cfg.flee_hp) / (1 - cfg.flee_hp))))
@@ -479,7 +597,7 @@ function M.assess(me, enemies, orders, current, cfg)
     r.too_strong = too_strong or nil
     r.verdict = (boss and "boss") or (too_strong and "too_strong")
         or (#enemies > cfg.max_hostiles and "outnumbered") or (unknown and "unknown")
-        or (r.kill_hi < r.die_lo and "likely_win") or (r.kill_lo > r.die_hi and "likely_lose") or "uncertain"
+        or (r.kill_hi < r.die_lo and not r.one_hit and "likely_win") or (r.kill_lo > r.die_hi and "likely_lose") or "uncertain"
     if orders.force then r.decision, r.why = "fight", "forced"; return r end
     local flee_hp = orders.flee_hp or cfg.flee_hp
     -- almost won: running at low HP from a creature he kills well before it kills him only gives it free hits
@@ -831,10 +949,20 @@ function M.on_damage(ctx, ev, point)
                         blockable = U.try(function() return bo.bWasBlockableAttack end) }
             end
         end
+        -- who did it: a creature's (another's) attack names it as the instigator; poison ticks and hazard emitters name
+        -- him (vitals rows: instigator self, status poison, source PoisonEmitterBox) and are kept apart, by kind
+        local attacker, kind
+        if iid and not mine_i then
+            local data = U.prop(inst, "LoadedData") -- instigator and victim are any class: by-name reads via U.prop (R17)
+            attacker = tostring(U.valid(data) and text(U.try(function() return data.AIName end)) or iid):lower()
+        else
+            local src = U.try(function() return e.Source end)
+            kind = M.other_damage_kind(U.valid(src) and U.class_word(src) or nil, ((c.statuses or {}).effects or {}).Poison ~= nil)
+        end
         c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = t, amount = amount, inst = iid, block = blk, point = point and true or false,
-                                    absorbed = num(U.try(function() return e.AmountAbsorbedByShield end)) }
+                                    absorbed = num(U.try(function() return e.AmountAbsorbedByShield end)), from = attacker or kind }
         if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
-        if f then f.dmg_taken = (f.dmg_taken or 0) + amount; M.note_damage(f, amount) end
+        if f then M.book_damage(f, amount, attacker, kind) end
         c.last_mc_dmg_t = t
     end
     if vid == me and iid and not mine_i then
@@ -843,6 +971,7 @@ function M.on_damage(ctx, ev, point)
         local name = U.valid(data) and text(U.try(function() return data.AIName end)) or iid
         local tk = c.taken[name:lower()] or { sum = 0, t0 = t, n = 0 }
         tk.sum, tk.n, tk.t = tk.sum + amount, tk.n + 1, t
+        tk.max = math.max(tk.max or 0, amount) -- its biggest single hit on him (M.enemy_max_hit)
         c.taken[name:lower()] = tk
         if f then f.last_hit_by = name end -- who killed him, when the fight ends in his death (the grave's danger)
     elseif mine_i and vid ~= me then
@@ -1562,14 +1691,38 @@ end
 
 -- Which threat a hit just now came from (gap 7): the defence window it fell in (an ability or a named melee
 -- attack), else poison when he is poisoned, else "other". Accumulated per fight in F.dmg_by.
-function M.note_damage(F, amount)
+-- One damage event on him in fight f, booked by its source: a creature's attack (attacker = its name, lower case) to
+-- dmg_attacks and that creature's biggest hit (max_hit_by); damage with no attacker (poison ticks, a hazard emitter)
+-- to dmg_other[kind], never to the creature. dmg_taken stays the total.
+function M.book_damage(f, amount, attacker, kind)
+    if not (f and amount) then return end
+    f.dmg_taken = (f.dmg_taken or 0) + amount
+    f.dmg_attacks = f.dmg_attacks or 0
+    if amount <= 0 then return end
+    if attacker then
+        f.dmg_attacks = f.dmg_attacks + amount
+        f.max_hit_by = f.max_hit_by or {}
+        f.max_hit_by[attacker] = math.max(f.max_hit_by[attacker] or 0, amount)
+    else
+        kind = kind or "no attacker"
+        f.dmg_other = f.dmg_other or {}
+        f.dmg_other[kind] = (f.dmg_other[kind] or 0) + amount
+    end
+    M.note_damage(f, amount, (not attacker) and kind or false)
+end
+
+-- kind: nil = unknown (old callers: the telegraph, else the Poison status, else "other"); false = a creature's attack
+-- (the telegraph, else "other"; never "poison" because he happens to be poisoned); a string = damage with no attacker
+-- (M.other_damage_kind: "poison", an emitter's class, ...), counted as that.
+function M.note_damage(F, amount, kind)
     if not (F and amount and amount > 0) then return end
     local d = F.def
     local threat
-    if d and d.tel_t and F.t and F.t - d.tel_t <= 4 then
+    if kind then threat = kind
+    elseif d and d.tel_t and F.t and F.t - d.tel_t <= 4 then
         threat = (d.info and d.info.ability) and ("ability:" .. d.info.ability)
             or ("melee:" .. tostring(d.key and tostring(d.key):match(":(.+)$") or "?"))
-    elseif ((C().statuses or {}).effects or {}).Poison then threat = "poison"
+    elseif kind == nil and ((C().statuses or {}).effects or {}).Poison then threat = "poison"
     else threat = "other" end
     F.dmg_by = F.dmg_by or {}
     F.dmg_by[threat] = math.floor(((F.dmg_by[threat] or 0) + amount) * 10) / 10
@@ -1614,14 +1767,22 @@ function M.record_fight(m, F, res)
     if not (m and name) then return end
     local h = m.history[name] or {}
     m.history[name] = h
-    h[#h + 1] = { at = os.time(), outcome = M._outcome_of(F, res), reason = res.reason, damage_taken = math.floor((F.dmg_taken or 0) * 10) / 10,
+    -- damage_taken = its attacks' damage only (M.learned_rates reads it as the creature's intake on him); poison and
+    -- hazard damage go to damage_other; max_hit = its biggest single hit on him (the one-hit floor in M.assess);
+    -- dealt = his landed damage only (no HP drop after a swing that never happened: D8 2026-11-20)
+    local other
+    for k, v in pairs(type(F.dmg_other) == "table" and F.dmg_other or {}) do other = other or {}; other[k] = math.floor(v * 10) / 10 end
+    local mh = F.max_hit_by and name and F.max_hit_by[name]
+    h[#h + 1] = { at = os.time(), outcome = M._outcome_of(F, res), reason = res.reason,
+                  damage_taken = math.floor((F.dmg_attacks or F.dmg_taken or 0) * 10) / 10, damage_other = other,
+                  max_hit = mh and math.floor(mh * 10) / 10 or nil,
                   dur_s = F.t and F.t0 and math.floor((F.t - F.t0) * 10) / 10 or nil, kills = F.kills or 0,
                   parries = F.n_parried or 0, blocks = F.n_blocked or 0, dodges = F.n_dodges or 0, heals = F.n_heals or 0,
                   weapon = F.equip_plan and F.equip_plan.weapon or nil,
                   killed_by = M._outcome_of(F, res) == "died" and (F.last_hit_by or F.target_name) or nil,
                   -- what the odds learn from (M.learned_rates): engaged seconds, the most hostiles at once, his verified
                   -- damage on the target, and what was in his hands
-                  fight_s = M.fight_span(F), pack = math.max(F.max_pack or 1, 1), dealt = math.floor((F.dmg or 0) * 10) / 10,
+                  fight_s = M.fight_span(F), pack = math.max(F.max_pack or 1, 1), dealt = math.floor((F.dmg_landed or F.dmg or 0) * 10) / 10,
                   hands = (F.profile and F.profile.name) or "bare hands" }
     while #h > M.cfg.history_max do table.remove(h, 1) end
 end
@@ -1871,7 +2032,11 @@ function M.emit_combat_end(F, res)
     end
     M.emit_activity({ kind = "combat_end", by = F.by or "unknown", dur_s = F.t and F.t0 and math.floor((F.t - F.t0) * 10) / 10 or nil,
         target = F.target_name, target_id = F.target_id, outcome = outcome_of(F, res), reason = res.reason,
-        damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)), fight_s = M.fight_span(F),
+        -- damage_taken: what the creatures' attacks did to him; poison, ground hazards and other damage with no
+        -- attacker are their own source (damage_other), never the creature's (D3 2026-11-20: 56 of poison credited
+        -- to a runt that dealt 0, and the runt read "much stronger" from then on)
+        damage_taken = F.dmg_attacks or F.dmg_taken or 0, damage_other = M.other_words(F.dmg_other),
+        damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)), fight_s = M.fight_span(F),
         hp_end = F.hp_now, loot = loot, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
         dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
         windup_swings = F.n_windup, step_stalls = F.n_step_stalls, dodge_retaps = F.n_retaps,
@@ -1923,8 +2088,14 @@ local function finish(F, res)
     local arb = mod("arbiter")
     if arb and F.token then pcall(arb.release, F.log, F.token, res.ok and "done" or res.reason) end
     local _, held_txt = held_summary(F)
-    say(F.log, string.format("fight end ok=%s reason=%s presses=%d (%d in a wind-up) hits=%d dmg_taken=%.0f held back: %s", tostring(res.ok), tostring(res.reason),
-        F.presses, F.n_windup or 0, F.hits, F.dmg_taken or 0, held_txt ~= "" and held_txt or "-"))
+    if F.pending_press and F.pending_press.poll_dmg then -- an HP drop after a press never verified as a swing
+        F.unlearned = (F.unlearned or 0) + 1
+        say(F.log, string.format("hit not learned: the %s lost %.0f HP after a press never verified as a swing (fight ended first)",
+            tostring(F.target_name), F.pending_press.poll_dmg))
+    end
+    say(F.log, string.format("fight end ok=%s reason=%s presses=%d (%d in a wind-up) hits=%d dmg_taken=%.0f (attacks %.0f; other: %s) dealt_landed=%.0f unlearned=%d held back: %s",
+        tostring(res.ok), tostring(res.reason), F.presses, F.n_windup or 0, F.hits, F.dmg_taken or 0, F.dmg_attacks or F.dmg_taken or 0,
+        M.other_words(F.dmg_other) or "none", F.dmg_landed or F.dmg or 0, F.unlearned or 0, held_txt ~= "" and held_txt or "-"))
 end
 M._finish = finish
 
@@ -2985,6 +3156,7 @@ local function step_defend(F, pawn, me, acts)
         F.next_press = F.t + (prim.next_ms or 900) / 1000 + jitter(M.cfg.press_jitter_ms)
         F.last_press_t, F.presses, F.n_windup = F.t, F.presses + 1, (F.n_windup or 0) + 1
         c.counts.presses = c.counts.presses + 1
+        if F.pending_press and F.pending_press.poll_dmg then M.press_verdict(F, F.pending_press, false, "a press never verified as a swing") end
         F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits }
     end
     if F.evade_until and F.t >= F.evade_until then F.evade_dir, F.evade_until = nil, nil end
@@ -3636,8 +3808,11 @@ local function step_engage(F, pawn, me, acts, tgt)
             c.press_cost[k] = c.press_cost[k] and (c.press_cost[k] * 0.7 + cost * 0.3) or cost
         end
         local hit = F.hits > pp.hits
+        local polled = pp.poll_dmg
         say(F.log, string.format("swing at the %s from %.1f m (%+.1f m in height, facing %.0f deg off): %s", tostring(F.target_name), pp.d or -1, pp.dz or 0,
-            pp.err or -1, hit and "hit" or spent and "landed nothing" or "no effect"))
+            pp.err or -1, (hit and polled and not spent) and "no effect (the target lost HP, no stamina spent)" or hit and "hit"
+            or spent and "landed nothing" or "no effect"))
+        M.press_verdict(F, pp, spent)
         if spent or hit then F.verified, F.unverified_run = F.verified + 1, 0
         else F.unverified_run = F.unverified_run + 1 end
         if F.unverified_run >= cfg.verify_presses then
@@ -4094,7 +4269,10 @@ local function frame(F)
             F.hit_seq = h.seq
             if h.victim == F.target_id then
                 F.hits = F.hits + 1; F.dmg = (F.dmg or 0) + (h.amount or 0); F.last_hit_t = F.t
-                if h.source ~= "hp_poll" then M.learn_hit(F, h.amount) end -- (a multicast names him as the instigator)
+                if h.source ~= "hp_poll" then -- (a multicast names him as the instigator: a hit that landed)
+                    F.dmg_landed = (F.dmg_landed or 0) + (h.amount or 0)
+                    M.learn_hit(F, h.amount)
+                end
                 if F.following then mcall("move", "progress_reset", F.log) end
                 if h.fatal then F.fatal_hit = true end
             end
@@ -4112,8 +4290,10 @@ local function frame(F)
             F.hits = F.hits + 1
             F.dmg = (F.dmg or 0) + (F.target_hp - tgt.hp)
             F.last_hit_t = F.t
-            -- his own hit only when it follows his press (another player's hit drops the HP too)
-            if F.last_press_t and F.t - F.last_press_t <= 1.2 then M.learn_hit(F, F.target_hp - tgt.hp) end
+            -- his own hit only when it follows his press (another player's hit drops the HP too), and learned only once
+            -- that press is verified as a swing (M.poll_hit; D8 2026-11-20: a "no effect" swing, then the runt's whole
+            -- 60 HP went at once and his sword was learned at 60 a hit for 14)
+            M.poll_hit(F, F.target_hp - tgt.hp, F.last_press_t ~= nil and F.t - F.last_press_t <= 1.2)
             if F.following then mcall("move", "progress_reset", F.log) end
             c.counts.hits = c.counts.hits + 1
             c.my_hits[#c.my_hits + 1] = { seq = c.counts.hits, t = F.t, victim = F.target_id, name = F.target_name,
@@ -4195,7 +4375,7 @@ local function frame(F)
                 weapon = profile and profile.name or "bare hands", est_s_to_kill = a.my_ttk and math.floor(a.my_ttk),
                 est_s_to_die = a.their_ttk and math.floor(a.their_ttk), pack = a.enemies,
                 hostiles = M.pack_words(foes), unknown = a.unknown, my_rate_from = rate_src,
-                est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi) })
+                est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.die_words(a) })
         end
         if a.decision == "flee" then return begin_flee(F, a.why) end
         F.decision = "fight"
@@ -4451,6 +4631,7 @@ local function start_fight(log, actor, opts)
                 target = actor, target_id = tgt.id, target_name = tgt.name, target_class = tgt.class or (U.valid(actor) and U.class_word(actor)) or nil, target_hp = tgt.hp, target_pos = tgt.pos,
                 dist_m = tgt.distance_m or 99, start_dist_m = tgt.distance_m, affinities = read_affinities(actor),
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
+                dmg_landed = 0, dmg_attacks = 0, unlearned = 0,
                 hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why,
                 by = opts.by or (opts.mode == "reflex" and "reflex" or "debug"), hp_start = tgt.hp, loot_names = {},
                 style = opts.style, weapon_pref = opts.weapon, boss = tgt.boss or nil, cornered = opts.cornered }
@@ -4768,7 +4949,7 @@ function M.threat_watch(pawn, pc, origin, t, log)
         pack = #pack, hostiles = M.pack_words(pack), fight_pack = #group, fight_hostiles = M.pack_words(group),
         verdict = a.verdict, pl_gap = a.pl_gap, unknown = a.unknown, again = again,
         est_s_to_die = a.their_ttk and math.floor(a.their_ttk), est_s_to_kill = a.my_ttk and math.floor(a.my_ttk),
-        est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi),
+        est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.die_words(a),
         hp = me.hp, max_hp = me.max_hp, aggro_m = cfg.aggro_m })
 end
 
@@ -5115,7 +5296,7 @@ function M.combat_brief(log, target, ctx)
     local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = rate }, { name = cr.name, hp = cr.hp, max_hp = cr.max_hp,
         pl = cr.pl, boss = cr.boss, dps_obs = dps_obs }) or {}
     d.assessment = { verdict = a.verdict, est_s_to_kill = a.my_ttk and math.floor(a.my_ttk), est_s_to_die = a.their_ttk and math.floor(a.their_ttk),
-                     est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi), unknown = a.unknown,
+                     est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.die_words(a), unknown = a.unknown,
                      with = held and held.name or "bare hands", my_rate_from = rate_src, damage_from = dps_src,
                      pl_gap = a.pl_gap }
     -- what Claude has learned about this creature's attacks (per attack key)
@@ -5624,10 +5805,10 @@ function M.prepared_odds(me, e, list, cast, known, attack_level)
     -- the times decide here (the PL-gap label "too_strong" would hide what the preparation changes)
     local verdict = a.verdict
     if verdict == "too_strong" then
-        verdict = (a.unknown and "unknown") or (a.kill_hi < a.die_lo and "likely_win") or (a.kill_lo > a.die_hi and "likely_lose") or "uncertain"
+        verdict = (a.unknown and "unknown") or (a.kill_hi < a.die_lo and not a.one_hit and "likely_win") or (a.kill_lo > a.die_hi and "likely_lose") or "uncertain"
     end
     return { verdict = verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk), uses = uses,
-             est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi), unknown = a.unknown,
+             est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.die_words(a), unknown = a.unknown,
              not_counted = "blocking, dodging, armour, a second fighter" }
 end
 
@@ -5689,7 +5870,7 @@ function M.fight_odds(me, dps, entities, held)
             out[e.id] = { verdict = a.verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk),
                           kill_lo = math.floor(a.kill_lo), kill_hi = math.floor(a.kill_hi + 0.5),
                           die_lo = math.floor(a.die_lo), die_hi = math.floor(a.die_hi + 0.5),
-                          est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.band_words(a.die_lo, a.die_hi),
+                          est_kill = M.band_words(a.kill_lo, a.kill_hi), est_die = M.die_words(a),
                           pack = #foes > 1 and #foes or nil, hostiles = #foes > 1 and M.pack_words(group) or nil,
                           unknown = a.unknown, damage_from = src, weapon = held and held.weapon or nil,
                           weapon_from = held and held.from or nil, pl_gap = a.pl_gap }
