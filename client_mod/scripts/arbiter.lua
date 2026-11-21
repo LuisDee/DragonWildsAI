@@ -38,6 +38,7 @@
 --   A.release(log, token, why) -> {ok, resumed = name|nil}
 --   A.renew(token)  A.holds(token)  A.owner()  A.is_suspended(token)  A.status()  A.reset(log)
 --   A.cancel(log, token, why)   -- drop a SUSPENDED entry (its owner gave up)
+--   A.yield_legs(log, by) -> info|nil   -- the model's own walk takes the legs from a yields_legs reflex (on_yield)
 --   A.claim_aim(token, why)  A.drop_aim(token)  A.aiming(token) -> why|nil   -- the owner aims the camera itself
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 
@@ -316,7 +317,8 @@ function A.request(log, spec)
     s.seq = s.seq + 1
     local rec = { token = s.seq, name = tostring(spec.name or "?"), level = lvl, resumable = spec.resumable ~= false,
                   uses_move = spec.uses_move, lease_s = spec.lease_s, on_suspend = spec.on_suspend,
-                  on_resume = spec.on_resume, on_stop = spec.on_stop, data = spec.data, since = now(), state = "owner" }
+                  on_resume = spec.on_resume, on_stop = spec.on_stop, data = spec.data, since = now(), state = "owner",
+                  yields_legs = spec.yields_legs == true or nil, on_yield = spec.on_yield }
     rec.renewed = rec.since
     s.owner = rec
     s.counts.granted = s.counts.granted + 1
@@ -324,6 +326,39 @@ function A.request(log, spec)
     say(log, string.format("granted %s (%s)%s", rec.name, A.LEVEL_NAMES[lvl] or lvl,
         preempted and (" preempting " .. preempted.name .. (preempted.suspended and " [suspended]" or " [stopped]")) or ""))
     return { ok = true, token = rec.token, preempted = preempted }
+end
+
+-- The model's own walk (a go_to / follow he asked for) takes the legs from a reflex that yields them
+-- (spec.yields_legs: the self-defence fight). Live 2026-11-21 02:07:59Z: two goblin archers on him, he said "pulling
+-- back to the campfire", go_to answered "busy: combat:reflex (reflex) is using my legs", the reflex chased one archer
+-- to melee and he died 44 s later (19 such refusals in 13 fights on 2026-11-20/21). The model decides; a reflex that
+-- only fights back does not veto his decision to leave. The owner is told (on_yield -> what it keeps doing without
+-- the legs) and leaves the slot; its move is stopped; nothing suspended is resumed (the walk is the newer owner, the
+-- caller starts it next). Safety reflexes (the ambient hazard / cure lease, eating) never set yields_legs and keep
+-- the pawn: a walk asked for during them is still refused busy. -> {name, level, age_s, keeps, doing} | nil
+function A.yield_legs(log, by)
+    local s = S()
+    housekeep(log, s)
+    local o = s.owner
+    if paused() or not o or not o.yields_legs or o.level ~= A.LEVELS.reflex then return nil end
+    local info = { name = o.name, level = A.LEVEL_NAMES[o.level], age_s = math.floor(now() - (o.since or now())) }
+    if o.on_yield then
+        -- (false: it cannot let go now, e.g. a hazard escape under way; it keeps the pawn and the walk is refused busy)
+        local ok, r = pcall(o.on_yield, log, o, by)
+        if ok and r == false then
+            say(log, o.name .. " kept the legs (" .. tostring(by) .. " refused)")
+            return nil
+        end
+        if s.owner ~= o then return nil end -- (the callback ended it: nothing left to yield)
+        if ok and type(r) == "table" then info.keeps, info.doing = r.keeps, r.doing end
+    end
+    s.owner = nil
+    o.state = "yielded"
+    if o.uses_move ~= false then stop_move_for(log, s, o) end
+    history(s, { ev = "yield", name = o.name, by = by })
+    say(log, string.format("%s yielded the legs to %s after %d s%s", o.name, tostring(by), info.age_s,
+        info.keeps and ("; it keeps: " .. tostring(info.keeps)) or ""))
+    return info
 end
 
 function A.release(log, token, why)

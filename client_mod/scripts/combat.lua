@@ -56,6 +56,7 @@ M.cfg = {
     lost_m = 40, lost_s = 5, -- target farther than lost_m for lost_s: give up
     resolve_m = 60,          -- attack "<name>": the nearest living one within this
     fight_timeout_s = 120,
+    legless_max_s = 240,     -- a reflex fight that gave its legs to his own walk lets go after this at most (the walk's end first)
     special_hp_factor = 2,   -- use the special only on targets with >= this many normal swings of HP
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
@@ -1932,6 +1933,7 @@ function M._outcome_of(F, res)
     if r == "unknown_target" or r == "too_far" then return "lost" end
     if r == "timeout" then return "timeout" end
     if r == "unsafe" then return "failed" end
+    if r == "yielded" then return "yielded" end -- (his own walk took the legs; M.yield_legs)
     return res.ok and "done" or "interrupted"
 end
 
@@ -2961,7 +2963,7 @@ local function finish_defend(F)
         local ate, why = try_eat(F, me, true)
         if ate then say(F.log, string.format("ate in the gap after the %s (hp %.0f)", outcome, me.hp or 0)) end
     end
-    set_phase(F, F.dis and "disengage" or "engage", "defended " .. outcome)
+    set_phase(F, (F.legless and "legless") or (F.dis and "disengage") or "engage", "defended " .. outcome)
 end
 
 -- When his roll can't be hit, from the roll's own montage: {from_s, to_s} after it starts (the first
@@ -3014,10 +3016,22 @@ end
 
 -- Start the planned defence at its moment. Called EVERY FRAME (a parry window is 100 ms; the
 -- 100 ms decision tick would be too coarse) and from step_defend. Uses the last decision's reads.
+-- A defence that needs no legs: the block key (a block or a parry, or an ability's block follow-up). With the legs
+-- given to his own walk (M.yield_legs) only these are done; a dodge, jump, retreat or cast plan is dropped.
+function M.blockish(plan)
+    return type(plan) == "table" and (plan.action == "block" or plan.action == "parry" or plan.input == "block") and not plan.spell_asset
+end
+
 local function defend_act(F, pawn, acts)
     local d = F.def
     if not d then return end
     local plan = d.plan
+    if F.legless and not M.blockish(plan) then
+        F.def, F.hold, F.evade_dir, F.evade_until, F.move_inject = nil, nil, nil, nil, nil
+        F.n_legless_skipped = (F.n_legless_skipped or 0) + 1
+        say(F.log, string.format("defence %s skipped: my legs are on my own walk (only a block or parry now)", tostring(plan and plan.action)))
+        return
+    end
     -- a block faces where the camera looks: the block key turns his body to the camera's yaw (live probe
     -- block_face_probe 2026-11-17: 120 deg in 12 frames). So from the telegraph to the hit the camera is on the one
     -- that swings, as a player's is. (Before: it pointed where he last walked or dodged; block -> hit 4 of 7.)
@@ -3153,7 +3167,8 @@ local function step_defend(F, pawn, me, acts)
     local plan = d.plan
     local rel = F.t - d.tel_t
     defend_act(F, pawn, acts)
-    if not d.started and acts.primary and M.windup_swing(F, me, plan, rel) then
+    if F.def ~= d then return end -- (dropped: a plan that needs the legs while they are on his own walk)
+    if not d.started and not F.legless and acts.primary and M.windup_swing(F, me, plan, rel) then
         local prim = (F.profile or {}).prim or {}
         tap(F, acts.primary, M.cfg.tap_frames, "primary_windup")
         F.next_press = F.t + (prim.next_ms or 900) / 1000 + jitter(M.cfg.press_jitter_ms)
@@ -4128,6 +4143,92 @@ function M.swap_target(F, me, c)
     return true
 end
 
+-- ------------------------------------------------------------------ the legs go to his own walk (arbiter.yield_legs)
+-- A go_to / follow the model asks for during a reflex fight takes the legs (live 2026-11-21 02:07:59Z: "pulling back
+-- to the campfire", go_to refused busy by combat:reflex, which then chased a goblin archer to melee; dead 44 s later).
+-- The fight goes on without them until that walk ends: a block or parry on a swing at him, eating at low HP, cures,
+-- and a hazard escape under the ambient reflex lease (safety: the walk is suspended for it and resumed). No chase,
+-- swing, dodge, flee or move call of its own. Its token is gone (the arbiter slot is the walk's), so the guard starts
+-- no new reflex fight while it lasts (c.fight); at the walk's end the fight ends "yielded" and the guard is free again.
+-- Called from the arbiter's on_yield. -> {keeps, doing} for the walk's answer, or false to keep the legs.
+function M.yield_legs(F, by)
+    if not F or F.done then return false end
+    if F.escape then return false end -- (getting out of a hazard: a safety move, it keeps the legs)
+    local was = F.phase
+    F.legless = { t = F.t, by = tostring(by or "a walk of mine"), phase = was }
+    F.token = nil
+    F.following, F.drove_move, F.flee_follow, F.flee_move_pending = false, false, false, false
+    F.move_inject, F.move_until, F.evade_dir, F.evade_until = nil, nil, nil, nil
+    F.step_in, F.step_in_until, F.nudge, F.nudge_until = nil, nil, nil, nil
+    F.inputs = {}
+    if F.def and not M.blockish(F.def.plan) then F.def = nil end
+    if not F.def then F.hold = nil end
+    if F.rg then F.rg.aiming, F.rg.aim_t0 = false, nil end
+    local cap = F.cap or {}
+    local keeps = (cap.can_block and (cap.can_parry and "blocking or parrying swings at me, " or "blocking swings at me, ") or "")
+        .. "eating when my HP is low, cures and getting out of fire or poison"
+    local doing = string.format("fighting the %s, %s", tostring(F.target_name or "creature"), tostring(was or "?"))
+    if not F.def then set_phase(F, "legless", "my legs went to " .. F.legless.by) end
+    say(F.log, string.format("reflex: my legs went to %s (I was %s); keeping %s", F.legless.by, doing, keeps))
+    M.emit_activity({ kind = "reflex_yielded", by = "reflex", to = F.legless.by, target = F.target_name, target_id = F.target_id,
+        phase_was = was, hp = F.hp_now, keeps = keeps,
+        detail = "your own walk took my legs from the self-defence reflex: it stopped chasing and swinging" })
+    return { keeps = keeps, doing = doing }
+end
+
+function M._step_legless(F, pawn, me, acts)
+    local c, y = C(), F.legless
+    M.held(F, "legs_on_my_walk")
+    -- his walk is over (arrived, failed, stopped, or replaced by what is not a walk): the fight lets go. A safety lease
+    -- (a hazard escape of this fight or the ambient one) suspends the walk meanwhile; that is not its end.
+    local st = mcall("move", "status")
+    local walking = type(st) == "table" and st.mode ~= nil and st.mode ~= "idle"
+    if not walking and not F.escape then
+        local arb = mod("arbiter")
+        local o = arb and arb.owner and arb.owner()
+        if not (type(o) == "table" and o.level == "reflex") then
+            return finish(F, result_of(F, false, "yielded", { yielded_to = y.by, detail = string.format(
+                "my %s ended, so the self-defence fight it took the legs from let go after %d s without them", y.by, math.floor(F.t - y.t)) }))
+        end
+    end
+    if F.t - y.t > M.cfg.legless_max_s then
+        return finish(F, result_of(F, false, "yielded", { yielded_to = y.by, detail = string.format(
+            "my %s still had my legs after %d s; the self-defence fight let go", y.by, math.floor(F.t - y.t)) }))
+    end
+    try_eat(F, me, false)
+    do local okst, err = pcall(M.status_frame, F, pawn, me); if not okst then c.status_err = tostring(err) end end
+    -- hazards (safety): an escape takes a short ambient reflex lease (the walk is suspended and resumed by the arbiter)
+    F.ambient = true
+    local okh, herr = pcall(M.hazard_frame, F, pawn, me, acts)
+    F.ambient = nil
+    if not okh then c.hazard_err = tostring(herr) end
+    if F.escape then return end
+    -- where the target is now (the defence's reach check; the fight's own tracking is not run without the legs)
+    if U.alive(F.target) then
+        local tgt = read_creature(F.target, me.pos)
+        if tgt and tgt.pos then F.target_pos, F.dist_m, F.target_hp = tgt.pos, tgt.distance_m or F.dist_m, tgt.hp or F.target_hp end
+    end
+    if F.def then return step_defend(F, pawn, me, acts) end
+    -- a swing at him (any attacker within reach of a block): block or parry it, nothing that needs the legs
+    if not (F.cap and F.cap.can_block) then return end
+    for id, tt in pairs(c.telegraphs or {}) do
+        if F.t - tt <= M.cfg.telegraph_fresh_s and tt > (F.last_tele or 0) then
+            local a = id == F.target_id and F.target or find_creature(id)
+            local p = a and U.valid(a) and U.loc(a)
+            if p and me.pos and U.dist(p, me.pos) <= M.cfg.telegraph_m * 100 then
+                M._start_defend(F, me, id, tt, (c.tele_info or {})[id])
+                if F.def and not M.blockish(F.def.plan) then
+                    local act = tostring(F.def.plan and F.def.plan.action)
+                    F.def, F.hold = nil, nil
+                    if act ~= "none" and act ~= "nil" then F.n_legless_skipped = (F.n_legless_skipped or 0) + 1 end
+                    set_phase(F, "legless", act == "none" and "no answer to that swing" or (act .. " needs the legs; they are on my walk"))
+                end
+                return
+            end
+        end
+    end
+end
+
 local function frame(F)
     local c = C()
     if F.gen ~= c.gen or F.done then return end
@@ -4141,8 +4242,9 @@ local function frame(F)
     if F.def and F.def.cast then defend_followup(F, pawn, actions(pawn)) end
     F.frame_n = (F.frame_n or 0) + 1
     c.frame_id = (c.frame_id or 0) + 1
-    if F.rg then ranged_frame(F, pawn) end
+    if F.rg and not F.legless then ranged_frame(F, pawn) end
     -- per frame: held movement keys first (a directional evade samples them), then the queued taps
+    if F.legless then F.move_inject, F.evade_dir, F.step_in, F.nudge = nil, nil, nil, nil end -- (the legs are his walk's)
     if F.move_inject then
         if F.t < (F.move_until or 0) then
             local am = actions(pawn).movement
@@ -4167,7 +4269,7 @@ local function frame(F)
     F.dec_t = F.t
     -- decisions
     local arb = mod("arbiter")
-    if arb and F.token then
+    if arb and F.token and not F.legless then
         if not arb.holds(F.token) then return finish(F, result_of(F, false, "interrupted", { detail = "lost the pawn to a higher priority" })) end
         arb.renew(F.token)
     end
@@ -4200,6 +4302,7 @@ local function frame(F)
     if F.heal_pending and F.t - F.heal_pending.t >= 2.5 and F.phase ~= "disengage" and F.phase ~= "flee" then
         M._try_eat(F, me, false) -- (verifies the pending bite; eats again only below eat_hp)
     end
+    if F.legless then return M._step_legless(F, pawn, me, actions(pawn)) end
     if F.t - F.t0 > M.cfg.fight_timeout_s then
         local _, held = held_summary(F)
         local tp, mp = F.target_pos, me.pos
@@ -4618,6 +4721,9 @@ local function start_fight(log, actor, opts)
     if arb then
         local r = arb.request(log, { name = "combat:" .. (opts.mode or "attack"), level = opts.level or (opts.mode == "reflex" and "reflex" or "command"),
                                      resumable = false, uses_move = true, lease_s = 5,
+                                     -- self-defence gives the legs to the model's own walk (arbiter.yield_legs; M.yield_legs)
+                                     yields_legs = opts.mode == "reflex" or nil,
+                                     on_yield = function(_, _, by) local f = C().fight; if f and f.token == token then return M.yield_legs(f, by) end return false end,
                                      on_stop = function(_, _, why) local f = C().fight; if f and f.token == token then finish(f, result_of(f, false, "interrupted", { detail = why })) end end })
         if not r.ok then
             local cur = c.fight

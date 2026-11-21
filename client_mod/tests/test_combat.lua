@@ -3740,5 +3740,88 @@ do
     reset_world()
 end
 
+-- ================================================================ legs to his own walk (arbiter.yield_legs; live 2026-11-21 02:07:59Z)
+-- Two goblin archers on him; he said "pulling back to the campfire"; go_to was refused "busy: combat:reflex (reflex) is
+-- using my legs", the reflex chased one archer to melee, and he died 44 s later. The model's walk takes the legs: the
+-- reflex fight goes on without them (block, eat, cures, hazard escapes) until the walk ends.
+reset_world()
+;(function()
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local wolf = new_creature("BP_AI_Wolf_C_leg", "Wolf", { X = 150, Y = 0, Z = 0 }, { hp = 2000, pl = 1, arch = 0 })
+    check("legs: the reflex fight starts", Cm._start_fight(nil, wolf, { mode = "reflex", level = "reflex", why = "attacked_me", cornered = "test" }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    local F = Cm._state().fight
+    check("legs: the reflex owns the pawn and yields only to a walk", A.owner() and A.owner().name == "combat:reflex", A.owner() and A.owner().name)
+    local info = A.yield_legs(nil, "go_to (my own call)")
+    check("legs: yield_legs hands them over and says what it keeps", info and info.name == "combat:reflex" and tostring(info.keeps):find("blocking", 1, true)
+        and tostring(info.doing):find("Wolf", 1, true) and A.owner() == nil and F.legless and not F.done and MV.calls[#MV.calls] == "stop",
+        info and info.keeps)
+    -- the model's walk (move.start adopts it as the implicit owner)
+    fake_move.go_to(nil, { -30, 0, 0 }, {})
+    local walk = A.adopt_move(nil)
+    local n0, p0, prim0, ev0 = #MV.calls, F.presses, world.injected.IA_PrimaryAction or 0, world.injected.IA_Player_Evade or 0
+    world.on_step = function() wolf.loc = { X = pawn.loc.X + 150, Y = pawn.loc.Y, Z = 0 } end -- (it keeps up with him)
+    run_until(function() return false end, 1)
+    local extra = {}
+    for i = n0 + 1, #MV.calls do extra[#extra + 1] = MV.calls[i] end
+    check("legs: no move call of the fight's own while his walk runs", #extra == 0, table.concat(extra, ","))
+    check("legs: no swing while his walk runs", F.presses == p0 and (world.injected.IA_PrimaryAction or 0) == prim0, F.presses)
+    check("legs: his walk keeps the pawn and goes on", walk and A.owner() and A.owner().token == walk and MV.mode == "go_to" and not F.done)
+    check("legs: the guard starts no second fight meanwhile", Cm._state().fight == F)
+    -- a swing at him: block it (the shield), no dodge
+    local hook = hooks["/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies"]
+    local b0 = world.injected.IA_SecondaryAction or 0
+    hook({ get = function() return obj({ GetOwner = function() return wolf end }, "C /x") end })
+    local blocked = run_until(function() return (world.injected.IA_SecondaryAction or 0) > b0 + 20 end, 2)
+    check("legs: a swing at him is still blocked", blocked, table.concat(F.phase_log, " | "))
+    run_until(function() return false end, 1.5)
+    check("legs: no dodge and no move call while blocking", (world.injected.IA_Player_Evade or 0) == ev0 and #MV.calls == n0 and MV.mode == "go_to",
+        tostring(world.injected.IA_Player_Evade) .. " " .. tostring(MV.calls[#MV.calls]))
+    -- a dodge plan is dropped, never acted on
+    F.def = { plan = { action = "dodge", dir = "left", at_s = 0, hold_s = 0.35, impact_s = 0.6 }, tel_t = T, key = "Wolf:x", attacker = F.target_id,
+              me_seq0 = 0, blk_seq0 = 0, imp_seq0 = 0, info = {} }
+    run_until(function() return false end, 0.3)
+    check("legs: a dodge plan is dropped (it needs the legs)", F.def == nil and (world.injected.IA_Player_Evade or 0) == ev0 and (F.n_legless_skipped or 0) >= 1)
+    -- low HP: he still eats
+    local u0 = #INV.uses
+    pawn.hp = 20
+    run_until(function() return #INV.uses > u0 end, 2)
+    check("legs: eats at low HP without the legs", #INV.uses > u0, #INV.uses)
+    -- the walk ends: the fight lets go ("yielded"), told as such
+    world.on_step = nil
+    MV.mode = "idle"
+    local ended = run_until(function() return Cm._state().fight == nil end, 2)
+    local res = Cm._state().last and Cm._state().last.result
+    check("legs: the walk's end ends the fight, reason yielded", ended and res and res.reason == "yielded" and tostring(res.data.detail):find("go_to", 1, true), res and res.reason)
+    local acts, said_yield, said_end = read_activity(), false, false
+    for _, l in ipairs(acts) do
+        if l:find('"kind":"reflex_yielded"', 1, true) then said_yield = true end
+        if l:find('"kind":"combat_end"', 1, true) and l:find('"outcome":"yielded"', 1, true) then said_end = true end
+    end
+    check("legs: reflex_yielded and combat_end (outcome yielded) reach the brain", said_yield and said_end)
+    A.reset(nil)
+    -- a hazard escape under way keeps the legs (safety); a commanded attack never yields
+    reset_world()
+    local w2 = new_creature("BP_AI_Wolf_C_leg2", "Wolf", { X = 150, Y = 0, Z = 0 }, { hp = 2000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, w2, { mode = "reflex", level = "reflex", why = "attacked_me", cornered = "test" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    local F2 = Cm._state().fight
+    F2.escape = { t = T, until_t = T + 5, zone = "z", how = "walked" }
+    local tok = A.owner() and A.owner().token
+    check("legs: a hazard escape under way keeps the legs", A.yield_legs(nil, "go_to (my own call)") == nil and A.owner() and A.owner().token == tok
+        and not F2.legless)
+    F2.escape = nil
+    Cm.stop(nil, "test")
+    A.reset(nil)
+    reset_world()
+    local w3 = new_creature("BP_AI_Wolf_C_leg3", "Wolf", { X = 150, Y = 0, Z = 0 }, { hp = 2000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, w3, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    check("legs: a commanded attack does not yield (the bridge's preempt ends it instead)", A.yield_legs(nil, "go_to (my own call)") == nil
+        and A.owner() and A.owner().name == "combat:attack")
+    Cm.stop(nil, "test")
+    A.reset(nil)
+end)()
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

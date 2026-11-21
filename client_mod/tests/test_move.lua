@@ -2365,6 +2365,46 @@ do
     refused=M.go_to(log, { 23, 0, 0 }, {})
     check("owner: unassociated move does not borrow existing owner", not refused.ok and _G.DW_MOVE.gen==prior_gen and _G.DW_MOVE.handle==prior_handle)
     M.stop(log); A.release(log, other.token, "done")
+    -- the model's own walk (the bridge's cmd_id) takes the legs from a self-defence reflex (arbiter.yield_legs); live
+    -- 2026-11-21 02:07:59Z it was refused "busy: combat:reflex (reflex) is using my legs" and he died 44 s later
+    ;(function() -- (its own function: the main chunk is at Lua's 200-local limit)
+    local yielded_by
+    local fight = A.request(log, { name = "combat:reflex", level = "reflex", uses_move = true, yields_legs = true,
+        on_yield = function(_, _, by) yielded_by = by; return { keeps = "blocking swings at me", doing = "fighting the Goblin Archer, approach" } end })
+    M.go_to(log, { 24, 0, 0 }, { owner_token = fight.token }) -- the reflex's own chase
+    local internal = M.go_to(log, { 25, 0, 0 }, {})
+    check("yield: a walk that is not the model's is still refused busy", not internal.ok and internal.reason == "busy"
+        and internal.owner == "combat:reflex" and A.owner().token == fight.token, internal.reason)
+    local nlog = #logs
+    local mine = M.go_to(log, { 26, 0, 0 }, { cmd_id = "cmd_yield" })
+    local own = A.owner()
+    check("yield: the model's go_to takes the legs from the reflex", mine.ok and mine.took_legs and mine.took_legs.name == "combat:reflex"
+        and yielded_by == "go_to (my own call)" and own and own.implicit and _G.DW_MOVE.owner_token == own.token
+        and _G.DW_MOVE.mode == "go_to" and _G.DW_MOVE.goal.X == 2600, mine.reason or mine.detail)
+    local noted = false
+    for _, n in ipairs(_G.DW_MOVE.trip_notes or {}) do if n:find("took my legs back from my self-defence reflex", 1, true) then noted = true end end
+    check("yield: the walk's trip sentence says it took the legs, and what the reflex keeps", noted
+        and table.concat(_G.DW_MOVE.trip_notes or {}, " "):find("it keeps blocking swings at me", 1, true) ~= nil)
+    local logged = false
+    for i = nlog + 1, #logs do if tostring(logs[i]):find("move: go_to took the legs from combat:reflex", 1, true) then logged = true end end
+    check("yield: logged once (the line that shows it ran)", logged)
+    M.stop(log)
+    -- safety reflexes keep the legs: the ambient hazard/cure lease never yields, nor a reflex that says it can't now
+    local amb = A.request(log, { name = "combat:ambient", level = "reflex", uses_move = true })
+    local r2 = M.go_to(log, { 27, 0, 0 }, { cmd_id = "cmd_amb" })
+    check("yield: an ambient safety lease is not yielded (busy)", not r2.ok and r2.reason == "busy" and r2.owner == "combat:ambient"
+        and A.owner().token == amb.token, r2.reason)
+    A.release(log, amb.token, "done")
+    local esc = A.request(log, { name = "combat:reflex", level = "reflex", uses_move = true, yields_legs = true, on_yield = function() return false end })
+    local r3 = M.go_to(log, { 28, 0, 0 }, { cmd_id = "cmd_esc" })
+    check("yield: a reflex that keeps the legs (a hazard escape under way) still refuses", not r3.ok and r3.reason == "busy"
+        and A.owner().token == esc.token, r3.reason)
+    A.release(log, esc.token, "done")
+    local cmd = A.request(log, { name = "combat:attack", level = "command", uses_move = true })
+    local r4 = M.follow(log, "Nobody", 2, { cmd_id = "cmd_att" })
+    check("yield: a command-level owner is not taken by yield_legs", not r4.ok and A.owner().token == cmd.token, r4.reason)
+    A.release(log, cmd.token, "done")
+    end)()
 end
 
 -- Borrowed Windstep jobs are owned by the movement action and require a verified landing.
