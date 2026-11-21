@@ -186,3 +186,156 @@ def test_the_controller_food_line_has_the_values_not_the_label():
     assert line == ("Food/drink: Dried Redberries x4 (food, hotbar, heals 20, +15 food each); in all 80 HP of healing, "
                     "+60 food, no water")
     assert "Sustenance" not in line  # the body's row gave the label "Sustenance" as its food value
+
+
+# ------------------------------------------------------------------------------------------------ fishing spots
+# The L3 state's own get_state (row 20) had these in sight: fishing.lua's fishing_spots_nearby, no position on a row.
+NET = "BP_FishingNodeV2_Net_Brynmoor_C_UAID_DC97BA249CD4FDC402_1131309019"
+ROD = "BP_FishingNodeV2_Rod_Brynmoor_C_UAID_DC97BA249CD4FDC402_1155627020"
+NET2 = "BP_FishingNodeV2_Net_Brynmoor_C_UAID_DC97BA249CD4FCC402_2104746842"
+IN_SIGHT = [{"name": "Net Fishing Spot", "distance_m": 4.5, "id": NET, "level": 2, "method": "net"},
+            {"name": "Rod Fishing Spot", "distance_m": 21.3, "id": ROD, "level": 2, "method": "rod"},
+            {"name": "Net Fishing Spot", "distance_m": 23.6, "id": NET2, "level": 2, "method": "net"}]
+
+
+def fishing_memory(tmp_path):
+    """He stood near (113,1850) in Temple Woods for 6 s with a net spot 1.2 m and a rod spot 9 m from him (the body's
+    rows as they come today: no position), then walked back to the L3 spot (151,1912) 10 min later."""
+    t = [2000.0]
+    m = mm.MapMemory(tmp_path / "map_memory.json", clock=lambda: t[0], debounce_s=1e9)
+    for _ in range(3):
+        m.observe({"position": [113.0, 1850.0, -30.0], "fishing_spots_nearby": [
+            {"name": "Net Fishing Spot", "id": "BP_FishingNodeV2_Net_Brynmoor_C_UAID_AA_1", "distance_m": 1.2,
+             "level": 2, "method": "net"},
+            {"name": "Rod Fishing Spot", "id": "BP_FishingNodeV2_Rod_Brynmoor_C_UAID_AA_2", "distance_m": 9.0,
+             "level": 2, "method": "rod"}]})
+        t[0] += 3
+    t[0] += 600
+    return m, t
+
+
+def test_fishing_spots_reach_map_memory_through_the_census_with_an_honest_fix(tmp_path):
+    """fishing_spots_nearby rows carry no position and their distance is cached 5 s (fishing.lua extras_ttl_s), so a
+    spot is kept by id at his own position within its distance plus how far he moved in those 5 s."""
+    t = [0.0]
+    m = mm.MapMemory(tmp_path / "m.json", clock=lambda: t[0], debounce_s=1e9)
+    row = {"name": "Net Fishing Spot", "id": NET, "distance_m": 4.5, "level": 2, "method": "net"}
+    m.observe({"position": [151.42, 1912.1, -31.6], "fishing_spots_nearby": [row]})
+    assert not m.sightings  # the first read: how old the distance is cannot be known yet
+    t[0] = 3.0
+    m.observe({"position": [152.42, 1912.1, -31.6], "fishing_spots_nearby": [row]})
+    assert not m.sightings
+    t[0] = 6.0
+    m.observe({"position": [152.42, 1912.1, -31.6], "fishing_spots_nearby": [row]})
+    rec = m.sightings[f"fishing_spot|{NET}"]
+    assert rec["position"] == [152.42, 1912.1, -31.6] and rec["extra"]["within_m"] == 5.5  # 4.5 + the 1 m he moved
+    assert rec["class"] == "BP_FishingNodeV2_Net_Brynmoor_C" and rec["extra"]["method"] == "net"
+    t[0] = 12.0  # standing in it: the fix tightens
+    m.observe({"position": [150.0, 1909.0, -31.6], "fishing_spots_nearby": [{**row, "distance_m": 0.8}]})
+    t[0] = 18.0
+    m.observe({"position": [150.0, 1909.0, -31.6], "fishing_spots_nearby": [{**row, "distance_m": 0.8}]})
+    assert rec["position"][:2] == [150.0, 1909.0] and rec["extra"]["within_m"] == 0.8
+    t[0] = 21.0  # a respawn 500 m off with the cached row: no fix, the old one stays
+    m.observe({"position": [460.7, 1607.4, 0.0], "fishing_spots_nearby": [{**row, "distance_m": 0.8}]})
+    assert rec["position"][:2] == [150.0, 1909.0] and rec["extra"]["within_m"] == 0.8
+    t[0] = 24.0  # a row with its own position (when the body sends one) is exact
+    m.observe({"position": [460.7, 1607.4, 0.0], "fishing_spots_nearby": [{**row, "position": [149.5, 1910.0, -32.0]}]})
+    assert rec["position"] == [149.5, 1910.0, -32.0] and rec["extra"]["within_m"] == 0.0
+    assert rec["count_seen"] == 5  # every read once it was kept (from t 6)
+    m.flush()
+    again = mm.MapMemory(tmp_path / "m.json", clock=lambda: t[0])
+    assert again.sightings[f"fishing_spot|{NET}"]["position"] == [149.5, 1910.0, -32.0]  # kept by id across loads
+
+
+def test_catch_per_province_from_the_wiki_pages_split_and_the_spot_facts():
+    from brain import fishing_facts as ff
+    net, rod = ff.catch_tables("Net Fishing Spot"), ff.catch_tables("Rod Fishing Spot")
+    # the page's own "===<Province>===" headings (rev 66829 / 74795): the flattened sections lose them, wikitext keeps them
+    assert list(net) == ["Brynmoor", "Ghornfell", "Fellhollow", "Dowdun Reach", "Umbral Sands"] == list(rod)
+    assert [(r["name"], r["qty"], r["chance"]) for r in net["Brynmoor"]] == [
+        ("Raw Shrimp", 1, 0.6), ("Raw Shrimp", 2, 0.3), ("Raw Shrimp", 3, 0.1)]
+    assert {r["name"] for r in net["Ghornfell"]} == {"Raw Anchovies"}
+    assert [r["name"] for r in rod["Brynmoor"]] == ["Raw Sardine", "Raw Trout", "Pristine Sardine", "Pristine Trout"]
+    assert ff.catch("Rod Fishing Spot", "Brynmoor")[1] == "wiki Rod Fishing Spot rev 74795"
+    assert ff.catch("Net Fishing Spot", None) is None and ff.catch("Net Fishing Spot", "Nowhere") is None
+    assert ff.spot_prose("Net Fishing Spot") == {"src": "wiki Net Fishing Spot rev 66829", "catches": "10-15",
+                                                  "respawn": "72 in-game hours"}
+    assert ff.spot_prose("Rod Fishing Spot")["gates"] == [("Fishing", 17, "catch a pristine one")]
+    assert "catches" not in ff.spot_prose("Rod Fishing Spot")  # the rod page gives no count: none is claimed
+    # where: the map region at its position; without one, the province its class names (map data's province names)
+    assert ff.where([113.0, 1850.0]) == {"region": "Temple Woods", "province": "Brynmoor", "by": "position"}
+    assert ff.where(None, ff.class_of(ROD)) == {"province": "Brynmoor", "by": "class"}
+    assert ff.where(None, "BP_FishingNodeV2_Net_C") == {}
+
+
+def test_the_tool_a_spot_needs_by_category_tag_and_the_recipe_that_makes_one():
+    from brain import fishing_facts as ff
+    st = l3()  # recipes_unlocked has RECIPE_Tool_FishingNet_Coarse and RECIPE_Tool_FishingRod_Ash
+    cat = supplies._cat()
+    assert ff.tool_words(st, "net", cat) == "net: none on you; Coarse Net from 2 Coarse Thread at a Crafting Table (unlocked)"
+    st["skills"] = [{"skill": "Fishing", "level": 1, "xp": 0}]
+    st["recipes_unlocked"] = [r for r in st["recipes_unlocked"] if "FishingRod" not in r]
+    # the gate is the recipe's own unlock query: "ALL ITEMS[ Ash Logs, Coarse Thread ] AND SKILL LEVEL 3[ Fishing ]"
+    assert ff.tool_words(st, "rod", cat) == ("rod: none on you; Ash Rod from Ash Logs, Coarse Thread at a Crafting Table "
+                                             "(needs Fishing 3, you are 1; not unlocked)")
+    st["inventory_items"].append({"where": "bag", "name": "Coarse Net", "item": "ITEM_FishingNet_CoarseNet", "count": 1,
+                                  "category": "Item.Equipment.Tool.Fishing.Net"})
+    assert ff.tool_words(st, "net", cat) == "net: Coarse Net on you"
+    assert ff.tool_words(st, "rod", cat).startswith("rod: none on you")  # a net does not fit a rod spot's tag
+
+
+def test_sources_line_fixture_with_a_net_and_a_rod_spot_near_113_1850(tmp_path):
+    m, t = fishing_memory(tmp_path)
+    st = l3()
+    st["skills"] = [{"skill": "Fishing", "level": 3, "xp": 80}, {"skill": "Cooking", "level": 15, "xp": 1051}]
+    mm.annotate(st, m)
+    rows = [(r["name"], r["kind"], r["province"], r["region"], r["distance"], r.get("within"), r.get("direction"))
+            for r in st["food_sources"]]
+    assert rows == [("Net Fishing Spot", "fish", "Brynmoor", "Temple Woods", 73, 1, "NW"),
+                    ("Rod Fishing Spot", "fish", "Brynmoor", "Temple Woods", 73, 9, "NW")]
+    line = supplies.sources_line(st)
+    assert line.startswith("food and water you have seen (nearest first, as seen then): Net Fishing Spot ~73 m (±1 m) "
+                           "NW, Brynmoor, seen 10 min ago (Raw Shrimp x1-3 -> at a fire (not unlocked): Sauteed Shrimp "
+                           "heals 20, +10 food, 2 HP per food, 40 HP/kg; at a Cooking Range or Stone Range (not unlocked): "
+                           "Shrimp Omelette (+Fried Egg) heals 50, +15 food, 3.3 HP per food, 71 HP/kg; net: none on you; "
+                           "Coarse Net from 2 Coarse Thread at a Crafting Table (unlocked))")
+    assert ("Rod Fishing Spot ~73 m (±9 m) NW, Brynmoor, seen 10 min ago (Raw Sardine, Raw Trout, Pristine Sardine 1.5%, "
+            "Pristine Trout 1.5% -> at a fire (not unlocked): Fried Sardine heals 30, +15 food, 2 HP per food, 60 HP/kg; "
+            "Grilled Trout heals 40, +15 food, 2.7 HP per food, 57 HP/kg; at a Cooking Range or Stone Range (not "
+            "unlocked): Sauteed Sardines (+Dried Redberries) heals 70, +25 food, 2.8 HP per food, 100 HP/kg; Herb Baked "
+            "Trout (+Baked Potato) heals 100, +35 food, 2.9 HP per food, 143 HP/kg; rod: none on you; Ash Rod from Ash "
+            "Logs, Coarse Thread at a Crafting Table (needs Fishing 3, you are 3; unlocked))") in line
+    assert line.endswith("| fishing (wiki Net Fishing Spot rev 66829: 10-15 catches a spot, each fish or junk, respawn 72 "
+                         "in-game hours after it runs out; Rod Fishing Spot rev 74795: Fishing 17 to catch a pristine one "
+                         "(you are 3))")
+    assert len(line) <= supplies.SOURCES_CHARS and not ADVICE.search(line)
+    assert line in supplies.lines(st)
+
+
+def test_spots_in_sight_without_a_fix_still_show_with_the_live_distance_and_no_direction(tmp_path):
+    """The real L3 state's rows on the first read: no fix yet, so no direction; the province from the class."""
+    st = l3()
+    st["fishing_spots_nearby"] = [dict(r) for r in IN_SIGHT]
+    m = mm.MapMemory(tmp_path / "m.json", clock=lambda: 100.0, debounce_s=1e9)
+    m.observe(st)
+    mm.annotate(st, m)
+    fish = [(r["name"], r["n"], r["distance"], r.get("direction"), r["province"], r["in_sight"])
+            for r in st["food_sources"] if r["kind"] == "fish"]
+    assert fish == [("Net Fishing Spot", 2, 4, None, "Brynmoor", True), ("Rod Fishing Spot", 1, 21, None, "Brynmoor", True)]
+    line = supplies.sources_line(st)
+    assert "Net Fishing Spot x2 4 m, Brynmoor, seen just now (Raw Shrimp x1-3 -> " in line
+    assert "Rod Fishing Spot 21 m, Brynmoor, seen just now (Raw Sardine, Raw Trout" in line
+
+
+def test_the_nearest_fishing_spot_is_kept_when_nearer_sources_fill_the_rows(tmp_path):
+    m, t = fishing_memory(tmp_path)
+    me = [151.42, 1912.1, -31.6]  # back at the L3 spot, 73 m from both fishing spots
+    m.observe({"position": me, "nearby_resources": [
+        {"name": "Redberry Bush", "item": "ITEM_Consumable_Fruit_Redberry", "position": [153.0, 1912.0, -31.0]}],
+        "nearby_entities": [{"name": "Chicken", "id": "C1", "position": [151.0, 1911.0, -31.0]}]})
+    got = supplies.sources(list(m.sightings.values()), me, t[0], n=2)
+    assert [g["kind"] for g in got] == ["creature", "fish"]  # the Redberry Bush gives way, the nearest spot stays
+    # whole rows only: a row that would pass SOURCES_CHARS is left out, never cut in the middle
+    st = {**l3(), "position": me, "food_sources": supplies.sources(list(m.sightings.values()), me, t[0])}
+    line = supplies.sources_line(st)
+    assert len(line) <= supplies.SOURCES_CHARS and not line.endswith("…")

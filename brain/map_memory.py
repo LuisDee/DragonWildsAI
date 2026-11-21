@@ -38,6 +38,16 @@ MAX_RECORDS = 5000
 BUCKETS = (("interactables", None), ("nearby_resources", "resource"), ("nearby_items", "item"),
            ("nearby_entities", "creature"))
 TRANSIENT = {"item": 1800.0, "creature": 900.0}  # world items / creatures move or vanish: shorter memory
+# Fishing spots (AFishingNodeV2) are not in the census buckets: client_bridge's census does not list them (its
+# find_actor_by_id note, 2026-10-26), and fishing.lua's get_state extra ``fishing_spots_nearby`` (the 3 nearest within
+# 60 m) gives each one's stable id, name, method, level and planar distance_m but NO position (spots_tool drops s.pos).
+# So a spot is kept by its id, at the best fix known: the row's own ``position`` when a row carries one, else his own
+# position with ``within_m`` = its distance plus how far he moved while that distance could be stale (the extra is
+# cached EXTRAS_TTL_S, fishing.lua M.cfg.extras_ttl_s = 5). The tightest fix wins; standing in a net spot gives ~1 m.
+FISHING_BUCKET = "fishing_spots_nearby"
+FISHING_KIND = "fishing_spot"
+EXTRAS_TTL_S = 5.0
+FIX_MAX_M = 60.0  # a fix looser than the extra's own radius (fishing.lua radius_m) says nothing
 
 
 def load(path: str | Path) -> dict:
@@ -67,10 +77,13 @@ class MapMemory:
         self._wake = threading.Event()
         self._writer: threading.Thread | None = None
         self.background = background
+        self._trail: list[tuple[float, list[float]]] = []  # (time, his position): how stale a fishing distance can be
 
     # ------------------------------------------------------------ writing
     @staticmethod
     def _key(r: dict) -> str:
+        if r.get("kind") == FISHING_KIND and r.get("id"):  # kept by id: its position fix tightens over time
+            return f"{FISHING_KIND}|{r['id']}"
         p = r.get("position") or [0, 0, 0]
         cell = f"{round(p[0] / CELL_M)}:{round(p[1] / CELL_M)}"
         return f"{r.get('kind')}|{r.get('class') or r.get('name')}|{cell}"
@@ -114,12 +127,56 @@ class MapMemory:
                     rec.update(count_seen=1, first_seen=now, last_seen=now)
                     self.sightings[k] = rec
                 self._dirty = True
+        self._observe_fishing(state, now)
         self._prune(now)
         if self._dirty and now - self._saved_at >= self.debounce_s:
             if self.background:
                 self._kick()  # the writer thread does the JSON + file work, off the state path
             else:
                 self.flush()
+
+    def _observe_fishing(self, state: dict, now: float) -> None:
+        """Fold fishing_spots_nearby into the store, one record per spot id (see FISHING_BUCKET above)."""
+        me = state.get("position")
+        if isinstance(me, list) and len(me) >= 2:
+            self._trail.append((now, [float(v) for v in me[:3]]))
+            # keep the reads of the last TTL, plus the one just before it (where he was when the cache was filled)
+            while len(self._trail) > 1 and self._trail[1][0] <= now - EXTRAS_TTL_S:
+                self._trail.pop(0)
+        rows = state.get(FISHING_BUCKET)
+        if not isinstance(rows, list) or not rows:
+            return
+        moved = None
+        if self._trail and self._trail[0][0] <= now - EXTRAS_TTL_S:  # the trail covers how old the distance can be
+            moved = max(_dist(me, p) or 0.0 for _, p in self._trail)
+        from .fishing_facts import class_of
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("id"):
+                continue
+            rec = {"kind": FISHING_KIND, "id": str(row["id"]), "name": row.get("name"), "class": class_of(row["id"])}
+            fix = None
+            if isinstance(row.get("position"), list) and len(row["position"]) >= 2:
+                fix = ([round(float(v), 2) for v in row["position"][:3]], 0.0)
+            elif moved is not None and isinstance(row.get("distance_m"), (int, float)) and isinstance(me, list):
+                within = float(row["distance_m"]) + moved
+                if within <= FIX_MAX_M:
+                    fix = ([round(float(v), 2) for v in me[:3]], round(within, 1))
+            extra = {"method": row.get("method"), "power_level": row.get("level"),
+                     "depleted": bool(row.get("depleted")), "blocked": bool(row.get("blocked"))}
+            k = self._key(rec)
+            old = self.sightings.get(k)
+            if old is None and fix is None:
+                continue  # no position yet: kept once a fix is known (the in-sight row still shows it)
+            if old is None:
+                old = self.sightings[k] = {**rec, "count_seen": 0, "first_seen": now}
+            old.update({x: y for x, y in rec.items() if y is not None})
+            ex = {**(old.get("extra") or {}), **{x: y for x, y in extra.items() if y is not None}}
+            if fix is not None and (old.get("position") is None or fix[1] < float(ex.get("within_m", 1e9)) - 0.05):
+                old["position"], ex["within_m"] = fix
+            old["extra"] = ex
+            old["count_seen"] = int(old.get("count_seen") or 0) + 1
+            old["last_seen"] = now
+            self._dirty = True
 
     def _kick(self) -> None:
         if self._writer is None or not self._writer.is_alive():
@@ -311,7 +368,7 @@ def annotate(state: dict, mem: MapMemory | dict, cat: dict | None = None, beyond
     # supplies block says where food comes from and what each yields)
     try:
         from .supplies import sources
-        if src := sources(records, me, now, cat):
+        if src := sources(records, me, now, cat, in_sight=state.get(FISHING_BUCKET)):
             state["food_sources"] = src
     except Exception:  # perception is best effort: never break the state read
         pass

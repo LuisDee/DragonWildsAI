@@ -51,6 +51,10 @@ HOME_ITEMS = 4  # food and drink rows per container
 FOES_SHOWN = 4
 SOURCES_SHOWN = 5
 LINE_CHARS = 800  # one line of the block, bounded
+# The sources line, bounded on its own (whole rows, sources_line): a fishing spot's row carries its catch, the cooked
+# food with values, the next dish and its tool (a rod spot in Brynmoor ~600 chars, a net spot ~330), so both spots
+# and the pages' facts need more than one LINE_CHARS. Without a fishing spot the line is what it was (~440 for 3 rows).
+SOURCES_CHARS = 1300
 
 
 def _num(v) -> float | None:
@@ -437,13 +441,57 @@ def _index(cat: dict, fv: dict) -> dict:
     return idx
 
 
+def _fish_groups(records: list[dict], in_sight: list | None, me, now: float) -> list[dict]:
+    """Fishing spots, remembered (map_memory FISHING_KIND, by id, with its fix's within_m) and in sight now (the body's
+    fishing_spots_nearby: its distance_m is the live one), one row per spot name and province, nearest first:
+    {name, kind: 'fish', method, province, region?, n, distance, within?, direction?, age_min, in_sight, depleted?}.
+    The province comes from the spot's position (map regions), else the province its class names (fishing_facts.where)."""
+    from .fishing_facts import class_of, where
+    from .map_memory import FISHING_KIND
+    live = {str(r["id"]): r for r in in_sight or [] if isinstance(r, dict) and r.get("id")}
+    spots: dict[str, dict] = {}
+    for r in records:
+        if isinstance(r, dict) and r.get("kind") == FISHING_KIND and r.get("id"):
+            spots[str(r["id"])] = {"rec": r}
+    for sid, row in live.items():
+        spots.setdefault(sid, {})["live"] = row
+    groups: dict[tuple[str, str], dict] = {}
+    for sid, s in spots.items():
+        rec, row = s.get("rec") or {}, s.get("live")
+        ex = rec.get("extra") or {}
+        pos, within = rec.get("position"), _num(ex.get("within_m"))
+        est = dist(me, pos, planar=True) if pos else None
+        d = _num(row.get("distance_m")) if row else None
+        d = d if d is not None else est
+        if d is None:
+            continue
+        # a direction only when the fix is tight against the distance (a fix is his own spot within within_m of it)
+        dirn = direction(me, pos) if pos and est is not None and est > max(3.0, 2 * (within or 0.0)) else None
+        w = where(pos if pos and (within or 0.0) <= 25.0 else None, rec.get("class") or class_of(sid))
+        name = str((row or {}).get("name") or rec.get("name") or "fishing spot")
+        key = (name, str(w.get("province") or ""))
+        g = groups.get(key)
+        if g is None or d < g["distance"]:
+            groups[key] = {"name": name, "kind": "fish", "method": (row or {}).get("method") or ex.get("method"),
+                           "province": w.get("province"), **({"region": w["region"]} if w.get("region") else {}),
+                           "n": (g or {}).get("n", 0), "distance": round(d),
+                           **({"within": round(within)} if within and not row else {}),
+                           **({"direction": dirn} if dirn else {}),
+                           "age_min": 0 if row else max(0, round((now - float(rec.get("last_seen") or now)) / 60)),
+                           "in_sight": bool(row),
+                           **({"depleted": True} if (row or {}).get("depleted") or (not row and ex.get("depleted")) else {})}
+        groups[key]["n"] += 1
+    return list(groups.values())
+
+
 def sources(records: list[dict], me, now: float | None = None, cat: dict | None = None, fv: dict | None = None,
-            n: int = SOURCES_SHOWN) -> list[dict]:
+            n: int = SOURCES_SHOWN, in_sight: list | None = None) -> list[dict]:
     """The food and water sources among map-memory sightings (in sight or remembered), one row per name, nearest
-    first: [{name, kind: resource|item|creature|water, item?, n, distance, direction, age_min}]. A sighting is a source
-    when the game data says so: its item is or cooks into food or drink, its creature drops such an item, or (a place)
-    its prompt shares a word with drink names (map_memory._gives: "Collect Water"). The nearest water source is kept
-    even when nearer food fills the rows."""
+    first: [{name, kind: resource|item|creature|water|fish, item?, n, distance, direction, age_min}]. A sighting is a
+    source when the game data says so: its item is or cooks into food or drink, its creature drops such an item, (a
+    place) its prompt shares a word with drink names (map_memory._gives: "Collect Water"), or it is a fishing spot
+    (``in_sight``: the body's fishing_spots_nearby rows; see _fish_groups). The nearest water source and the nearest
+    fishing spot are kept even when nearer sources fill the rows."""
     if not isinstance(me, (list, tuple)) or len(me) < 2:
         return []
     cat = cat if cat is not None else _cat()
@@ -475,11 +523,14 @@ def sources(records: list[dict], me, now: float | None = None, cat: dict | None 
                            "n": (g or {}).get("n", 0), "distance": round(d), "direction": direction(me, r["position"]),
                            "age_min": max(0, round((now - float(r.get("last_seen") or now)) / 60))}
         groups[key]["n"] += 1
-    rows = sorted(groups.values(), key=lambda g: g["distance"])
+    rows = sorted([*groups.values(), *_fish_groups(records, in_sight, me, now)], key=lambda g: g["distance"])
     out = rows[:n]
-    water = next((g for g in rows if g["kind"] == "water"), None)
-    if water is not None and water not in out:
-        out = out[:max(0, n - 1)] + [water]
+    for kind in ("water", "fish"):  # the nearest of each kept, the farthest other rows give way
+        keep = next((g for g in rows if g["kind"] == kind), None)
+        if keep is not None and keep not in out:
+            drop = next((g for g in reversed(out) if g["kind"] not in ("water", "fish")), None)
+            out = [g for g in out if g is not drop] if drop is not None and len(out) >= n else out
+            out = sorted([*out, keep], key=lambda g: g["distance"])
     return out
 
 
@@ -500,6 +551,8 @@ def _yield_words(row: dict, c: Any) -> str:
                 bits.append(f"at a fire: {c.name(out)} {words(v)}" + ("" if usable else " (recipe not unlocked)"))
         return "; ".join(bits)
 
+    if row["kind"] == "fish":
+        return fish_words(row, c)
     if row["kind"] == "water":
         dirty = c.names.get(COLLECT_WATER_GIVES)
         return f"collect_water: {item_words(dirty)}" if dirty else "water"
@@ -513,22 +566,129 @@ def _yield_words(row: dict, c: Any) -> str:
     return item_words(row.get("item"))
 
 
+def _next_dishes(cooked: str, c: Any) -> list[tuple[str, str]]:
+    """The food recipes that take this cooked food as an input and give more (the recipe catalog: Grilled Trout + Baked
+    Potato at a Range -> Herb Baked Trout): [(station words, 'Herb Baked Trout (+Baked Potato) heals 100, ... (not
+    unlocked)')], each with its value, its other inputs and whether it is unlocked."""
+    from .needs import _station_names
+    from .needs_options import _locked
+    base = _sum(c.val(cooked))
+    out = []
+    for rid, r in (c.cat.get("recipes") or {}).items():
+        ins, outs = r.get("inputs") or [], r.get("outputs") or []
+        if not outs or r.get("test") or not r.get("stations") or not any(i.get("item") == cooked for i in ins) \
+                or _vendor(r, c.cat.get("stations") or {}):
+            continue
+        v = c.val(outs[0].get("item"))
+        if v.get("kind") not in KINDS or _sum(v) <= base:
+            continue
+        other = ", ".join(str(i.get("name") or i.get("item")) for i in ins if i.get("item") != cooked)
+        out.append((_station_names(r.get("stations") or [], c.cat),
+                    f"{outs[0].get('name') or c.name(outs[0].get('item'))}" + (f" (+{other})" if other else "")
+                    + f" {_dish(v)}" + (" (not unlocked)" if _locked(c, rid, False) else "")))
+    return out
+
+
+LOCKED = " (not unlocked)"
+
+
+def _station_group(where: str, dishes: list[str]) -> str:
+    """'at a fire (not unlocked): A ...; B ...' when every dish there shares the flag, else the flag on each one."""
+    if all(d.endswith(LOCKED) for d in dishes):
+        return f"at a {where}{LOCKED}: " + "; ".join(d[:-len(LOCKED)] for d in dishes)
+    return f"at a {where}: " + "; ".join(dishes)
+
+
+def _dish(v: dict) -> str:
+    """A dish's value with HP per food and HP/kg; its Duration is left to the carried and cook lines (and their note)."""
+    return words({k: x for k, x in v.items() if k != "duration"}, ratios=True)
+
+
+def fish_words(row: dict, c: Any) -> str:
+    """What one fishing spot yields where it stands, and the food that makes: 'Raw Shrimp x1-3 -> at a fire: Sauteed
+    Shrimp heals 20, +10 food, 2 HP per food, 40 HP/kg; at a Cooking Range or Stone Range with Fried Egg: Shrimp
+    Omelette ...; net: none on you; Coarse Net from 2 Coarse Thread at a Crafting Table (unlocked)'. The catch table is
+    the wiki's for the spot's province (fishing_facts.catch); values from the food data, recipes from the catalog."""
+    from .fishing_facts import catch, tool_words
+    from .needs_options import _cook_of
+    got = catch(str(row.get("name")), row.get("province"))
+    bits = []
+    if not got:
+        bits.append(f"what it catches in {row.get('province') or 'an unknown province'} is not in the wiki mirror")
+    else:
+        fish: dict[str, list] = {}
+        for f in got[0]:
+            fish.setdefault(f["name"], []).append(f)
+        caught, at = [], {"fire": []}  # station words -> dishes there, in the catch's order
+        seen: set[str] = set()
+        for name, rs in fish.items():
+            qs = sorted({int(f["qty"]) for f in rs})
+            ch = rs[0]["chance"] if len(rs) == 1 else None
+            caught.append(name + (f" x{qs[0]}-{qs[-1]}" if len(qs) > 1 else "") + (f" {ch:.1%}".replace(".0%", "%") if ch else ""))
+            iid = c.names.get(name.lower())
+            for out, rec in _index(c.cat, c.fv)["items"].get(iid) or []:
+                if rec is None or out in seen:  # a pristine fish cooks into the same dish
+                    continue
+                seen.add(out)
+                v = c.val(out)
+                at["fire"].append(f"{c.name(out)} {_dish(v)}" + (
+                    "" if _cook_of(c, iid, v.get("kind") or "food") is not None else " (not unlocked)"))
+                for where, txt in _next_dishes(out, c):
+                    at.setdefault(where, []).append(txt)
+        cooked = "; ".join(_station_group(w, d) for w, d in at.items() if d)
+        bits.append(", ".join(caught) + (" -> " + cooked if cooked else " (no cooked food in the data)"))
+    if row.get("method"):
+        bits.append(tool_words(c.state, str(row["method"]), c.cat))
+    if row.get("depleted"):
+        bits.append("depleted when seen")
+    return "; ".join(bits)
+
+
 def sources_line(state: dict, cat: dict | None = None, fv: dict | None = None) -> str | None:
     """'food and water you have seen (nearest first, as seen then): Redberry Bush x3 45 m NE 5 min ago (...); ...'
-    from food_sources (map_memory.annotate -> sources)."""
+    from food_sources (map_memory.annotate -> sources). With a fishing spot among them, the spot pages' own facts
+    once at the end (fishing_facts.facts_words). Rows are kept whole: one that would pass LINE_CHARS is left out."""
     rows = state.get("food_sources")
     if not isinstance(rows, list) or not rows:
         return None
     from .needs_options import _Ctx, pace
     c = _Ctx(state, cat if cat is not None else _cat(), fv if fv is not None else _fv(), pace())
-    parts = []
+    head = "food and water you have seen (nearest first, as seen then): "
+    texts = []
     for r in rows:
         if not isinstance(r, dict):
             continue
-        many = f" x{r['n']}" if r.get("kind") in ("resource", "item") and (r.get("n") or 0) > 1 else ""
+        many = f" x{r['n']}" if r.get("kind") in ("resource", "item", "fish") and (r.get("n") or 0) > 1 else ""
         when = "seen just now" if not r.get("age_min") else f"seen {r['age_min']} min ago"
-        parts.append(f"{r.get('name')}{many} {r.get('distance')} m {r.get('direction')}, {when} ({_yield_words(r, c)})")
-    return "food and water you have seen (nearest first, as seen then): " + " | ".join(parts) if parts else None
+        if r.get("kind") == "fish":
+            far = f"~{r.get('distance')} m (±{r['within']} m)" if r.get("within") else f"{r.get('distance')} m"
+            txt = (f"{r.get('name')}{many} {far}" + (f" {r['direction']}" if r.get("direction") else "")
+                   + (f", {r['province']}" if r.get("province") else "") + f", {when} ({_yield_words(r, c)})")
+        else:
+            txt = f"{r.get('name')}{many} {r.get('distance')} m {r.get('direction')}, {when} ({_yield_words(r, c)})"
+        texts.append((r, txt))
+    # whole rows within SOURCES_CHARS: the nearest water and the nearest fishing spot first, then nearest first
+    order = [i for k in ("water", "fish") for i in [next((i for i, (r, _) in enumerate(texts) if r.get("kind") == k), None)]
+             if i is not None]
+    order += [i for i in range(len(texts)) if i not in order]
+    fish_names = list(dict.fromkeys(str(r.get("name")) for r, _ in texts if r.get("kind") == "fish"))
+    from .fishing_facts import facts_words
+    keep: set[int] = set()
+    used = len(head)
+    for i in order:
+        r, txt = texts[i]
+        names = [n for n in fish_names if n == r.get("name") or any(texts[j][0].get("name") == n for j in keep)]
+        tail = facts_words(names, state) if names else None
+        cost = used + len(txt) + 3 + (len(tail) + 3 if tail else 0)
+        if keep and cost > SOURCES_CHARS:
+            continue  # whole rows only; a later, shorter row may still fit
+        keep.add(i)
+        used += len(txt) + 3
+    if not keep:
+        return None
+    shown = [texts[i] for i in sorted(keep)]
+    tail = facts_words([n for n in fish_names if any(r.get("name") == n for r, _ in shown)], state)
+    return head + " | ".join(t for _, t in shown) + (" | " + tail if tail else "")
 
 
 # ------------------------------------------------------------------------------------------------------ block
@@ -549,7 +709,8 @@ def lines(state: dict, enemies: Iterable[str] = ()) -> list[str]:
         except Exception as exc:  # perception is best effort
             ln = f"(a supplies line is unavailable: {type(exc).__name__})"
         if ln:
-            out.append(ln if len(ln) <= LINE_CHARS else ln[:LINE_CHARS - 1] + "…")
+            cap = SOURCES_CHARS if ln.startswith("food and water you have seen") else LINE_CHARS
+            out.append(ln if len(ln) <= cap else ln[:cap - 1] + "…")
     if any("Duration " in ln for ln in out):
         out.append(DURATION_NOTE)
     if not fv.get("items"):
