@@ -319,3 +319,76 @@ def test_rescore_reads_each_window_from_the_brain_log_and_keeps_heldout_unread()
     assert seen[0] == ("b.jsonl", sent - 1, sent + 12)
     assert "said" not in out[1] and "line" not in out[1] and out[1]["was_hit"] is False
     assert ll.case_line(out[1]) is None
+
+
+# ------------------------------------------------------------------------------ the open-question truth rule (3a)
+
+BEST = {
+    "regions": {"Fractured Plains": {"aliases": ["Fractured Plains"], "province": "Ghornfell",
+                                     "power_level": {"game": 3, "game_build": "26161880", "wiki": [3, 3]},
+                                     "residents": [{"name": "Garou Hunter"}, {"name": "Terrorbird"},
+                                                   {"name": "Dire Wolf"}]},
+                "Fellhollow": {"aliases": ["Fellhollow"], "province": "Fellhollow",
+                               "power_level": {"game": [5, 5], "wiki": [5, 5]},
+                               "residents": [{"name": "Skeletal Warrior"}, {"name": "Dragon Wolf"}]},
+                "Lake of Lost Souls": {"aliases": [], "province": "Fellhollow", "residents": []}},
+    "vaults": {"Crasorak Kara": {"aliases": ["Temple Woods vault"], "area": "Temple Woods", "province": "Brynmoor",
+                                 "enemies": [{"name": "Giant Rat", "power_level": "2"}],
+                                 "boss": [{"creature": "Vault Overlord", "power_level": "2"}]}},
+    "creatures": {"Zombie": {"aliases": [], "locations": ["Fellhollow"], "variants": [{"power_level": "5"}]},
+                  "Velgar": {"aliases": [], "locations": [], "variants": [{"power_level": "4"}]},
+                  "Wolf": {"aliases": [], "locations": [], "variants": [{"power_level": "3"}]},
+                  "Vault Overlord": {"aliases": [], "locations": [], "variants": [{"power_level": "2"}]}},
+}
+VOC = ll.vocab(BEST)
+
+
+def _key(q, kind, answers, subject):
+    return ll.spoken_key(q, kind, answers, voc=VOC, subject=subject, best=BEST)
+
+
+def test_open_question_passes_on_a_true_creature_outside_the_offline_key():
+    k = _key("what is Fractured Plains like", "region", [["power level 3"], ["garou hunter"], ["copper"]],
+             "Fractured Plains")
+    assert k["open"] and k["truth"] == "Fractured Plains"
+    assert "terrorbird" in k["key"][1] and "garou hunter" in k["key"][1]
+    assert k["key"][0] == ["power level 3"]  # the game_build figure is not a level
+    assert ll.score_spoken(k["key"], "power level 3 out there, terrorbirds and dire wolves", VOC)["hit"]
+    k = _key("Fellhollow", "region", [["power level 5"], ["skeletal warrior"]], "Fellhollow")
+    assert "zombie" in k["key"][1]  # a creature whose locations name the region lives there too
+    assert ll.score_spoken(k["key"], "Fellhollow is level 5, full of Zombies", VOC)["hit"]
+
+
+def test_open_question_still_fails_a_wrong_creature_or_level():
+    k = _key("what is Fractured Plains like", "region", [["power level 3"], ["garou hunter"]], "Fractured Plains")
+    assert not ll.score_spoken(k["key"], "it's level 3, Velgar lives there", VOC)["hit"]  # Velgar: not a resident
+    assert not ll.score_spoken(k["key"], "it's level 5 with terrorbirds", VOC)["hit"]  # wrong level
+    k = _key("Crasorak Kara", "vault", [["temple woods"], ["vault overlord"]], "Crasorak Kara")
+    assert k["key"] == [["temple woods", "brynmoor"], ["vault overlord", "giant rat"]]
+    assert ll.score_spoken(k["key"], "a Brynmoor vault with giant rats", VOC)["hit"]
+    assert not ll.score_spoken(k["key"], "a Brynmoor vault with zombies", VOC)["hit"]
+
+
+def test_truth_rule_never_adds_a_group_and_a_specific_question_is_untouched():
+    k = _key("Vault Overlord", "creature", [["crasorak kara"]], "Vault Overlord")
+    assert len(k["key"]) == 1 and "temple woods" in k["key"][0]  # no level group added: the offline key has none
+    k = _key("what lives in Fractured Plains", "region", [["garou hunter"]], "Fractured Plains")
+    assert not k["open"] and k["key"] == [["garou hunter"]] and k["truth"] is None
+    k = _key("what is Nowhere like", "region", [["power level 9"]], "Nowhere")
+    assert k["truth"] is None and k["key"] == [["power level 9"]]
+
+
+def test_plural_singular_and_case_match_one_word():
+    assert ll.stem("zombies") == ll.stem("Zombie") == ll.stem("ZOMBIE")
+    assert ll.stem("berries") == ll.stem("berry")
+    assert ll.score_spoken([["zombie"]], "Zombies everywhere", VOC)["hit"]
+    assert ll.score_spoken([["Dragon Wolf"]], "DRAGON WOLVES", VOC)["hit"]
+
+
+def test_a_name_is_not_found_inside_a_longer_name():
+    assert not ll.score_spoken([["wolf"]], "dragon wolves about", VOC)["hit"]
+    assert ll.score_spoken([["wolf"]], "dragon wolves and a wolf", VOC)["hit"]
+    assert ll.score_spoken([["dragon wolf"]], "dragon wolves about", VOC)["hit"]
+    voc = ll.vocab({**BEST, "creatures": {**BEST["creatures"], "Lost Soul": {"aliases": []}}})
+    assert not ll.score_spoken([["lost soul"]], "a waterfall in Lake of Lost Souls", voc)["hit"]
+    assert ll.score_spoken([["lost soul"]], "lost souls while soulrifted", voc)["hit"]

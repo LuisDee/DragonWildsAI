@@ -8,6 +8,14 @@ sender as tools/chat_ladder.py and tools/job_run.py), wait until the brain has a
     window lk-20261119T050935Z keyed region levels for "where is tin"), matched with speech's tolerance (``said_has``:
     endings, word order in a short window, the bestiary's aliases); every key group needs one alternative; coverage
     is the share of groups he said;
+    THE OPEN-QUESTION TRUTH RULE (2026-11-22, a grader rule for every item of every set, held-out included; rule step
+    3a below): a question that asks no fact type ("what is X like", a bare name) passes on ANY true fact of each type
+    its key holds that data/bestiary.json (the data the lookup merges into its result) supports for the subject the
+    case's query names: a creature that really lives in the region or is really in the vault, the region's or the
+    creature's true power level, a place the vault or creature really is; not only the 2-3 names in the offline key.
+    A false fact still fails (a creature that does not live there, a wrong level). Matching: case and plural/singular
+    are one word ("zombies" = "Zombie", 2026-11-22 stem fix), and a bestiary name is never found inside a longer one
+    he said ("Lake of Lost Souls" is not "Lost Soul", "dragon wolves" is not "Wolf");
   * used_lookup: a `lookup` call in the brain log in that window (Controller tool_call, Planner planner_research,
     Director director_lookup), with its queries;
   * lookup_hit: the same scorer over what his lookups returned (the facts were in front of him, or not).
@@ -116,10 +124,10 @@ def load(sets=SETS, families=FAMILIES) -> list[dict]:
             if set_name not in sets:
                 continue
             for c in _read_cases(path):
-                k = spoken_key(c.get("question") or c["query"], c.get("kind"), c["answers"])
+                k = spoken_key(c.get("question") or c["query"], c.get("kind"), c["answers"], subject=c.get("query"))
                 out.append({"set": set_name, "family": fam, "id": hid(set_name, fam, c["id"]), "kind": c.get("kind"),
                             "line": line_for(c.get("question") or c["query"]), "answers": c["answers"],
-                            "key": k["key"], "key_how": {x: k[x] for x in ("asked", "open", "fallback")}})
+                            "key": k["key"], "key_how": {x: k[x] for x in ("asked", "open", "fallback", "truth")}})
     if "decision" in sets:
         best = bestiary()
         for d in DECISIONS:
@@ -204,10 +212,23 @@ def score_spoken(answers: list[list[str]], said: str, voc: dict | None = None) -
 #   3. a specific question keeps every group of an asked type; a question that asks none (a bare name, "what is X
 #      like") is open and asks the thing's identity by the case's kind (OPEN), with all groups of one type merged into
 #      one (any true fact of that type);
+#   3a. (2026-11-22, the open-question truth rule) "any true fact of that type" means what it says: each merged open
+#      group also takes every fact of its type that data/bestiary.json (the data the lookup itself merges into its
+#      result, brain/knowledge.py -> tools/build_bestiary.merge) holds for the case's SUBJECT, the entry its query
+#      names (``subject_truth``): a region: its power levels (game and wiki) and every creature the data has living
+#      there (its residents, and each creature whose locations name it); a vault: the area and province it is in, and
+#      its enemies and bosses; a creature: every place it lives (its locations, the regions and vaults that list it,
+#      and their provinces) and its power levels; a resource: the places it is found. Only groups the offline key
+#      already has are widened (no group is added, none removed); a subject the data does not name widens nothing
+#      (key_how "truth": null). A false fact still fails: a creature that does not live there, a wrong level, is in
+#      no group. The same rule for every case of every set (held-out included); no case is keyed by hand;
 #   4. a key the rule leaves empty keeps the offline key (counted as a fallback, never silently).
 # Matching (said_has) tolerates what speech changes and the facts do not: plural and verb endings ("putrid rats",
-# "breathes", "resist"), word order inside a short window ("poison breath" ~ "breathes poison", "red, blue and green
-# shades" ~ "red shade"), and the bestiary's aliases of a creature, vault or region name. A figure is matched in order.
+# "breathes", "resist", "zombies" ~ "Zombie"), case, word order inside a short window ("poison breath" ~ "breathes
+# poison", "red, blue and green shades" ~ "red shade"), and the bestiary's aliases of a creature, vault or region
+# name. A figure is matched in order. A bestiary name is not found inside a LONGER entity's own name he said
+# (2026-11-22, the sub-name rule; own names only, not aliases): "Lake of Lost Souls" does not say "Lost Soul",
+# "dragon wolves" does not say "Wolf"; the longer name itself (and its aliases) still matches.
 
 OPEN = {"vault": ("place", "creature"), "region": ("level", "creature"), "resource": ("place",), "item": ("place",)}
 OPEN_DEFAULT = ("place", "level")  # a creature (every enemies kind)
@@ -229,11 +250,13 @@ _VOCAB: dict | None = None
 
 
 def stem(word: str) -> str:
-    """A word without the endings speech adds (plural, verb, -ness/-ance): the same rule on both sides of a match."""
+    """A word without the endings speech adds (plural, verb, -ness/-ance): the same rule on both sides of a match.
+    Lower case; "-ies", a final "-ie" and a final "-y" all end in "i", so "zombies" = "zombie" = "Zombie" and
+    "berries" = "berry" (until 2026-11-22 "zombies" stemmed to "zomby" and "Zombie" to "zombi": never a match)."""
     w = word.lower()
     if len(w) <= 3 or w.isdigit():
         return w
-    for suf, rep in (("ies", "y"), ("ves", "f"), ("ness", ""), ("ance", ""), ("ing", ""), ("ed", "")):
+    for suf, rep in (("ies", "i"), ("ves", "f"), ("ness", ""), ("ance", ""), ("ing", ""), ("ed", "")):
         if w.endswith(suf) and len(w) - len(suf) >= 3:
             w = w[: -len(suf)] + rep
             break
@@ -243,6 +266,8 @@ def stem(word: str) -> str:
         w = w[:-1]
     if w.endswith("e") and len(w) > 3:
         w = w[:-1]
+    if w.endswith("y") and len(w) > 3:
+        w = w[:-1] + "i"
     return w
 
 
@@ -267,6 +292,7 @@ def vocab(best: dict | None = None) -> dict:
     else:
         b = best
     place, creature, aliases, styles, attack_names, attack_notes = set(), set(), {}, set(), [], []
+    canon = set()  # every entity's own name (no alias: "vault in Temple Woods" still says Temple Woods)
 
     def alias_group(names):
         names = [n for n in names if n]
@@ -277,15 +303,20 @@ def vocab(best: dict | None = None) -> dict:
         place.update(_key(n) for n in [name, *(r.get("aliases") or []), r.get("province")] if n)
         alias_group([name, *(r.get("aliases") or [])])
         creature.update(_key(x.get("name") or "") for x in r.get("residents") or [])
+        canon.update(_key(n) for n in [name, r.get("province"), *(x.get("name") for x in r.get("residents") or [])] if n)
     for name, v in (b.get("vaults") or {}).items():
         place.update(_key(n) for n in [name, *(v.get("aliases") or []), v.get("area"), v.get("province")] if n)
         alias_group([name, *(v.get("aliases") or [])])
         creature.update(_key(x.get("name") or "") for x in v.get("enemies") or [])
         creature.update(_key(x.get("creature") or "") for x in v.get("boss") or [])
+        canon.update(_key(n) for n in [name, v.get("area"), v.get("province"),
+                                       *(x.get("name") for x in v.get("enemies") or []),
+                                       *(x.get("creature") for x in v.get("boss") or [])] if n)
     for name, c in (b.get("creatures") or {}).items():
         creature.update(_key(n) for n in [name, *(c.get("aliases") or [])])
         alias_group([name, *(c.get("aliases") or [])])
         place.update(_key(x) for x in c.get("locations") or [])
+        canon.update(_key(n) for n in [name, *(c.get("locations") or [])] if n)
         for k in ("weak", "resist", "immune"):
             for v in c.get(k) or []:
                 styles.update(stems(v))
@@ -294,7 +325,9 @@ def vocab(best: dict | None = None) -> dict:
         attack_notes += [str(x) for x in c.get("attack_notes") or []]
     styles -= {"a", "n", "no", "none", "can", "be", "immune", "to", "any", "attack", "style", "level"}
     styles = {s for s in styles if not s.isdigit()}
+    names = {k for k in canon if len(k) >= 2}  # the sub-name rule's longer names: own names only
     out = {"place": place - {()}, "creature": creature - {()}, "aliases": aliases, "styles": styles,
+           "names": names, "name_max": max((len(k) for k in names), default=0),
            "attack_names": " " + " ".join(stems(" \n ".join(attack_names))) + " ",
            "attack_notes": " " + " ".join(stems(" \n ".join(attack_notes))) + " "}
     if best is None:
@@ -343,44 +376,157 @@ def asked(question: str) -> set | None:
     return out or None
 
 
-def spoken_key(question: str, kind: str | None, answers: list[list[str]], voc: dict | None = None) -> dict:
-    """{key, asked, open, fallback}: the case's spoken key by the rule above. Never reads any answer he gave."""
+_BEST: dict | None = None
+SUBJECT_TABLES = {"region": ("regions",), "vault": ("vaults",), "resource": ("resources",), "item": ()}
+SUBJECT_DEFAULT = ("creatures",)  # every enemies kind (creature, level, weakness, attacks ...)
+
+
+def _best() -> dict:
+    """data/bestiary.json, read once (the data the lookup merges into its own result)."""
+    global _BEST
+    if _BEST is None:
+        _BEST = bestiary()
+    return _BEST
+
+
+def find_subject(query: str, kind: str | None, best: dict) -> tuple[str, str] | None:
+    """(table, name) of the bestiary entry a case's query names, in the table of its kind: the entry whose name or an
+    alias is the query (stemmed words), else the longest name or alias inside the query; None when it names none."""
+    q = _key(query or "")
+    if not q:
+        return None
+    found = None
+    for table in SUBJECT_TABLES.get(str(kind or ""), SUBJECT_DEFAULT):
+        for name, e in ((best or {}).get(table) or {}).items():
+            for n in [name, *(e.get("aliases") or [])]:
+                k = _key(n)
+                if not k:
+                    continue
+                if k == q:
+                    return table, name
+                if len(k) <= len(q) and any(q[i:i + len(k)] == k for i in range(len(q) - len(k) + 1)):
+                    if found is None or len(k) > found[0]:
+                        found = (len(k), table, name)
+    return (found[1], found[2]) if found else None
+
+
+def _levels(*vals) -> set[str]:
+    out = set()
+    for v in vals:
+        for x in (v if isinstance(v, (list, tuple)) else [v]):
+            if isinstance(x, dict):  # a region's {"game": 3, "game_build": "...", "wiki": [3, 3]}
+                out |= _levels(*(val for k, val in x.items() if "build" not in str(k)))
+            elif re.fullmatch(r"\s*\d+\s*", str(x if x is not None else "")) and int(x) > 0:
+                out.add(str(int(x)))
+    return out
+
+
+def subject_truth(table: str, name: str, best: dict) -> dict[str, list[str]]:
+    """{fact type: true alternatives} the data holds for one subject (rule step 3a). Levels as "power level N"."""
+    regions, vaults = best.get("regions") or {}, best.get("vaults") or {}
+    creatures = best.get("creatures") or {}
+    out: dict[str, set[str]] = {"place": set(), "creature": set(), "level": set()}
+    lv: set[str] = set()
+    if table == "regions":
+        r = regions.get(name) or {}
+        lv |= _levels(r.get("power_level"))
+        out["creature"] |= {x.get("name") for x in r.get("residents") or [] if x.get("name")}
+        here = {_key(n) for n in [name, *(r.get("aliases") or [])]}
+        out["creature"] |= {c for c, e in creatures.items() if any(_key(x) in here for x in e.get("locations") or [])}
+    elif table == "vaults":
+        v = vaults.get(name) or {}
+        out["place"] |= {x for x in (v.get("area"), v.get("province")) if x}
+        if v.get("area") in regions and regions[v["area"]].get("province"):
+            out["place"].add(regions[v["area"]]["province"])
+        out["creature"] |= {x.get("name") for x in v.get("enemies") or [] if x.get("name")}
+        out["creature"] |= {x.get("creature") for x in v.get("boss") or [] if x.get("creature")}
+        lv |= _levels(v.get("power_level"))
+    elif table == "creatures":
+        c = creatures.get(name) or {}
+        me = {_key(n) for n in [name, *(c.get("aliases") or [])]}
+        out["place"] |= set(c.get("locations") or [])
+        lv |= _levels([x.get("power_level") for x in c.get("variants") or []])
+        for rn, r in regions.items():
+            hit = [x for x in r.get("residents") or [] if _key(x.get("name") or "") in me]
+            if hit:
+                out["place"] |= {x for x in (rn, r.get("province")) if x}
+                lv |= _levels([x.get("power_level") for x in hit])
+        for vn, v in vaults.items():
+            hit = [x for x in v.get("enemies") or [] if _key(x.get("name") or "") in me]
+            hit += [x for x in v.get("boss") or [] if _key(x.get("creature") or "") in me]
+            if hit:
+                out["place"] |= {x for x in (vn, v.get("area"), v.get("province")) if x}
+                lv |= _levels([x.get("power_level") for x in hit])
+    elif table == "resources":
+        out["place"] |= set((best.get("resources") or {}).get(name, {}).get("places") or [])
+    out["level"] = {f"power level {n}" for n in lv}
+    return {t: sorted(v) for t, v in out.items() if v}
+
+
+def spoken_key(question: str, kind: str | None, answers: list[list[str]], voc: dict | None = None,
+               subject: str | None = None, best: dict | None = None) -> dict:
+    """{key, asked, open, fallback, truth}: the case's spoken key by the rule above (steps 1-4, 3a for an open question:
+    `subject` is the case's query, `best` the bestiary, default data/bestiary.json). Never reads any answer he gave."""
     voc = voc or vocab()
     typed = [(g, group_types(g, voc)) for g in answers]
     want = asked(question)
+    truth_of = None
     if want is not None:
         key = [g for g, t in typed if t & want]
         how = {"asked": sorted(str(x) for x in want), "open": False}
     else:
         want_open = OPEN.get(str(kind or ""), OPEN_DEFAULT)
+        b = _best() if best is None else best
+        found = find_subject(subject, kind, b) if subject else None
+        truth = subject_truth(*found, b) if found else {}
+        truth_of = found[1] if found else None
         key = []
         for t in want_open:
             merged = list(dict.fromkeys(a for g, ts in typed if t in ts for a in g))
-            if merged:
-                key.append(merged)
+            if merged:  # 3a: widen a group the offline key has; never add one
+                key.append(list(dict.fromkeys([*merged, *(a.lower() for a in truth.get(t, []))])))
         how = {"asked": list(want_open), "open": True}
     if not key:
-        return {"key": answers, **how, "fallback": True}
-    return {"key": key, **how, "fallback": False}
+        return {"key": answers, **how, "fallback": True, "truth": truth_of}
+    return {"key": key, **how, "fallback": False, "truth": truth_of}
+
+
+def _mask_longer_names(said: list[str], toks: tuple[str, ...], own: set, voc: dict) -> list[str]:
+    """The sub-name rule: when the alternative is itself a bestiary name (creature or place), every span of what he
+    said that is a LONGER bestiary entity's own name (a creature, region, province or vault name; never an alias such
+    as "vault in Temple Woods", which still says Temple Woods) holding the alternative's words, and is not the
+    alternative or one of its aliases, is blanked ("Lake of Lost Souls" for "Lost Soul", "dragon wolves" for "Wolf")."""
+    if toks not in voc["creature"] and toks not in voc["place"]:
+        return said
+    words = {t for t in toks if t not in STOP} or set(toks)
+    out = list(said)
+    for i in range(len(said)):
+        for n in range(len(toks) + 1, min(voc["name_max"], len(said) - i) + 1):
+            seg = tuple(said[i:i + n])
+            if seg in voc["names"] and seg not in own and words <= set(seg):
+                out[i:i + n] = ["\0"] * n
+    return out
 
 
 def said_has(alt: str, said: list[str], voc: dict | None = None) -> bool:
     """One alternative in what he said (stemmed words): a figure in order, words within a short window, or any of the
-    bestiary's aliases of the name."""
+    bestiary's aliases of the name; never only inside a longer bestiary name (``_mask_longer_names``)."""
     voc = voc or vocab()
     forms = [alt, *sorted(voc["aliases"].get(_key(alt), ()))]
+    own = {_key(f) for f in forms}
     for f in forms:
         toks = stems(f)
         if not toks:
             continue
+        s = _mask_longer_names(said, tuple(toks), own, voc)
         if any(t.isdigit() for t in toks) or len(toks) == 1:
             n = len(toks)
-            if any(said[i:i + n] == toks for i in range(len(said) - n + 1)):
+            if any(s[i:i + n] == toks for i in range(len(s) - n + 1)):
                 return True
             continue
         content = {t for t in toks if t not in STOP} or set(toks)
         w = len(toks) + WINDOW_SLACK
-        if any(content <= set(said[i:i + w]) for i in range(max(1, len(said) - w + 1))):
+        if any(content <= set(s[i:i + w]) for i in range(max(1, len(s) - w + 1))):
             return True
     return False
 
