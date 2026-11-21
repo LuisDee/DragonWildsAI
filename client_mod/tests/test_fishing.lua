@@ -477,6 +477,16 @@ do
     check("spots tool: my tools by method", r.data.my_tools.net ~= nil and r.data.my_tools.rod == nil)
     local ex = F.state_extras({ now = function() return 1 end })
     check("extras: fishing_spots_nearby", ex.fishing_spots_nearby and #ex.fishing_spots_nearby == 2)
+    -- each row carries the node's position in the census wire format ([x,y,z] metres, U.to_wire) for map memory
+    local function is_pos(p, x, y, z) return type(p) == "table" and #p == 3 and p[1] == x and p[2] == y and p[3] == z end
+    check("spots tool: position in metres", is_pos(r.data.spots[1].position, 8, 0, 0) and is_pos(r.data.spots[2].position, 16, 0, 0),
+        r.data.spots[1].position and table.concat(r.data.spots[1].position, ","))
+    check("extras: position on each row", ex.fishing_spots_nearby and is_pos(ex.fishing_spots_nearby[1].position, 8, 0, 0)
+        and is_pos(ex.fishing_spots_nearby[2].position, 16, 0, 0))
+    reset({ inv = { ITEM_Net_A = 1 }, nodes = { node("net9", NET_TAG, { X = 1234.6, Y = -2789, Z = -3160 }) } })
+    local r9 = F.HANDLERS.fishing_spots(nil, {})
+    check("spots tool: position rounds like the census", r9.ok and is_pos(r9.data.spots[1].position, 12.35, -27.89, -31.6),
+        r9.data.spots[1] and r9.data.spots[1].position and table.concat(r9.data.spots[1].position, ","))
     for name, e in pairs(F.MANIFEST) do
         check("manifest " .. name .. " has kind+description", e.kind and type(e.description) == "string")
         check("manifest " .. name .. " no top-level anyOf", e.args and e.args.anyOf == nil)
