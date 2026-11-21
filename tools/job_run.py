@@ -10,6 +10,18 @@ STATE confirms, whole (L1 to L3, held-out H1 to H3) or with one interruption put
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K1 -k 3 --save-as vault_door   # the vault
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K2 -k 3                       # from vault_door
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --sequence L2,L3 -k 2 --world base --deadline 1500 --window-s 7200
+    .venv\\Scripts\\python.exe -m tools.job_run day --confirm --world base --ask "get yourself ready for the next region"
+
+A day of play (`day`, goal stage D): ONE free-form ask, sent once, on one named world restored once at the start (with
+the server stopped, as between trials), run to a wall budget (--budget, default 7200 s). It ends on the budget, the
+spend cap (--usd, --max-haiku) or a harness fault (the stop file, a brain that did not start), never on "quiet": a
+player who stands is scored for it and the run goes on, and the harness sends no second line (no re-ask). It is the
+whole-job trial path (run_job with a job made of the ask: no end predicate, `day: true`), plus a get_state trace (every
+sample: position, power level, skills, vitals, food and drink) and his stock every 10 minutes (stock_read, as a
+sequence reads it). tools/day_score.py scores it (progression, deaths, misses, idle, stock, spend, Luis's baselines)
+and writes logs/evals/day_runs.jsonl (one row; the record beside it in logs/evals/day_runs/), which
+failure_ledger scan reads. The brain log is read incrementally and slimmed in a day (RowTail): a 2-hour log is about
+110 MB, 85 % get_state replies, and the trial loop reads the log every 3 s.
 
 A sequence (--sequence, a multi-ask trial): one trial is several asks sent one after another on ONE world and ONE
 character, with no world restore and no character reset between them (a home stock pays off only across asks). Each
@@ -113,6 +125,13 @@ DEADLINE_S = 1800.0   # a trial's deadline when neither --deadline nor the job's
 # on every resource in the radius before the cap, so the cap bounds the reply's size, not the read's cost
 WORLD_CENSUS_MAX = 6000  # sense.census caps tree and pickup foliage at max/3 each; 19 Nov at home 652 ash branches and 167 stones came before the 7 flax (cut at 834): 2000 a kind lists them
 WORLD_SHORT = "world short"
+# a day of play (goal stage D): one free-form ask run to a wall budget on one named world
+DAY_ID = "D"
+DAY_BUDGET_S = 7200.0
+DAY_STOCK_S = 600.0      # his food, drink and chests read this often (stock_read: one get_state and an inspect a chest)
+DAY_MAX_HAIKU = 4000     # 2 h at one Controller call every 2 s is 3600: the spend cap (--usd) is the real stop
+DAY_USD = 6.0            # V1 trials cost 0.60-0.84 for 20-30 min (study quiet_1119): 2 h is about 3-4 $
+DAY_SLACK_S = 300.0      # the window's room past the budget: the end reads, the stock read, the switch back
 
 
 # ------------------------------------------------------------------ the jobs
@@ -2086,6 +2105,9 @@ def verdict(rec: dict) -> dict:
     own rule. An interruption step: the interruption took, he took the job up again without a new line, within its
     resume_within_s; misses are recorded and split, and are not a bar of the step."""
     from tools import quest_run as q
+    if rec.get("kind") == "day":  # a day of play has its own bars (tools/day_score.verdict)
+        from tools import day_score
+        return day_score.verdict(rec)
     if rec.get("ended") == WORLD_SHORT:  # the ask was never sent: nothing of his to judge
         return {"pass": False, "bars": {"world": False, "counted": False}, "misses": [], "truth": "not run"}
     if rec.get("kind") == "interrupt":
@@ -2584,6 +2606,16 @@ def run_job(io, job: dict, opts: dict) -> dict:
     seen = _Seen()
     if not start.get("unread"):
         seen.see(start, 0.0)
+    # a day of play: one ask run to its budget; quiet never ends it and nothing more is said to him. Every sample's
+    # get_state goes into a trace (tools/day_score.point) and his stock is read every DAY_STOCK_S
+    day = bool(job.get("day"))
+    day_trace: list[dict] = []
+    day_stock: list[dict] = []
+    if day:
+        from tools import day_score
+        if not start.get("unread"):
+            day_trace.append(day_score.point(raw0, start, 0.0))
+        day_stock.append(day_stock_read(io, [] if start.get("unread") else chest_candidates(start, start), 0.0))
     if "gear_target" in (job.get("end") or {}):
         try:
             start["gear_target"] = io.gear_target(raw0, ((job.get("end") or {}).get("gear_target") or {}).get("vault"))
@@ -2599,6 +2631,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
     trigger = opts.get("trigger") or job.get("interrupt_trigger") or "first_step"
     by_progress = "progress" in str(trigger)
     t0 = io.now()
+    last_stock = t0
     sent = [{"t": 0.0, "line": job["line"], "sent": io.send(job["line"])}]
     intr = None
     first_t = None
@@ -2627,9 +2660,12 @@ def run_job(io, job: dict, opts: dict) -> dict:
             or vault_job
         if now - last_sample >= (FAST_SAMPLE_S if fast else SAMPLE_S):
             last_sample = now
-            read = snapshot(io.state())
+            raw_s = io.state()
+            read = snapshot(raw_s)
             if not read.get("unread"):  # a failed read is skipped, never judged
                 cur = read
+                if day:
+                    day_trace.append(day_score.point(raw_s, read, rel))
                 seen.see(cur, rel)
                 if chest_job:
                     seen.read_new(io, cur, rel)
@@ -2652,7 +2688,11 @@ def run_job(io, job: dict, opts: dict) -> dict:
                         and not (room or 0) > 0:
                     room = io.bag_room()  # get_state's bag is the item page only: the raw pages decide "no room"
                 samples.append({"t": round(rel, 1), "carried": asked_carried(job, cur), "room": room})
-        busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
+        if day and now - last_stock >= DAY_STOCK_S:  # his food, drink and chests over the day (as a sequence reads them)
+            last_stock = now
+            ids = chest_candidates(start, cur) if cur is not None and not start.get("unread") else []
+            day_stock.append(day_stock_read(io, ids, rel))
+        busy =[r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
         open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
         open_tool = any(c.get("dur_s") is None for c in tl["calls"]) or bool(tl["body_busy"])
         if step and intr is None and ok is not True:
@@ -2721,7 +2761,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
             # queued goals, and the stand that follows is not his (study quiet_1119: 8 of 14 V1 'quiet' ends were
             # this). A run fault: not counted
             why = "budget"
-        elif not open_prompt and not open_tool and quiet >= q.QUIET_S and calls["calls"]:
+        elif not day and not open_prompt and not open_tool and quiet >= q.QUIET_S and calls["calls"]:
+            # a day never ends quiet: his stands are scored (idle_over_5s) and the run goes on, with no line from us
             why = "quiet"
         if why:
             break
@@ -2730,12 +2771,17 @@ def run_job(io, job: dict, opts: dict) -> dict:
         io.sleep(AWAIT_POLL_S if step and intr is None else q.POLL_S)
     ended = io.now()
     left_after = io.stop_all()
-    _, end = _read_state(io)
+    raw_end, end = _read_state(io)
     rows = io.rows(t0 - 1, ended + 3)
     if not end.get("unread"):
         seen.see(end, ended - t0)
     end.update(evidence(rows))
     seen.into(end)
+    if day:  # the last point and his stock at the end, with the brain stopped (as after a sequence's ask)
+        if not end.get("unread"):
+            day_trace.append(day_score.point(raw_end, end, ended - t0))
+        day_stock.append(day_stock_read(io, [] if start.get("unread") or end.get("unread")
+                                        else chest_candidates(start, end), ended - t0))
     if entered:
         end["entered"] = entered
     if chest_job:
@@ -2784,6 +2830,12 @@ def run_job(io, job: dict, opts: dict) -> dict:
            "dialogue_left": {"before": left_before, "after": left_after}, "bar_s": bar}
     if world is not None:  # what the world held before the ask (world_needs)
         rec["world"] = world
+    if day:  # one ask, no re-ask; the trace and the stock the scorer reads (tools/day_score.py)
+        rec.update(kind="day", item=f"day: {job['line']}"[:120],
+                   day={"ask": job["line"], "t0": round(t0, 3), "budget_s":float(opts["deadline"]) if opts.get("deadline") is not None
+                        else deadline_of(job), "quiet_ends_run": False, "lines_sent": len(sent),
+                        "trace": day_trace, "stock": day_stock,
+                        **({"end_unread": end["unread"]} if end.get("unread") else {})})
     if rung:
         rec["rung"] = rung
     if end.get("vault_arrival"):  # where a door jump landed him in a vault (the K stages)
@@ -2845,10 +2897,14 @@ def run_job(io, job: dict, opts: dict) -> dict:
         # read, and the goal fixes no bar for it (V2: in the copper region under its power): recorded, not counted
         rec["bar_open"] = True
         rec.setdefault("not_counted", "bar_open: " + str(ok_why)[:400])
-    elif ok is None and not step:  # a whole job whose end state could not be read: not counted, the reason kept
+    elif ok is None and not step and not day:  # a whole job whose end state could not be read: not counted
         rec["unread"] = ok_why
     rec["misses"] = misses(tl["calls"], active - idle_total, intr)
-    if why == "budget" and ok is not True and not rec.get("not_counted") and rec["misses"]["n"] <= 1:
+    if day:  # how the day ended, and whether that was his (the budget) or the run's (tools/day_score.end_class)
+        nc_day = day_score.not_counted(rec, opts.get("job_deadline"))
+        if nc_day and not rec.get("not_counted"):
+            rec["not_counted"] = nc_day
+    elif why == "budget" and ok is not True and not rec.get("not_counted") and rec["misses"]["n"] <= 1:
         # the trial's spend cap ended his model calls while he was within the miss bar: a run fault (rule 3). With
         # more than one miss by then he had already failed a bar on his own: counted (confirm_1119s trial 2, 29 misses)
         rec["not_counted"] = "the trial's spend cap (--usd) stopped his model calls before the end: a run fault, not counted"
@@ -3037,6 +3093,108 @@ def sequence_summary(recs: list[dict], seq_id: str | None = None, skipped: list[
             **({"skipped": skipped} if skipped else {})}
 
 
+# ------------------------------------------------------------------ a day of play (goal stage D)
+def day_line(ask: str) -> str:
+    """The ask as the player says it: addressed to him as every job's line is ("claude, ..."), else as written."""
+    s = " ".join(str(ask or "").split())
+    return s if re.match(r"^(claude|companion)\b", s, re.I) else f"claude, {s}"
+
+
+def day_job(ask: str, start: str | None = None, budget_s: float = DAY_BUDGET_S, doc: dict | None = None) -> dict:
+    """The job a day of play runs as: his ask as the line, no end predicate (the game never reads it done, so only the
+    budget, the spend cap or a harness fault ends it), the work tools of every job in data/jobs.json (first_step and
+    first_work read them), the budget as the deadline, no bar of Luis's composed for it."""
+    doc = doc or load_jobs()
+    tools_ = sorted({t for j in (doc.get("jobs") or {}).values() for t in j.get("work_tools") or []})
+    return {"id": DAY_ID, "line": day_line(ask), "end": {}, "start": start or "ClaudeDev", "work_tools": tools_,
+            "deadline_s": float(budget_s), "held_out": False, "bar": None, "day": True,
+            "bar_note": "a day of play has no composed bar: human_bar per run, and Luis's baselines (tools/day_score.py)"}
+
+
+def day_spend_refusal(usd: float) -> str | None:
+    """Why a day must not start on the money (CLAUDE.md section 4: the daily guard), or None: today's spend plus the
+    day's own cap (--usd) over the day's cap (tools/spend.py). A spend that cannot be read refuses too."""
+    from tools import spend
+    try:
+        today, cap = float(spend.spend_today()["spent_usd"]), float(spend.day_cap_usd())
+    except Exception as exc:  # the guard is not read: no day on a guess
+        return f"today's spend could not be read ({exc!r})"[:200]
+    print(f"spend: today ${today:.2f} of the day's ${cap:.2f}; this day may add up to ${usd:.2f} "
+          "(Haiku Controller and Sonnet Planner)")
+    if today + float(usd) > cap:
+        return (f"today's ${today:.2f} and this day's cap ${float(usd):.2f} pass the daily ${cap:.2f} (CLAUDE.md section "
+                "4): pass a smaller --usd or wait for the next UTC day")
+    return None
+
+
+def day_stock_read(io, ids: list[str], rel: float) -> dict:
+    """His stock now (stock_read), t in seconds into the run; a failed read is kept as unread, never as empty."""
+    try:
+        s = stock_read(io, ids)
+    except Exception as exc:  # the body failed: unread, never an empty bag and chests
+        s = {"unread": f"stock read failed: {exc!r}"[:200], "chests": {}}
+    s["t"] = round(rel, 1)
+    return s
+
+
+def slim_row(d: dict) -> dict:
+    """A brain-log row with what the trial loop does not read dropped (a day only): a get_state reply keeps its id, ok,
+    and position with hydration (human_bar's walk reads them); a prompt keeps its model and component (model_calls).
+    The rest is kept whole. The scorer reads the brain log itself, from the file."""
+    k = d.get("kind")
+    if k == "bridge_recv" and isinstance(d.get("msg"), dict):
+        m = d["msg"]
+        data = m.get("data") if isinstance(m.get("data"), dict) else {}
+        keep = {x: data[x] for x in ("position", "hydration") if x in data} if "hydration" in data else {}
+        return {**{x: d[x] for x in d if x != "msg"},
+                "msg": {**{x: m[x] for x in ("id", "ok", "reason", "tool") if x in m}, "data": keep}}
+    if k == "prompt":
+        return {x: d[x] for x in ("ts", "kind", "component", "model", "episode_id", "call") if x in d}
+    return d
+
+
+class RowTail:
+    """The brain log read as it grows: each file from where the last read stopped, whole lines only, each row slimmed
+    (slim_row) and kept. The same rows chat_ladder.brain_rows gives, in ts order, without parsing the whole file at every
+    poll (a 25-min log of 21 Nov was 23.5 MB, 20 MB of it get_state replies; a day is about 2 hours)."""
+
+    def __init__(self, slim=slim_row):
+        self.slim = slim
+        self.pos: dict[str, int] = {}
+        self.kept: dict[str, list[dict]] = {}
+
+    def _grow(self, f: Path) -> None:
+        key = str(f)
+        off = self.pos.get(key, 0)
+        try:
+            with open(f, "rb") as fh:
+                fh.seek(off)
+                data = fh.read()
+        except OSError:
+            return
+        end = data.rfind(b"\n")
+        if end < 0:  # no whole line yet
+            return
+        rows = self.kept.setdefault(key, [])
+        for line in data[:end + 1].decode("utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(d, dict) and isinstance(d.get("ts"), (int, float)):
+                rows.append(self.slim(d) if self.slim else d)
+        self.pos[key] = off + end + 1
+
+    def read(self, files: list[Path], t0: float, t1: float) -> list[dict]:
+        out = []
+        for f in files:
+            self._grow(Path(f))
+            out += [d for d in self.kept.get(str(f), []) if t0 <= d["ts"] <= t1]
+        return sorted(out, key=lambda d: d["ts"])
+
+
 # ------------------------------------------------------------------ the live body (never used by the tests)
 class Live:
     """The body, the brain and the dev fixtures as one trial sees them, inside a quest_run.clone_window."""
@@ -3045,6 +3203,8 @@ class Live:
         self.a, self.cli, self.dev = a, cli, dev
         self.procs: list = []
         self.files: list[Path] = []
+        # a day of play reads its 2-hour brain log as it grows (RowTail); a trial reads it whole, as before
+        self.tail = RowTail() if getattr(a, "ask", None) else None
 
     def now(self) -> float:
         return time.time()
@@ -3094,6 +3254,8 @@ class Live:
 
     def rows(self, t0: float, t1: float) -> list[dict]:
         from tools import chat_ladder as cl
+        if self.tail is not None:
+            return self.tail.read(self.files, t0, t1)
         return cl.brain_rows(self.files, t0, t1)
 
     def send(self, line: str) -> bool:
@@ -3185,25 +3347,27 @@ def char_guid(path: Path) -> str | None:
     return str(g).upper() if g else None
 
 
-def window_world(a, pair: dict | None, store) -> tuple[str | None, str | None]:
+def window_world(a, pair: dict | None, store, need: bool = False) -> tuple[str | None, str | None]:
     """(the named world restored before every trial after the first, why the window must not run). CLAUDE.md section 2
     rule 9: a trial that meets what an earlier one left is void (live 2026-11-20: L3 trials 20261120-195941 and
     -201452 worked on BuildingPiece_591-597 that trial 1 built). The label is --world, else the one the last
     restore put back (world_snapshot's undo record: the window recipe restores it just before). One trial, or a
-    checkpoint pair (its world is restored per trial already), needs none. k > 1 without a known label refuses."""
-    if a.k <= 1 or pair:
+    checkpoint pair (its world is restored per trial already), needs none. k > 1 without a known label refuses.
+    need (a day of play): the named world is restored once, before its one trial, so even k = 1 needs the label."""
+    if (a.k <= 1 and not need) or pair:
         return None, None
     from tools import checkpoint_pair as cpair
     from tools import world_snapshot as ws
     label, said = getattr(a, "world_label", None), "--world"
+    what = "a day of play" if need else f"-k {a.k}"
     if not label:
         last = store.last_restored()
         if not last:
-            return None, (f"-k {a.k} with no world to restore between trials: no restore is on record; pass --world "
-                          "LABEL (the world this window started from)")
+            return None, (f"{what} with no world to restore{' at its start' if need else ' between trials'}: no "
+                          "restore is on record; pass --world LABEL (the world this window started from)")
         label, said = last["label"], f"the last restore ({last['at']})"
         if label.startswith(cpair.PREFIX):
-            return None, (f"-k {a.k}: the last restore put back {label}, a checkpoint's world, not this window's; "
+            return None, (f"{what}: the last restore put back {label}, a checkpoint's world, not this window's; "
                           "pass --world LABEL")
     try:
         man = store.manifest(label)
@@ -3238,8 +3402,11 @@ def cmd_window(a, step: str | None) -> int:
             return 2
         a.job = seq_ids[0]  # the trial starts where the first ask's job starts (or --from)
     seq_jobs = [job_of(x, doc) for x in seq_ids]
-    label = "+".join(seq_ids) if seq_ids else a.job
-    job = job_of(a.job, doc)
+    day_ask = getattr(a, "ask", None)  # a day of play: one free-form ask, one trial, run to the budget
+    if day_ask:
+        a.job = DAY_ID
+    label = "+".join(seq_ids) if seq_ids else "day" if day_ask else a.job
+    job = day_job(day_ask, a.checkpoint, a.budget, doc) if day_ask else job_of(a.job, doc)
     spec = (doc.get("interruptions") or {}).get(step) or {}
     rung = getattr(a, "rung", None)
     if rung:  # a rung of the job's ladder: the job's line, the rung's end and start (from)
@@ -3296,10 +3463,23 @@ def cmd_window(a, step: str | None) -> int:
     if pair:
         print(f"{ref} is a checkpoint pair: each trial restores world {pair['world']} and plays {pair['char_name']} "
               f"(guid {pair['char_guid']}) as that checkpoint saved him")
-    world, why = window_world(a, pair, pairs.store)
+    world, why = window_world(a, pair, pairs.store, need=True) if day_ask else window_world(a, pair, pairs.store)
     if why:
         print(f"not running: {why}")
         return 2
+    day_need = 0.0
+    if day_ask:  # the whole budget must fit in the window: refused here, never cut later (a cut day is the run's fault)
+        day_need = float(a.budget)
+        room = a.window_s - a.reserve_s - q.SWITCH_S - cpair.PAIR_S
+        if day_need > room:
+            print(f"not running: a day of {day_need:.0f} s does not fit the window ({room:.0f} s: --window-s "
+                  f"{a.window_s:.0f} less --reserve-s {a.reserve_s:.0f}, the switch {q.SWITCH_S:.0f} s and the restore "
+                  f"{cpair.PAIR_S:.0f} s): pass a larger --window-s or a smaller --budget")
+            return 2
+        why = day_spend_refusal(a.usd)
+        if why:
+            print(f"not running: {why}")
+            return 2
     seq_need = 0.0
     if seq_jobs:  # one whole sequence must fit in the window: refused here, never cut later (a cut ask is a harness fault)
         seq_need, how = sequence_need(seq_jobs, a.deadline)
@@ -3313,7 +3493,9 @@ def cmd_window(a, step: str | None) -> int:
     print(f"{label}{' / ' + rung if rung else ''}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
           + (f"the interruption goes in at {trigger}; " if step else "")
           + (f"each trial is the asks {' > '.join(seq_ids)} back to back on one world and one character, no restore or "
-             f"reset between them ({seq_need:.0f} s of the window each); " if seq_ids else "") +
+             f"reset between them ({seq_need:.0f} s of the window each); " if seq_ids else "")
+          + (f"one ask, sent once: {job['line']!r}; world {world or (pair or {}).get('world')} restored once at the "
+             f"start; it runs {day_need:.0f} s (quiet never ends it, no re-ask); " if day_ask else "") +
           f"each up to {a.max_haiku} Haiku calls (controller) plus the Planner (Sonnet), capped at ${a.usd} a trial on "
           f"top of today's spend")
     if job.get("held_out") or any(jb.get("held_out") for jb in seq_jobs):
@@ -3325,6 +3507,8 @@ def cmd_window(a, step: str | None) -> int:
     if seq_ids:
         out["sequence"] = {"asks": seq_ids, "need_s": seq_need}
         out["sequences"] = []
+    if day_ask:
+        out["day"] = {"ask": job["line"], "budget_s": day_need}
     if pair:
         out["pair"] = {k: pair[k] for k in ("world", "char_name", "char_guid", "char_saved_at")}
     if world:
@@ -3338,12 +3522,14 @@ def cmd_window(a, step: str | None) -> int:
                 if STOP_FILE.exists():
                     out["trials"].append({"character": name, "skipped": f"{STOP_FILE.name} present"})
                     break
-                reset = bool(world) and i > 0  # the window's named world back before every trial after the first
+                # the window's named world back before every trial after the first; a day's before its one trial
+                reset = bool(world) and (i > 0 or bool(day_ask))
                 left = (a.window_s - a.reserve_s - (time.time() - t0) - q.SWITCH_S
                         - (cpair.PAIR_S if pair or reset else 0))
-                if left < max(120.0, seq_need):  # a sequence runs whole or not at all
+                if left < max(120.0, seq_need, day_need):  # a sequence (a day) runs whole or not at all
                     out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left" + (
-                        f", one sequence needs {seq_need:.0f} s" if seq_ids else "")})
+                        f", one sequence needs {seq_need:.0f} s" if seq_ids else "")
+                        + (f", the day needs {day_need:.0f} s" if day_ask else "")})
                     break
                 restore = None
                 if reset:
@@ -3440,7 +3626,7 @@ def cmd_window(a, step: str | None) -> int:
                               "own_guids": [made.get("guid"), src_guid, dev_guid],
                               "self_guid": made.get("guid"),
                               "ladder_made": ladder.get("made")}
-                    if seq:  # a cut below the job's own deadline is named on the record (run_ask)
+                    if seq or day_ask:  # a cut below the job's own deadline is named on the record (run_ask, day)
                         opts_n["job_deadline"] = job_dl
                     rec = run_ask(io, job_n, opts_n, {**seq, "n": n + 1} if seq else None, carry)
                     if restore and n == 0:
@@ -3456,6 +3642,13 @@ def cmd_window(a, step: str | None) -> int:
                             print("every trial on this server run would meet the same: restart the dev server "
                                   "(stop_server.ps1 -Hold, world_snapshot restore, start_server.ps1) and run the window again")
                             stop_window = True
+                        break
+                    if day_ask:  # scored, one row in day_runs.jsonl (and its record), the report printed
+                        from tools import day_score
+                        rec.setdefault("day", {})["world"] = world or (pair or {}).get("world")
+                        if restore:
+                            rec["world_restore"] = restore
+                        out["trials"].append({"character": name, **day_score.finish(rec)})
                         break
                     if rec.get("ended") == WORLD_SHORT:  # the ask was never sent: recorded, not counted, no pass/fail
                         write(rec)
@@ -3541,6 +3734,8 @@ def cmd_window(a, step: str | None) -> int:
              "passed" if seq_ids else ""))
     if seq_ids:  # every sequence ran whole and passed
         return 0 if out["sequences"] and all(s["pass"] for s in out["sequences"]) else 1
+    if day_ask:  # the day ran and counts (its bars are reported, not the exit code)
+        return 0 if any(t.get("day_row") and not t.get("not_counted") for t in out["trials"]) else 1
     return 0 if done_ and all(t["pass"] for t in done_) else 1
 
 
@@ -3638,6 +3833,26 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--others-ok", default="", metavar="WORDS", help="a checkpoint pair's world is restored "
                        "although another player joined since it was kept (world_snapshot's rule): Luis's words")
         p.add_argument("--dirty-ok", metavar="REASON")
+    dy = sub.add_parser("day", help="a day of play: one free-form ask on one named world, restored once at the start, "
+                                    "run to a wall budget; scored by tools/day_score.py")
+    dy.add_argument("--confirm", action="store_true")
+    dy.add_argument("--ask", required=True, help="the player's one line, free-form (addressed 'claude, ...' if not)")
+    dy.add_argument("--world", dest="world_label", metavar="LABEL", default=None,
+                    help="the named world (tools/world_snapshot) restored once before the day (default: the label the "
+                         "last restore put back)")
+    dy.add_argument("--budget", type=float, default=DAY_BUDGET_S, help=f"wall seconds (default {DAY_BUDGET_S:.0f})")
+    dy.add_argument("--from", dest="checkpoint", help="a checkpoint label or a save name to fork (default ClaudeDev)")
+    dy.add_argument("--holder", choices=("default", "board"), default="default")
+    dy.add_argument("--max-haiku", type=int, default=DAY_MAX_HAIKU)
+    dy.add_argument("--usd", type=float, default=DAY_USD, help="the day's spend cap on top of today's spend")
+    dy.add_argument("--wait", type=float, default=3000.0, help="seconds to wait for the live lock")
+    dy.add_argument("--window-s", type=float, default=None,
+                    help="the lock window (default: the budget, the reserve, the switch, the restore and "
+                         f"{DAY_SLACK_S:.0f} s)")
+    dy.add_argument("--reserve-s", type=float, default=240.0)
+    dy.add_argument("--keep-forks", action="store_true")
+    dy.add_argument("--others-ok", default="", metavar="WORDS")
+    dy.add_argument("--dirty-ok", metavar="REASON")
     rt = sub.add_parser("rates")
     rt.add_argument("-n", type=int, default=10)
     rt.add_argument("--since", default="20261117")
@@ -3672,6 +3887,19 @@ def main(argv: list[str] | None = None) -> int:
         # the rung's end too, so --until done)
         print("a rung is a whole trial to its own end: no --interrupt but I4, and no --until but done, with --rung")
         return 2
+    if a.cmd == "day":  # the whole-job window with one trial and the ask as the job (day_job)
+        if a.budget < 60:
+            print(f"--budget {a.budget:.0f}: a day runs 60 s or more")
+            return 2
+        from tools import checkpoint_pair as cpair
+        from tools import quest_run as q
+        if a.window_s is None:
+            a.window_s = a.budget + a.reserve_s + q.SWITCH_S + cpair.PAIR_S + DAY_SLACK_S
+        for k, v in (("k", 1), ("job", DAY_ID), ("sequence", None), ("rung", None), ("step", None), ("until", "done"),
+                     ("until_default", False), ("trigger", None), ("save_as", None), ("deadline", None),
+                     ("regrow_days", 0), ("confirm_s", CONFIRM_S)):
+            setattr(a, k, v)
+        return cmd_window(a, None)
     if a.cmd in ("trial", "interrupt"):
         a.until_default = a.until is None  # I4 on a long job runs to the job's end when --until is not given
     if a.cmd == "trial":
