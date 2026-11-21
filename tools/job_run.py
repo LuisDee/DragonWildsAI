@@ -9,6 +9,15 @@ STATE confirms, whole (L1 to L3, held-out H1 to H3) or with one interruption put
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V2 --from job_l2_v1 -k 5 --save-as job_l2_v2
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K1 -k 3 --save-as vault_door   # the vault
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K2 -k 3                       # from vault_door
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --sequence L2,L3 -k 2 --world base --deadline 1500 --window-s 7200
+
+A sequence (--sequence, a multi-ask trial): one trial is several asks sent one after another on ONE world and ONE
+character, with no world restore and no character reset between them (a home stock pays off only across asks). Each
+ask is graded on its own (its own record in job_runs.jsonl, item 'L3 / seq L2>L3 #2', with sequence {id, n, of,
+prev_run} and stock {start, end, delta}: food and drink he carries and what his own chests hold, read from the game
+before the ask and after it); the window row keeps a summary per sequence. Between asks the brain is stopped and a new
+one started on the same per-world memory, as between trials (run_ask, the section 'a sequence of asks' below). The
+window refuses a sequence whose asks' whole deadlines do not fit (sequence_need): a later ask is never cut to fit.
 
 A rung (data/jobs.json L2 "rungs", the goal's venture ladder) is a trial of the job itself, his ask the job's line: it
 sets only where the trial ends (its own end, read from the game) and where it starts (its "from": the checkpoint a
@@ -2101,8 +2110,12 @@ def verdict(rec: dict) -> dict:
 
 
 def item_key(rec: dict) -> str:
+    """'L2', 'L2 / V1 / I4'; an ask of a sequence is its own item ('L3 / seq L2>L3 #2': he starts it on the world
+    and with the bag the asks before left him, never fresh)."""
+    sq = rec.get("sequence") if isinstance(rec.get("sequence"), dict) else None
     return (rec.get("job", "?") + (f" / {rec['rung']}" if rec.get("rung") else "")
-            + (f" / {rec['step']}" if rec.get("step") else ""))
+            + (f" / {rec['step']}" if rec.get("step") else "")
+            + (f" / seq {'>'.join(sq.get('asks') or [])} #{sq.get('n')}" if sq else ""))
 
 
 def all_runs(path: Path | None = None) -> list[dict]:
@@ -2856,6 +2869,174 @@ def write(rec: dict, path: Path | None = None) -> None:
         f.write(json.dumps(rec, default=str) + "\n")
 
 
+# ------------------------------------------------------------------ a sequence of asks on one world (multi-ask trial)
+# One trial = asks sent one after another on the SAME world and the SAME character (trial --sequence L2,L3): a home
+# stock (food cooked and stored in his chest in one ask, taken from it in the next) pays off only across asks, and the
+# window restores its named world before every trial (rule 9), so single trials never show it. Each ask is a run_job
+# of its own (its own end read, misses, time, record in job_runs.jsonl), marked with the sequence; the window keeps a
+# summary per sequence (sequence_summary). Between two asks the window does what it does between two trials (run_job
+# ends with stop_all: the brain stopped, his last job stopped, dialogue left; the next run_job clears the open ask
+# and starts a new brain process on the same per-world memory), minus the world restore, the character switch or
+# fork, the walk to the job's start place and the START_PCT body check (how he feeds himself from his own stock is what
+# a sequence measures; his bars at each ask's start are in state_start.vitals). The nav wait and the rest of the
+# preflight stay: a fault there is the harness's, and the asks left are recorded skipped, void.
+SEQ_GAP_S = 120.0  # the window's budget between two asks: end reads, his chests read, the brain stopped and a new one
+                   # started (chat_ladder.start_brain waits up to 90 s for its log), the nav wait
+SEQ_MIN = 2
+SEQ_REFUSED = ("rung", "step", "save_as")  # a rung has its own from, a step its own end, a checkpoint stands for one ask
+
+
+def parse_sequence(spec: str | None, doc: dict) -> tuple[list[str], str | None]:
+    """(the job ids of --sequence 'L2,L3', in order; a job may come twice), or ([], why it is refused)."""
+    ids = [s.strip() for s in str(spec or "").split(",") if s.strip()]
+    jobs = doc.get("jobs") or {}
+    bad = [s for s in ids if s not in jobs]
+    if bad:
+        return [], f"--sequence: no job {', '.join(bad)} in {JOBS.name} (have {', '.join(jobs)})"
+    if len(ids) < SEQ_MIN:
+        return [], f"--sequence: {SEQ_MIN} asks or more ({spec!r}); one ask is --job"
+    return ids, None
+
+
+def sequence_need(jobs: list[dict], cli_deadline: float | None = None) -> tuple[float, str]:
+    """(seconds one sequence needs inside a window, how): every ask's whole deadline (deadline_of) and SEQ_GAP_S
+    between two asks. A window that cannot give it is refused before the lock, and a trial it cannot give is skipped
+    whole: a later ask is never cut short to fit (a cut ask is a harness fault)."""
+    dls = [deadline_of(jb, cli_deadline) for jb in jobs]
+    gaps = len(jobs) - 1
+    return (sum(dls) + SEQ_GAP_S * gaps,
+            f"deadlines {' + '.join(f'{d:.0f}' for d in dls)} s and {gaps} gap(s) of {SEQ_GAP_S:.0f} s between asks")
+
+
+def sequence_id(asks: list[str], name: str, t: float | None = None) -> str:
+    """A sequence's id: when it began, its asks and the character that played it (unique per window trial)."""
+    return (time.strftime("%Y%m%d-%H%M%S", time.gmtime(time.time() if t is None else t))
+            + f"-seq-{'+'.join(asks)}-{name}")
+
+
+def stock_chest(r: dict) -> dict:
+    """One container read for the stock (read_container's shape): food and drink in it that the game's data says do no
+    harm (as snapshot counts what he carries), all its items, its owner as the body read it."""
+    out = {"read": bool(r.get("read"))}
+    if not out["read"]:
+        out["why"] = r.get("why") or ("no inventory on it" if r.get("no_inventory") else "not read")
+        return out
+    items = r.get("items") or {}
+    out.update(food=sum(n for k, n in items.items() if _consumable_harm(k, "food") is None),
+               drink=sum(n for k, n in items.items() if _consumable_harm(k, "drink") is None), items=items)
+    out.update({k: r[k] for k in ("owner", "owner_guid", "mine", "same_account") if r.get(k) is not None})
+    return out
+
+
+def stock_read(io, ids: list[str]) -> dict:
+    """His stock as the game shows it now: food and drink he carries (snapshot consumables) and what each container of
+    his holds (the body's inspect: chest_reads), ids being the containers of his the sequence knows plus those this read
+    marks his. {t, consumables, chests {id: stock_chest}, chest_food, chest_drink (over the ones read), unread?}."""
+    raw, snap = _read_state(io)
+    kinds = snap.get("container_kinds") or {}
+    want = sorted({c for c in list(ids) + list(snap.get("own_containers") or []) if is_storage(c, kinds) is not False})
+    reads = {cid: stock_chest(r) for cid, r in chest_reads(io, want).items()}
+    out = {"t": round(io.now(), 1), "consumables": snap.get("consumables"), "chests": reads,
+           "chest_food": sum(r.get("food") or 0 for r in reads.values()),
+           "chest_drink": sum(r.get("drink") or 0 for r in reads.values())}
+    if snap.get("consumables_left_out"):
+        out["consumables_left_out"] = snap["consumables_left_out"]
+    if snap.get("unread"):
+        out["unread"] = snap["unread"]
+    return out
+
+
+def his_containers(rec: dict) -> list[str]:
+    """The containers one ask's record knows are his (chest_candidates over its start and end reads and the chests his
+    body opened, by the game's owner): carried into the next ask's stock reads."""
+    end = {**(rec.get("state_end") or {}), "chests": rec.get("chests") or {}}
+    try:
+        return chest_candidates(rec.get("state_start") or {}, end)
+    except Exception:  # a record short of a read: no containers known from it
+        return []
+
+
+def stock_delta(start: dict, end: dict) -> dict:
+    """What changed in his stock over one ask: food and drink carried, and in the containers read at both ends."""
+    both = [c for c, r in (start.get("chests") or {}).items()
+            if r.get("read") and ((end.get("chests") or {}).get(c) or {}).get("read")]
+    sc, ec = start.get("consumables") or {}, end.get("consumables") or {}
+    return {"carried_food": int(ec.get("food") or 0) - int(sc.get("food") or 0),
+            "carried_drink": int(ec.get("drink") or 0) - int(sc.get("drink") or 0),
+            "chest_food": sum(int(end["chests"][c].get("food") or 0) - int(start["chests"][c].get("food") or 0) for c in both),
+            "chest_drink": sum(int(end["chests"][c].get("drink") or 0) - int(start["chests"][c].get("drink") or 0)
+                               for c in both),
+            "chests_read_both": both}
+
+
+def run_ask(io, job: dict, opts: dict, seq: dict | None = None, carry: dict | None = None) -> dict:
+    """One ask: run_job alone when no sequence (the single-job path, unchanged). In a sequence (seq {id, asks, n}),
+    his stock is read before the brain starts and after run_job ends; the record carries sequence {id, asks, n, of,
+    prev_run} and stock {start, end, delta}, its item names the sequence (item_key), and a deadline the window cut below
+    the job's own (opts job_deadline) that ran out is a harness fault: not counted. carry {containers, prev_run} goes
+    from ask to ask."""
+    if not seq:
+        return run_job(io, job, opts)
+    carry = carry if carry is not None else {}
+    before = stock_read(io, carry.get("containers") or [])
+    rec = run_job(io, job, opts)
+    if "error" in rec:
+        return rec
+    known = set(carry.get("containers") or []) | set(before["chests"]) | set(his_containers(rec))
+    after = stock_read(io, sorted(known))
+    asks = list(seq["asks"])
+    rec["sequence"] = {"id": seq["id"], "asks": asks, "n": int(seq["n"]), "of": len(asks),
+                       "prev_run": carry.get("prev_run"),
+                       # bag, chests and world as the ask before left them: no restore, no new character before it
+                       "carried_over": int(seq["n"]) > 1}
+    rec["item"] = f"{rec.get('item')} / seq {'>'.join(asks)} #{int(seq['n'])}"
+    rec["stock"] = {"start": before, "end": after, "delta": stock_delta(before, after)}
+    job_dl, given = opts.get("job_deadline"), opts.get("deadline")
+    if job_dl is not None and given is not None and float(given) < float(job_dl):
+        rec["deadline_cut"] = {"job_s": round(float(job_dl), 1), "given_s": round(float(given), 1)}
+        if rec.get("ended") == "deadline" and not rec.get("not_counted"):
+            rec["not_counted"] = (f"the window cut this ask's deadline from {float(job_dl):.0f} to {float(given):.0f} s "
+                                  "and it ran out: a harness fault (rule 3), void")
+            rec["verdict"] = verdict(rec)
+    carry["containers"] = sorted(known | set(after["chests"]))
+    carry["prev_run"] = rec.get("run")
+    return rec
+
+
+def sequence_summary(recs: list[dict], seq_id: str | None = None, skipped: list[dict] | None = None,
+                     asks_asked: list[str] | None = None) -> dict:
+    """One sequence's summary from its asks' records (job_runs.jsonl rows with sequence.id; seq_id None: the first
+    sequence in recs): each ask's run, pass, end and misses, his stock at its start and end, and whether every ask ran
+    and passed (skipped: asks the window did not run, with why; asks_asked: the asks when none ran)."""
+    sid = seq_id or next((r["sequence"].get("id") for r in recs if isinstance(r.get("sequence"), dict)), None)
+    mine = sorted((r for r in recs if isinstance(r.get("sequence"), dict) and r["sequence"].get("id") == sid),
+                  key=lambda r: int(r["sequence"].get("n") or 0))
+    asks = list(mine[0]["sequence"].get("asks") or []) if mine else list(asks_asked or [])
+    rows = []
+    for r in mine:
+        v = r.get("verdict") or verdict(r)
+        st = r.get("stock") or {}
+
+        def cons(side: str, what: str) -> int | None:
+            c = (st.get(side) or {}).get("consumables")
+            return None if c is None else int(c.get(what) or 0)
+        rows.append({"n": (r.get("sequence") or {}).get("n"), "job": r.get("job"), "run": r.get("run"),
+                     "pass": bool(v.get("pass")), "ended": r.get("ended"), "done": r.get("done"),
+                     "not_counted": r.get("not_counted"), "misses": (r.get("misses") or {}).get("n"),
+                     "wall_s": r.get("wall_s"),
+                     "food": [cons("start", "food"), cons("end", "food")],
+                     "drink": [cons("start", "drink"), cons("end", "drink")],
+                     "chest_food": [(st.get("start") or {}).get("chest_food"), (st.get("end") or {}).get("chest_food")],
+                     "chest_drink": [(st.get("start") or {}).get("chest_drink"),
+                                     (st.get("end") or {}).get("chest_drink")]})
+    skipped = list(skipped or [])
+    whole = bool(asks) and len(rows) == len(asks) and not skipped
+    return {"sequence": sid, "asks": asks, "ran": len(rows), "passed": sum(1 for x in rows if x["pass"]),
+            "whole": whole, "pass": whole and all(x["pass"] for x in rows),
+            "wall_s": round(sum(float(x["wall_s"] or 0) for x in rows), 1), "per_ask": rows,
+            **({"skipped": skipped} if skipped else {})}
+
+
 # ------------------------------------------------------------------ the live body (never used by the tests)
 class Live:
     """The body, the brain and the dev fixtures as one trial sees them, inside a quest_run.clone_window."""
@@ -3049,6 +3230,15 @@ def cmd_window(a, step: str | None) -> int:
         print(why)
         return live_guard.REFUSED_RC
     doc = load_jobs()
+    seq_ids: list[str] = []
+    if getattr(a, "sequence", None):  # one trial = these asks back to back on one world and one character
+        seq_ids, why = parse_sequence(a.sequence, doc)
+        if why:
+            print(why)
+            return 2
+        a.job = seq_ids[0]  # the trial starts where the first ask's job starts (or --from)
+    seq_jobs = [job_of(x, doc) for x in seq_ids]
+    label = "+".join(seq_ids) if seq_ids else a.job
     job = job_of(a.job, doc)
     spec = (doc.get("interruptions") or {}).get(step) or {}
     rung = getattr(a, "rung", None)
@@ -3110,16 +3300,31 @@ def cmd_window(a, step: str | None) -> int:
     if why:
         print(f"not running: {why}")
         return 2
-    print(f"{a.job}{' / ' + rung if rung else ''}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
-          + (f"the interruption goes in at {trigger}; " if step else "") +
+    seq_need = 0.0
+    if seq_jobs:  # one whole sequence must fit in the window: refused here, never cut later (a cut ask is a harness fault)
+        seq_need, how = sequence_need(seq_jobs, a.deadline)
+        room = a.window_s - a.reserve_s - q.SWITCH_S - (cpair.PAIR_S if pair else 0)
+        if seq_need > room:
+            print(f"not running: one sequence {' > '.join(seq_ids)} needs {seq_need:.0f} s ({how}); the window gives "
+                  f"{room:.0f} s (--window-s {a.window_s:.0f} less --reserve-s {a.reserve_s:.0f} and the switch, "
+                  f"{q.SWITCH_S:.0f} s{', and the pair restore' if pair else ''}): pass a larger --window-s or a smaller "
+                  "--deadline (per ask); a later ask is never cut short to fit")
+            return 2
+    print(f"{label}{' / ' + rung if rung else ''}{' / ' + step if step else ''}: {a.k} trial(s) from {ref} ({ref_why}); holder {a.holder}; "
+          + (f"the interruption goes in at {trigger}; " if step else "")
+          + (f"each trial is the asks {' > '.join(seq_ids)} back to back on one world and one character, no restore or "
+             f"reset between them ({seq_need:.0f} s of the window each); " if seq_ids else "") +
           f"each up to {a.max_haiku} Haiku calls (controller) plus the Planner (Sonnet), capped at ${a.usd} a trial on "
           f"top of today's spend")
-    if job.get("held_out"):
+    if job.get("held_out") or any(jb.get("held_out") for jb in seq_jobs):
         print(f"held-out job: scored only; its trace stays closed (show --read-trace after {TRACE_AFTER} scored trials)")
     stamp = time.strftime("%d%H%M", time.gmtime())
     forks = [f"ClaudeJ{stamp}{chr(97 + i)}" for i in range(min(a.k, 26))]
-    out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "job": a.job, "step": step, "from": ref,
+    out = {"window": time.strftime("%Y%m%d-%H%M%S", time.gmtime()), "job": label, "step": step, "from": ref,
            "source": str(src), "k": a.k, "place": place, "holder": a.holder, "trials": []}
+    if seq_ids:
+        out["sequence"] = {"asks": seq_ids, "need_s": seq_need}
+        out["sequences"] = []
     if pair:
         out["pair"] = {k: pair[k] for k in ("world", "char_name", "char_guid", "char_saved_at")}
     if world:
@@ -3136,8 +3341,9 @@ def cmd_window(a, step: str | None) -> int:
                 reset = bool(world) and i > 0  # the window's named world back before every trial after the first
                 left = (a.window_s - a.reserve_s - (time.time() - t0) - q.SWITCH_S
                         - (cpair.PAIR_S if pair or reset else 0))
-                if left < 120:
-                    out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left"})
+                if left < max(120.0, seq_need):  # a sequence runs whole or not at all
+                    out["trials"].append({"character": name, "skipped": f"window: {left:.0f} s left" + (
+                        f", one sequence needs {seq_need:.0f} s" if seq_ids else "")})
                     break
                 restore = None
                 if reset:
@@ -3195,81 +3401,131 @@ def cmd_window(a, step: str | None) -> int:
                 if bad:
                     out["trials"].append({"character": name, "skipped": "preflight: " + "; ".join(bad)})
                     continue
-                io = Live(ns, cli, dev)
-                left = a.window_s - a.reserve_s - (time.time() - t0)
-                rec = run_job(io, job, {"step": step, "interruptions": doc.get("interruptions"), "until": a.until,
-                                        "trigger": trigger, "deadline": min(deadline_of(job, a.deadline), left),
-                                        "max_haiku": a.max_haiku, "character": name, "checkpoint": ref,
-                                        "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S),
-                                        "own_guids": [made.get("guid"), src_guid, dev_guid],
-                                        "self_guid": made.get("guid"),
-                                        "ladder_made": ladder.get("made")})
-                if restore:
-                    rec["world_restore"] = restore
-                if "error" in rec:  # no trial ran: the harness's (void), with its reason
-                    out["trials"].append({"character": name, "error": rec["error"], "void": "harness",
-                                          **({"world_restore": restore} if restore else {})})
-                    print(f"{name}: {rec['error']}")
-                    if sender_fault(rec["error"]):
-                        print("every trial on this server run would meet the same: restart the dev server "
-                              "(stop_server.ps1 -Hold, world_snapshot restore, start_server.ps1) and run the window again")
+                # the asks of this trial: the job alone, or a sequence's asks back to back on this world and this
+                # character (run_ask; between two asks no restore, no switch, no walk, no START_PCT check)
+                asks = seq_jobs or [job]
+                seq = {"id": sequence_id(seq_ids, name), "asks": seq_ids} if seq_ids else None
+                carry: dict = {}
+                seq_recs: list[dict] = []
+                skipped_asks: list[dict] = []
+                stop_window = False
+                for n, job_n in enumerate(asks):
+                    last = n == len(asks) - 1
+                    tag = {"sequence": seq["id"], "ask": n + 1, "job": job_n["id"]} if seq else {}
+                    if n:  # between two asks: what the window checks between trials that is the harness's own
+                        why_not = f"{STOP_FILE.name} present" if STOP_FILE.exists() else None
+                        if why_not is None:
+                            nav_why = wait_nav(cl.nav_not_ready, time.sleep)
+                            if nav_why:
+                                print(f"{name}: after {150:.0f} s: {nav_why}")
+                            # his bars are his own between asks (fed from his stock or not): never a reason to stop
+                            bad = [b for b in q.preflight(ns) if not str(b).startswith("body unfit")]
+                            why_not = "preflight: " + "; ".join(bad) if bad else None
+                        left_n = a.window_s - a.reserve_s - (time.time() - t0)
+                        if why_not is None and left_n < 120:
+                            why_not = f"window: {left_n:.0f} s left"
+                        if why_not:  # the asks left are not run: the harness's, void, never a fail of his
+                            skipped_asks += [{"ask": k_, "job": jb["id"], "skipped": why_not, "void": "harness"}
+                                             for k_, jb in enumerate(asks[n:], start=n + 1)]
+                            out["trials"].append({"character": name, **tag, "skipped": why_not, "void": "harness"})
+                            print(f"{name}: ask {n + 1} ({job_n['id']}) and those after it not run: {why_not}")
+                            break
+                    io = Live(ns, cli, dev)
+                    left = a.window_s - a.reserve_s - (time.time() - t0)
+                    job_dl = deadline_of(job_n, a.deadline)
+                    opts_n = {"step": step, "interruptions": doc.get("interruptions"), "until": a.until,
+                              "trigger": trigger, "deadline": min(job_dl, left),
+                              "max_haiku": a.max_haiku, "character": name, "checkpoint": ref,
+                              "holder": a.holder, "confirm_s": getattr(a, "confirm_s", CONFIRM_S),
+                              "own_guids": [made.get("guid"), src_guid, dev_guid],
+                              "self_guid": made.get("guid"),
+                              "ladder_made": ladder.get("made")}
+                    if seq:  # a cut below the job's own deadline is named on the record (run_ask)
+                        opts_n["job_deadline"] = job_dl
+                    rec = run_ask(io, job_n, opts_n, {**seq, "n": n + 1} if seq else None, carry)
+                    if restore and n == 0:
+                        rec["world_restore"] = restore
+                    if "error" in rec:  # no trial ran: the harness's (void), with its reason
+                        out["trials"].append({"character": name, **tag, "error": rec["error"], "void": "harness",
+                                              **({"world_restore": restore} if restore and n == 0 else {})})
+                        print(f"{name}: {rec['error']}")
+                        if seq:
+                            skipped_asks += [{"ask": k_, "job": jb["id"], "skipped": f"ask {n + 1}: {rec['error']}",
+                                              "void": "harness"} for k_, jb in enumerate(asks[n:], start=n + 1)]
+                        if sender_fault(rec["error"]):
+                            print("every trial on this server run would meet the same: restart the dev server "
+                                  "(stop_server.ps1 -Hold, world_snapshot restore, start_server.ps1) and run the window again")
+                            stop_window = True
                         break
-                    continue
-                if rec.get("ended") == WORLD_SHORT:  # the ask was never sent: recorded, not counted, no pass/fail
+                    if rec.get("ended") == WORLD_SHORT:  # the ask was never sent: recorded, not counted, no pass/fail
+                        write(rec)
+                        seq_recs.append(rec)
+                        out["trials"].append({"character": name, **tag, "run": rec["run"], "skipped": rec["not_counted"],
+                                              "world": rec["world"]["needs"],
+                                              **({"world_restore": restore} if restore and n == 0 else {})})
+                        print(f"{name}: {rec['not_counted']}")
+                        if seq and not last:
+                            skipped_asks += [{"ask": k_, "job": jb["id"], "skipped": f"ask {n + 1}: {WORLD_SHORT}",
+                                              "void": "harness"} for k_, jb in enumerate(asks[n + 1:], start=n + 2)]
+                        if a.regrow_days > 0 and not got["paired"] and not world:  # the clock on: picked roots may stand again
+                            out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
+                                                                          vitals=q.vitals_of(cli))
+                        break
+                    from tools import failure_ledger
+                    rec.update(blind_mark(rec, all_runs(), failure_ledger.voided(), trace_reads()))
                     write(rec)
-                    out["trials"].append({"character": name, "run": rec["run"], "skipped": rec["not_counted"],
-                                          "world": rec["world"]["needs"],
-                                          **({"world_restore": restore} if restore else {})})
-                    print(f"{name}: {rec['not_counted']}")
-                    if a.regrow_days > 0 and not got["paired"] and not world:  # the clock on: picked roots may stand again
+                    seq_recs.append(rec)
+                    t_end = time.time()
+                    v = rec["verdict"]
+                    row = {"character": name, **tag, "run": rec["run"], "pass": v["pass"], "ended": rec["ended"],
+                           "misses": rec["misses"]["n"], "at_s": round(t_end - t0, 1)}
+                    if step:
+                        row["resumed_after_s"] = (rec.get("resume") or {}).get("after_s")
+                    if restore and n == 0:
+                        row["world_restore"] = restore
+                    if rec.get("not_counted") and seq:
+                        row["not_counted"] = rec["not_counted"]
+                    out["trials"].append(row)
+                    print(json.dumps(scores_of(rec), default=str)[:600] if job_n.get("held_out") else
+                          json.dumps(row, default=str))
+                    if got["paired"]:
+                        out["trials"][-1]["prep"] = {k: got["prep"].get(k) for k in
+                                                     ("s", "parked", "deaths_forgotten", "file_after_join")}
+                    keep_tried = False
+                    if a.save_as and "saved_as" not in out:
+                        good, why_save = save_ok(rec, a.until)
+                        if good:  # the pair: his save and the world, both written after the trial ended
+                            keep_tried = True
+                            try:
+                                kept = pairs.keep(a.save_as, name, t_end=t_end, wait_s=q.AUTOSAVE_S,
+                                                  note=f"job {a.job} run {rec['run']}", window=out["window"])
+                            except cpair.Refused as exc:
+                                kept = {"kept": False, "why": str(exc)}
+                            good = kept["kept"]
+                            if good:
+                                out["saved_as"] = str(pairs.checkpoint_dir / f"{a.save_as}.json")
+                                out["saved_pair"] = kept
+                                out["saved_at"] = rec.get("mid") or rec.get("own_chest") or {"ended": rec["ended"]}
+                                if rung:  # what he made so far goes with the save, for the next rung
+                                    out["ladder"] = str(write_ladder(rec, a.save_as, ladder))
+                            else:  # the next trial tries again
+                                why_save = f"{why_save}; pair not kept: {kept['why']}"
+                                out["trials"][-1]["not_saved"] = why_save
+                        else:
+                            out["trials"][-1]["not_saved"] = why_save
+                        print(f"{name}: {'saved as ' + a.save_as if good else 'not saved'}: {why_save}")
+                    # on the fork that has played, never on the one about to; not when the next trial restores the
+                    # world anyway (a pair, or a window with a named world), nor after a pair keep (it stopped the
+                    # client), nor between two asks of a sequence (the next ask plays on this world as it is)
+                    if a.regrow_days > 0 and not got["paired"] and not world and not keep_tried and last:
                         out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
                                                                       vitals=q.vitals_of(cli))
-                    continue
-                from tools import failure_ledger
-                rec.update(blind_mark(rec, all_runs(), failure_ledger.voided(), trace_reads()))
-                write(rec)
-                t_end = time.time()
-                v = rec["verdict"]
-                row = {"character": name, "run": rec["run"], "pass": v["pass"], "ended": rec["ended"],
-                       "misses": rec["misses"]["n"], "at_s": round(t_end - t0, 1)}
-                if step:
-                    row["resumed_after_s"] = (rec.get("resume") or {}).get("after_s")
-                if restore:
-                    row["world_restore"] = restore
-                out["trials"].append(row)
-                print(json.dumps(scores_of(rec), default=str)[:600] if job.get("held_out") else
-                      json.dumps(row, default=str))
-                if got["paired"]:
-                    out["trials"][-1]["prep"] = {k: got["prep"].get(k) for k in
-                                                 ("s", "parked", "deaths_forgotten", "file_after_join")}
-                keep_tried = False
-                if a.save_as and "saved_as" not in out:
-                    good, why_save = save_ok(rec, a.until)
-                    if good:  # the pair: his save and the world, both written after the trial ended
-                        keep_tried = True
-                        try:
-                            kept = pairs.keep(a.save_as, name, t_end=t_end, wait_s=q.AUTOSAVE_S,
-                                              note=f"job {a.job} run {rec['run']}", window=out["window"])
-                        except cpair.Refused as exc:
-                            kept = {"kept": False, "why": str(exc)}
-                        good = kept["kept"]
-                        if good:
-                            out["saved_as"] = str(pairs.checkpoint_dir / f"{a.save_as}.json")
-                            out["saved_pair"] = kept
-                            out["saved_at"] = rec.get("mid") or rec.get("own_chest") or {"ended": rec["ended"]}
-                            if rung:  # what he made so far goes with the save, for the next rung
-                                out["ladder"] = str(write_ladder(rec, a.save_as, ladder))
-                        else:  # the next trial tries again
-                            why_save = f"{why_save}; pair not kept: {kept['why']}"
-                            out["trials"][-1]["not_saved"] = why_save
-                    else:
-                        out["trials"][-1]["not_saved"] = why_save
-                    print(f"{name}: {'saved as ' + a.save_as if good else 'not saved'}: {why_save}")
-                # on the fork that has played, never on the one about to; not when the next trial restores the world
-                # anyway (a pair, or a window with a named world), nor after a pair keep (it stopped the client)
-                if a.regrow_days > 0 and not got["paired"] and not world and not keep_tried:
-                    out["trials"][-1]["clock_after"] = q.clock_on(dev, a.regrow_days, f"job_run {a.job}: regrow",
-                                                                  vitals=q.vitals_of(cli))
+                if seq:  # the sequence's own summary beside its asks' rows
+                    summ = {"character": name, **sequence_summary(seq_recs, seq["id"], skipped_asks, seq_ids)}
+                    out["sequences"].append(summ)
+                    print(json.dumps({k: summ[k] for k in ("sequence", "ran", "passed", "whole", "pass")}, default=str))
+                if stop_window:
+                    break
     finally:
         if old is None:
             os.environ.pop("DW_GATE_DIRECTOR", None)
@@ -3280,7 +3536,11 @@ def cmd_window(a, step: str | None) -> int:
         if pair:  # the last trial's end, as the record of where it ended (never over an earlier one)
             print("parked:", pairs.park(pair["char_name"], time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())))
     done_ = [t for t in out["trials"] if "pass" in t]
-    print(f"== {a.job}{' / ' + rung if rung else ''}{' / ' + step if step else ''} from {ref}: {sum(1 for t in done_ if t['pass'])} of {len(done_)} passed")
+    print(f"== {label}{' / ' + rung if rung else ''}{' / ' + step if step else ''} from {ref}: {sum(1 for t in done_ if t['pass'])} of {len(done_)} passed"
+          + (f" (asks); {sum(1 for s in out['sequences'] if s['pass'])} of {len(out['sequences'])} sequences whole and "
+             "passed" if seq_ids else ""))
+    if seq_ids:  # every sequence ran whole and passed
+        return 0 if out["sequences"] and all(s["pass"] for s in out["sequences"]) else 1
     return 0 if done_ and all(t["pass"] for t in done_) else 1
 
 
@@ -3340,9 +3600,14 @@ def main(argv: list[str] | None = None) -> int:
                        "else first_step; or first_deposit, progress:0.5, share:0.3 (of the bar), at:SECONDS; a|b = "
                        "whichever comes first")
         p.add_argument("--confirm-s", type=float, default=CONFIRM_S, help="how long the trial goes on after he resumed")
+    tr.add_argument("--sequence", default=None, metavar="L2,L3",
+                    help="instead of --job: one trial is these asks, sent one after another on the same world and the "
+                         "same character (no restore, no reset between them), each graded on its own; the window keeps "
+                         "a summary per sequence. A job may come twice (L3,L3). Every ask's whole deadline must fit in "
+                         "the window (refused otherwise, never cut)")
     for p in (tr, it):
         p.add_argument("--confirm", action="store_true")
-        p.add_argument("--job", required=True)
+        p.add_argument("--job", required=p is it)
         p.add_argument("-k", type=int, default=3)
         p.add_argument("--from", dest="checkpoint", help="a checkpoint label or a save name to fork (default: the job's)")
         p.add_argument("--until", default=None, metavar="done|first_step|resumed|own_chest|mid[:LO-HI]",
@@ -3390,6 +3655,18 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd in ("trial", "interrupt") and a.trigger and not trigger_ok(a.trigger):
         print(f"unknown --trigger {a.trigger!r} (first_step, first_deposit, progress:F, share:F, at:SECONDS, a|b)")
         return 2
+    if a.cmd == "trial" and bool(a.job) == bool(a.sequence):
+        print("trial: give --job JOB, or --sequence JOB,JOB (asks back to back on one world), not both")
+        return 2
+    if a.cmd == "trial" and a.sequence:
+        # each ask is a whole trial of its job to its own end, from where the ask before left him
+        bad = [f"--{k.replace('_', '-')}" for k in SEQ_REFUSED if getattr(a, k, None)]
+        if a.until and a.until != "done":
+            bad.append(f"--until {a.until}")
+        if bad:
+            print(f"--sequence: no {', '.join(bad)} (each ask is a whole trial to its job's own end: a rung has its own "
+                  "start, an interruption step its own end, and a checkpoint stands for one run)")
+            return 2
     if a.cmd == "trial" and a.rung and ((a.step and a.step != "I4") or (a.until and a.until != "done")):
         # a rung is a whole trial to its own end; I4 alone may go into one (2026-11-20: I4 on L2 / V1, judged on
         # the rung's end too, so --until done)

@@ -1482,3 +1482,189 @@ def test_a_checkpoint_pair_window_is_unchanged(tmp_path, monkeypatch):
     assert w.preps == 2 and w.resets == 0 and w.forked == [] and w.ensured == [NAME, NAME]
     row = _window_row(rig)
     assert "world" not in row and not any("world_restore" in t for t in row["trials"])
+
+
+# ------------------------------------------------------------------ a sequence of asks on one world (multi-ask trial)
+STEAK, COPPER = "ITEM_Consumable_Farm_Steak", "ITEM_Resources_CopperOre"
+T2 = T0 + 200  # the second ask's lines start here (the window's brain restart takes this long at most)
+
+
+def stock_world():
+    """Ask 1 (L2): copper and 10 steaks go into his crate at 30 s. Ask 2 (L3) from T2, away from the crate (get_state
+    no longer lists it his): he takes 5 steaks out at T2 + 10 and carries them."""
+    def crate(t, cid):
+        if cid != CRATE or t < T0 + 30:
+            return [] if cid == CRATE else None
+        return [{"item": COPPER, "name": "Copper Ore", "count": 30},
+                {"item": STEAK, "name": "Steak", "count": 10 if t < T2 + 10 else 5}]
+
+    def world(t):
+        return state(mine=[CRATE]) if t < T2 else state(food=5 if t >= T2 + 10 else 0)
+    take = [call(T2 + 3, "t1", "take", {"item": "Steak", "count": 5, "container": CRATE}),
+            result(T2 + 10, "t1", "take", data={"container": CRATE, "item": STEAK, "count": 5, "inside_now": 5,
+                                                "contents": ["30 Copper Ore", "5 Steak"]})]
+    script = sorted(l2_script() + model(T2 + 1) + take, key=lambda r: r["ts"])
+    return FakeIO(script=script, states=world, chests=crate)
+
+
+def test_parse_sequence_and_what_one_needs_of_a_window(doc):
+    assert j.parse_sequence("L2,L3", doc) == (["L2", "L3"], None)
+    assert j.parse_sequence(" L3 , L3 ", doc) == (["L3", "L3"], None)  # a job may come twice
+    ids, why = j.parse_sequence("L2,L9", doc)
+    assert ids == [] and "no job L9" in why
+    ids, why = j.parse_sequence("L2", doc)
+    assert ids == [] and "one ask is --job" in why
+    need, how = j.sequence_need([j.job_of("L1", doc), j.job_of("L2", doc)])
+    assert need == 2700 + 1800 + j.SEQ_GAP_S and "deadlines 2700 + 1800 s" in how
+    assert j.sequence_need([j.job_of("L1", doc), j.job_of("L2", doc), j.job_of("L3", doc)], 600)[0] \
+        == 3 * 600 + 2 * j.SEQ_GAP_S  # --deadline is per ask
+
+
+def test_run_ask_without_a_sequence_is_run_job_alone(doc):
+    io = FakeIO(script=l2_script(), states=lambda t: state(mine=[CRATE]),
+                chests={CRATE: [{"item": COPPER, "name": "Copper Ore", "count": 30}]})
+    rec = j.run_ask(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]})
+    assert rec["ended"] == "job done" and "sequence" not in rec and "stock" not in rec and rec["item"] == "job: L2"
+    assert j.item_key(rec) == "L2"
+
+
+def _two_asks(doc):
+    io = stock_world()
+    seq, carry = {"id": "S1", "asks": ["L2", "L3"]}, {}
+    r1 = j.run_ask(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"]}, {**seq, "n": 1}, carry)
+    io.t = max(io.t, T2)  # the window's stop, reads and brain restart between the asks; no restore, no new character
+    r2 = j.run_ask(io, j.job_of("L3", doc), {"interruptions": doc["interruptions"]}, {**seq, "n": 2}, carry)
+    return io, carry, r1, r2
+
+
+def test_a_sequence_carries_his_bag_and_his_chest_from_ask_to_ask(doc):
+    io, carry, r1, r2 = _two_asks(doc)
+    assert io.sent == [doc["jobs"]["L2"]["line"], doc["jobs"]["L3"]["line"]]  # one body, both lines
+    assert r1["ended"] == "job done" and r1["verdict"]["pass"] and r2["ended"] == "quiet"
+    assert r1["sequence"] == {"id": "S1", "asks": ["L2", "L3"], "n": 1, "of": 2, "prev_run": None,
+                              "carried_over": False}
+    assert r2["sequence"]["prev_run"] == r1["run"] and r2["sequence"]["carried_over"] is True
+    assert r1["item"] == "job: L2 / seq L2>L3 #1" and j.item_key(r2) == "L3 / seq L2>L3 #2"
+    s1, s2 = r1["stock"], r2["stock"]
+    assert s1["start"]["chests"][CRATE] == {"read": True, "food": 0, "drink": 0, "items": {}}
+    assert s1["end"]["chest_food"] == 10 and s1["delta"]["chest_food"] == 10
+    # ask 2: get_state no longer lists the crate his, the sequence still reads it (carried from ask 1)
+    assert s2["start"]["chests"][CRATE]["food"] == 10 and s2["start"]["consumables"]["food"] == 0
+    assert s2["end"]["chests"][CRATE]["food"] == 5 and s2["end"]["consumables"]["food"] == 5
+    assert s2["delta"] == {"carried_food": 5, "carried_drink": 0, "chest_food": -5, "chest_drink": 0,
+                           "chests_read_both": [CRATE]}
+    assert carry == {"containers": [CRATE], "prev_run": r2["run"]}
+    # each ask is its own trial for the ledger and the rates
+    rs = j.rates([r1, r2], set())
+    assert set(rs) == {"L2 / seq L2>L3 #1", "L3 / seq L2>L3 #2"} and rs["L2 / seq L2>L3 #1"]["passes"] == 1
+
+
+def test_failure_ledger_scans_each_ask_of_a_sequence_on_its_own(doc, tmp_path):
+    from tools import failure_ledger as fl
+    _, _, r1, r2 = _two_asks(doc)
+    new = fl.scan([r1, r2], j.verdict, j.not_counted, path=tmp_path / "ledger.jsonl")
+    assert [(r["run"], r["item"]) for r in new] == [(r2["run"], "job: L3 / seq L2>L3 #2")]  # the pass has no row
+    assert fl.tag([r2["run"]], "harness", "x", True, None, path=tmp_path / "ledger.jsonl") == 1
+
+
+def test_sequence_summary_per_ask_and_whole(doc):
+    _, _, r1, r2 = _two_asks(doc)
+    s = j.sequence_summary([r2, irec(), r1], "S1")
+    assert s["sequence"] == "S1" and s["asks"] == ["L2", "L3"] and (s["ran"], s["passed"]) == (2, 1)
+    assert s["whole"] and not s["pass"]
+    assert [x["job"] for x in s["per_ask"]] == ["L2", "L3"]
+    assert s["per_ask"][1]["food"] == [0, 5] and s["per_ask"][1]["chest_food"] == [10, 5]
+    cut = j.sequence_summary([r1], "S1", [{"ask": 2, "job": "L3", "skipped": "preflight: x", "void": "harness"}])
+    assert not cut["whole"] and not cut["pass"] and cut["skipped"][0]["job"] == "L3"
+    assert j.sequence_summary([], "S9", [{"ask": 1}], ["L2", "L3"])["asks"] == ["L2", "L3"]
+
+
+def test_an_ask_whose_deadline_the_window_cut_is_a_harness_fault(doc):
+    io = FakeIO(script=nothing_script(), states=lambda t: state(mine=[CRATE]), chests={CRATE: []})
+    rec = j.run_ask(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"], "deadline": 50,
+                                               "job_deadline": 1800}, {"id": "S1", "asks": ["L3", "L2"], "n": 2}, {})
+    assert rec["ended"] == "deadline" and rec["deadline_cut"] == {"job_s": 1800.0, "given_s": 50.0}
+    assert "harness fault" in rec["not_counted"] and rec["verdict"]["bars"]["counted"] is False
+    assert j.scored([rec], set()) == []
+    # given its whole deadline, a run that ran out is his
+    io = FakeIO(script=nothing_script(), states=lambda t: state(mine=[CRATE]), chests={CRATE: []})
+    rec = j.run_ask(io, j.job_of("L2", doc), {"interruptions": doc["interruptions"], "deadline": 50,
+                                               "job_deadline": 50}, {"id": "S1", "asks": ["L3", "L2"], "n": 2}, {})
+    assert rec["ended"] == "deadline" and "deadline_cut" not in rec and not rec.get("not_counted")
+
+
+def _seq_main(w, *argv):
+    return w.j.main(["trial", "--confirm", "--regrow-days", "0", *argv])
+
+
+def _no_stock(monkeypatch):
+    stock = {"t": 0.0, "consumables": {"food": 0, "drink": 0}, "chests": {}, "chest_food": 0, "chest_drink": 0}
+    monkeypatch.setattr(j, "stock_read", lambda io, ids: dict(stock))
+
+
+def test_a_sequence_window_restores_between_trials_never_between_asks(world_window, monkeypatch):
+    rig, w = world_window
+    _no_stock(monkeypatch)
+    assert _seq_main(w, "--sequence", "L2,L3", "--from", "ClaudeDev", "-k", "2", "--world", "base",
+                     "--deadline", "600") == 0
+    assert w.resets == 1 and len(w.forked) == 2  # one restore and one new character per trial, none per ask
+    # ask 2 meets what ask 1 left; trial 2 starts from the named world again
+    assert w.started_on == [b"world-at-start", b"pieces-trial-1-built", b"world-at-start", b"pieces-trial-3-built"]
+    assert w.memories[0] == w.memories[1] != w.memories[2] == w.memories[3]  # one brain memory per sequence
+    assert w.j_opts["deadline"] == 600 and w.j_opts["job_deadline"] == 600
+    row = _window_row(rig)
+    assert row["job"] == "L2+L3" and row["sequence"] == {"asks": ["L2", "L3"], "need_s": 1200 + j.SEQ_GAP_S}
+    assert [(t["ask"], t["job"]) for t in row["trials"]] == [(1, "L2"), (2, "L3")] * 2
+    assert "world_restore" not in row["trials"][1] and row["trials"][2]["world_restore"]["label"] == "base"
+    assert [s["ran"] for s in row["sequences"]] == [2, 2] and all(s["pass"] and s["whole"] for s in row["sequences"])
+    assert row["trials"][0]["sequence"] == row["sequences"][0]["sequence"] != row["sequences"][1]["sequence"]
+
+
+def test_a_sequence_that_cannot_fit_the_window_is_refused_before_the_lock(world_window, capsys):
+    rig, w = world_window
+    assert _seq_main(w, "--sequence", "L2,L3", "--from", "ClaudeDev", "-k", "1") == 2
+    out = capsys.readouterr().out
+    assert "needs 3720 s (deadlines 1800 + 1800 s and 1 gap(s) of 120 s" in out and "never cut short" in out
+    assert w.ensured == [] and w.forked == []
+
+
+def test_a_harness_fault_between_asks_skips_the_rest_void(world_window, monkeypatch):
+    rig, w = world_window
+    _no_stock(monkeypatch)
+    said = iter([[], ["hold file job_run.hold present"]])
+    monkeypatch.setattr(q, "preflight", lambda ns: next(said))
+    assert _seq_main(w, "--sequence", "L2,L3", "--from", "ClaudeDev", "-k", "1", "--deadline", "600") == 1
+    row = _window_row(rig)
+    assert row["trials"][1] == {"character": row["trials"][0]["character"], "sequence": row["trials"][0]["sequence"],
+                                "ask": 2, "job": "L3", "skipped": "preflight: hold file job_run.hold present",
+                                "void": "harness"}
+    (s,) = row["sequences"]
+    assert s["ran"] == 1 and not s["whole"] and not s["pass"] and s["skipped"][0]["void"] == "harness"
+
+
+def test_his_own_bars_between_asks_never_stop_the_sequence(world_window, monkeypatch):
+    rig, w = world_window
+    _no_stock(monkeypatch)
+    said = iter([[], ["body unfit: food 30 of 100 (under 40 % is unfit)"]])
+    monkeypatch.setattr(q, "preflight", lambda ns: next(said))
+    assert _seq_main(w, "--sequence", "L2,L3", "--from", "ClaudeDev", "-k", "1", "--deadline", "600") == 0
+    assert _window_row(rig)["sequences"][0]["ran"] == 2
+
+
+def test_cli_sequence_refusals(monkeypatch, capsys):
+    def never(*a, **k):
+        raise AssertionError("a window opened from a test")
+    monkeypatch.setattr(q, "clone_window", never)
+    monkeypatch.setattr(q, "refuse_dirty", lambda a: True)
+    assert j.main(["trial", "--confirm", "--job", "L2", "--sequence", "L2,L3"]) == 2
+    assert j.main(["trial", "--confirm"]) == 2
+    assert "not both" in capsys.readouterr().out
+    for extra in (["--rung", "V1"], ["--interrupt", "I3"], ["--save-as", "x"], ["--until", "mid"]):
+        assert j.main(["trial", "--confirm", "--sequence", "L2,L3", *extra]) == 2, extra
+        assert "--sequence: no --" in capsys.readouterr().out
+    assert j.main(["trial", "--confirm", "--sequence", "L2,L9"]) == 2
+    assert "no job L9" in capsys.readouterr().out
+    assert j.main(["trial", "--confirm", "--sequence", "L2"]) == 2
+    assert "one ask is --job" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        j.main(["interrupt", "--confirm", "--step", "I3"])  # interrupt still needs --job
