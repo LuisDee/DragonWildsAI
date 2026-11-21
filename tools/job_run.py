@@ -7,6 +7,7 @@ STATE confirms, whole (L1 to L3, held-out H1 to H3) or with one interruption put
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job N1 --interrupt I1 -k 5   # the same, near home
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V1 -k 5 --save-as job_l2_v1
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V2 --from job_l2_v1 -k 5 --save-as job_l2_v2
+    .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job L2 --rung V3 --from job_l2_v2 -k 5 --save-as job_l2_v3   # V4-V6 alike
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K1 -k 3 --save-as vault_door   # the vault
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --job K --rung K2 -k 3                       # from vault_door
     .venv\\Scripts\\python.exe -m tools.job_run trial --confirm --sequence L2,L3 -k 2 --world base --deadline 1500 --window-s 7200
@@ -335,6 +336,14 @@ def snapshot(data: dict | None) -> dict:
     out["recent_kills"] = [dict(k) for k in d.get("recent_kills") or [] if isinstance(k, dict)]
     for k in ("fight", "boss_fight"):
         out[k] = d[k] if isinstance(d.get(k), dict) else None
+    # the venture ladder (V3-V6): the creatures in the census near him with their game class (who he met), and his
+    # last death as the body keeps it (get_state last_death: ago_s, respawned, killed_by, killed_by_class, at). Only
+    # when the read has them, so a record of any other job is as it was
+    near = creatures_near(d)
+    if near:
+        out["creatures_near"] = near
+    if isinstance(d.get("last_death"), dict):
+        out["last_death"] = dict(d["last_death"])
     if left_out:
         out["consumables_left_out"] = left_out
     if unread:
@@ -363,6 +372,23 @@ def hostiles_near(d: dict) -> list[dict]:
                                                                           or e.get("attitude") == "hostile"):
             rows.append({k: e[k] for k in ("name", "distance", "power_level", "alertness") if e.get(k) is not None})
     return sorted(rows, key=lambda r: r["distance"])[:HOSTILES_NEAR_MAX]
+
+
+CREATURE_NEAR_M = 50.0  # the census's creature radius (goal parked item 8: 'the creature list (50 m)')
+CREATURES_NEAR_MAX = 12
+
+
+def creatures_near(d: dict) -> list[dict]:
+    """The creatures of a get_state read within CREATURE_NEAR_M (nearby_entities: sense.census rows, class = the
+    game's class word, name = its AIName), nearest first, hostile or not: whom he met (V3)."""
+    rows = []
+    for e in d.get("nearby_entities") or []:
+        dist = e.get("distance") if isinstance(e, dict) else None
+        if isinstance(dist, (int, float)) and not isinstance(dist, bool) and dist <= CREATURE_NEAR_M \
+                and e.get("alive") is not False:
+            rows.append({k: e[k] for k in ("id", "name", "class", "distance", "hostile", "power_level")
+                         if e.get(k) is not None and not isinstance(e.get(k), dict)})
+    return sorted(rows, key=lambda r: r["distance"])[:CREATURES_NEAR_MAX]
 
 
 def is_vault_row(e: dict) -> bool:
@@ -501,8 +527,45 @@ def walk_targets(rows: list[dict]) -> list[dict]:
 
 
 def evidence(rows: list[dict]) -> dict:
-    return {"chests": chests_seen(rows), "crafted": crafted_in_run(rows), "chests_before": chests_before(rows),
-            "walk_targets": walk_targets(rows)}
+    out = {"chests": chests_seen(rows), "crafted": crafted_in_run(rows), "chests_before": chests_before(rows),
+           "walk_targets": walk_targets(rows)}
+    out.update({k: v for k, v in ladder_evidence(rows).items() if v})  # only when there is some: other records unchanged
+    return out
+
+
+FIGHT_EVENTS = ("combat_started", "combat_end", "threat_seen")  # client_mod combat.lua emit_activity kinds
+
+
+def ladder_evidence(rows: list[dict]) -> dict:
+    """What the venture ladder's rungs (V3-V6) read from the brain log, every piece the body's own report of the game:
+    fights [{ts, kind, target (AIName), target_id (class word + instance), distance_m, outcome}] (combat.lua
+    activity events combat_started / combat_end / threat_seen); gathered [{ts, item, n, ok, source}] (gather results
+    with data.gathered > 0, a call cut short included); moves [{ts, item, n}] (ok store +, take -: moved_by); and
+    craft_recipes {item: [recipe]} (ok craft results that name their recipe)."""
+    fights, gathered, moves, recipes = [], [], [], {}
+    for r in rows:
+        k = r.get("kind")
+        if k == "event":
+            ev = r.get("event") if isinstance(r.get("event"), dict) else {}
+            if ev.get("type") == "activity" and ev.get("kind") in FIGHT_EVENTS:
+                fights.append({"ts": float(ev.get("ts") or r.get("ts") or 0), "kind": ev["kind"],
+                               **{f: ev[f] for f in ("target", "target_id", "distance_m", "outcome") if ev.get(f) is not None}})
+            continue
+        if k != "tool_result":
+            continue
+        res = r.get("result") or {}
+        d = res.get("data") if isinstance(res.get("data"), dict) else {}
+        if r.get("tool") == "gather" and d.get("item") and isinstance(d.get("gathered"), (int, float)) \
+                and not isinstance(d.get("gathered"), bool) and d["gathered"] > 0:
+            gathered.append({"ts": float(r.get("ts") or 0), "item": d["item"], "n": int(d["gathered"]),
+                             "ok": res.get("ok") is True, "source": d.get("source") or d.get("resource")})
+        elif r.get("tool") == "craft" and res.get("ok") is True and d.get("item"):
+            rid = d.get("recipe") or d.get("recipe_chosen")
+            if rid and rid not in recipes.setdefault(d["item"], []):
+                recipes[d["item"]].append(rid)
+        for item, n in moved_by(r).items():
+            moves.append({"ts": float(r.get("ts") or 0), "item": item, "n": n})
+    return {"fights": fights, "gathered": gathered, "moves": moves, "craft_recipes": recipes}
 
 
 def first_done_read(job: dict, start: dict, seen: "_Seen", rows: list[dict], after: float, until: float) -> float | None:
@@ -1398,11 +1461,257 @@ def p_left_vault(spec: Any, start: dict, end: dict) -> tuple[bool | None, str]:
     return True, f"inside{' ' + want if want else ''} at t {trace[named[0]].get('t')} s, outside at the last read"
 
 
+# ------------------------------------------------------------------ the venture ladder's rungs V3-V6 (L2)
+LADDER_ENDS = ("met_alive", "mined", "smelted", "made_from")  # read every FAST_SAMPLE_S; _Seen tracks them (ladder_track)
+DEATH_MATCH_S = 5.0   # last_death.ago_s is floored to the second and read up to a sample late: one death within this
+DEATH_READ_S = 180.0  # a read that had him dead stands for a death up to this long before it (I3 waits 120 s to respawn)
+TAKE_EARLY_S = 10.0   # a take's result row comes after his bag grew: a read up to this long before it counts it taken
+
+
+def ladder_track(job: dict) -> dict | None:
+    """What _Seen keeps for a ladder rung's end: {items: the items its mined specs name}; None for any other job."""
+    end = job.get("end") or {}
+    if not any(k in end for k in LADDER_ENDS):
+        return None
+    m = end.get("mined")
+    return {"items": [m["item"]] if isinstance(m, dict) and m.get("item") else []}
+
+
+def region_of(pos: Any) -> dict | None:
+    """{region, province} at pos (brain.places over data/places_<build>.json), or None off the map data."""
+    if _xy(pos) is None:
+        return None
+    r = _places().region_at(pos)
+    return {"region": r.get("name"), "province": r.get("province")} if r else None
+
+
+def _in_region(at: dict | None, want: str | None) -> bool:
+    return want is None or bool(at) and want in (at.get("region"), at.get("province"))
+
+
+@lru_cache(maxsize=8)
+def race_names(race: str) -> frozenset:
+    """The normalised names of every bestiary creature of this race (data/bestiary.json `race`, from the wiki mirror:
+    Garou = Garou Berserker, Druid, Exile, Hunter, King, Lightning Berserker, Thane and Wildcaller Druid): its name,
+    title and game class stems (class_names). Not its aliases: one-word wiki redirects ('Druid', 'King', 'Thane')
+    would match a creature of another race."""
+    out: set[str] = set()
+    for key, e in _bestiary().items():
+        if _norm(e.get("race")) == _norm(race):
+            out |= {_norm(n) for n in [key, e.get("name"), e.get("title"), *(e.get("class_names") or [])] if n}
+    return frozenset(out)
+
+
+def _stem(cls: Any) -> str | None:
+    """A class word or an actor id as the bestiary keeps a class: BP_AI_RuntGoblin_Character_C_2147462867 -> RuntGoblin
+    (combat.lua's target_id is the class word and the instance number)."""
+    return class_stem(re.sub(r"_\d+$", "", str(cls))) if cls else None
+
+
+def of_race(race: str, name: Any = None, cls: Any = None) -> bool:
+    """A creature of this race by its AIName or game class: a bestiary name of the race (race_names), or a name or
+    class stem that begins with the race's word, as every garou row of the game's own AI table does (DT_AIData_BG,
+    read live 2026-11-17: GarouBerserker, GarouRanger, GarouDruid, GarouThane, GarouRunt, GarouSpinningBerserker,
+    GarouBirdDruid(Wildcaller), GarouThaneMini-Boss; data/probe/bestiary_probe_ai_data_20261117.json)."""
+    keys = {k for k in (_norm(name), _norm(_stem(cls))) if k}
+    r = _norm(race)
+    return bool(keys & race_names(race)) or bool(r) and any(k.startswith(r) for k in keys)
+
+
+def race_met(spec: dict, start: dict, end: dict) -> tuple[list[dict], str]:
+    """([{how, who, m, t | ts}] each meeting with a creature of spec race in the run, words on the nearest one seen):
+    seen within spec met_within_m (the run's census reads: creatures_seen, else this read's creatures_near), a fight
+    with one (combat_started / combat_end, or threat_seen within met_within_m: the brain log's fights), a kill of one
+    new in the run (kills_seen), or one that killed him (deaths)."""
+    race, within = spec["race"], float(spec.get("met_within_m") or HOSTILE_NEAR_M)
+    met: list[dict] = []
+    seen = end.get("creatures_seen")
+    if seen is None:
+        seen = [{**c, "t": None} for c in end.get("creatures_near") or []]
+    kin = [c for c in seen if of_race(race, c.get("name"), c.get("class")) and isinstance(c.get("distance"), (int, float))]
+    met += [{"how": "seen", "who": c.get("name") or c.get("class"), "m": round(float(c["distance"]), 1), "t": c.get("t")}
+            for c in kin if c["distance"] <= within]
+    for f in end.get("fights") or []:
+        d = f.get("distance_m")
+        if of_race(race, f.get("target"), f.get("target_id")) and (
+                f.get("kind") != "threat_seen" or isinstance(d, (int, float)) and d <= within):
+            met.append({"how": f["kind"], "who": f.get("target"), "m": d, "ts": f.get("ts")})
+    before = {_kill_key(k) for k in start.get("recent_kills") or []}
+    kills = end.get("kills_seen") if end.get("kills_seen") is not None else end.get("recent_kills") or []
+    met += [{"how": "killed by him" if k.get("mine") else "fought, killed", "who": k.get("creature"), "t": k.get("t")}
+            for k in kills if _kill_key(k) not in before and of_race(race, k.get("creature"), k.get("class"))]
+    met += [{"how": "killed him", "who": d.get("killed_by"), "t": d.get("t")} for d in end.get("deaths") or []
+            if of_race(race, d.get("killed_by"), d.get("killed_by_class"))]
+    near = min(kin, key=lambda c: c["distance"], default=None)
+    words = (f"nearest {race} seen: {near.get('name') or near.get('class')} at {float(near['distance']):.0f} m"
+             if near else f"no {race} in any census read")
+    return met, words
+
+
+def life_words(end: dict) -> str:
+    """'; deaths in the run: 1 (t 120.0 s, Garou Berserker, respawned)' or '; no death in the run' (the run's reads)."""
+    ds = end.get("deaths")
+    if ds is None:
+        return ""
+    if not ds:
+        return "; no death in the run"
+    return f"; deaths in the run: {len(ds)} (" + "; ".join(
+        f"t {d.get('t')} s, {d.get('killed_by') or 'cause unread'}" + (", respawned" if d.get("respawned")
+                                                                      or d.get("alive_again_t") is not None else "")
+        for d in ds[:4]) + ")"
+
+
+def _met_words(met: list[dict]) -> str:
+    return ", ".join(f"{m['how']} {m.get('who')}" + (f" at {m['m']} m" if isinstance(m.get("m"), (int, float)) else "")
+                     for m in met[:3]) + (f" (+{len(met) - 3})" if len(met) > 3 else "")
+
+
+def p_met_alive(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """V3: he met a creature of spec race in the run (race_met: seen within met_within_m, a fight with one, a kill of
+    one, or one that killed him), and the end read has him alive, in no fight and inside spec region (region_of: the
+    map data's region or province). A death and a respawn in between counts when the end read has him back there
+    alive; every death of the run is recorded in the reason either way (life_words)."""
+    want, race = spec["region"], spec["race"]
+    met, nearest = race_met(spec, start, end)
+    life = life_words(end)
+    if not met:
+        return False, (f"met no {race} in the run (none within {float(spec.get('met_within_m') or HOSTILE_NEAR_M):g} m "
+                       f"and no fight with one; {nearest})" + life)
+    if end.get("dead"):
+        return False, f"dead at the end read, after meeting {race}: {_met_words(met)}" + life
+    if _xy(end.get("position")) is None:
+        return None, "no position in the end read"
+    at = region_of(end.get("position"))
+    if not _in_region(at, want):
+        return False, (f"at the end in {(at or {}).get('region') or 'no region of the map data'}, not {want}; "
+                       f"met: {_met_words(met)}" + life)
+    if end.get("fight"):
+        return False, f"in {want} but still in a fight at the end read; met: {_met_words(met)}" + life
+    return True, f"in {want}, alive and out of any fight, after meeting {race}: {_met_words(met)}" + life
+
+
+def mined_read(spec: dict, start: dict, end: dict) -> dict:
+    """What he got of spec item in the run by the game's reads of his bag: at each read (item_trace, else the start and
+    end reads alone) what he carries plus what he put in a container less what he took out (moves; a take counted up
+    to TAKE_EARLY_S before its result, a store at its result), and each rise above the highest such total so far is
+    got, at the region of that read. So ore taken from a chest, and his own ore picked back up from his grave, is
+    never got. {got, in_region, kept (end total less the start), gathered (his gather results' count)}."""
+    item, want = spec["item"], spec.get("region")
+    moves = [m for m in end.get("moves") or [] if matches(m.get("item"), item)]
+    trace = [e for e in end.get("item_trace") or [] if e.get("item") == item]
+    if not trace:
+        trace = [{"ts": None, "n": count_of(start.get("carried") or {}, item), **(region_of(start.get("position")) or {})},
+                 {"ts": None, "n": count_of(end.get("carried") or {}, item), **(region_of(end.get("position")) or {})}]
+
+    def stored(ts: float | None) -> int:
+        return sum(int(m["n"]) for m in moves if ts is None
+                   or float(m["ts"]) <= float(ts) + (TAKE_EARLY_S if int(m["n"]) < 0 else 0.0))
+    mark = int(trace[0]["n"])
+    got = in_region = 0
+    for e in trace[1:]:
+        total = int(e["n"]) + stored(e.get("ts"))
+        if total > mark:
+            got += total - mark
+            if _in_region(e, want):
+                in_region += total - mark
+            mark = total
+    kept = count_of(end.get("carried") or {}, item) + stored(None) - count_of(start.get("carried") or {}, item)
+    gathered = sum(int(g["n"]) for g in end.get("gathered") or [] if matches(g.get("item"), item))
+    return {"got": got, "in_region": in_region, "kept": kept, "gathered": gathered}
+
+
+def p_mined(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
+    """V4 (copper in spec region) and V6 (tin anywhere): spec count of spec item got in the run in spec region by the
+    game's reads of his bag (mined_read: never from a chest, never his own back from his grave), with a gather of it
+    reported by his body in the run (a pickup alone is not mining); spec kept: and still his at the end (on him or
+    put in a container in the run). Deaths and fights of the run are told beside it."""
+    n, item, want = int(spec.get("count") or 1), spec["item"], spec.get("region")
+    m = mined_read(spec, start, end)
+    where = f" in {want}" if want else ""
+    head = (f"{item}: +{m['in_region']}{where} by the game's reads of his bag (+{m['got']} in all), "
+            f"{m['gathered']} by his gather results, {m['kept']} kept")
+    fights = len([f for f in end.get("fights") or [] if f.get("kind") == "combat_started"])
+    tail = (f"; fights started in the run: {fights}" if end.get("fights") is not None else "") + life_words(end)
+    short = []
+    if m["in_region"] < n:
+        short.append(f"{m['in_region']} of {n}{where}")
+    if m["gathered"] <= 0:
+        short.append("no gather of it reported in the run (not mined)")
+    if spec.get("kept") and m["kept"] < n:
+        short.append(f"only {m['kept']} of {n} still his at the end")
+    return (not short), head + ("; short: " + "; ".join(short) if short else "") + tail
+
+
+def p_smelted(spec: dict, start: dict, end: dict) -> tuple[bool, str]:
+    """V6's bars: spec count crafts of spec item the game confirmed in the run (the craft result: a processing station's
+    output collected, as the Tannery's leather is), and when the crafts name their recipe, one of them takes spec
+    from (the recipe data: RECIPE_Process_BronzeBar takes Copper Ore and Tin Ore; bars from salvage piles do not)."""
+    item, n = spec["item"], int(spec.get("count") or 1)
+    got = _crafted(end, item)
+    if got < n:
+        return False, f"{item}: {got} craft(s) of {n} confirmed in this run"
+    rids = (end.get("craft_recipes") or {}).get(item) or []
+    src = spec.get("from")
+    if src and rids:
+        from brain import gear_plan
+        rs = gear_plan._recipes()
+        good = [r for r in rids if src in {i.get("item") for i in (rs.get(r) or {}).get("inputs") or []}]
+        if not good:
+            return False, f"{item}: made by {', '.join(rids)}, none of which takes {src} (recipe data)"
+        return True, f"{item}: {got} craft(s) in this run, by {', '.join(good)} (takes {src})"
+    return True, f"{item}: {got} craft(s) in this run" + (f" (recipe unread: no craft result named it)" if src else "")
+
+
+def made_from_items(spec: dict) -> set[str]:
+    """Item ids a recipe makes from spec input (data/recipes_<build>.json, the file gear_plan reads) whose catalog role
+    (data/items_<build>.json via item_stats) is one of spec roles and power_level at least spec min_power_level."""
+    from brain import gear_plan
+    out = set()
+    roles, need = set(spec.get("roles") or []), spec.get("min_power_level")
+    for r in gear_plan._recipes().values():
+        if spec["input"] not in {i.get("item") for i in r.get("inputs") or []}:
+            continue
+        for o in r.get("outputs") or []:
+            e = _cat_entry(o.get("item"))
+            pl = e.get("power_level")
+            if e and (not roles or e.get("role") in roles) and (need is None or isinstance(pl, (int, float))
+                                                                and pl >= int(need)):
+                out.add(o["item"])
+    return out
+
+
+def p_made_from(spec: dict, start: dict, end: dict) -> tuple[bool | None, str]:
+    """V6's piece: on him (worn, hotbar or bag) an item made from spec input (made_from_items), not broken, made in this
+    run: a craft of it confirmed in the run and an instance he did not hold at the start (made_here). An instance the
+    reads cannot tell: unread."""
+    label = spec.get("label") or f"an item made from {spec['input']}"
+    ok = made_from_items(spec)
+    held = [h for h in end.get("held_detail") or [] if h.get("item") in ok]
+    if not held:
+        return False, f"he carries none of {label} ({len(ok)} kinds in the recipe data)"
+    short, unread = [], []
+    for h in held:
+        it = h["item"]
+        if h.get("broken"):
+            short.append(f"{it} broken")
+        elif not _crafted(end, it):
+            short.append(f"{it}: no craft of it in this run")
+        else:
+            new, why = made_here(it, h.get("guid"), start)
+            if new:
+                return True, f"{it} made in this run and on him ({why})"
+            (short if new is False else unread).append(f"{it}: {why}" + (" (had at the start)" if new is False else ""))
+    if unread:
+        return None, "; ".join(unread + short)
+    return False, "; ".join(short)
+
+
 PREDICATES = {"worn_made_in_run": p_worn_made_in_run, "in_own_chest": p_in_own_chest, "carried_gain": p_carried_gain,
               "made_in_run": p_made_in_run, "near_start_m": p_near_start_m,
               "consumables_carried": p_consumables_carried, "gear_target": p_gear_target,
               "next_tier_tools": p_next_tier_tools, "made_carried": p_made_carried, "venture_gear": p_venture_gear,
-              "at_place": p_at_place, "in_vault": p_in_vault, "boss_killed": p_boss_killed, "left_vault": p_left_vault}
+              "at_place": p_at_place, "in_vault": p_in_vault, "boss_killed": p_boss_killed, "left_vault": p_left_vault,
+              "met_alive": p_met_alive, "mined": p_mined, "smelted": p_smelted, "made_from": p_made_from}
 
 
 def rung_job(job: dict, rung: str) -> dict:
@@ -2461,8 +2770,19 @@ class _Seen:
     20261117-195219-L2: in neither the start nor the end read)."""
 
     READ_CAP = 8  # new containers read per sample
+    CREATURES_CAP = 300  # creatures kept by id (the nearest read of each)
+    CREATURES_KEPT = 100  # the nearest of them that go into a read (and the record)
 
-    def __init__(self):
+    def __init__(self, track: dict | None = None):
+        # track (the venture ladder's rungs V3-V6, ladder_track): each read's region, the creatures near him, his deaths
+        # and the count of each item of track["items"] he carries, at each change. None: none of it (every other job)
+        self.track = track
+        self.t0: float | None = None  # the run's start (wall clock), so a read's time compares with brain-log rows
+        self.region_trace: list[dict] = []  # {t, ts, region, province} at each change
+        self.creatures: dict[str, dict] = {}  # by id: the nearest read of it {id, name, class, distance, t, region}
+        self.deaths: list[dict] = []  # {t (died, seconds into the run), killed_by, killed_by_class, at, respawned, how}
+        self.item_trace: list[dict] = []  # {t, ts, item, n (he carries), region} at each change of n
+        self._was_dead = False
         self.own: set[str] = set()
         self.kinds: dict[str, str] = {}
         self.where: dict[str, list] = {}
@@ -2491,6 +2811,57 @@ class _Seen:
         for k in snap.get("recent_kills") or []:  # a kill is tagged with the first read that listed it
             if _kill_key(k) not in known:
                 self.kills.append({**k, **at, "t": None if t is None else round(t, 1)})
+        if self.track is not None:
+            self._ladder(snap, t)
+
+    def _ladder(self, snap: dict, t: float | None) -> None:
+        """The venture ladder's reads (track): the region he stands in, the creatures near him, his deaths, the count
+        of each tracked item he carries."""
+        tr = None if t is None else round(t, 1)
+        ts = None if t is None or self.t0 is None else round(self.t0 + t, 2)
+        at = region_of(snap.get("position"))
+        name, prov = (at or {}).get("region"), (at or {}).get("province")
+        last = self.region_trace[-1] if self.region_trace else None
+        if _xy(snap.get("position")) is not None and (last is None or last["region"] != name):
+            self.region_trace.append({"t": tr, "ts": ts, "region": name, "province": prov})
+        for c in snap.get("creatures_near") or []:
+            key = str(c.get("id") or f"{c.get('name')}|{c.get('class')}")
+            old = self.creatures.get(key)
+            if old is None and len(self.creatures) >= self.CREATURES_CAP:
+                continue
+            if old is None or c.get("distance", 1e9) < old.get("distance", 1e9):
+                self.creatures[key] = {**c, "t": tr, "region": name}
+        self._death(snap, t)
+        for item in self.track.get("items") or []:
+            n = count_of(snap.get("carried") or {}, item)
+            prev = next((e for e in reversed(self.item_trace) if e["item"] == item), None)
+            if prev is None or prev["n"] != n:
+                self.item_trace.append({"t": tr, "ts": ts, "item": item, "n": n, "region": name, "province": prov})
+
+    def _death(self, snap: dict, t: float | None) -> None:
+        """A death in the run, from the body's last_death (its died time: the read's t less ago_s; cause killed_by,
+        the place at) and from a read that has him dead (a death the last_death did not name). Before the run (died
+        under 0 s): not his death in it."""
+        if t is None:
+            return
+        ld = snap.get("last_death") or {}
+        ago = ld.get("ago_s")
+        if isinstance(ago, (int, float)) and not isinstance(ago, bool):
+            died = round(t - float(ago), 1)
+            if died >= -DEATH_MATCH_S:
+                e = next((x for x in self.deaths if abs(x["t"] - died) <= DEATH_MATCH_S
+                          or (x.get("how") == "read dead" and died <= x["t"] <= died + DEATH_READ_S)), None)
+                if e is None:
+                    e = {"t": died}
+                    self.deaths.append(e)
+                e.update(t=died, how="last_death", respawned=bool(ld.get("respawned")),
+                         **{k: ld.get(k) for k in ("killed_by", "killed_by_class", "at")})
+        dead = bool(snap.get("dead"))
+        if dead and not self._was_dead and not any(x["t"] <= t <= x["t"] + DEATH_READ_S for x in self.deaths):
+            self.deaths.append({"t": round(t, 1), "how": "read dead", "killed_by": None, "respawned": False})
+        if not dead and self._was_dead and self.deaths:
+            self.deaths[-1].setdefault("alive_again_t", round(t, 1))
+        self._was_dead = dead
 
     def _jump(self, snap: dict, t: float | None) -> None:
         """A move of over VAULT_JUMP_M since the last read with a position: kept with where it landed (the arrival
@@ -2542,6 +2913,12 @@ class _Seen:
         snap["kills_seen"] = list(self.kills)
         snap["jumps"] = list(self.jumps)
         snap["vault_arrival"] = self.arrival()
+        if self.track is not None:
+            snap["region_trace"] = list(self.region_trace)
+            snap["creatures_seen"] = sorted(self.creatures.values(),
+                                            key=lambda c: c.get("distance", 1e9))[:self.CREATURES_KEPT]
+            snap["deaths"] = [dict(x) for x in self.deaths]
+            snap["item_trace"] = list(self.item_trace)
 
 
 def seen_from_end(reads: dict, where: dict, pos: Any) -> None:
@@ -2603,7 +2980,8 @@ def run_job(io, job: dict, opts: dict) -> dict:
     vault_job = any(k in VAULT_ENDS for k in (job.get("end") or {}))
     entered: dict | None = None  # the read that put him inside a copper region (V2): its facts end the trial
     chest_job = "in_own_chest" in (job.get("end") or {})
-    seen = _Seen()
+    seen = _Seen(ladder_track(job))  # a ladder rung (V3-V6): its region, creatures, deaths and items read too
+    seen.t0 = io.now()
     if not start.get("unread"):
         seen.see(start, 0.0)
     # a day of play: one ask run to its budget; quiet never ends it and nothing more is said to him. Every sample's
@@ -2632,6 +3010,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
     by_progress = "progress" in str(trigger)
     t0 = io.now()
     last_stock = t0
+    seen.t0 = t0
     sent = [{"t": 0.0, "line": job["line"], "sent": io.send(job["line"])}]
     intr = None
     first_t = None
@@ -2657,7 +3036,7 @@ def run_job(io, job: dict, opts: dict) -> dict:
         if work_t is None:
             work_t = first_work(tl["calls"], job)
         fast = bool(lo_hi) or until == OWN_CHEST or (bool(step) and intr is None and by_progress) or venture \
-            or vault_job
+            or vault_job or seen.track is not None
         if now - last_sample >= (FAST_SAMPLE_S if fast else SAMPLE_S):
             last_sample = now
             raw_s = io.state()
@@ -3787,7 +4166,7 @@ def main(argv: list[str] | None = None) -> int:
     it.add_argument("--step", required=True, choices=STEPS)
     tr.add_argument("--interrupt", dest="step", choices=STEPS, default=None,
                     help="put this interruption in mid-job (the same as the interrupt command with --step)")
-    tr.add_argument("--rung", default=None, metavar="V1|V2|K1..K4",
+    tr.add_argument("--rung", default=None, metavar="V1..V6|K1..K4",
                     help="one rung of the job's ladder (data/jobs.json rungs): his ask is the job's line; the trial "
                          "starts from the rung's from (or --from) and ends at the rung's end read from the game")
     for p in (tr, it):
