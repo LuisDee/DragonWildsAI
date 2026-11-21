@@ -1481,6 +1481,20 @@ local function step(job)
     if job.phase == "own" then
         local A = (not job.borrowed) and arbiter(api) or nil
         if A then
+            -- his own cast during a self-defence fight takes the body from it for as long as the cast runs; the fight is
+            -- suspended and resumes at this job's release (arbiter.yield_legs suspend; combat.yield_body). A safety lease
+            -- (a hazard escape, the ambient cure) never yields: the cast is still refused "fighting" then. There is no
+            -- faster in-fight route: combat's cast_now drives this same wheel, only under its own token.
+            if A.yield_legs then
+                local oky, y = pcall(A.yield_legs, api.log, "my cast of " .. tostring(job.row.name), { suspend = true, what = "the body" })
+                if oky and type(y) == "table" then
+                    job.d.took_body_from = y.name
+                    job.d.took_body = string.format("I took my body from my self-defence reflex (%s) for this cast; it resumes after",
+                        tostring(y.doing or y.name))
+                    pcall(api.log, string.format("spells: cast took the body from %s (%s, held %d s) for %s", tostring(y.name),
+                        tostring(y.doing or "?"), y.age_s or 0, tostring(job.row.id)))
+                end
+            end
             local r = A.request(api.log, { name = "spell:" .. job.row.id, level = cfg.level, uses_move = job.placed or job.target.kind ~= "self", lease_s = cfg.lease_s,
                                            resumable = false, on_stop = function(_, _, why) job.stopped = why or "stopped" end })
             if not (type(r) == "table" and r.ok) then

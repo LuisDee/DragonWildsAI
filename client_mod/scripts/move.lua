@@ -5386,6 +5386,16 @@ end
 
 local function start(log, mode, opts)
     if paused() then return { ok = false, error = "paused (world changing)" } end
+    -- the model's own walk (the bridge's go_to / follow: cmd_id) takes the legs from a self-defence reflex fight, which
+    -- goes on without them (arbiter.yield_legs). Before the owner is read below, so the walk starts as usual.
+    local took_legs
+    if opts.cmd_id ~= nil and not opts.owner_token then
+        local ya = move_arbiter()
+        if ya and ya.yield_legs then
+            local oky, y = pcall(ya.yield_legs, log, mode .. " (my own call)")
+            if oky and type(y) == "table" then took_legs = y end
+        end
+    end
     local st = S()
     local old_gen, old_token, old_mode = st.gen, st.owner_token, st.mode
     local function death_seq()
@@ -5553,6 +5563,14 @@ local function start(log, mode, opts)
             math.max(0, os.time() - (rt.at or os.time())), tostring(rt.by or "a reflex"))
     end
     opts.resume_trip = nil
+    if took_legs then -- said in the trip's sentence (every answer of this walk) and logged once
+        local fighting = took_legs.doing and (" (" .. tostring(took_legs.doing) .. ")") or ""
+        st.trip_notes = st.trip_notes or {}
+        st.trip_notes[#st.trip_notes + 1] = string.format("I took my legs back from my self-defence reflex%s, so it stopped " ..
+            "chasing and swinging%s", fighting, took_legs.keeps and ("; it keeps " .. tostring(took_legs.keeps)) or "")
+        if log then log(string.format("move: %s took the legs from %s (%s, held %d s)%s", mode, tostring(took_legs.name),
+            tostring(took_legs.doing or "?"), took_legs.age_s or 0, took_legs.keeps and ("; it keeps " .. tostring(took_legs.keeps)) or "")) end
+    end
     st.seen_before, opts.resume_seen = opts.resume_seen, nil -- the target's kind, when the suspended walk had seen it
     -- he can't walk while holding a hold interaction (an Anima Vent's siphon roots him): let go first, as a player
     -- lets go of E before walking off (live 2026-11-01 19:20Z: the siphon was never let go; every walk stood still)
@@ -5628,7 +5646,7 @@ local function start(log, mode, opts)
     local mp_at = on_map and st.target:K2_GetActorLocation() or nil
     if mp_at and log then log(string.format("move: %s %s is out of sight; going by his marker on the game map at (%.0f,%.0f,%.0f)",
         mode, tostring(st.target.name), mp_at.X, mp_at.Y, mp_at.Z)) end
-    return { ok = true, mode = mode, gen = gen, target_visible = st.target ~= nil or st.goal ~= nil,
+    return { ok = true, mode = mode, gen = gen, target_visible = st.target ~= nil or st.goal ~= nil, took_legs = took_legs,
              target_via = on_map and "map" or (st.target and "sight") or nil,
              target_position = mp_at and { math.floor(mp_at.X) / 100, math.floor(mp_at.Y) / 100, math.floor(mp_at.Z) / 100 } or nil }
 end

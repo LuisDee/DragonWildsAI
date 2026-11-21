@@ -868,6 +868,34 @@ do
     check("reflex fight -> busy, says fighting", res.reason == "busy" and res.data.detail == "I can't cast while I'm fighting yet." and #G.presses == 0,
         res.data.detail)
 end
+-- his own cast takes the body from a self-defence fight that yields (combat:reflex), which resumes at the cast's
+-- release (live 2026-11-21: 13 of 79 L3 misses were "I can't cast while I'm fighting yet.")
+reset()
+;(function()
+    local yopts, resumed, lines = nil, false, {}
+    local log0 = api.log
+    api.log = function(m) lines[#lines + 1] = tostring(m) end
+    local f = A.request(nil, { name = "combat:reflex", level = "reflex", resumable = false, uses_move = true, yields_legs = true,
+        on_yield = function(_, _, _, o) yopts = o; return { keeps = "nothing while it casts", doing = "fighting the Goblin Archer, engage" } end,
+        on_resume = function() resumed = true; return true end })
+    local res = run_cast({ spell = "Windstep" })
+    api.log = log0
+    check("cast in a reflex fight: cast, not refused 'fighting'", res.ok and res.data.took_body_from == "combat:reflex"
+        and tostring(res.data.took_body):find("self-defence reflex", 1, true), tostring(res.reason) .. " " .. tostring(res.data.detail))
+    check("cast in a reflex fight: the fight was suspended, not dropped", yopts and yopts.suspend == true)
+    check("cast in a reflex fight: the fight resumes after the cast", resumed and A.owner() and A.owner().name == "combat:reflex" and A.holds(f.token))
+    local logged = false
+    for _, l in ipairs(lines) do if l:find("spells: cast took the body from combat:reflex", 1, true) then logged = true end end
+    check("cast in a reflex fight: logged (the line that shows it ran)", logged)
+end)()
+reset()
+do
+    A.request(nil, { name = "combat:reflex", level = "reflex", resumable = false, uses_move = true, yields_legs = true,
+        on_yield = function() return false end, on_resume = function() return true end })
+    local res = run_cast({ spell = "Windstep" })
+    check("a reflex that keeps the body (a hazard escape under way) -> still busy fighting", res.reason == "busy"
+        and res.data.why == "fighting" and #G.presses == 0 and A.owner().name == "combat:reflex", res.reason)
+end
 reset()
 do
     local res = run_cast({ spell = "Windstep" }, { during = function(n) if n == 2 then _G.DW_PAUSE = true end end })
