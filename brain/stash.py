@@ -8,7 +8,8 @@ reports display names such as "2 Ash Logs").
 The position comes from the result itself (inspect) or from the last state that showed that container
 (``interactables`` / ``structures``). The record is what he SAW: someone else may have emptied the crate since.
 ``labels()`` is the form ``brain/gear_plan.py`` takes as ``stash``:
-``{"your Crate at (169,1888)": [item ids]}``.
+``{"your Crate at (169,1888)": [item ids]}``. ``stock()`` keeps the counts and how long ago he saw them, for the
+supplies block (brain/supplies.py: "your Crate at (169,1888), 26 min ago: 30 Meat Sandwich (2400 HP of healing)").
 
 Graves are left out: ``graves_remembered`` already holds them.
 """
@@ -60,6 +61,7 @@ class Stash:
                 if isinstance(e, dict) and e.get("id") and isinstance(e.get("position"), list):
                     self._where[str(e["id"])] = (e["position"], bool(e.get("mine")))
         data["containers_remembered"] = self.labels()
+        data["containers_stock"] = self.stock()
 
     def observe_result(self, tool: str, args: dict | None, res: dict) -> bool:
         """Record a container's contents from one tool result. True when something was recorded."""
@@ -105,6 +107,27 @@ class Stash:
             at = f" at ({p[0]:.0f},{p[1]:.0f})" if len(p) >= 2 else ""
             label = f"{'your' if r.get('mine') else 'the'} {r.get('name') or 'container'}{at}"
             out.setdefault(label, []).extend(sorted(r["items"]))
+        return out
+
+    def stock(self) -> dict[str, dict]:
+        """{"your Crate at (169,1888)": {"items": {item id: count}, "ago_s": seconds since he saw them}}: the labels of
+        ``labels()`` with the counts he saw (two containers under one label are summed, with the older sighting's age)."""
+        out: dict[str, dict] = {}
+        now = self.clock()
+        with self._lock:
+            rows = [dict(r) for r in self._seen.values()]
+        for r in rows:
+            if not r.get("items"):
+                continue
+            p = r.get("position") or []
+            at = f" at ({p[0]:.0f},{p[1]:.0f})" if len(p) >= 2 else ""
+            label = f"{'your' if r.get('mine') else 'the'} {r.get('name') or 'container'}{at}"
+            ago = round(max(0.0, now - float(r["t"])), 1) if isinstance(r.get("t"), (int, float)) else None
+            rec = out.setdefault(label, {"items": {}, "ago_s": ago})
+            for iid, n in r["items"].items():
+                rec["items"][iid] = rec["items"].get(iid, 0) + int(n)
+            if ago is not None and (rec["ago_s"] is None or ago > rec["ago_s"]):
+                rec["ago_s"] = ago
         return out
 
     def snapshot(self) -> dict:
