@@ -2,7 +2,8 @@
 and not by whichever cause the last run showed (docs/RETRO-2026-11-16-workflow.md; the error-analysis loop of
 hamel.dev/blog/posts/evals-faq: note the first failure of each trace, group, count, fix the biggest).
 
-    .venv\\Scripts\\python.exe -m tools.failure_ledger scan --since 20261116     # add the failed quest runs not in it yet
+    .venv\\Scripts\\python.exe -m tools.failure_ledger scan --since 20261116     # add the failed runs not in it yet
+                                    (quest runs, job runs, the long-job gates, and days of play: logs/evals/day_runs.jsonl)
     .venv\\Scripts\\python.exe -m tools.failure_ledger tag RUN [RUN ...] --class harness --cause "..." [--void] [--fix abc1234]
     .venv\\Scripts\\python.exe -m tools.failure_ledger report                    # causes by count, open ones first
 
@@ -52,6 +53,8 @@ def first_wrong(rec: dict, v: dict) -> tuple[float, str]:
     if not bars.get("stands", True):
         ev += [(float(i.get("from") or 0), "stand over 5 s" + (" to the end" if i.get("to_end") else ""))
                for i in rec.get("idle_over_5s") or []]
+    if not bars.get("deaths", True):  # a day of play (tools/day_score.py): each death, merged within 30 s
+        ev += [(float(t or 0), "death") for t in rec.get("deaths_t") or []]
     if ev:
         return min(ev)
     wall = float(rec.get("wall_s") or 0)
@@ -109,7 +112,7 @@ def counts(rs: list[dict]) -> list[dict]:
         g["n"] += 1
         g["open"] += 0 if r.get("fix") else 1
         g["void"] += 1 if r.get("void") else 0
-        g["items"][re.sub(r"^(quest|job|gate): ", "", str(r.get("item")))] += 1
+        g["items"][re.sub(r"^(quest|job|gate|day): ", "", str(r.get("item")))] += 1
         g["runs"].append(r["run"])
     return sorted(by.values(), key=lambda g: (-g["open"], -g["n"]))
 
@@ -153,6 +156,11 @@ def _all_recs() -> list[tuple[list[dict], object, object]]:
     except ImportError:
         pass
     srcs.append((gate_runs(), gate_verdict, lambda rec: None))
+    try:  # days of play: logs/evals/day_runs.jsonl, one row each with its bars (deaths, stands, counted)
+        from tools import day_score as ds
+        srcs.append((ds.ledger_recs(), ds.ledger_verdict, ds.ledger_not_counted))
+    except ImportError:
+        pass
     return srcs
 
 
