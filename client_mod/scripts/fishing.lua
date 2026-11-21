@@ -1037,7 +1037,10 @@ local function spots_tool(log, args)
     for i, s in ipairs(spots) do
         if i > M.cfg.spot_rows then break end
         local tool = M.pick_tool(list, s.tool_tag, tools)
+        -- position: the node's location (W.nodes: U.loc, a property read) in the census wire format ([x,y,z] m,
+        -- U.to_wire), so the brain's map memory can place the spot exactly
         out[#out + 1] = { id = s.id, name = s.name, method = s.method, level = s.level, distance_m = s.distance_m,
+                          position = U.to_wire(s.pos),
                           depleted = s.depleted, blocked = s.blocked, in_use = s.in_use, my_tool = tool and tool.name or nil }
     end
     return { ok = true, data = { spots = out, total = #spots, radius_m = radius_m,
@@ -1045,7 +1048,7 @@ local function spots_tool(log, args)
 end
 M._spots_tool = spots_tool
 
--- get_state extras: fishing_spots_nearby (max 3), cached.
+-- get_state extras: fishing_spots_nearby (max 3), cached. Each row carries position ([x,y,z] m).
 function M.state_extras(api)
     local c = C()
     local now = (api and api.now and api.now()) or os.time()
@@ -1104,7 +1107,7 @@ do
             reasons = { "nothing_in_range", "wrong_tool", "path_blocked", "inventory_full", "unknown_target", "not_enough_resources",
                         "verification_failed", "interrupted", "timeout", "companion_down", "invalid_args" } },
         fishing_spots = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 10,
-            description = "Fishing spots near you: method (net/rod), level, distance, fished out or not, and which of your "
+            description = "Fishing spots near you: method (net/rod), level, distance, position, fished out or not, and which of your "
                 .. "tools fits each. Read only.",
             args = { type = "object", properties = obj({
                 radius = { type = "number", minimum = 5, maximum = M.cfg.max_radius_m, default = 60, description = "Metres." } }) },

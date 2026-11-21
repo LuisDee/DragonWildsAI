@@ -247,6 +247,31 @@ def test_fishing_spots_reach_map_memory_through_the_census_with_an_honest_fix(tm
     assert again.sightings[f"fishing_spot|{NET}"]["position"] == [149.5, 1910.0, -32.0]  # kept by id across loads
 
 
+def test_fishing_row_with_position_is_used_exactly_from_the_first_read(tmp_path):
+    """fishing.lua's rows now carry the node's own position (U.to_wire(U.loc(node)): [x,y,z] metres). Such a row is
+    kept on the first read, at that position exactly, and no later position-less row or distance fix moves it."""
+    t = [0.0]
+    m = mm.MapMemory(tmp_path / "m.json", clock=lambda: t[0], debounce_s=1e9)
+    rows = [{"name": "Net Fishing Spot", "id": NET, "distance_m": 4.5, "level": 2, "method": "net",
+             "position": [149.53, 1910.07, -32.0]},
+            {"name": "Rod Fishing Spot", "id": ROD, "distance_m": 21.3, "level": 2, "method": "rod",
+             "position": [170.2, 1905.88, -33.41]}]
+    m.observe({"position": [151.42, 1912.1, -31.6], "fishing_spots_nearby": rows})
+    net, rod = m.sightings[f"fishing_spot|{NET}"], m.sightings[f"fishing_spot|{ROD}"]
+    assert net["position"] == [149.53, 1910.07, -32.0] and net["extra"]["within_m"] == 0.0
+    assert rod["position"] == [170.2, 1905.88, -33.41] and rod["extra"]["within_m"] == 0.0
+    assert net["extra"]["method"] == "net" and rod["extra"]["method"] == "rod" and net["count_seen"] == 1
+    for k in range(1, 4):  # later rows without a position (an older body) give only looser fixes: the exact one stays
+        t[0] = 3.0 * k
+        m.observe({"position": [150.0, 1909.0, -31.6], "fishing_spots_nearby": [{**rows[0], "position": None,
+                                                                              "distance_m": 0.8}]})
+    assert net["position"] == [149.53, 1910.07, -32.0] and net["extra"]["within_m"] == 0.0
+    assert net["count_seen"] == 4
+    m.flush()
+    again = mm.MapMemory(tmp_path / "m.json", clock=lambda: t[0])
+    assert again.sightings[f"fishing_spot|{ROD}"]["position"] == [170.2, 1905.88, -33.41]
+
+
 def test_catch_per_province_from_the_wiki_pages_split_and_the_spot_facts():
     from brain import fishing_facts as ff
     net, rod = ff.catch_tables("Net Fishing Spot"), ff.catch_tables("Rod Fishing Spot")
