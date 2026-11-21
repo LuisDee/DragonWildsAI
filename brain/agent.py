@@ -201,6 +201,9 @@ AT_ASK_PARKED_NOTE = ("You parked this request (park_request) before your planne
 AT_ASK_PARKED_Q_NOTE = ("You parked this request (park_request) before your planner's answer arrived: it plans no steps "
                         "and asks the player the question here. Your park stands; nothing was said.")
 PARKED_BY_HIM = "parked by him"
+# who parked an ask, in the idle review's parked_ask fact (_idle_parked), by _park's ``by``
+PARKED_BY_WORDS = {"him": "you (park_request)", "planner": "your planner",
+                   "code": "the stall rule (your planner's jobs stopped twice the same way)"}
 TASK_DETAIL_CHARS = 900  # a step's own result words kept on its task for the Planner
 ASK_STEP_DETAIL_CHARS = 240  # a step's result words kept with the open ask on disk (brain/ask_store.py)
 GOAL_RESULT_CHARS = 400  # of them, per step, for the run that hears the job end (goal_done "results")
@@ -511,7 +514,7 @@ class Agent:
         no ask open, or its end condition reads met. Facts only: he decides to resume, keep resting, park or close."""
         ask = self._open_request
         if not ask:
-            return None
+            return self._idle_parked()
         seen = self._ask_seen.get(ask)
         out = {"words": ask[1], "asked_by": ask[0] or self.controller.player,
                **({"asked_s_ago": round(self.clock() - seen[0])} if seen else {})}
@@ -520,6 +523,36 @@ class Agent:
                 return None
             out["done_when"] = dw
         return out
+
+    def _idle_parked(self) -> dict | None:
+        """With no ask open: the ask parked last as a fact for the same idle review, {"parked_ask": ...}: its words, who
+        asked, who parked it how long ago with the reason, the player lines heard since the park, and the end condition
+        with its truth now (_done_when_now at "idle_review_parked"). None: nothing parked, no end condition written for
+        it, its end condition reads met, or the one who asked has spoken since the park (his line answers or releases
+        it; an addressed line is the ask now anyway). Facts only: his park stands; he decides to resume it
+        (start_goal), keep it parked or say something. Live L3 20261121-020517: three of six trials ended quiet 40 s
+        after his park of "claude, gear up for the vault", end condition unmet, the trial player silent: a parked ask
+        was not open, so no idle review came."""
+        p = self._parked
+        if not p or not p.get("ask"):
+            return None
+        ask, at = p["ask"], p.get("at")
+        asker = ask[0] or self.controller.player
+        since = sorted(((who, line, t) for who, (line, t) in self._last_line.items() if at is not None and t > at),
+                       key=lambda x: x[2])
+        if any(sit.same_player(who, asker) for who, _, _ in since):
+            return None  # the one who asked spoke after the park
+        dw = self._done_when_now(ask, "idle_review_parked")
+        if dw is None or (self._done_when or {}).get("holds") is True:
+            return None
+        now, seen = self.clock(), self._ask_seen.get(ask)
+        return {"parked_ask": {
+            "words": ask[1], "asked_by": asker, **({"asked_s_ago": round(now - seen[0])} if seen else {}),
+            "parked_by": PARKED_BY_WORDS.get(p.get("by") or "him", str(p.get("by"))),
+            **({"parked_s_ago": round(now - at)} if at is not None else {}),
+            "park_reason": p.get("reason"),
+            "player_lines_since_park": [{"by": who, "words": line, "s_ago": round(now - t)} for who, line, t in since],
+            "done_when": dw}}
 
     def handle_event(self, event: Event) -> None:
         self.log.log("event", event=event.model_dump())
@@ -1463,7 +1496,7 @@ class Agent:
             blk["done_when"] = end
         return blk
 
-    def _park(self, ask: tuple | None, reason: str | None) -> None:
+    def _park(self, ask: tuple | None, reason: str | None, by: str = "him") -> None:
         """park_request: the ask, its facts and the game item names it names are kept, so a later step of his on one
         of those items opens it again (``_reopen_parked``)."""
         if not ask:
@@ -1475,7 +1508,8 @@ class Agent:
             names = oa.names_in(text, _item_names())
         except Exception:  # item data is best effort: the park stands without it
             names = set()
-        self._parked = {"ask": ask, "facts": list(facts), "names": sorted(names), "reason": reason}
+        self._parked = {"ask": ask, "facts": list(facts), "names": sorted(names), "reason": reason, "by": by,
+                        "at": self.clock()}  # who and when: the idle review's parked_ask fact (_idle_parked)
 
     def _reopen_parked(self, d) -> tuple | None:
         """With no ask open and none being worked on, a call of this turn (a body action, an inline read, or the goal
@@ -1778,7 +1812,7 @@ class Agent:
         decides what to say; code never speaks for him unless the model call fails: broker.fallback_line)."""
         if oa.same_ask(self._open_request, ask):
             self._open_request = None
-        self._park(ask, reason)
+        self._park(ask, reason, by=by)
         self._drop_ask_facts(f"parked by {by}")
         self._save_ask()
         self.log.log("request_parked", request=ask[1], player=ask[0], reason=reason, by=by)

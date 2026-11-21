@@ -113,3 +113,26 @@ def test_a_newer_line_after_his_park_lets_it_go_unseen(tmp_path, on):
     row = next(r for r in _rows(rig, "plan_at_ask") if r["request"] == VAULT[1])
     assert row["landed"] == "let go: parked by him; the park no longer stands"
     assert rig.calls("gather") == []
+
+
+def test_after_the_landed_plan_his_park_is_carried_by_the_idle_review_as_facts(tmp_path, on):
+    """Live L3 20261121-020517: parked with the done_when unmet, the trial player silent, 40 s standing. The idle
+    review (broker REVIEW_IDLE_ASK_S) now carries the parked ask: words, who asked, his park and reason, the lines
+    since, the end condition its plan wrote with its truth now. His park stands; nothing is started."""
+    rig = Rig(tmp_path)
+    _wearing(rig, T1_BODY)
+    slow = SlowPlanner(FakeLLM.plan(LOGS, done_when=PL2))
+    rig.planner_llm.push(slow)
+    _parks_while_planned(rig, slow, FakeLLM.say(""))
+    assert rig.agent.step() is None
+    p = rig.agent._idle_ask()["parked_ask"]
+    assert p["words"] == VAULT[1] and p["asked_by"] == VAULT[0] and p["park_reason"] == REASON
+    assert p["parked_by"] == A.PARKED_BY_WORDS["him"] and p["parked_s_ago"] >= 0
+    assert p["player_lines_since_park"] == []
+    assert "power_level >= 2" in p["done_when"]["end_condition"] and p["done_when"]["now"].startswith("not yet")
+    checked = [r for r in _rows(rig, "done_when_checked") if r["where"] == "idle_review_parked"]
+    assert len(checked) == 1 and checked[0]["holds"] is False
+    assert rig.agent._parked["ask"] == VAULT and rig.agent._open_request is None and rig.agent.pending_goal is None
+    assert rig.calls("gather") == []
+    rig.agent._last_line[VAULT[0]] = ("never mind the vault", rig.agent.clock() + 1)  # he answers after the park
+    assert rig.agent._idle_ask() is None

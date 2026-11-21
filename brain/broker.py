@@ -854,7 +854,8 @@ class EventBroker:
         Never a rule about what to do: the model gets the changes, the facts and its previous review.
         ``open_ask``: the Agent's open ask as a fact (a dict, or a callable returning one; None = no ask open or its
         end condition met), read only once the idle threshold is reached. An idle stretch with an ask standing is a
-        change whether or not a player is near (REVIEW_IDLE_ASK_S)."""
+        change whether or not a player is near (REVIEW_IDLE_ASK_S). A provider's {"parked_ask": {...}} (no ask open,
+        the one he parked with its end condition unmet) goes out the same way, as the change's "parked_ask"."""
         now, st = self.clock(), self._seen or {}
         if not st:
             return None
@@ -878,7 +879,10 @@ class EventBroker:
                     self._log("idle_open_ask_unread", error=f"{type(exc).__name__}: {exc}"[:200])
             if ask or (near and idle_s >= REVIEW_IDLE_S):
                 self._idle_reported = True
-                self._change({"what": "idle", "for_s": round(idle_s), **({"open_ask": ask} if ask else {}),
+                # the provider's {"parked_ask": ...}: no ask open, the one he parked with its end condition unmet
+                key = "parked_ask" if isinstance(ask, dict) and "parked_ask" in ask else "open_ask"
+                self._change({"what": "idle", "for_s": round(idle_s),
+                              **({key: ask[key] if key == "parked_ask" else ask} if ask else {}),
                               "near": [str(p.get("name")) for p in near]})
         self._pending = [c for c in (self._still_true(c) for c in self._pending) if c]
         if not self._pending:
@@ -894,7 +898,8 @@ class EventBroker:
         # but on its own: inside the gap it goes out alone and leaves the gap, the bands and the previous review as they
         # were, so the changes the gap holds (a sleep window two minutes after his "can we rest?" and a player's "no")
         # still wait it out and come with what he said then (test_suggested_two_minutes_ago_and_told_no_stays_silent)
-        alone = gap and not worse and any(c.get("what") == "idle" and c.get("open_ask") for c in self._pending)
+        alone = gap and not worse and any(c.get("what") == "idle" and (c.get("open_ask") or c.get("parked_ask"))
+                                          for c in self._pending)
         if gap and not worse and not alone:
             return None
         if alone:
