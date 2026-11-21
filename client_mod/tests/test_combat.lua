@@ -3760,7 +3760,8 @@ reset_world()
     fake_move.go_to(nil, { -30, 0, 0 }, {})
     local walk = A.adopt_move(nil)
     local n0, p0, prim0, ev0 = #MV.calls, F.presses, world.injected.IA_PrimaryAction or 0, world.injected.IA_Player_Evade or 0
-    world.on_step = function() wolf.loc = { X = pawn.loc.X + 150, Y = pawn.loc.Y, Z = 0 } end -- (it keeps up with him)
+    -- (it keeps up with him, on the side he faces: a block covers only what he faces; one from behind is planned as a dodge)
+    world.on_step = function() wolf.loc = { X = pawn.loc.X - 150, Y = pawn.loc.Y, Z = 0 } end
     run_until(function() return false end, 1)
     local extra = {}
     for i = n0 + 1, #MV.calls do extra[#extra + 1] = MV.calls[i] end
@@ -3820,6 +3821,51 @@ reset_world()
     check("legs: a commanded attack does not yield (the bridge's preempt ends it instead)", A.yield_legs(nil, "go_to (my own call)") == nil
         and A.owner() and A.owner().name == "combat:attack")
     Cm.stop(nil, "test")
+    A.reset(nil)
+end)()
+
+-- ================================================================ his cast takes the body; the fight resumes after (spells own phase)
+-- Live 2026-11-21: 13 of 79 L3 misses were casts answered "I can't cast while I'm fighting yet." (Enchant Weapon: Fire).
+reset_world()
+;(function()
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local wolf = new_creature("BP_AI_Wolf_C_cast", "Wolf", { X = 150, Y = 0, Z = 0 }, { hp = 2000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, wolf, { mode = "reflex", level = "reflex", why = "attacked_me", cornered = "test" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    local F = Cm._state().fight
+    local tok = F.token
+    local info = A.yield_legs(nil, "my cast of Enchant Weapon: Fire", { suspend = true, what = "the body" })
+    check("cast: the reflex hands the body over, suspended", info and info.name == "combat:reflex" and info.suspended and F.handless
+        and F.phase == "yielded" and A.owner() == nil and A.is_suspended(tok) and not F.done, info and info.keeps)
+    local spell = A.request(nil, { name = "spell:USD_EnchantFire", level = "command", uses_move = false, lease_s = 10, resumable = false })
+    check("cast: the spell gets the pawn", spell.ok and A.owner().name == "spell:USD_EnchantFire")
+    local n0, p0, b0, ev0 = #MV.calls, F.presses, world.injected.IA_SecondaryAction or 0, world.injected.IA_Player_Evade or 0
+    local u0 = #INV.uses
+    pawn.hp = 20 -- (low: still no bite while the cast has the hands)
+    local hook = hooks["/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies"]
+    hook({ get = function() return obj({ GetOwner = function() return wolf end }, "C /x") end })
+    run_until(function() return false end, 1.5)
+    check("cast: no input, move or bite of the fight's while the cast runs", #MV.calls == n0 and F.presses == p0
+        and (world.injected.IA_SecondaryAction or 0) == b0 and (world.injected.IA_Player_Evade or 0) == ev0 and #INV.uses == u0 and not F.done,
+        tostring(MV.calls[#MV.calls]) .. " " .. tostring(F.presses - p0))
+    check("cast: the guard starts no second fight meanwhile", Cm._state().fight == F)
+    pawn.hp = 100
+    local rr = A.release(nil, spell.token, "done")
+    check("cast: its release resumes the fight", rr.resumed == "combat:reflex" and A.holds(tok) and F.handless == nil and F.phase == "approach",
+        tostring(rr.resumed) .. " " .. tostring(F.phase))
+    local swung = run_until(function() return F.presses > p0 end, 4)
+    check("cast: and it fights again", swung and not F.done, table.concat(F.phase_log, " | "))
+    local said = false
+    for _, l in ipairs(read_activity()) do if l:find('"kind":"reflex_yielded"', 1, true) and l:find('"resumes":true', 1, true) then said = true end end
+    check("cast: reflex_yielded (resumes) reaches the brain", said)
+    -- a cast that never hands it back: the fight lets go after handless_max_s (and leaves the stack)
+    local spell2 = A.request(nil, { name = "x", level = "task" }) -- (refused: the fight owns it again)
+    check("cast: the fight owns the pawn again", not spell2.ok)
+    A.yield_legs(nil, "my cast of Enchant Weapon: Fire", { suspend = true, what = "the body" })
+    local sp3 = A.request(nil, { name = "spell:stuck", level = "command", uses_move = false })
+    local ended = run_until(function() return F.done end, Cm.cfg.handless_max_s + 2)
+    check("cast: a cast that keeps the body too long ends the fight, off the stack", ended and not A.is_suspended(tok)
+        and A.owner() and A.owner().token == sp3.token, ended)
     A.reset(nil)
 end)()
 

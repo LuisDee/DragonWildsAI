@@ -336,15 +336,20 @@ end
 -- the legs) and leaves the slot; its move is stopped; nothing suspended is resumed (the walk is the newer owner, the
 -- caller starts it next). Safety reflexes (the ambient hazard / cure lease, eating) never set yields_legs and keep
 -- the pawn: a walk asked for during them is still refused busy. -> {name, level, age_s, keeps, doing} | nil
-function A.yield_legs(log, by)
+-- opts.suspend (a cast of the model's, which needs the hands and the input for a moment): the owner is SUSPENDED
+-- instead of dropped (on_yield gets opts too), so the caller's release resumes it (its on_resume) like any preempted
+-- owner; opts.what names what is taken ("the legs", "the body") in the log.
+function A.yield_legs(log, by, opts)
+    opts = opts or {}
     local s = S()
     housekeep(log, s)
     local o = s.owner
     if paused() or not o or not o.yields_legs or o.level ~= A.LEVELS.reflex then return nil end
-    local info = { name = o.name, level = A.LEVEL_NAMES[o.level], age_s = math.floor(now() - (o.since or now())) }
+    if opts.suspend and not o.on_resume then return nil end -- (nothing could hand it back after)
+    local info = { name = o.name, level = A.LEVEL_NAMES[o.level], age_s = math.floor(now() - (o.since or now())), suspended = opts.suspend or nil }
     if o.on_yield then
         -- (false: it cannot let go now, e.g. a hazard escape under way; it keeps the pawn and the walk is refused busy)
-        local ok, r = pcall(o.on_yield, log, o, by)
+        local ok, r = pcall(o.on_yield, log, o, by, opts)
         if ok and r == false then
             say(log, o.name .. " kept the legs (" .. tostring(by) .. " refused)")
             return nil
@@ -353,11 +358,19 @@ function A.yield_legs(log, by)
         if ok and type(r) == "table" then info.keeps, info.doing = r.keeps, r.doing end
     end
     s.owner = nil
-    o.state = "yielded"
     if o.uses_move ~= false then stop_move_for(log, s, o) end
-    history(s, { ev = "yield", name = o.name, by = by })
-    say(log, string.format("%s yielded the legs to %s after %d s%s", o.name, tostring(by), info.age_s,
-        info.keeps and ("; it keeps: " .. tostring(info.keeps)) or ""))
+    if opts.suspend then
+        o.state, o.suspended_at, o.suspended_by = "suspended", now(), by
+        o.aiming = nil
+        table.insert(s.stack, o)
+        while #s.stack > A.MAX_STACK do stop_rec(log, table.remove(s.stack, 1), "stack_full") end
+        s.counts.suspended = s.counts.suspended + 1
+    else
+        o.state = "yielded"
+    end
+    history(s, { ev = "yield", name = o.name, by = by, suspended = opts.suspend or nil })
+    say(log, string.format("%s yielded %s to %s after %d s%s%s", o.name, tostring(opts.what or "the legs"), tostring(by), info.age_s,
+        info.keeps and ("; it keeps: " .. tostring(info.keeps)) or "", opts.suspend and " [suspended: resumes after]" or ""))
     return info
 end
 

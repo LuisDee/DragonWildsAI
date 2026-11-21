@@ -57,6 +57,7 @@ M.cfg = {
     resolve_m = 60,          -- attack "<name>": the nearest living one within this
     fight_timeout_s = 120,
     legless_max_s = 240,     -- a reflex fight that gave its legs to his own walk lets go after this at most (the walk's end first)
+    handless_max_s = 30,     -- ... and one suspended for his own cast (resumed at the cast's release, normally 1-3 s)
     special_hp_factor = 2,   -- use the special only on targets with >= this many normal swings of HP
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
@@ -4151,9 +4152,10 @@ end
 -- swing, dodge, flee or move call of its own. Its token is gone (the arbiter slot is the walk's), so the guard starts
 -- no new reflex fight while it lasts (c.fight); at the walk's end the fight ends "yielded" and the guard is free again.
 -- Called from the arbiter's on_yield. -> {keeps, doing} for the walk's answer, or false to keep the legs.
-function M.yield_legs(F, by)
+function M.yield_legs(F, by, opts)
     if not F or F.done then return false end
     if F.escape then return false end -- (getting out of a hazard: a safety move, it keeps the legs)
+    if opts and opts.suspend then return M.yield_body(F, by, opts) end
     local was = F.phase
     F.legless = { t = F.t, by = tostring(by or "a walk of mine"), phase = was }
     F.token = nil
@@ -4174,6 +4176,44 @@ function M.yield_legs(F, by)
         phase_was = was, hp = F.hp_now, keeps = keeps,
         detail = "your own walk took my legs from the self-defence reflex: it stopped chasing and swinging" })
     return { keeps = keeps, doing = doing }
+end
+
+-- A cast the model calls during a reflex fight takes the body for as long as it runs (arbiter.yield_legs with
+-- suspend; spells.lua's own phase). Every cast goes through the spell wheel or a cast mode (the input and the hands;
+-- a placed or aimed one also turns him), so nothing of the fight runs meanwhile: no block, swing, chase, dodge or
+-- bite. The fight is suspended on the arbiter's stack and its token kept; the cast's release resumes it
+-- (M.resume_body), re-assessed at once. Live 2026-11-21: 13 of 79 misses in 11 L3 trials were casts answered
+-- "I can't cast while I'm fighting yet." (mostly Enchant Weapon: Fire on himself).
+function M.yield_body(F, by, opts)
+    local was = F.phase
+    F.handless = { t = F.t, by = tostring(by or "a cast of mine"), phase = was, legless = F.legless and true or nil }
+    F.following, F.drove_move, F.flee_follow, F.flee_move_pending = false, false, false, false
+    F.move_inject, F.move_until, F.evade_dir, F.evade_until = nil, nil, nil, nil
+    F.step_in, F.step_in_until, F.nudge, F.nudge_until = nil, nil, nil, nil
+    F.inputs, F.def, F.hold, F.queued_tele = {}, nil, nil, nil
+    if F.rg then F.rg.aiming, F.rg.aim_t0 = false, nil end
+    local doing = string.format("fighting the %s, %s", tostring(F.target_name or "creature"), tostring(was or "?"))
+    local keeps = "nothing while it casts (the spell needs my hands and input); the fight resumes after it"
+    set_phase(F, "yielded", "my body went to " .. F.handless.by)
+    say(F.log, string.format("reflex: my body went to %s (I was %s); the fight resumes after it", F.handless.by, doing))
+    M.emit_activity({ kind = "reflex_yielded", by = "reflex", to = F.handless.by, target = F.target_name, target_id = F.target_id,
+        phase_was = was, hp = F.hp_now, keeps = keeps, resumes = true,
+        detail = "your own cast took my body from the self-defence reflex; the fight resumes when the cast ends" })
+    return { keeps = keeps, doing = doing }
+end
+
+-- The cast is over (its release, or its lease ran out): back to the fight, re-assessed now. -> true
+function M.resume_body(F)
+    local h = F.handless
+    if not h or F.done then return false end
+    F.handless = nil
+    F.assess_t, F.dec_t = -9, -9
+    F.following = false
+    local back = (h.phase == "loot" or h.phase == "restore" or h.phase == "equip" or h.phase == "react") and h.phase or "approach"
+    set_phase(F, back, string.format("back after %s (%.1f s)", h.by, (F.t or h.t) - h.t))
+    say(F.log, string.format("reflex: my body is back from %s after %.1f s; fighting the %s again", h.by, (F.t or h.t) - h.t,
+        tostring(F.target_name or "creature")))
+    return true
 end
 
 function M._step_legless(F, pawn, me, acts)
@@ -4242,9 +4282,9 @@ local function frame(F)
     if F.def and F.def.cast then defend_followup(F, pawn, actions(pawn)) end
     F.frame_n = (F.frame_n or 0) + 1
     c.frame_id = (c.frame_id or 0) + 1
-    if F.rg and not F.legless then ranged_frame(F, pawn) end
+    if F.rg and not F.legless and not F.handless then ranged_frame(F, pawn) end
     -- per frame: held movement keys first (a directional evade samples them), then the queued taps
-    if F.legless then F.move_inject, F.evade_dir, F.step_in, F.nudge = nil, nil, nil, nil end -- (the legs are his walk's)
+    if F.legless or F.handless then F.move_inject, F.evade_dir, F.step_in, F.nudge = nil, nil, nil, nil end -- (the legs are his walk's)
     if F.move_inject then
         if F.t < (F.move_until or 0) then
             local am = actions(pawn).movement
@@ -4269,7 +4309,7 @@ local function frame(F)
     F.dec_t = F.t
     -- decisions
     local arb = mod("arbiter")
-    if arb and F.token and not F.legless then
+    if arb and F.token and not F.legless and not F.handless then
         if not arb.holds(F.token) then return finish(F, result_of(F, false, "interrupted", { detail = "lost the pawn to a higher priority" })) end
         arb.renew(F.token)
     end
@@ -4299,6 +4339,14 @@ local function frame(F)
         if ping and ping > 0 then F.latency = ping / 2000 end
     end
     if me.dead then return finish(F, result_of(F, false, "companion_down", { died = true })) end
+    if F.handless then -- his cast has the body (M.yield_body): nothing here until it hands it back (the arbiter resumes us)
+        M.held(F, "my_cast")
+        if F.t - F.handless.t > M.cfg.handless_max_s then
+            return finish(F, result_of(F, false, "interrupted", { detail = string.format("my %s kept the body %d s; the self-defence fight let go",
+                F.handless.by, math.floor(F.t - F.handless.t)) }))
+        end
+        return
+    end
     if F.heal_pending and F.t - F.heal_pending.t >= 2.5 and F.phase ~= "disengage" and F.phase ~= "flee" then
         M._try_eat(F, me, false) -- (verifies the pending bite; eats again only below eat_hp)
     end
@@ -4723,7 +4771,10 @@ local function start_fight(log, actor, opts)
                                      resumable = false, uses_move = true, lease_s = 5,
                                      -- self-defence gives the legs to the model's own walk (arbiter.yield_legs; M.yield_legs)
                                      yields_legs = opts.mode == "reflex" or nil,
-                                     on_yield = function(_, _, by) local f = C().fight; if f and f.token == token then return M.yield_legs(f, by) end return false end,
+                                     on_yield = function(_, _, by, yopts) local f = C().fight; if f and f.token == token then return M.yield_legs(f, by, yopts) end return false end,
+                                     -- (only a cast's suspend-yield puts this owner on the stack: its release hands the body back)
+                                     on_resume = opts.mode == "reflex" and function(_, rec) local f = C().fight
+                                         if f and f.token == rec.token and f.handless then return M.resume_body(f) end return false end or nil,
                                      on_stop = function(_, _, why) local f = C().fight; if f and f.token == token then finish(f, result_of(f, false, "interrupted", { detail = why })) end end })
         if not r.ok then
             local cur = c.fight
