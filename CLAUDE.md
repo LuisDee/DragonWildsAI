@@ -48,7 +48,7 @@ Drop an approach whose number has not moved after 3 live iterations. Commit and 
 - **Keep the client freeze fix:** `client_mod/scripts/tickguard.lua` and the 30 fps cap. Keep the stay-fed reflex running: hunger and thirst kill him.
 - **Character switches** (`quest_run fresh` and `step`): the live lock is never released while the client is on a character other than `ClaudeDev`. `ClaudeDev.json` is only read; a clone or fork is a new file under a new name and guid.
 - **Secrets:** `ANTHROPIC_API_KEY` lives in the user environment only. Server addresses and passwords live in the gitignored `client_io/secrets/`. Neither is printed or committed. Saves are never committed.
-- **Spend:** the $10/day guard stays. State the call count and model before a batch eval run.
+- **Spend:** the daily guard is $50 (Luis, 2026-11-21: "up to $50 per day"; `DW_DAILY_CAP_USD` in the user environment; the first $200 a month comes from the Ultra plan's API credit on the linked Console org). State the call count and model before a batch eval run.
 - **Shared working tree:** never `git stash`, `checkout`, `reset` or `restore`. Subagents get their own files; commits happen in the main session, finished files only.
 - **RAM:** low free RAM is no reason to wait. The wall is commit charge: back off when free commit drops under about 300 MB (`Win32_OperatingSystem.FreeVirtualMemory`).
 
