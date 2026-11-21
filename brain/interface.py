@@ -78,6 +78,9 @@ class Reason:
     RESTING = "resting"
     NAV_UNAVAILABLE = "nav_unavailable"  # the navigation helper was down: he steered by sight and didn't get there
     ENCUMBERED = "encumbered"  # over his carry weight (move.lua): no jumps; data/sentence give the weights
+    # a damaging zone (a poison cloud) across the only way that does not clear soon enough to wait for (move.lua
+    # M._zone_meet; gather after bad_streak picks): data.why says what, where and how long. He never walks through one.
+    ZONE_BLOCKED = "zone_blocked"
     # building and containers (client build.lua / store / take; docs/design/build-primitive.md, review finding 16)
     NO_PERMISSION = "no_permission"  # the server's privileges (Build / OpenChests) don't allow it
     HOST_ONLY = "host_only"  # a piece only the world's host/owner may build
@@ -96,7 +99,7 @@ class Reason:
         NOT_UNLOCKED, UNSAFE, CANT_SENSE, NOT_IN_INVENTORY, WRONG_TOOL, INVENTORY_FULL,
         NOT_PERCEIVED, AMBIGUOUS_TARGET, NOT_INTERACTABLE, BUSY,
         # L2: never retried blindly (a lost or timed-out command goes back to the model, which decides)
-        TIMEOUT, BODY_RESTARTED, LOST_BY_BODY, RESTING, NAV_UNAVAILABLE, ENCUMBERED,
+        TIMEOUT, BODY_RESTARTED, LOST_BY_BODY, RESTING, NAV_UNAVAILABLE, ENCUMBERED, ZONE_BLOCKED,
         NO_PERMISSION, HOST_ONLY, LIMIT_REACHED, BLOCKED, NOT_A_CONTAINER, NOT_IN_CONTAINER, CONTAINER_FULL,
     })
     # The companion simply cannot do this yet (skill missing on the body or in the registry).

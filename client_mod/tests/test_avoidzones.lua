@@ -58,6 +58,17 @@ local z1, s1 = AZ.on_segment(zs, { X = -1000, Y = 200 }, { X = 1000, Y = 200 }, 
 check("on_segment: first zone and distance", z1 and z1.id == "c" and s1 > 700 and s1 < 850, s1)
 check("on_segment: miss", AZ.on_segment(zs, { X = -1000, Y = -2000 }, { X = 1000, Y = -2000 }, nil, 0) == nil)
 check("on_route: polyline through the cone", (AZ.on_route(zs, { X = 2000, Y = 0 }, { { X = 2000, Y = 600 }, { X = 0, Y = 600 } }, 1, nil, 0) or {}).id == "k")
+-- ahead: the zone he stands in (his centre) is skipped, the next one on the way is the answer; at a zone's edge with
+-- only the capsule over it, that zone is still ahead (a plan's partial end stops there)
+do
+    local two = assert(AZ.normalize({ { id = "here", x = 0, y = 0, r_cm = 200, until_s = 99 }, { id = "next", x = 10, y = 0, r_cm = 200, until_s = 99 } }, 0))
+    check("ahead: skips the one he is in, finds the next", (AZ.ahead(two, { X = 0, Y = 0 }, { { X = 1500, Y = 0 } }, 1, nil, 40) or {}).id == "next")
+    check("ahead: capsule over the edge only -> still ahead", (AZ.ahead(two, { X = 770, Y = 0 }, { { X = 1500, Y = 0 } }, 1, nil, 40) or {}).id == "next")
+    check("ahead: nothing on the way", AZ.ahead(two, { X = 0, Y = 0 }, { { X = 0, Y = 1500 } }, 1, nil, 40) == nil)
+    local nz = assert(AZ.normalize({ { id = "p", x = 0, y = 0, r_cm = 100, until_s = 9, dps = 4, lease = true, ends_s = 20, seen_s = 5, first_s = 1, words = "poison cloud", harmless = false } }, 0))
+    check("normalize: verdict fields kept", nz[1].dps == 4 and nz[1].lease == true and nz[1].ends_s == 20 and nz[1].seen_s == 5 and nz[1].first_s == 1
+        and nz[1].words == "poison cloud" and nz[1].harmless == nil)
+end
 
 -- exits: nearest point outside every zone, bounded
 local one = assert(AZ.normalize({ { id = "o", x = 0.5, y = 0, r_cm = 300, until_s = 99 } }, 0))

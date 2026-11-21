@@ -69,8 +69,20 @@ function GH.size(o, hp, read)
     return hp.radius_default or 400, (hp.h_default or 400), nil, "default"
 end
 
+-- Its lifetime in seconds from the OWNER actor's own properties (the profile's `life` names, tried in order: a BP
+-- Duration, AActor.InitialLifeSpan), and the name that gave it; nil when none reads above 0 (0 = lives for ever, i.e.
+-- unknown). PROPERTY reads only (the same reader as the size).
+function GH.life(owner, hp, read)
+    if owner == nil then return nil end
+    read = read or plain_read
+    for _, n in ipairs(hp.life or {}) do
+        local s = num(read(owner, n))
+        if s and s > 0 then return s, n end
+    end
+end
+
 -- Every live standing hazard within radius_cm of origin (cm): rows {id, hazard, words, effect, X, Y, Z (cm), r_cm, h_cm,
--- ext, size_from, owner, owner_class, dist_cm}, nearest first.
+-- ext, size_from, owner, owner_class, dist_cm, dps (the profile's measured rate), life_s, life_from}, nearest first.
 -- opts: profiles (all of hazard_profiles; the standing ones are kept), origin {X,Y,Z}, radius_cm (nil = any),
 -- find (FindAllOf), read (property reader: U.prop or a plain read).
 function GH.scan(opts)
@@ -96,10 +108,11 @@ function GH.scan(opts)
                     local r, h, ext, from = GH.size(c, hp, opts.read)
                     -- within the radius when its edge is (a big cloud whose middle is just out of range still counts)
                     if not (rmax and d and d - r > rmax) then
+                        local life_s, life_from = GH.life(owner or (not hp.component_is_hazard and c) or nil, hp, opts.read)
                         out[#out + 1] = { id = id, hazard = hp.name, words = hp.words or hp.name, effect = hp.effect,
                                           X = at.X, Y = at.Y, Z = at.Z, r_cm = r, h_cm = h, ext = ext, size_from = from,
                                           owner = owner and short(owner) or nil, owner_class = owner and class_word(owner) or nil,
-                                          dist_cm = d }
+                                          dist_cm = d, dps = num(hp.dps), life_s = life_s, life_from = life_from }
                     end
                 end
             end
@@ -109,12 +122,19 @@ function GH.scan(opts)
     return out
 end
 
--- move.lua avoid zones (the wire format: metres, scalars only), each lasting until until_s (the move clock).
-function GH.zones(rows, until_s)
+-- move.lua avoid zones (the wire format: metres, scalars only), each lasting until until_s (the move clock): a LEASE,
+-- renewed while the scans see it, not when the cloud ends. opts (all optional): seen_s (this scan's time), first
+-- ({[row id] = when a scan first saw it}): with the row's life_s, ends_s = first + life_s (first seen is no earlier
+-- than its spawn, so this end is never too soon). dps and words ride along for avoidzones.verdict.
+function GH.zones(rows, until_s, opts)
+    opts = opts or {}
     local out = {}
     for _, r in ipairs(rows or {}) do
+        local t0 = type(opts.first) == "table" and num(opts.first[r.id]) or num(opts.seen_s)
         out[#out + 1] = { id = tostring(r.hazard) .. ":" .. tostring(r.id), kind = "circle", x = r.X / 100, y = r.Y / 100,
-                          z = r.Z / 100, r_cm = r.r_cm, h_cm = r.h_cm, until_s = until_s }
+                          z = r.Z / 100, r_cm = r.r_cm, h_cm = r.h_cm, until_s = until_s, lease = true,
+                          seen_s = num(opts.seen_s), first_s = t0, dps = r.dps, words = type(r.words) == "string" and r.words or nil,
+                          ends_s = (r.life_s and t0) and (t0 + r.life_s) or nil }
     end
     return out
 end
@@ -139,10 +159,13 @@ function GH.describe(r, origin, compass)
     return row
 end
 
--- One line for the client log: "poison cloud BP_..._C_123 at [396.1,1681.4] r=5.2m (extent) 12 m NW".
+-- One line for the client log: "poison cloud BP_..._C_123 at [396.1,1681.4,-42.0] r=5.2m (extent) 12 m off,
+-- lives 30s (InitialLifeSpan), 4 HP/s" (or "life unread").
 function GH.log_words(r)
-    return string.format("%s %s at [%.1f,%.1f,%.1f] r=%.1fm (%s)%s", tostring(r.words), tostring(r.id), r.X / 100, r.Y / 100,
-        r.Z / 100, r.r_cm / 100, tostring(r.size_from), r.dist_cm and string.format(" %.0f m off", r.dist_cm / 100) or "")
+    return string.format("%s %s at [%.1f,%.1f,%.1f] r=%.1fm (%s)%s, %s%s", tostring(r.words), tostring(r.id), r.X / 100, r.Y / 100,
+        r.Z / 100, r.r_cm / 100, tostring(r.size_from), r.dist_cm and string.format(" %.0f m off", r.dist_cm / 100) or "",
+        r.life_s and string.format("lives %.0fs (%s)", r.life_s, tostring(r.life_from)) or "life unread",
+        r.dps and string.format(", %g HP/s", r.dps) or "")
 end
 
 return GH

@@ -1716,11 +1716,11 @@ check("avoid: planned because of the zone, never inside it", planned26 and w26.i
 MZ.stop(log)
 
 zreset()
--- 27. a cost, not a wall: a corridor (tall walls) fully covered by a zone; no other way -> it crosses
---     and says so (status().avoid.crossing, log)
+-- 27. a cost, not a wall: a corridor (tall walls) fully covered by a zone; no other way -> a zone that does NO damage
+--     (harmless) is crossed, and says so (status().avoid.crossing, log)
 walls = { { -500, 2500, 150, 3000, true }, { -500, 2500, -3000, -150, true } }
 MZ = dofile(MOVE)
-MZ.set_avoid_zones(log, { { id = "breath", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 120 } })
+MZ.set_avoid_zones(log, { { id = "breath", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 120, harmless = true } })
 local nlog27 = #logs
 MZ.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 90, nav=false })
 local cross27, inside27 = nil, false
@@ -1732,10 +1732,106 @@ for _ = 1, 800 do
     if MZ.status().mode == "idle" then break end
 end
 s = MZ.status()
-check("avoid: no other way -> crosses the zone and arrives", s.result and s.result.status == "arrived" and inside27,
+check("avoid: no other way -> crosses a harmless zone and arrives", s.result and s.result.status == "arrived" and inside27,
     tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason) .. " x=" .. math.floor(pawn.loc.X))
-check("avoid: the crossing is reported (status().avoid.crossing)", cross27 == "breath", cross27)
+do
+    local said27 = false
+    for i = nlog27 + 1, #logs do if logs[i]:find("no way round avoid zone breath; crossing it (it does no damage)", 1, true) then said27 = true end end
+    check("avoid: the crossing is reported (status().avoid.crossing, log)", cross27 == "breath" and said27, tostring(cross27) .. " said=" .. tostring(said27))
+end
 MZ.stop(log)
+
+-- 27b-27f. A DAMAGING zone across the only way (live 2026-11-21 00:41:24Z, L3: "no way round avoid zone poison_cloud:...;
+--     crossing it (ends in 9.3s)", dead of poison 5 s later on a flax gather). Never crossed: held outside while it ends
+--     within what his HP covers at its rate, else the walk ends zone_blocked with what, where and how long.
+do -- (one block: the main chunk is at Lua's 200-local limit)
+-- frames his capsule is inside a zone while it still exists (until_s on the test clock)
+local function watch_live(zl)
+    local w = { inside = 0 }
+    local zz = assert(AZt.normalize(zl, T))
+    frame_hook = function()
+        for _, z in ipairs(zz) do if T < z.until_s and AZt.contains(z, pawn.loc.X, pawn.loc.Y, nil, 0) then w.inside = w.inside + 1 end end
+    end
+    return w
+end
+local function corridor_walk(zl, opts, frames)
+    zreset()
+    walls = { { -500, 2500, 150, 3000, true }, { -500, 2500, -3000, -150, true } }
+    MZ = dofile(MOVE)
+    MZ.set_avoid_zones(log, zl)
+    local w = watch_live(zl)
+    local n0 = #logs
+    local o = { tolerance_m = 1, timeout_s = 90, nav = false }
+    for k, v in pairs(opts or {}) do o[k] = v end
+    MZ.go_to(log, { 20, 0, 0 }, o)
+    local held = false
+    for _ = 1, frames or 900 do
+        run(1)
+        if MZ.status().status == "holding" then held = true end
+        if MZ.status().mode == "idle" then break end
+    end
+    local lines = {}
+    for i = n0 + 1, #logs do lines[#lines + 1] = logs[i] end
+    return MZ.status(), w, held, table.concat(lines, "\n")
+end
+-- 27b. a poison cloud (4 HP/s, the profile's rate) that ends in 6 s: 100 HP covers 25 s -> he holds outside, it ends,
+--      he goes on and arrives; never inside it while it is there
+do
+    local s27b, w27b, held27b, l27b = corridor_walk({ { id = "poison_cloud:C1", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 6, dps = 4, words = "poison cloud" } })
+    check("hold: a damaging zone that ends soon is waited out, then he arrives", s27b.result and s27b.result.status == "arrived" and held27b,
+        tostring(s27b.result and s27b.result.status) .. " " .. tostring(s27b.result and s27b.result.reason) .. " held=" .. tostring(held27b))
+    check("hold: never inside it while it was there", w27b.inside == 0, w27b.inside)
+    check("hold: says so: 'holding: poison cloud in the way, clears in N s' with HP against its rate",
+        l27b:find("move: holding: poison cloud in the way, clears in %d+ s %(no way round poison_cloud:C1 at %[10,0%]; 100 HP covers 25.0 s of its 4 HP/s%)") ~= nil
+        and l27b:find("move: hold over: poison cloud poison_cloud:C1 gone after", 1, true) ~= nil, l27b:match("[^\n]*holding[^\n]*"))
+    check("hold: no crossing line for a damaging zone", not l27b:find("crossing it", 1, true))
+    MZ.stop(log)
+end
+-- 27c. a standing cloud whose end is unknown (the ground layer's lease, no life read): the walk ends zone_blocked,
+--      what/where/how long in its words, and he never steps in
+do
+    local s27c, w27c, _, l27c = corridor_walk({ { id = "poison_cloud:C2", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 120, lease = true,
+                                                  first_s = T - 12, dps = 4, words = "poison cloud" } })
+    local r = s27c.result or {}
+    check("blocked: end unknown -> failed zone_blocked, never crossed", r.status == "failed" and r.reason == "zone_blocked" and w27c.inside == 0,
+        tostring(r.status) .. " " .. tostring(r.reason) .. " inside=" .. w27c.inside)
+    check("blocked: the reason names what, where, how long", type(r.why) == "string" and r.why:find("poison cloud at [10,0]", 1, true)
+        and r.why:find("can't tell when it clears %(it has been there at least 1[2-6] s%)") and r.zone and r.zone.id == "poison_cloud:C2", r.why)
+    check("blocked: logged", l27c:find("move: zone_blocked: poison cloud poison_cloud:C2 at [10,0] blocks the only way (end_unknown", 1, true) ~= nil,
+        l27c:match("[^\n]*zone_blocked[^\n]*"))
+    check("blocked: why_words reads it back", MZ.why_words("zone_blocked", "it", false) == r.why, MZ.why_words("zone_blocked", "it", false))
+    MZ.stop(log)
+end
+-- 27d. it ends in 6 s, but he has 20 HP (5 s at 4 HP/s): not affordable -> zone_blocked too_long
+do
+    local hc = pawn.HealthComponent.GetAuthoritativeHealth
+    pawn.HealthComponent.GetAuthoritativeHealth = function() return 20 end
+    local s27d, w27d = corridor_walk({ { id = "poison_cloud:C3", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 6, dps = 4, words = "poison cloud" } })
+    pawn.HealthComponent.GetAuthoritativeHealth = hc
+    local r = s27d.result or {}
+    check("blocked: a wait his HP does not cover -> zone_blocked (too_long), not crossed", r.reason == "zone_blocked" and w27d.inside == 0
+        and tostring(r.why):find("longer than my 20 HP would last in it at 4 HP a second", 1, true), tostring(r.reason) .. " " .. tostring(r.why))
+    MZ.stop(log)
+end
+-- 27e. a fight's zone with no rate (a meteor's telegraph, ends in 2 s): the highest profile rate (4 HP/s) prices the
+--      wait -> held, then on
+do
+    local s27e, w27e, held27e = corridor_walk({ { id = "meteor:M1", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 2 } })
+    check("hold: an unrated short zone is waited out at the highest profile rate", s27e.result and s27e.result.status == "arrived" and held27e and w27e.inside == 0,
+        tostring(s27e.result and s27e.result.status) .. " held=" .. tostring(held27e) .. " inside=" .. w27e.inside)
+    MZ.stop(log)
+end
+-- 27f. a straight walk (no local planner) meets the cloud the same way: never walked through
+do
+    local s27f, w27f, _, l27f = corridor_walk({ { id = "poison_cloud:C4", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 120, lease = true, dps = 4,
+                                                  words = "poison cloud" } }, { local_plan = false })
+    local r = s27f.result or {}
+    check("blocked: a straight walk ends zone_blocked before the cloud", r.reason == "zone_blocked" and w27f.inside == 0,
+        tostring(r.status) .. " " .. tostring(r.reason) .. " inside=" .. w27f.inside .. " x=" .. math.floor(pawn.loc.X))
+    MZ.stop(log)
+end
+frame_hook = nil
+end
 
 zreset()
 -- 28. follow: the leader stands in a zone -> Claude holds at its edge ("near_zone"), never enters

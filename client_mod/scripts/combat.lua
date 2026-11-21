@@ -1162,7 +1162,10 @@ function M.hazard_census(F, me, names)
                                 r_cm = GHm and GHm.size(o, hp, U.prop) or nil
                             end
                             zones[#zones + 1] = { id = zid, kind = "circle", x = pos.X / 100, y = pos.Y / 100, z = pos.Z / 100,
-                                                  r_cm = r_cm or hp.radius_default, until_s = until_s }
+                                                  r_cm = r_cm or hp.radius_default, until_s = until_s,
+                                                  -- for a walk that meets it (move avoidzones.verdict): a persistent
+                                                  -- one's until_s is a refresh lease, not its end; its measured rate
+                                                  lease = hp.persistent == true or nil, dps = num(hp.dps), words = hp.words }
                             land[zid] = { land_s = math.max(0, (seen.t + seen.ttl) - F.t), hazard = hp.name }
                         end
                     end
