@@ -180,6 +180,7 @@ class PendingPlan:
     ask: tuple | None = None
     asked: dict | None = None
     dropped: str | None = None
+    parked: dict | None = None  # his park_request while it was made: {"reason", "at"} (agent._show_parked)
 
     def done(self) -> bool:
         return self.future is not None and self.future.done()
