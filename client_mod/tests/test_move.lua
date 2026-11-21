@@ -745,10 +745,14 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     flight=_G.DW_MOVE
     flight.lpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}
     flight.lwp=2; flight.lp_jumped={}
-    before_jumps=pawn.jumps; step(1)
-    local ordinary_accepted=flight.jump_t ~= nil and pawn.jumps==before_jumps+1
+    -- a standing jump on the move's first frame: no frame history yet, so he stands until the last
+    -- jump_quiet_n frames are known short (M.jump_quiet_wait); at 30 frames/s that is the jump_quiet_n-th frame
+    before_jumps=pawn.jumps
+    local held_frames=0
+    for _=1,M.cfg.jump_quiet_n do step(1); if flight.jump_t ~= nil then break end; held_frames=held_frames+1 end
+    local ordinary_accepted=flight.jump_t ~= nil and pawn.jumps==before_jumps+1 and held_frames==M.cfg.jump_quiet_n-1
     luis.loc={X=2000,Y=200,Z=0}; step(100)
-    check("ordinary jump finishes before the route requirement", ordinary_accepted and flight.nav_fallback~=nil, string.format("status=%s required=%s jumps=%s accepted=%s deferred=%s jump_t=%s release=%s",tostring(flight.status),tostring(flight.nav_required),tostring(pawn.jumps-before_jumps),tostring(ordinary_accepted),tostring(flight.nav_deferred_required),tostring(flight.jump_t),tostring(flight.jump_release)))
+    check("ordinary jump finishes before the route requirement", ordinary_accepted and flight.nav_fallback~=nil, string.format("held=%s status=%s required=%s jumps=%s accepted=%s deferred=%s jump_t=%s release=%s",tostring(held_frames),tostring(flight.status),tostring(flight.nav_required),tostring(pawn.jumps-before_jumps),tostring(ordinary_accepted),tostring(flight.nav_deferred_required),tostring(flight.jump_t),tostring(flight.jump_release)))
     M.stop(log); pawn.loc={X=0,Y=0,Z=0}
     M.go_to(log, {20,0,0}, {nav=false,local_plan=false}); run(60)
     check("explicit direct opt-out moves", pawn.loc.X > 0, pawn.loc.X)
