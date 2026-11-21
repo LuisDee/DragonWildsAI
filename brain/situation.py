@@ -900,9 +900,36 @@ def carrying(state: dict, names: dict[str, str]) -> str:
 
 
 def consumables(state: dict) -> list[str]:
-    """Food and drink he carries, with where it is (only hotbar items can be used), from item data."""
-    return [f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({', '.join([k, r['where'], *consumable_facts(r)])})"
-            for k, r in consumable_rows(state)]
+    """Food and drink he carries, with where it is (only hotbar items can be used) and what one restores: the food data
+    (brain/supplies.py value: heals, food, water, Soulscourge), else the body's row. The body's row gave food as the
+    label "Sustenance" (live 2026-11-21: "Dried Redberries x4 (food, hotbar, food Sustenance, heals 20.0)")."""
+    from . import supplies  # lazy: supplies reads the food data through needs_options, which imports this module
+    out = []
+    for k, r in consumable_rows(state):
+        v = supplies.value(r.get("item"), r)
+        facts = [supplies.words(v) + " each"] if v and any(_num(v.get(x)) for x in ("heal", "sustenance", "hydration")) \
+            else consumable_facts(r)
+        out.append(f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({', '.join([k, r['where'], *facts])})")
+    return out
+
+
+def food_line(state: dict) -> str | None:
+    """'Food/drink: <each carried, with its values>; in all 80 HP of healing, +60 food, no water; home your Crate at
+    (112,1850), 26 min ago: 26 Fillet (520 HP of healing)'. Home stock alone when he carries none."""
+    from . import supplies
+    rows = consumables(state)
+    try:
+        tail = supplies.controller_words(state)
+    except Exception:  # perception is best effort
+        tail = []
+    if not rows and not tail:
+        return None
+    shown = rows[:FOOD_SHOWN] + ([f"+{len(rows) - FOOD_SHOWN} more"] if len(rows) > FOOD_SHOWN else [])
+    return ("Food/drink: " + "; ".join((shown or ["none carried"]) + tail))[:FOOD_LINE_CHARS]
+
+
+FOOD_SHOWN = 5
+FOOD_LINE_CHARS = 2 * LINE_CHARS
 
 
 QUEST_FIELDS = ("quest", "step", "detail", "hint", "counters", "where")  # what of a quest row the brain shows
@@ -989,7 +1016,7 @@ COVERED_KEYS = frozenset({
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
     "power_level", "fight_odds", "quests", "map_players", "near_players", "asked_at", "weapons_known", "held_enchant",
     "containers_remembered", "my_bases", "burn_odds", "further_off", "nearby_m", "in_vault", "vault", "hazards",
-    "status_effects",
+    "status_effects", "containers_stock", "food_sources",
 })
 
 
@@ -1329,7 +1356,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     if worn:
         lines.append(_line("Wearing", worn))
     lines.append(carrying(state, names))
-    lines.append(_line("Food/drink", consumables(state)))
+    lines.append(food_line(state))  # with values, totals and home stock (brain/supplies.py)
     lines.append(_line("Spare gear", item_stats.describe_carried(state)))
     lines.append(weapons_line(state))
     lines.append(gear_line(state))

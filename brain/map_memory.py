@@ -273,7 +273,8 @@ def need_matchers(cat: dict) -> dict[str, Callable[[dict], bool]]:
 
 def annotate(state: dict, mem: MapMemory | dict, cat: dict | None = None, beyond_m: float = 40.0, per_kind: int = 2) -> dict:
     """state["remembered"] = {food|drink|potion|bed|station: [{name, position, distance, direction, age_min}]}:
-    the nearest remembered options BEYOND sight (the needs digest shows them). Returns the state."""
+    the nearest remembered options BEYOND sight (the needs digest shows them), and state["food_sources"]
+    (supplies.sources: the food and water sources in sight or remembered, nearest first). Returns the state."""
     from .needs import catalog
     cat = cat if cat is not None else catalog()
     me = state.get("position")
@@ -306,6 +307,14 @@ def annotate(state: dict, mem: MapMemory | dict, cat: dict | None = None, beyond
                        "age_min": round((now - float(r.get("last_seen") or now)) / 60)} for d, _, r in best]
     if rem:
         state["remembered"] = rem
+    # the food and water sources among all sightings, in sight or not, nearest first (brain/supplies.py: the Planner's
+    # supplies block says where food comes from and what each yields)
+    try:
+        from .supplies import sources
+        if src := sources(records, me, now, cat):
+            state["food_sources"] = src
+    except Exception:  # perception is best effort: never break the state read
+        pass
     return state
 
 
