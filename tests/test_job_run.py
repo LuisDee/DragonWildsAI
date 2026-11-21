@@ -1668,3 +1668,264 @@ def test_cli_sequence_refusals(monkeypatch, capsys):
     assert "one ask is --job" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         j.main(["interrupt", "--confirm", "--step", "I3"])  # interrupt still needs --job
+
+
+# ------------------------------------------------------------------ the venture ladder's rungs V3-V6 (L2)
+# Positions are the repo's map data (data/places_<build>.json via brain.places), as tests/test_job_run_ladder.py uses.
+HOME_XY = (182.4, 1839.9, 0.0)        # Temple Woods
+PLAINS_XY = (1037.0, 986.8, 0.0)      # Fractured Plains (power 3, Ghornfell)
+HIGHLANDS_XY = (296.9, 857.9, 0.0)    # Stormtouched Highlands
+COPPER, TIN, BAR = "ITEM_Resources_CopperOre", "ITEM_Resources_TinOre", "ITEM_Resources_BronzeBar"
+
+
+def ladder_state(carried=None, pos=PLAINS_XY, creatures=(), dead=False, last_death=None, fight=None, rows=()):
+    """A get_state with the census creatures (nearby_entities) and the body's last_death."""
+    d = state(carried, pos=pos, dead=dead)
+    d["inventory_items"] += list(rows)
+    d["nearby_entities"] = [dict(c) for c in creatures]
+    if last_death is not None:
+        d["last_death"] = dict(last_death)
+    if fight is not None:
+        d["fight"] = fight
+    return d
+
+
+def garou(m, name="Garou Berserker", cls="BP_AI_Garou_Berserker_Character_C", cid="G1"):
+    return {"id": cid, "name": name, "class": cls, "distance": m, "hostile": True, "alive": True}
+
+
+def rung(doc, r):
+    return j.rung_job(j.job_of("L2", doc), r)
+
+
+def test_the_ladder_has_v3_to_v6_each_from_the_rung_before(doc):
+    want = {"V3": ("job_l2_v2", {"met_alive"}), "V4": ("job_l2_v3", {"mined"}), "V5": ("job_l2_v4", {"in_own_chest"}),
+            "V6": ("job_l2_v5", {"mined", "smelted", "made_from"})}
+    for r, (frm, ends) in want.items():
+        job = rung(doc, r)
+        assert job["start"] == frm and set(job["end"]) == ends and job["line"] == j.job_of("L2", doc)["line"]
+        assert job["rung"] == r and all(k in j.PREDICATES for k in job["end"])
+        assert j.start_ref(job, None, None)[0] == frm
+        raw = doc["jobs"]["L2"]["rungs"][r]
+        assert raw["note"] and raw["unverified_live"] and raw["goal"]
+    assert rung(doc, "V5")["end"] == j.job_of("L2", doc)["end"]       # V5 is L2's own end read
+    assert j.ladder_track(rung(doc, "V4")) == {"items": [COPPER]}
+    assert j.ladder_track(rung(doc, "V6")) == {"items": [TIN]}
+    assert j.ladder_track(rung(doc, "V2")) is None and j.ladder_track(j.job_of("L2", doc)) is None
+    with pytest.raises(SystemExit):
+        rung(doc, "V7")
+
+
+def test_garou_is_the_bestiarys_race_and_the_game_tables_race_word():
+    assert j.of_race("Garou", "Garou Thane") and j.of_race("Garou", "Wildcaller Druid")     # bestiary race Garou
+    assert j.of_race("Garou", "Garou Ranger")                     # the AI table's row word (the wiki's Hunter)
+    assert j.of_race("Garou", None, "BP_AI_Garou_Character_C_77")  # a class word with its instance number
+    assert not j.of_race("Garou", "Goblin Runt", "BP_AI_RuntGoblin_Character_C_2147462867")
+    assert not j.of_race("Garou", "Druid") and not j.of_race("Garou", "Giant Rat", "BP_AI_GiantRat_Character_C")
+
+
+def test_v3_met_a_garou_and_alive_in_the_plains_passes(doc):
+    job = rung(doc, "V3")
+    start = j.snapshot(ladder_state(pos=HIGHLANDS_XY))
+    end = j.snapshot(ladder_state(creatures=[garou(22.0)]))
+    ok, why = j.done(job, start, end)
+    assert ok is True and "Fractured Plains" in why and "Garou Berserker at 22.0 m" in why
+    # a fight with one counts at any range; threat_seen only within met_within_m (38 m live on 21 Nov was a goblin)
+    fought = j.snapshot(ladder_state())
+    fought.update(j.evidence([{"ts": 5, "kind": "event", "event": {
+        "type": "activity", "kind": "combat_started", "ts": 5, "target": "Garou Thane",
+        "target_id": "BP_AI_GarouThane_Character_C_2147400001"}}]))
+    assert j.done(job, start, fought)[0] is True
+    far = j.snapshot(ladder_state())
+    far.update(j.evidence([{"ts": 5, "kind": "event", "event": {
+        "type": "activity", "kind": "threat_seen", "ts": 5, "target": "Garou Hunter", "distance_m": 38}}]))
+    assert j.done(job, start, far)[0] is False
+
+
+def test_v3_fails_without_a_garou_in_reach_dead_out_of_the_region_or_in_a_fight(doc):
+    job = rung(doc, "V3")
+    start = j.snapshot(ladder_state(pos=HIGHLANDS_XY))
+    ok, why = j.done(job, start, j.snapshot(ladder_state(creatures=[garou(41.0)])))
+    assert ok is False and "met no Garou" in why and "nearest Garou seen: Garou Berserker at 41 m" in why
+    goblin = {"id": "R1", "name": "Goblin Runt", "class": "BP_AI_RuntGoblin_Character_C", "distance": 4.0}
+    assert j.done(job, start, j.snapshot(ladder_state(creatures=[goblin])))[0] is False
+    ok, why = j.done(job, start, j.snapshot(ladder_state(creatures=[garou(10.0)], dead=True)))
+    assert ok is False and "dead at the end read" in why
+    ok, why = j.done(job, start, j.snapshot(ladder_state(pos=HIGHLANDS_XY, creatures=[garou(10.0)])))
+    assert ok is False and "Stormtouched Highlands, not Fractured Plains" in why
+    ok, why = j.done(job, start, j.snapshot(ladder_state(creatures=[garou(10.0)], fight={"target": "Garou Thane"})))
+    assert ok is False and "still in a fight" in why
+    nowhere = j.snapshot(ladder_state(creatures=[garou(10.0)]))
+    nowhere["position"] = None
+    assert j.p_met_alive(job["end"]["met_alive"], start, nowhere)[0] is None
+
+
+def test_run_job_v3_records_a_death_and_passes_once_he_is_back_alive_in_the_plains(doc):
+    """He meets a garou at 40 s, a garou kills him at 60 s (last_death), he respawns away and walks back: done only
+    at the read that has him in the plains, alive, after it. The death is recorded with its cause."""
+    job = rung(doc, "V3")
+
+    def states(t):
+        rel = t - T0
+        if rel < 40:
+            return ladder_state(pos=HIGHLANDS_XY)
+        if rel < 60:
+            return ladder_state(creatures=[garou(12.0)], fight={"target": "Garou Berserker"})
+        death = {"ago_s": int(rel - 60), "respawned": rel >= 75, "killed_by": "Garou Berserker",
+                 "killed_by_class": "BP_AI_Garou_Berserker_Character_C", "at": list(PLAINS_XY)}
+        if rel < 75:
+            return ladder_state(dead=True, last_death=death)
+        return ladder_state(pos=HIGHLANDS_XY if rel < 120 else PLAINS_XY, last_death=death)
+    rec = j.run_job(FakeIO((), states=states), job, {"deadline": 400})
+    assert rec["ended"] == "job done" and rec["done"] is True and rec["rung"] == "V3"
+    assert 120 <= rec["wall_s"] <= 120 + j.FAST_SAMPLE_S + 2            # read every 3 s, ends at the first done read
+    (d,) = rec["state_end"]["deaths"]
+    assert d["killed_by"] == "Garou Berserker" and 59 <= d["t"] <= 61 and d["respawned"] is True
+    assert "deaths in the run: 1" in rec["done_why"] and "killed him Garou Berserker" in rec["done_why"]
+    assert [r["region"] for r in rec["state_end"]["region_trace"]] == [
+        "Stormtouched Highlands", "Fractured Plains", "Stormtouched Highlands", "Fractured Plains"]
+    # never back in the plains: not done, the death still recorded
+    stays = lambda t: states(min(t, T0 + 100))  # noqa: E731
+    rec = j.run_job(FakeIO((), states=stays), job, {"deadline": 200})
+    assert rec["ended"] == "deadline" and rec["done"] is False and len(rec["state_end"]["deaths"]) == 1
+    assert "not Fractured Plains" in rec["done_why"]
+
+
+def test_a_death_before_the_run_is_not_his_death_in_it():
+    seen = j._Seen({"items": []})
+    seen.see(j.snapshot(ladder_state(last_death={"ago_s": 600, "respawned": True, "killed_by": "Giant Rat"})), 0.0)
+    seen.see(j.snapshot(ladder_state(last_death={"ago_s": 603, "respawned": True, "killed_by": "Giant Rat"})), 3.0)
+    assert seen.deaths == []
+    seen.see(j.snapshot(ladder_state(dead=True)), 6.0)                 # a read had him dead, no last_death yet
+    seen.see(j.snapshot(ladder_state(dead=True, last_death={"ago_s": 2, "killed_by": "Wolf"})), 9.0)
+    seen.see(j.snapshot(ladder_state(last_death={"ago_s": 8, "respawned": True, "killed_by": "Wolf"})), 15.0)
+    (d,) = seen.deaths                                                 # one death, its time and cause from last_death
+    assert d["t"] == 7.0 and d["killed_by"] == "Wolf" and d["respawned"] and d["alive_again_t"] == 15.0
+
+
+def mined_end(trace, moves=(), gathered=((COPPER, 5),), carried=None, pos=PLAINS_XY):
+    end = j.snapshot(ladder_state(carried or {}, pos=pos))
+    end["item_trace"] = [{"ts": T0 + t, "item": it, "n": n, **(j.region_of(p) or {})} for t, it, n, p in trace]
+    end["moves"] = [{"ts": T0 + t, "item": it, "n": n} for t, it, n in moves]
+    end["gathered"] = [{"ts": T0 + 1, "item": it, "n": n} for it, n in gathered]
+    return end
+
+
+def test_v4_thirty_ore_got_in_the_plains_by_his_bag_reads_and_kept_passes(doc):
+    job = rung(doc, "V4")
+    start = j.snapshot(ladder_state())
+    end = mined_end([(0, COPPER, 0, PLAINS_XY), (30, COPPER, 12, PLAINS_XY), (60, COPPER, 30, PLAINS_XY)],
+                    carried={COPPER: 30})
+    ok, why = j.done(job, start, end)
+    assert ok is True and "+30 in Fractured Plains" in why and "30 kept" in why
+
+
+def test_v4_ore_from_a_chest_from_his_grave_or_mined_elsewhere_is_not_mined_there(doc):
+    job = rung(doc, "V4")
+    spec = job["end"]["mined"]
+    start = j.snapshot(ladder_state())
+    # 20 taken from a chest: the bag rose by 20 before the take's result row (counted up to TAKE_EARLY_S before it)
+    end = mined_end([(0, COPPER, 0, PLAINS_XY), (30, COPPER, 10, PLAINS_XY), (40, COPPER, 30, PLAINS_XY)],
+                    moves=[(45, COPPER, -20)], carried={COPPER: 30})
+    m = j.mined_read(spec, start, end)
+    assert m["in_region"] == 10 and m["kept"] == 10
+    ok, why = j.done(job, start, end)
+    assert ok is False and "10 of 30 in Fractured Plains" in why
+    # 30 mined, died (the bag to his grave), 30 picked back up from the grave: 30, not 60
+    end = mined_end([(0, COPPER, 0, PLAINS_XY), (30, COPPER, 30, PLAINS_XY), (40, COPPER, 0, PLAINS_XY),
+                     (80, COPPER, 30, PLAINS_XY)], carried={COPPER: 30})
+    assert j.mined_read(spec, start, end)["got"] == 30
+    # mined in the Highlands: got, but not there
+    end = mined_end([(0, COPPER, 0, HIGHLANDS_XY), (30, COPPER, 30, HIGHLANDS_XY)], carried={COPPER: 30})
+    ok, why = j.done(job, start, end)
+    assert ok is False and "+0 in Fractured Plains" in why and "(+30 in all)" in why
+    # the bag rose but no gather of it: picked up, not mined
+    end = mined_end([(0, COPPER, 0, PLAINS_XY), (30, COPPER, 30, PLAINS_XY)], gathered=(), carried={COPPER: 30})
+    ok, why = j.done(job, start, end)
+    assert ok is False and "no gather of it" in why
+    # put in a chest of his in the run is still his; dropped is not
+    end = mined_end([(0, COPPER, 0, PLAINS_XY), (30, COPPER, 30, PLAINS_XY), (50, COPPER, 0, PLAINS_XY)],
+                    moves=[(51, COPPER, 30)])
+    assert j.done(job, start, end)[0] is True
+    end = mined_end([(0, COPPER, 0, PLAINS_XY), (30, COPPER, 30, PLAINS_XY), (50, COPPER, 0, PLAINS_XY)])
+    ok, why = j.done(job, start, end)
+    assert ok is False and "only 0 of 30 still his" in why
+
+
+def test_run_job_v4_reads_his_bag_every_3_s_in_the_plains(doc):
+    job = rung(doc, "V4")
+
+    def states(t):
+        n = max(0, min(30, int((t - T0 - 10) // 2)))
+        return ladder_state({COPPER: n} if n else {})
+    script = [call(T0 + 5, "g1", "gather", {"resource": "copper"}),
+                              result(T0 + 70, "g1", "gather", data={"item": COPPER, "gathered": 30, "total": 30})]
+    rec = j.run_job(FakeIO(script, states=states), job, {"deadline": 300})
+    assert rec["ended"] == "job done" and rec["done"] is True
+    assert rec["state_end"]["item_trace"][0]["n"] == 0 and rec["state_end"]["gathered"][0]["n"] == 30
+    assert all(e["region"] == "Fractured Plains" for e in rec["state_end"]["item_trace"])
+
+
+def test_v5_is_l2s_own_end_read_of_his_chest(doc):
+    job = rung(doc, "V5")
+    start, end = snap(mine=[CRATE]), snap()
+    end["chest_end"] = {CRATE: end_read(30)}
+    assert j.done(job, start, end)[0] is True
+    end["chest_end"] = {CRATE: end_read(12)}
+    ok, why = j.done(job, start, end)
+    assert ok is False and "12 of 30" in why
+
+
+def v6_end(piece="ITEM_Pickaxe_Bronze", recipe="RECIPE_Process_BronzeBar", tin=True, guid="P2", start_guid=None):
+    rows = [{"item": piece, "count": 1, "where": "hotbar", "guid": guid}] if piece else []
+    end = j.snapshot(ladder_state(pos=HOME_XY, rows=rows))
+    log = []
+    if tin:
+        log.append(result(10, "g", "gather", data={"item": TIN, "gathered": 6}))
+    log.append(result(20, "s", "craft", data={"item": BAR, "crafts": 2, "recipe": recipe}))
+    if piece:
+        log.append(result(30, "c", "craft", data={"item": piece, "crafts": 1}))
+    end.update(j.evidence(log))
+    end["item_trace"] = [{"ts": T0, "item": TIN, "n": 0, **j.region_of(PLAINS_XY)},
+                         {"ts": T0 + 12, "item": TIN, "n": 6 if tin else 0, **j.region_of(PLAINS_XY)},
+                         {"ts": T0 + 25, "item": TIN, "n": 0, **j.region_of(HOME_XY)}]
+    start = j.snapshot(ladder_state(pos=HOME_XY, rows=[{"item": piece, "count": 1, "where": "bag", "guid": start_guid}]
+                                    if start_guid else ()))
+    return start, end
+
+
+def test_v6_tin_mined_bars_smelted_and_a_bronze_piece_made_passes(doc):
+    job = rung(doc, "V6")
+    ok, why = j.done(job, *v6_end())
+    assert ok is True and "RECIPE_Process_BronzeBar" in why and "ITEM_Pickaxe_Bronze made in this run" in why
+    assert j.done(job, *v6_end(piece="ITEM_Armour_T3_Body_Bronze"))[0] is True
+    _, end = v6_end()
+    end.pop("craft_recipes")                                          # a craft that names no recipe: told, not failed
+    assert j.p_smelted(job["end"]["smelted"], {}, end) == (True, f"{BAR}: 2 craft(s) in this run (recipe unread: "
+                                                                 "no craft result named it)")
+
+
+def test_v6_fails_on_salvage_bars_no_tin_a_low_piece_or_one_he_had(doc):
+    job = rung(doc, "V6")
+    ok, why = j.done(job, *v6_end(recipe="RECIPE_Process_Bar_Bronze_From_Salvage_01"))
+    assert ok is False and "none of which takes ITEM_Resources_TinOre" in why
+    ok, why = j.done(job, *v6_end(tin=False))
+    assert ok is False and "mined: NO" in why
+    ok, why = j.done(job, *v6_end(piece="ITEM_Spade_T3_Bronze"))      # power level 2 by the item data
+    assert ok is False and "he carries none of a bronze piece" in why
+    ok, why = j.done(job, *v6_end(piece=None))
+    assert ok is False and "made_from: NO" in why
+    ok, why = j.done(job, *v6_end(guid="P1", start_guid="P1"))        # the pickaxe he came with
+    assert ok is False and "had at the start" in why
+    start, end = v6_end()
+    end["crafted"] = {k: v for k, v in end["crafted"].items() if k != BAR}
+    ok, why = j.done(job, start, end)
+    assert ok is False and "0 craft(s) of 1" in why
+
+
+def test_other_jobs_records_carry_no_ladder_reads(doc):
+    """V1 (and every job without a V3-V6 end) keeps its reads as they were: no item_trace, deaths or creatures_seen."""
+    rec = j.run_job(FakeIO((), states=lambda t: ladder_state(creatures=[garou(5.0)])),
+                    rung(doc, "V1"), {"deadline": 30})
+    for k in ("item_trace", "deaths", "creatures_seen", "region_trace"):
+        assert k not in rec["state_end"]
