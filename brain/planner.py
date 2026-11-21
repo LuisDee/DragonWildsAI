@@ -284,6 +284,22 @@ class Planner:
             text += "\n\n" + RESEARCH_LINE.format(names=names, n=self.max_research)
         return {"role": "system", "content": text}
 
+    def _supplies(self, state: dict, where: dict, mode: str) -> dict:
+        """{"supplies": [lines]}: his food and water against the job (brain/supplies.py: what he carries with what each
+        restores, how long his bars last, the hits his healing covers against the creatures in sight and the vault the
+        goal names, his home stock, his cook recipes, the sources he has seen). L3 2026-11-21: 10 of 44 failed runs died
+        first on 20-HP berries; the Planner saw his food as item ids. Logged as planner_supplies (the unseen ledger)."""
+        from . import supplies
+        try:
+            rows = supplies.lines(state, supplies.vault_enemies(where))
+        except Exception as exc:  # perception is best effort: never a lost plan
+            self.log.log("planner_supplies_unavailable", component="planner", mode=mode, error=repr(exc)[:300])
+            return {}
+        if rows:
+            self.log.log("planner_supplies", component="planner", mode=mode, lines=len(rows),
+                         chars=sum(len(r) for r in rows), heads=[r.split(":", 1)[0] for r in rows])
+        return {"supplies": rows} if rows else {}
+
     def _research(self, state: dict) -> Any:
         if self.research is None:
             return None
@@ -297,7 +313,8 @@ class Planner:
              done_when: bool = False) -> PlanResult:
         """``done_when`` (DW_PLAN_AT_ASK=1, the call at the ask): the plan also writes the job's end condition; it is
         validated here and logged (plan_done_when), and an invalid one is refused with its reason, never the plan."""
-        user = {"goal": goal, **_where(state, goal, getattr(self, "places", None)), "notes": notes,
+        where = _where(state, goal, getattr(self, "places", None))
+        user = {"goal": goal, **where, **self._supplies(state, where, "plan"), "notes": notes,
                 "state": _trim_state(state)}
         research = self._research(state)
         tools = research.tools() if research is not None else None
@@ -313,9 +330,11 @@ class Planner:
 
     def replan(self, tree: TaskTree, failed: Task, reason: str | None, state: dict, notes: dict,
                may_decline: bool = False) -> PlanResult:
+        where = _where(state, tree.goal, getattr(self, "places", None))
         user = {
             "goal": tree.goal,
-            **_where(state, tree.goal, getattr(self, "places", None)),
+            **where,
+            **self._supplies(state, where, "replan"),
             # each step with what the body said happened (2026-11-16: the replan got "blocked" and nothing of "the
             # preview kept sliding ... 0.05 m from the flush spot", nor where the gather had left him)
             "completed": [_done_row(t) for t in tree.tasks if t.done],
