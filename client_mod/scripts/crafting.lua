@@ -1000,10 +1000,38 @@ function W.shelter_rule(api, c)
              need = tonumber(U.try(function() return c.ValidityPercentage end)),
              any_actor = U.try(function() return c.bIncludeNonBuildingPartActors end) == true }
 end
+-- An instance-only building piece (foundation, wall, roof: no actor on the client, build.lua built_pieces) hit by a
+-- trace gives NO readable Component (the FHitResult's weak pointer reads invalid, HitObjectHandle.Actor too) but its
+-- FHitResult.Item IS the piece's BuildingPieceID (live 2026-11-21 04:43-04:48Z, build 26670300, the roofed house at
+-- (172.7, 1915.3): Items 125, 126, 127, 129, 131, 132 = the walls and the roof each ray met). A tree's foliage ISM
+-- also fills Item (an instance index) but its Component reads valid, so Item is used only when the Component is
+-- unreadable, and only when that id is a built piece standing within SHELTER_PIECE_TOL_M of the impact point.
+M.SHELTER_PIECE_TOL_M = 6 -- impact point to the piece's pivot (a 3 m piece, pivot at an edge, a roof's ridge)
+M.SHELTER_PIECES_R = 100 -- built pieces read round the ray origin (the game's rays reach 60 m, 85 m on a diagonal)
+M.SHELTER_PIECES_KEEP_S = 2
+-- by = {pid = {x, y, z}}; item = FHitResult.Item; at = the impact point (m) -> true when it is that piece
+function M.piece_hit(by, item, at, tol)
+    item = tonumber(item)
+    local p = item and item >= 0 and by and by[item]
+    if not (p and at) then return false end
+    local d = math.sqrt((p[1] - at[1]) ^ 2 + (p[2] - at[2]) ^ 2 + (p[3] - at[3]) ^ 2)
+    return d <= (tol or M.SHELTER_PIECE_TOL_M)
+end
+local function piece_spots(api, bm, at)
+    local st = state()
+    local now = api.now and api.now() or os.clock()
+    local k = st.shelter_pieces
+    if k and now - k.t >= 0 and now - k.t < M.SHELTER_PIECES_KEEP_S and dist2d(k.at, at) < 5 then return k.by end
+    local by = {}
+    local list = type(bm.W.built_pieces) == "function" and bm.W.built_pieces(api, at, M.SHELTER_PIECES_R) or nil
+    for _, e in ipairs(list or {}) do if e.pid and e.position then by[e.pid] = e.position end end
+    st.shelter_pieces = { t = now, at = { at[1], at[2], at[3] }, by = by }
+    return by
+end
 -- One line from a to b (m) through the build trace (KismetSystemLibrary:LineTraceSingle): true when it meets a
--- building piece: a hit actor with a BuildingPieceID (props: stations, crates, doors) or a CellBuildingProxy (the
--- instance-only pieces: foundations, walls, roofs; build.lua built_pieces, deconstruct.lua crosshair). The station
--- itself, trees, rocks and the ground are passed through (up to 4 times) unless the component counts any actor.
+-- building piece: a hit actor with a BuildingPieceID (props: stations, crates, doors), or an unreadable Component whose
+-- FHitResult.Item is a built piece's id at that spot (the instance-only pieces, above). The station itself, trees,
+-- rocks and the ground are passed through (up to 4 times) unless the component counts any actor.
 function W.shelter_cast(api, a, b, self_id, any_actor)
     local U = sense_U(api)
     local bm = api.module("build")
@@ -1026,6 +1054,9 @@ function W.shelter_cast(api, a, b, self_id, any_actor)
             local pid = tonumber((U.try(function() return owner.BuildingPieceID end)))
             if (pid and pid > 0) or tostring(who):find("CellBuildingProxy", 1, true) then return true end
             if any_actor then return true end
+        elseif not U.valid(comp) then
+            local item = U.try(function() return out.Item end)
+            if M.piece_hit(piece_spots(api, bm, a), item, { ix / 100, iy / 100, iz / 100 }) then return true end
         end
         -- through it: on from 5 cm past the hit
         from = { ix / 100 + d[1] * 0.05, iy / 100 + d[2] * 0.05, iz / 100 + d[3] * 0.05 }

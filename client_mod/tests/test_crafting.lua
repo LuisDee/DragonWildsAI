@@ -1508,7 +1508,7 @@ do
                 if t0 > t1 then return false end
             end
         end
-        return true
+        return true, t0
     end
     local function world(boxes) return function(a, b) for _, bx in ipairs(boxes) do if seg_box(a, b, bx) then return true end end return false end end
     local rays = {}
@@ -1554,7 +1554,7 @@ do
     check("shelter words: a passing one says so and quotes no failure", ok_words:find("passes both", 1, true) and not ok_words:find("game's words", 1, true), ok_words)
 
     -- the engine layer: the component's own data by property reads, one line per ray through build's trace;
-    -- the station itself and a tree are passed through, a CellBuildingProxy (instance-only pieces) counts
+    -- the station itself and a tree are passed through, an instance-only piece (unreadable Component, Item = its id) counts
     local function obj(t) t.__valid = true; return t end
     local FU = { try = function(f, ...) local ok, v = pcall(f, ...); if ok then return v end end,
                  valid = function(o) return type(o) == "table" and o.__valid == true end,
@@ -1573,6 +1573,26 @@ do
     local boxes = { SHORT_N, ROOF }
     local traces, logs = 0, {}
     local function hit_out(owner, at) return { ImpactPoint = vec({ at[1] * 100, at[2] * 100, at[3] * 100 }), Component = obj({ GetOwner = function() return owner end }) } end
+    -- an instance-only piece as the live trace gives it (2026-11-21, his roofed house): the Component reads invalid,
+    -- FHitResult.Item is the piece's BuildingPieceID; build's census (W.built_pieces) knows that id at its pivot
+    local function pid_of(bx) for i, x in ipairs(boxes) do if x == bx then return 500 + i end end end
+    local function centre(bx) return { (bx[1] + bx[2]) / 2, (bx[3] + bx[4]) / 2, (bx[5] + bx[6]) / 2 } end
+    local function first(p, q) -- the nearest box the segment meets: box, impact point
+        local best, bt
+        for _, bx in ipairs(boxes) do
+            local hit, t = seg_box(p, q, bx)
+            if hit and (not bt or t < bt) then best, bt = bx, t end
+        end
+        if best then return best, { p[1] + (q[1] - p[1]) * bt, p[2] + (q[2] - p[2]) * bt, p[3] + (q[3] - p[3]) * bt } end
+    end
+    local function piece_out(bx, at) return { ImpactPoint = vec({ at[1] * 100, at[2] * 100, at[3] * 100 }), Component = { Get = function() return nil end }, Item = pid_of(bx) } end
+    local census = true
+    local function built(_, at, r)
+        if not census then return nil end
+        local out = {}
+        for _, bx in ipairs(boxes) do out[#out + 1] = { pid = pid_of(bx), position = centre(bx) } end
+        return out
+    end
     local BW = { trace = function(_, a, b)
         traces = traces + 1
         local p, q = { a.X / 100, a.Y / 100, a.Z / 100 }, { b.X / 100, b.Y / 100, b.Z / 100 }
@@ -1584,9 +1604,10 @@ do
                 return true, hit_out(wheel, { p[1] + (q[1] - p[1]) * k, p[2] + (q[2] - p[2]) * k, p[3] + (q[3] - p[3]) * k })
             end
         end
-        if world(boxes)(p, q) then return true, hit_out(proxy, q) end
+        local bx, at = first(p, q)
+        if bx then return true, piece_out(bx, at) end
         return false, {}
-    end }
+    end, built_pieces = built }
     local fapi = { module = function(n) if n == "sense" then return { U = FU } elseif n == "build" then return { W = BW } end end,
                    now = function() return 100 end, log = function(s) logs[#logs + 1] = s end }
     C.state().shelter_seen = nil
@@ -1609,6 +1630,24 @@ do
     local fapi2 = { module = function(n) if n == "sense" then return { U = FU } elseif n == "build" then return { W = BW2 } end end, now = function() return 0 end }
     check("shelter cast: a tree is no building piece", C.W.shelter_cast(fapi2, { 0, 0, 1 }, { 0, -20, 1 }, "x", false) == false)
     check("shelter cast: ... unless the component counts any actor", C.W.shelter_cast(fapi2, { 0, 0, 1 }, { 0, -20, 1 }, "x", true) == true)
+    -- instance-only pieces: Item is the piece id only when the Component is unreadable and the census has that id there
+    check("piece hit: a built piece's id at its spot", C.piece_hit({ [127] = { 174.2, 1915.32, -26.68 } }, 127, { 172.7, 1915.3, -25.4 }) == true)
+    check("piece hit: an id the census lacks, a far one, no Item", C.piece_hit({ [127] = { 0, 0, 0 } }, 95, { 0, 0, 1 }) == false
+          and C.piece_hit({ [127] = { 0, 0, 0 } }, 127, { 30, 0, 0 }) == false and C.piece_hit({ [127] = { 0, 0, 0 } }, nil, { 0, 0, 0 }) == false
+          and C.piece_hit({ [-1] = { 0, 0, 0 } }, -1, { 0, 0, 0 }) == false)
+    C.state().shelter_pieces = nil
+    census = false -- the census unreadable: an instance hit cannot be told from anything else (the 21 Nov "0/16")
+    check("shelter cast: no census, an unreadable hit is not a building piece", C.W.shelter_cast(fapi, { 0, 0, 1 }, { 0, -20, 1 }, "BP_Station_Spinning_Wheel_C_7", false) == false)
+    C.state().shelter_pieces = nil
+    census = true
+    local foliage = obj({ __name = "InstancedFoliageActor_25200_0_7_-1" })
+    local BW3 = { trace = function(_, a, b)
+        if a.Y > -400 then return true, { ImpactPoint = vec({ a.X, -450, a.Z }), Component = obj({ GetOwner = function() return foliage end }), Item = 501 } end
+        return false, {}
+    end, built_pieces = function() return { { pid = 501, position = { 0, -4.5, 1 } } } end }
+    local fapi3 = { module = function(n) if n == "sense" then return { U = FU } elseif n == "build" then return { W = BW3 } end end, now = function() return 0 end }
+    check("shelter cast: a tree's foliage instance (its Component readable) never counts by its Item", C.W.shelter_cast(fapi3, { 0, 0, 1 }, { 0, -20, 1 }, "x", false) == false)
+    C.state().shelter_pieces = nil
     -- no rays readable (a rule only): the old upward line, marked as such, and no side verdict
     local bare = obj({ __name = "BuildingShelter", InteractionRequirements = 0, RequiresShelterText = { text = " needs more surrounding shelter." } })
     local wheel2 = obj({ __name = "BP_Station_Spinning_Wheel_C_8", BuildingShelter = bare, K2_GetActorRotation = function() return { Yaw = 0 } end })
